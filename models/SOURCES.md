@@ -97,6 +97,14 @@ publication are performed by either command.
 
 ## Recorded Runs
 
+The final [live check](../evidence/p0/2026-10-19T015247Z-model-pack-check/run.json)
+passed from committed checker `230be00`, including both public `CheckRemote`
+calls, all-file manifests, fixed pack identities and both registry digests.
+Its [structured report](../evidence/p0/2026-10-19T015247Z-model-pack-check/report.json)
+contains file paths, sizes and SHA-256 values; its
+[output](../evidence/p0/2026-10-19T015247Z-model-pack-check/output.log) records the
+limits of these software-only checks. Hardware validation is false.
+
 The successful [generation run](../evidence/p0/2026-10-19T014759Z-model-pack-generate/run.json)
 used committed generator `4fc3bef`. Its [output](../evidence/p0/2026-10-19T014759Z-model-pack-generate/output.log)
 records 83 DS1017 files / 510,311,045,295 bytes and 156 GLM files /

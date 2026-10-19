@@ -13,8 +13,8 @@ Tinfoil-only global-UVA patch prevents claiming upstream CC compatibility.
 The audit checked repository identity at the immutable revision, then fetched
 its recursive tree. No pagination header was present. Directory entries do not
 contribute to totals. The API supplies file `size` and LFS `lfs.oid` (SHA-256),
-with matching `lfs.size`. Non-LFS files still require pinned downloads and local
-SHA-256 hashing when pack generation resumes; that work was not performed.
+with matching `lfs.size`. This initial audit did not download/hash non-LFS files;
+the subsequent generation and live-check evidence is linked from SOURCES.md.
 
 | HF repository | Immutable revision | Files / weight shards | Planned total = weight bytes | All-file bytes |
 |---|---|---:|---:|---:|
