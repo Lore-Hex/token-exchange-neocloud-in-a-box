@@ -9,7 +9,7 @@ and PR8 catalog history; it does not copy unmerged implementation files. No
 hardware, production service, API keys, deployment, paid resources, image
 publication or confidentiality claim.
 
-Committed-run [metadata](../../evidence/p1/2026-10-19-full-fake-node/run.json),
+Historical pre-hardening [metadata](../../evidence/p1/2026-10-19-full-fake-node/run.json),
 [inputs](../../evidence/p1/2026-10-19-full-fake-node/inputs.json),
 [results](../../evidence/p1/2026-10-19-full-fake-node/result.json) and
 [scrubbed operational output](../../evidence/p1/2026-10-19-full-fake-node/output.log)
@@ -18,6 +18,12 @@ checks passed, all 14 mutations were rejected, the fake verifier passed and
 release verifier failed. Admission, privacy, weight gate and both resource
 absence checks passed. The output is bounded status/build output, not request
 or response content.
+
+That first recorder relied on a clean working-tree preflight and inherited
+child environments. Review demonstrated a `MAKEFLAGS` shell override could
+forge a pass, and a FIFO result file could block reading. Preserve the run as
+history, not the final source-bound proof. The replacement recorder is tested
+against both reproductions; a fresh committed-snapshot run is required below.
 
 The bounded prerequisite command is:
 
@@ -49,10 +55,23 @@ Record a clean committed source run with:
 python3 scripts/e2e/prove.py --output evidence/p1/YYYY-MM-DD-full-fake-node
 ```
 
-This wrapper executes `make test-e2e`, preserves the runner's bounded input,
-result and cleanup records, and scrubs operational build output through
-`scripts/scrub-secrets.sh`. It records the exact Git revision and UTC interval;
-the inputs also hash the actual build context. It refuses a dirty worktree.
+This wrapper transfers Git objects with replacement objects disabled, archives
+the exact commit in a private repository, and verifies every extracted file
+against its committed blob. It executes `make test-e2e` and the scrubber there,
+not in the working tree. An allowlisted environment excludes inherited Make,
+Git, Go, Python and Docker overrides; Go uses isolated caches, readonly modules,
+`GOENV=off`, `GOWORK=off`, and `go mod download` plus `go mod verify`. Only a
+local Unix-socket Docker endpoint is accepted. The original commit ID is
+retained in that private repository, so the harness records the correct SHA.
+
+The wrapper checks snapshot integrity before/after commands and requires the
+reported build-context digest to match the expected committed snapshot digest.
+`snapshot.json` records that binding. It preserves bounded input, result and
+cleanup records and scrubs operational output through the committed
+`scripts/scrub-secrets.sh` and freshly verified binary. Record reads use
+nonblocking/no-follow opens, regular-file checks and a bounded read; FIFOs,
+symlinks and oversized records are rejected. The bootstrap recorder/helper
+must themselves match the commit. Uncommitted application files are not used.
 
 ## Isolation and pins
 

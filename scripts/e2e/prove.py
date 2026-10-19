@@ -4,16 +4,29 @@
 
 import argparse
 from datetime import datetime, timezone
+import importlib.util
 import json
 import os
 from pathlib import Path
 import platform
+import pwd
 import re
+import stat
 import subprocess
 import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def load_module(path):
+    spec = importlib.util.spec_from_file_location("e2e_" + path.stem, path)
+    module = importlib.util.module_from_spec(spec)
+    exec(compile(path.read_bytes(), str(path), "exec"), module.__dict__)
+    return module
+
+
+snapshot = load_module(Path(__file__).with_name("snapshot.py"))
 
 
 def utc():
@@ -22,6 +35,24 @@ def utc():
 
 def write_json(path, value):
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+
+
+def read_record(path):
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as source:
+            info = os.fstat(source.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_size > 1 << 20:
+                raise ValueError("artifact must be a bounded regular file")
+            data = source.read((1 << 20) + 1)
+        if len(data) > 1 << 20:
+            raise ValueError("oversized artifact")
+        record = json.loads(data)
+        if not isinstance(record, dict):
+            raise ValueError("invalid artifact object")
+        return record
+    except OSError:
+        raise ValueError("cannot read artifact safely") from None
 
 
 def collect_results(stdout, root=ROOT):
@@ -37,13 +68,15 @@ def collect_results(stdout, root=ROOT):
         raise ValueError("symlinked harness artifacts")
     records = {}
     for name in ("inputs", "result"):
-        path = directory / (name + ".json")
-        if path.is_symlink() or path.stat().st_size > 1 << 20:
-            raise ValueError("invalid harness artifact")
-        records[name] = json.loads(path.read_text())
-        if not isinstance(records[name], dict):
-            raise ValueError("invalid harness artifact object")
+        records[name] = read_record(directory / (name + ".json"))
     return records
+
+
+def validate_inputs(inputs, revision, expected_digest, pins):
+    if inputs.get("git_sha") != revision or inputs.get("source_sha256") != expected_digest:
+        raise ValueError("harness source is not the committed snapshot")
+    if inputs.get("scope") != "full-fake-node" or inputs.get("pins") != pins:
+        raise ValueError("harness inputs differ from the full pinned snapshot")
 
 
 def main():
@@ -56,54 +89,80 @@ def main():
     output = ROOT / relative
     if output.resolve() != output:
         parser.error("output must not traverse symlinks")
-    if subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT):
-        parser.error("commit source changes before recording evidence")
-    output.mkdir(parents=True, exist_ok=False)
+    with tempfile.TemporaryDirectory(prefix="nib-e2e-proof-") as temporary:
+        control = Path(temporary).resolve()
+        env = snapshot.controlled_env(control)
+        revision = snapshot.git(ROOT, env, "rev-parse", "--verify", "HEAD^{commit}", stdout=subprocess.PIPE).stdout.decode().strip()
+        output.mkdir(parents=True, exist_ok=False)
+        return record_proof(relative, output, control, env, revision)
+
+
+def record_proof(relative, output, control, env, revision):
     run = {
         "schema": "nib.evidence/v1", "phase": "P1", "task": "T3",
-        "git_sha": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+        "git_sha": revision,
         "command": "python3 scripts/e2e/prove.py --output " + relative.as_posix(),
         "started_utc": utc(), "ended_utc": None,
         "host": {"provider": "local", "machine": f"{platform.system()} {platform.release()} {platform.machine()}",
                  "gpus": "none used", "driver": None, "cuda": None},
         "execution": "fake", "hardware_validated": False, "result": "fail",
-        "notes": "Runs make test-e2e with merged, hash-pinned trcs. Local Docker only: runtime network none, no devices, mounts, published ports or API secrets. Explicit fake CPU/GPU evidence; no confidential or hardware claim. Success requires verified container/image absence. Build cache is retained. CI acceptance is separate.",
+        "notes": "Runs make test-e2e from a private exact Git archive with replacement objects disabled, controlled child environments, isolated Go caches and module verification. Original Git revision and expected/actual build-context hashes are bound to the committed tree. Local Docker Unix socket only; runtime network none, no devices, mounts, published ports or API secrets. Explicit fake CPU/GPU evidence; no confidential or hardware claim. Success requires verified container/image absence. Docker build cache is retained. CI acceptance is separate.",
     }
     logs = []
+    source = control / "source"
+    expected = None
+    trusted_scrubber = False
+    home = Path(pwd.getpwuid(os.getuid()).pw_dir)
     try:
-        built = subprocess.run(["make", "build"], cwd=ROOT, capture_output=True, timeout=300)
-        logs.extend([built.stdout, built.stderr])
-        if built.returncode:
-            raise ValueError("scrubber build failed")
+        _, expected, archive_hash = snapshot.snapshot_commit(ROOT, source, control, env, revision)
+        # The bootstrap recorder and its helper must themselves be committed.
+        for name in ("prove.py", "snapshot.py"):
+            if (ROOT / "scripts/e2e" / name).read_bytes() != (source / "scripts/e2e" / name).read_bytes():
+                raise ValueError("recorder changes must be committed first")
+        runner = load_module(source / "scripts/e2e/run.py")
+        expected_digest = snapshot.context_digest(source, runner.source_paths(source, env=env))
+        pins = json.loads((source / "scripts/e2e/pins.json").read_text())
+        write_json(output / "snapshot.json", {"git_sha": revision, "git_archive_sha256": archive_hash,
+                                              "expected_source_sha256": expected_digest,
+                                              "replacement_objects": False, "working_tree_used": False})
+        env = {**env, "DOCKER_HOST": snapshot.local_docker_endpoint(env, home)}
+        for command in (["go", "mod", "download"], ["go", "mod", "verify"], ["make", "build"]):
+            snapshot.validate_snapshot(source, expected)
+            built = subprocess.run(command, cwd=source, env=env, capture_output=True, timeout=300)
+            logs.extend([built.stdout, built.stderr])
+            if built.returncode:
+                raise ValueError("verified scrubber build failed")
+        snapshot.validate_snapshot(source, expected)
+        trusted_scrubber = True
         # run.py owns bounded execution and cleanup. Do not kill its finally
         # block with an outer timeout while Docker resources may still exist.
-        tested = subprocess.run(["make", "test-e2e"], cwd=ROOT, capture_output=True)
+        tested = subprocess.run(["make", "test-e2e"], cwd=source, env=env, capture_output=True)
         logs.extend([tested.stdout, tested.stderr])
-        records = collect_results(tested.stdout)
+        snapshot.validate_snapshot(source, expected)
+        records = collect_results(tested.stdout, source)
         for name, record in records.items():
             write_json(output / (name + ".json"), record)
-        if records["inputs"].get("git_sha") != run["git_sha"]:
-            raise ValueError("source revision changed during test")
+        validate_inputs(records["inputs"], revision, expected_digest, pins)
         result = records["result"]
         if tested.returncode or result.get("result") != "pass" or result.get("cleanup", {}).get("result") != "pass":
             raise ValueError("full harness or cleanup failed")
-        if records["inputs"].get("scope") != "full-fake-node":
-            raise ValueError("engine-only result is not full evidence")
         run["result"] = "pass"
     except (ValueError, OSError, subprocess.SubprocessError):
         logs.append(b"FAIL: full container proof; inspect bounded result and cleanup records.\n")
     finally:
         try:
-            with tempfile.TemporaryDirectory(prefix="nib-e2e-scrub-") as temporary:
-                deny = Path(temporary) / "deny.txt"
-                deny.write_text(str(ROOT) + "\n" + str(Path.home()) + "\n")
-                deny.chmod(0o600)
-                scrubbed = subprocess.run(["sh", "scripts/scrub-secrets.sh", "--deny-file", str(deny)], cwd=ROOT,
-                                         env={**os.environ, "NIB_BIN": str(ROOT / "build/nib")},
-                                         input=b"".join(logs), capture_output=True, timeout=30)
-                if scrubbed.returncode:
-                    raise ValueError("output scrubbing failed")
-                (output / "output.log").write_bytes(scrubbed.stdout)
+            if not trusted_scrubber:
+                raise ValueError("no trusted scrubber")
+            snapshot.validate_snapshot(source, expected)
+            deny = control / "deny.txt"
+            deny.write_text(str(ROOT) + "\n" + str(home) + "\n" + str(control) + "\n")
+            deny.chmod(0o600)
+            scrubbed = subprocess.run(["sh", "scripts/scrub-secrets.sh", "--deny-file", str(deny)], cwd=source,
+                                     env={**env, "NIB_BIN": str(source / "build/nib")},
+                                     input=b"".join(logs), capture_output=True, timeout=30)
+            if scrubbed.returncode:
+                raise ValueError("output scrubbing failed")
+            (output / "output.log").write_bytes(scrubbed.stdout)
         except (ValueError, OSError, subprocess.SubprocessError):
             run["result"] = "fail"
             run["notes"] += " Output scrubbing failed; raw output was not saved."

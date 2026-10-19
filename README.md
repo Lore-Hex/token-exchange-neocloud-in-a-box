@@ -23,7 +23,7 @@ Pre-alpha. **Nothing in this repository has run on confidential hardware yet.**
 | Plan, sizing, phase definitions | written ([PLAN.md](PLAN.md)) |
 | CLI skeleton and repository checks | implemented; no serving runtime ([development](docs/development.md)) |
 | Model packs (pinned revisions and checksums) | not started (P0) |
-| GPU-free end-to-end node | tested against fakes locally with merged, pinned trcs; full CI configured, P1 CI acceptance pending ([evidence](evidence/p1/2026-10-19-full-fake-node/run.json), [results](evidence/p1/2026-10-19-full-fake-node/result.json)) |
+| GPU-free end-to-end node | tested against fakes locally with merged, pinned trcs; recorder hardening rerun and P1 CI acceptance pending ([historical evidence](evidence/p1/2026-10-19-full-fake-node/run.json), [task record](docs/tasks/p1-t3-container-e2e.md)) |
 | Model bring-up and benchmarks, non-confidential | not started (P2) |
 | Confidential pipeline on a 1-GPU TDX VM | not started (P3) |
 | TrustedRouter generic verifier | not started (P4) |

@@ -39,9 +39,9 @@ def load_pins(path=PIN_FILE, *, engine_only=False):
     return pins
 
 
-def source_paths(root=ROOT):
+def source_paths(root=ROOT, *, env=None):
     names = subprocess.check_output(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=root
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], cwd=root, env=env
     ).decode().split("\0")
     for name in sorted(set(names) - {""}):
         p = Path(name)
