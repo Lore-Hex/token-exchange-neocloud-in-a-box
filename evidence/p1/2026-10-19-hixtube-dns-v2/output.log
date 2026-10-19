@@ -1,0 +1,1 @@
+{"scope":"dns-only","assurance":"System-resolver address resolution only; authoritative delegation, DNSSEC, inference and attestation are not checked.","checks":[{"name":"hixtube.com","status":"missing-address","address_count":0},{"name":"api.hixtube.com","status":"missing-address","address_count":0}]}
