@@ -32,6 +32,11 @@ REQUIRED = {
     "stream.error-signaling", "stream.first-delta", "stream.done", "stream.usage",
     "stream.incremental-delivery",
 }
+MUTATIONS = (
+    "cpu-binding", "cpu-nonce", "cpu-measurement", "cpu-rtmr0", "cpu-rtmr1", "cpu-rtmr2",
+    "cpu-debug", "cpu-migratable", "cpu-truncated", "gpu-missing", "gpu-duplicate",
+    "gpu-nonce", "gpu-identity", "gpu-kind",
+)
 
 
 def require(condition, check):
@@ -202,7 +207,7 @@ def catalog_server(stack, temp):
                                 "output": "0.000002", "cached_input": None, "cache_write": None,
                                 "minimum_request": "0"}}],
     })
-    generated = subprocess.run([str(BIN / "nib-catalog"), "--root", str(root), "--pricing", "pricing.json"],
+    generated = subprocess.run([str(BIN / "nib-release"), "catalog", "--root", str(root), "--pricing", "pricing.json"],
                                env=clean_env(), capture_output=True, timeout=15)
     require(generated.returncode == 0 and len(generated.stdout) <= 1 << 20, "catalog-generation")
     invalid = json.loads(generated.stdout)
@@ -287,9 +292,39 @@ def admission(tls):
             if status == 429:
                 require(headers.get("Retry-After") == "1" and bool(headers.get("X-Request-Id")),
                         "admission-headers")
+                with socket.create_connection(("127.0.0.1", 18443), timeout=1) as raw:
+                    with tls.wrap_socket(raw, server_hostname="127.0.0.1") as rejected:
+                        slow_rejection(rejected)
                 return
             time.sleep(0.01)
         raise CheckFailure("admission-429")
+
+
+def slow_rejection(conn):
+    # Withhold the entire declared body. Assert actual EOF as well as the
+    # Connection header, which alone did not catch the upstream drain hang.
+    conn.sendall(b"POST /v1/chat/completions HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 1\r\n\r\n")
+    with http.client.HTTPResponse(conn) as response:
+        response.begin()
+        require(response.status == 429 and response.getheader("Retry-After") == "1",
+                "slow-admission-429")
+        require(response.getheader("Connection", "").lower() == "close", "slow-admission-close-header")
+        require(re.fullmatch(r"[0-9a-f]{32}", response.getheader("X-Request-Id", "")) is not None,
+                "slow-admission-request-id")
+        require(len(response.read(4097)) <= 4096, "bounded-admission-response")
+        require(conn.recv(1) == b"", "slow-admission-closed-socket")
+
+
+def request_ids(tls):
+    ids = set()
+    for path in ("/v1/models", "/healthz?private=" + CANARY):
+        status, headers, data = request(18443, path, headers={"X-Request-Id": CANARY}, tls=tls)
+        value = headers.get("X-Request-Id", "")
+        require(status == 200 and re.fullmatch(r"[0-9a-f]{32}", value) is not None and value not in ids,
+                "proxy-owned-request-ids")
+        ids.add(value)
+        if path.startswith("/healthz"):
+            require(data == b"", "health-reveals-no-request-data")
 
 
 def full_node(stack, temp, processes, summary):
@@ -314,8 +349,7 @@ def full_node(stack, temp, processes, summary):
     summary["fake_verifier"] = verify(args, success=True)
     summary["release_verifier"] = verify(args, release=True)
     mutations = {}
-    for mode in ("cpu-binding", "cpu-measurement", "cpu-debug", "cpu-truncated",
-                 "gpu-missing", "gpu-duplicate", "gpu-nonce", "gpu-identity", "gpu-kind"):
+    for mode in MUTATIONS:
         state.write_text(mode)
         mutations[mode] = verify(args)
     state.write_text("valid")
@@ -324,6 +358,7 @@ def full_node(stack, temp, processes, summary):
     summary["mutations"] = mutations
     privacy_requests(18443, tls)
     upstream_unavailable(18443, tls)
+    request_ids(tls)
     admission(tls)
     summary["admission"] = "pass"
     return tls

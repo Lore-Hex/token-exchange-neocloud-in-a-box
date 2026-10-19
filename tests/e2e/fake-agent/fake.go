@@ -71,7 +71,8 @@ func mutation(path string) (string, error) {
 		return "", errors.New("invalid fixture state")
 	}
 	switch string(b) {
-	case "valid", "cpu-binding", "cpu-measurement", "cpu-debug", "cpu-truncated",
+	case "valid", "cpu-binding", "cpu-nonce", "cpu-measurement", "cpu-rtmr0", "cpu-rtmr1", "cpu-rtmr2",
+		"cpu-debug", "cpu-migratable", "cpu-truncated",
 		"gpu-missing", "gpu-duplicate", "gpu-nonce", "gpu-identity", "gpu-kind":
 		return string(b), nil
 	default:
@@ -117,10 +118,20 @@ func nibfakeAA(state string) http.Handler {
 		switch mode {
 		case "cpu-binding":
 			data[0] ^= 1
+		case "cpu-nonce":
+			data[32] ^= 1
 		case "cpu-measurement":
 			measurements[0][0] ^= 1
+		case "cpu-rtmr0":
+			measurements[1][0] ^= 1
+		case "cpu-rtmr1":
+			measurements[2][0] ^= 1
+		case "cpu-rtmr2":
+			measurements[3][0] ^= 1
 		case "cpu-debug":
 			flags = 1
+		case "cpu-migratable":
+			flags = 2
 		}
 		quote := protocol.FakeTDXQuote(data, measurements, flags)
 		if mode == "cpu-truncated" {

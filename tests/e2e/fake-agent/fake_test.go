@@ -39,7 +39,7 @@ func TestAA(t *testing.T) {
 		}
 	}
 	want := protocol.FakeTDXQuote(data, measurements, 0)
-	for _, mode := range []string{"valid", "cpu-binding", "cpu-measurement", "cpu-debug", "cpu-truncated"} {
+	for _, mode := range []string{"valid", "cpu-binding", "cpu-nonce", "cpu-measurement", "cpu-rtmr0", "cpu-rtmr1", "cpu-rtmr2", "cpu-debug", "cpu-migratable", "cpu-truncated"} {
 		t.Run(mode, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			nibfakeAA(state(t, mode)).ServeHTTP(w, httptest.NewRequest("GET", path, nil))

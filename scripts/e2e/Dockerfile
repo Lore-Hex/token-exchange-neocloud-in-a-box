@@ -7,7 +7,7 @@ ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-mod=readonly
 WORKDIR /src
 COPY repo/ ./
 RUN go build -trimpath -buildvcs=false -tags nibfake -o /out/nib-engine ./guest/cmd/nib-engine \
-    && go build -trimpath -buildvcs=false -o /out/nib-catalog ./cmd/nib-catalog
+    && go build -trimpath -buildvcs=false -o /out/nib-release ./cmd/nib
 
 FROM ${PYTHON_IMAGE} AS python-base
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
@@ -33,8 +33,7 @@ RUN printf '%s  /tmp/trcs.tar.gz\n' "$TRCS_ARCHIVE_SHA256" | sha256sum -c - \
     && mkdir /trcs && tar -xzf /tmp/trcs.tar.gz --strip-components=1 -C /trcs \
     && cd /trcs && go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/trcs ./cmd/trcs \
     && printf '%s  /out/trcs\n' "$TRCS_BINARY_SHA256" | sha256sum -c -
-RUN go build -trimpath -buildvcs=false -o /out/nib-release ./cmd/nib \
-    && go build -trimpath -buildvcs=false -tags nibfake -o /out/nib-fake ./cmd/nib \
+RUN go build -trimpath -buildvcs=false -tags nibfake -o /out/nib-fake ./cmd/nib \
     && go build -trimpath -buildvcs=false -tags nibfake -o /out/fake-agent ./tests/e2e/fake-agent
 
 FROM python-base AS node-e2e

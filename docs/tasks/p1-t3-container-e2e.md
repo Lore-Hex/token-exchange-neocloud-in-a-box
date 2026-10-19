@@ -24,7 +24,7 @@ weight-gate shutdown. It does not start trcs or verify attestation.
 build while `scripts/e2e/pins.json` has `trcs: null`. The parent owns the final
 merged trcs commit/archive/binary provenance. The full path is implemented but
 not yet exercised: real trcs TLS/CoCo AA transport, fake CPU and GPU evidence,
-fake verifier pass, release verifier rejection, nine evidence mutations,
+fake verifier pass, release verifier rejection, fourteen evidence mutations,
 admission 429 and health failure. CI currently runs only the bounded command;
 switch its step to `make test-e2e` when the final pin is integrated and the full
 path passes locally. The verifier's exact-byte CoCo AA case and file-read
@@ -60,6 +60,11 @@ hardening are integrated by merging parent head `a4ed474`.
 `tests/e2e/fake-agent` has a denying default build. `nibfake` alone includes the
 loopback AA and GPU helper. Release tests build both variants and assert the
 collector symbols are absent in release and present in the positive control.
+Tagged contract tests send actual loopback HTTP requests to the AA and pass
+its bytes plus helper output through the merged verifier's public policy/check
+API. The valid fixture and recovery pass as fake only; all fourteen mutations
+fail. This is collector/appraiser contract coverage, not a replacement shim or
+evidence that the real-trcs container run passed.
 
 The AA responds to the real CoCo request (`GET /aa/evidence` with raw-URL-base64
 64-byte `runtime_data` and `encoding=base64`) with shared
@@ -72,7 +77,8 @@ Release must continue rejecting it.
 The separate helper consumes `TRCS_GPU_NONCE` and outputs two `gpu` records and
 one `nvswitch` record with distinct device IDs and `nibfake-device-v1` evidence.
 The verifier gets device counts from a pinned synthetic profile. Mutations
-alter CPU binding, measurement, flags, length and GPU count, duplicate ID,
+alter CPU SPKI and nonce binding, MRTD, each RTMR0-2, debug/migratable flags,
+length and GPU count, duplicate ID,
 bound nonce, identity or kind. A private local fixture-state file controls
 these tests; nonblocking/no-follow open rejects FIFOs and symlinks before any
 read. These are test-only collector controls, not production trcs fake flags.
@@ -116,3 +122,18 @@ boundary, privacy and weight failure. Its `inputs.json` records immutable build
 inputs and the working-source digest. This does not prove the unrun real-trcs
 path. `make test-e2e` was also checked to fail before runtime when the pin is
 missing. These are software-only test results, not hardware evidence.
+
+The full-run admission assertion now withholds a rejected request's entire
+body and checks socket EOF, not only `Connection: close`. This covers the
+upstream slow-429 drain regression. Separate assertions require distinct,
+proxy-generated request IDs even when the client supplies its own ID, and an
+empty health body. These full-run assertions are unit-tested where possible
+but await the real merged trcs binary. Parent catalog head `cd06de2` is merged
+with both catalog and verifier dispatch/help retained. The harness now builds
+the release `nib` CLI and generates its declaration via `nib catalog`; the
+standalone `nib-catalog` executable is no longer used by this container test.
+The follow-up container run at `build/e2e/7c14a8c5833a/result.json` passed all 18
+checks through Tier 4 using that main CLI, plus the negative catalog, privacy,
+503 and weight-gate checks. Full `make check`, tagged staticcheck, all fourteen
+collector/appraiser mutations and twelve Python harness tests passed after the
+integration changes. No unmerged trcs revision has been assigned as a final pin.

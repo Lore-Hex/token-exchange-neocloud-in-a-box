@@ -2,13 +2,14 @@
 """Harness policy tests run in make check; container execution is separate."""
 
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 def module(name):
@@ -106,6 +107,37 @@ class E2EPolicyTest(unittest.TestCase):
             response.getheaders.return_value = []
             self.assertEqual(exercise.request(18000, "/health")[0], 200)
             connection.return_value.close.assert_called_once()
+
+    def test_slow_rejection_requires_actual_socket_close(self):
+        for closed in (True, False):
+            conn = Mock()
+            conn.makefile.return_value = io.BytesIO(
+                b"HTTP/1.1 429 Too Many Requests\r\nRetry-After: 1\r\nConnection: close\r\n"
+                b"X-Request-Id: 0123456789abcdef0123456789abcdef\r\nContent-Length: 0\r\n\r\n")
+            conn.recv.return_value = b"" if closed else b"x"
+            if closed:
+                exercise.slow_rejection(conn)
+            else:
+                with self.assertRaises(exercise.CheckFailure):
+                    exercise.slow_rejection(conn)
+            conn.sendall.assert_called_once()
+
+    def test_mutation_matrix_covers_all_measurements(self):
+        self.assertEqual(len(exercise.MUTATIONS), len(set(exercise.MUTATIONS)))
+        self.assertTrue({"cpu-binding", "cpu-nonce", "cpu-measurement", "cpu-rtmr0",
+                         "cpu-rtmr1", "cpu-rtmr2", "cpu-debug", "cpu-migratable",
+                         "cpu-truncated", "gpu-nonce"} <= set(exercise.MUTATIONS))
+
+    def test_private_log_canary_positive_control(self):
+        processes = exercise.Processes(None)
+        processes.logs = [io.BytesIO(b"fixed operational diagnostic\n")]
+        processes.privacy()
+        processes.logs = [io.BytesIO(exercise.CANARY.encode())]
+        with self.assertRaises(exercise.CheckFailure):
+            processes.privacy()
+        processes.logs = [io.BytesIO(b"x" * ((1 << 20) + 1))]
+        with self.assertRaises(exercise.CheckFailure):
+            processes.privacy()
 
 
 if __name__ == "__main__":
