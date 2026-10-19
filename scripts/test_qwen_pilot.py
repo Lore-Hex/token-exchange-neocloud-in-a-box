@@ -71,6 +71,34 @@ class QwenPilotTests(unittest.TestCase):
                   else item.replace(b"data: ", b"data:") for item in self.stream_events()]
         self.shutdown_stream(events)
 
+    def test_shutdown_proof_requires_whole_utf8_frames(self):
+        wire = [b"data: " + json.dumps(item).encode() + b"\n\n" if isinstance(item, dict)
+                else item for item in self.stream_events()]
+        self.shutdown_stream([item.replace(b"\n", b"\r\n") for item in wire])
+        self.shutdown_stream([b": keepalive\n\n", *wire])
+        bad_streams = [
+            [b"".join(wire).replace(b"\n\n", b"\n") + b"\n"],
+            [*wire[:-1], b"data: [DONE]\n"],
+            [*wire[:-1], b"data: [DONE]\n\n"[:-1]],
+            [*wire[:-1], b"data: [DONE]\nevent:error\n\n"],
+            [b'\xef\xbb\xbfdata:{"error":null}\n\n', *wire],
+            [b': comment\rdata:{"error":null}\r\r\n', *wire],
+            [b'data:' + '{"error":null}'.encode("utf-16") + b"\n\n", *wire],
+            [b'data:' + '{"choices":[]}'.encode("utf-16-le") + b"\n\n", *wire],
+            [b"id: unsupported\n\n", *wire],
+        ]
+        for events in bad_streams:
+            with self.subTest(events=events), self.assertRaises(pilot.PilotError):
+                self.shutdown_stream(events)
+
+    def test_shutdown_proof_requires_terminal_unique_usage(self):
+        content, finish, usage, done = self.stream_events()
+        for events in ([usage, content, finish, done], [content, usage, finish, done],
+                       [content, finish, usage, usage, done],
+                       [content, finish, usage, {"choices": []}, done]):
+            with self.subTest(events=events), self.assertRaises(pilot.PilotError):
+                self.shutdown_stream(events)
+
     def test_shutdown_proof_rejects_missing_terminal_evidence(self):
         for index in range(4):
             with self.subTest(index=index), self.assertRaises(pilot.PilotError):

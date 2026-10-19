@@ -171,6 +171,37 @@ def check_provider(checker, port, model, cert, api_key, env, *, catalog=False):
     return provider_result(json.loads(result.stdout), result.returncode)
 
 
+def stream_frames(response):
+    """Validate the pinned engine's single-data-field UTF-8 LF/CRLF frames."""
+    data, active, size = None, False, 0
+    while wire := response.readline(65537):
+        size += len(wire)
+        require(size <= 1 << 20 and len(wire) <= 65536, "shutdown-stream-size")
+        require(wire.endswith(b"\n"), "shutdown-stream-truncated-line")
+        try:
+            line = wire[:-1].removesuffix(b"\r").decode("utf-8")
+        except UnicodeDecodeError:
+            raise PilotError("shutdown-stream-encoding") from None
+        require("\r" not in line and "\ufeff" not in line, "shutdown-stream-encoding")
+        if not line:
+            if data is not None:
+                yield data
+            data, active = None, False
+            continue
+        active = True
+        if line.startswith(":"):
+            continue
+        field, separator, value = line.partition(":")
+        require(separator and field in {"data", "event"}, "shutdown-stream-field")
+        value = value.removeprefix(" ")
+        if field == "event":
+            require(value in {"", "message"}, "shutdown-stream-event")
+        else:
+            require(data is None, "shutdown-stream-multiple-data")
+            data = value
+    require(not active, "shutdown-stream-truncated-frame")
+
+
 def shutdown_during_stream(service, port, tls, api_key, model):
     """Signal the entire real service after its first content delta, not at idle."""
     payload = {"model": model, "stream": True, "stream_options": {"include_usage": True},
@@ -183,21 +214,21 @@ def shutdown_during_stream(service, port, tls, api_key, model):
         require(response.status == 200, "shutdown-stream-status")
         require(response.getheader("Content-Type", "").split(";", 1)[0].strip().lower()
                 == "text/event-stream", "shutdown-stream-content-type")
-        signaled, done, used, finished, size = False, False, False, False, 0
-        while line := response.readline(65537):
-            size += len(line)
-            require(size <= 1 << 20 and len(line) <= 65536, "shutdown-stream-size")
-            require(not line.startswith(b"event:") or line[6:].strip() in {b"", b"message"},
-                    "shutdown-stream-event")
-            if not line.startswith(b"data:"):
-                continue
-            raw = line[5:].strip()
-            if raw == b"[DONE]":
+        signaled, done, used, finished = False, False, False, False
+        for raw in stream_frames(response):
+            if raw == "[DONE]":
                 done = True
                 break
-            event = json.loads(raw)
+            try:
+                event = json.loads(raw)
+            except ValueError:
+                raise PilotError("shutdown-stream-json") from None
             require(isinstance(event, dict) and "error" not in event, "shutdown-stream-error")
+            require(not used, "shutdown-stream-after-usage")
             if event.get("usage") is not None:
+                # Pinned server-task.cpp emits finish, one usage-only chunk,
+                # then DONE. Earlier or duplicate usage cannot prove draining.
+                require(signaled and finished and event.get("choices") == [], "shutdown-usage-order")
                 usage = event["usage"]
                 require(isinstance(usage, dict) and all(type(usage.get(name)) is int and usage[name] > 0
                             for name in ("prompt_tokens", "completion_tokens", "total_tokens")), "shutdown-usage")
@@ -212,8 +243,7 @@ def shutdown_during_stream(service, port, tls, api_key, model):
                 delta = choice.get("delta", {})
                 require(isinstance(delta, dict) and (delta.get("content") is None
                         or isinstance(delta["content"], str)), "shutdown-stream-delta")
-                if delta.get("content"):
-                    require(not finished, "shutdown-content-after-finish")
+                require(not finished, "shutdown-content-after-finish")
                 if not signaled and delta.get("content"):
                     require(not finished and choice.get("finish_reason") is None
                             and service.poll() is None, "shutdown-started-too-late")
