@@ -92,6 +92,31 @@ class HardwareProbeTests(unittest.TestCase):
             time.sleep(0.5)
             self.assertFalse(marker.exists())
 
+    def test_outer_timeout_cleans_nested_command_group(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ready, release, survivor = (root / name for name in ("ready", "release", "survivor"))
+            child = ("import time; from pathlib import Path\n"
+                     + "Path(" + repr(str(ready)) + ").touch()\n"
+                     + "deadline = time.monotonic() + 5\n"
+                     + "while time.monotonic() < deadline:\n"
+                     + " if Path(" + repr(str(release)) + ").exists():\n"
+                     + "  Path(" + repr(str(survivor)) + ").touch(); break\n"
+                     + " time.sleep(0.02)\n")
+            nested = ("import sys, types; from pathlib import Path\n"
+                      + "p = Path(" + repr(str(Path(probe.__file__).resolve())) + ")\n"
+                      + "m = types.ModuleType('probe'); m.__file__ = str(p)\n"
+                      + "exec(compile(p.read_bytes(), str(p), 'exec'), m.__dict__)\n"
+                      + "m.capture([sys.executable, '-I', '-c', " + repr(child) + "], timeout=10)\n")
+            with self.assertRaisesRegex(ValueError, "probe-timeout"):
+                probe.capture([sys.executable, "-I", "-c", nested], timeout=2)
+            self.assertTrue(ready.exists(), "positive control: nested command started")
+            # The nested supervisor notices parent-pipe EOF within its 0.1s poll.
+            time.sleep(0.3)
+            release.touch()
+            time.sleep(0.3)
+            self.assertFalse(survivor.exists(), "nested process survived outer cancellation")
+
     def test_command_output_timeout_and_failure_are_bounded(self):
         self.assertEqual(probe.capture([sys.executable, "-I", "-c", "print('ok')"]), b"ok\n")
         for program, timeout in (("import time; time.sleep(5)", 0.1),

@@ -24,19 +24,28 @@ LIMIT = 65536
 ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C", "LC_ALL": "C"}
 # Keep the process-group leader alive after the command exits, until the parent
 # kills the group. This avoids both PID reuse and macOS zombie-group EPERM.
+# A private liveness pipe also kills nested command groups if their caller dies.
 SUPERVISOR = """
-import os, subprocess, sys, time
-fd = int(sys.argv[1])
+import os, select, signal, subprocess, sys
+fd, life = int(sys.argv[1]), int(sys.argv[2])
 try:
-    code = subprocess.run(sys.argv[2:], stdin=subprocess.DEVNULL).returncode
-except OSError:
-    code = 127
-os.write(fd, str(code).encode('ascii'))
-os.close(fd)
-os.close(1)
-os.close(2)
-while True:
-    time.sleep(60)
+    try:
+        child = subprocess.Popen(sys.argv[3:], stdin=subprocess.DEVNULL)
+    except OSError:
+        child, code = None, 127
+    while child is not None:
+        code = child.poll()
+        if code is not None:
+            break
+        if select.select([life], [], [], 0.1)[0]:
+            raise SystemExit(1)
+    os.write(fd, str(code).encode('ascii'))
+    os.close(fd)
+    os.close(1)
+    os.close(2)
+    select.select([life], [], [])
+finally:
+    os.killpg(os.getpid(), signal.SIGKILL)
 """
 
 
@@ -44,15 +53,24 @@ def capture(argv, timeout=15):
     """Bound both streams together; never emit diagnostics from the child."""
     reader, writer = os.pipe()
     try:
-        process = subprocess.Popen([sys.executable, "-I", "-c", SUPERVISOR, str(writer), *argv],
-                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE, env=ENV, start_new_session=True,
-                                   pass_fds=(writer,))
+        life_reader, life_writer = os.pipe()
     except BaseException:
         os.close(reader)
+        os.close(writer)
+        raise
+    try:
+        process = subprocess.Popen([sys.executable, "-I", "-c", SUPERVISOR,
+                                    str(writer), str(life_reader), *argv],
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, env=ENV, start_new_session=True,
+                                   pass_fds=(writer, life_reader))
+    except BaseException:
+        os.close(reader)
+        os.close(life_writer)
         raise
     finally:
         os.close(writer)
+        os.close(life_reader)
     try:
         output = bytearray()
         status = bytearray()
@@ -89,6 +107,7 @@ def capture(argv, timeout=15):
             pass
         except OSError:
             cleanup_error = True
+        os.close(life_writer)
         process.stdout.close()
         process.stderr.close()
         os.close(reader)
