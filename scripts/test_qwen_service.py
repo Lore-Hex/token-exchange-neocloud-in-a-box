@@ -45,6 +45,20 @@ class ServiceTests(unittest.TestCase):
         child.poll.assert_not_called()
         health.assert_not_called()
 
+    def test_health_probe_crossing_retirement_is_normal_drain(self):
+        child = Mock()
+        child.poll.return_value = None
+        for raises in (False, True):
+            with self.subTest(raises=raises), patch.object(service.time, "time", return_value=999) as clock, \
+                    patch.object(service.time, "monotonic", return_value=499):
+                def check():
+                    clock.return_value = 1000
+                    if raises:
+                        raise OSError("probe ended at cutoff")
+                    return False
+                service.supervise([child], threading.Event(), max_seconds=60,
+                                  health_check=check, retirement=(1000, 500))
+
     def test_public_missing_retirement_fails_before_inputs_or_child_start(self):
         args = Mock(public=True, retirement_at=None)
         with patch.object(service.pilot, "prepared_inputs") as prepared, \
