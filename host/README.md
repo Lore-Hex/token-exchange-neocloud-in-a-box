@@ -14,6 +14,12 @@ hash with the run evidence. A failing command is reported with a fixed error
 code, not raw diagnostics. Hostnames, IPs, serials, UUIDs and environment values
 are not emitted.
 
+Command output is capped at 64 KiB across stdout/stderr, with a 15-second
+command deadline and a one-second cleanup wait. The whole command process
+group is killed on success or failure before reaping its leader. OS-level
+uninterruptible I/O cannot be forcibly completed by this bound; cleanup failure
+is an error, never permission to continue to an engine launch.
+
 An inventory `pass` means only that eight B200s were reported and the bounded
 inventory reads succeeded. It is **not attestation, confidentiality, topology
 validation, capacity qualification or an engine-ready verdict**. Device paths

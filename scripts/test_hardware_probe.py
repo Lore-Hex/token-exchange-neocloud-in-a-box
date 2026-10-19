@@ -3,7 +3,10 @@ import importlib.util
 import json
 from pathlib import Path
 import sys
+import tempfile
+import time
 import unittest
+from unittest import mock
 
 spec = importlib.util.spec_from_file_location("hardware_probe", Path(__file__).resolve().parents[1] / "host/probe.py")
 probe = importlib.util.module_from_spec(spec)
@@ -58,6 +61,36 @@ class HardwareProbeTests(unittest.TestCase):
         for data in (b"MemTotal: secret kB\n", b"MemTotal: 0 kB\n", b"MemTotal: 2 kB\nMemTotal: 3 kB\n"):
             with self.assertRaises(ValueError):
                 probe.memory_kib(data)
+
+    def test_malformed_csv_is_sanitized(self):
+        report = self.collect(gpu=b"PRIVATE-CANARY\rB200, 1, 595.45.04\r")
+        self.assertEqual(report["errors"], ["gpus-unavailable"])
+        self.assertNotIn("PRIVATE-CANARY", json.dumps(report))
+
+    def test_cleanup_wait_is_bounded(self):
+        real_wait = probe.subprocess.Popen.wait
+        calls = []
+        def wait(process, timeout=None):
+            calls.append(timeout)
+            return real_wait(process, timeout=timeout)
+        with mock.patch.object(probe.subprocess.Popen, "wait", wait):
+            for program in ("pass", "import time; time.sleep(5)"):
+                try:
+                    probe.capture([sys.executable, "-I", "-c", program], timeout=0.1)
+                except ValueError:
+                    pass
+        self.assertTrue(calls)
+        self.assertTrue(all(value == 1 for value in calls))
+
+    def test_success_cleans_descendants_with_closed_pipes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "survivor"
+            child = "import time; from pathlib import Path; time.sleep(0.3); Path(" + repr(str(marker)) + ").touch()"
+            program = ("import subprocess,sys; subprocess.Popen([sys.executable,'-I','-c'," + repr(child)
+                       + "], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)")
+            self.assertEqual(probe.capture([sys.executable, "-I", "-c", program]), b"")
+            time.sleep(0.5)
+            self.assertFalse(marker.exists())
 
     def test_command_output_timeout_and_failure_are_bounded(self):
         self.assertEqual(probe.capture([sys.executable, "-I", "-c", "print('ok')"]), b"ok\n")

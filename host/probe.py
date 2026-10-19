@@ -22,47 +22,82 @@ import time
 
 LIMIT = 65536
 ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C", "LC_ALL": "C"}
+# Keep the process-group leader alive after the command exits, until the parent
+# kills the group. This avoids both PID reuse and macOS zombie-group EPERM.
+SUPERVISOR = """
+import os, subprocess, sys, time
+fd = int(sys.argv[1])
+try:
+    code = subprocess.run(sys.argv[2:], stdin=subprocess.DEVNULL).returncode
+except OSError:
+    code = 127
+os.write(fd, str(code).encode('ascii'))
+os.close(fd)
+os.close(1)
+os.close(2)
+while True:
+    time.sleep(60)
+"""
 
 
 def capture(argv, timeout=15):
     """Bound both streams together; never emit diagnostics from the child."""
-    with subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                          env=ENV, start_new_session=True) as process:
-        completed = False
-        try:
-            output = bytearray()
-            count = 0
-            deadline = time.monotonic() + timeout
-            with selectors.DefaultSelector() as selector:
-                selector.register(process.stdout, selectors.EVENT_READ, True)
-                selector.register(process.stderr, selectors.EVENT_READ, False)
-                while selector.get_map():
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        raise ValueError("probe-timeout")
-                    for key, _ in selector.select(min(remaining, 0.25)):
-                        chunk = os.read(key.fileobj.fileno(), 4096)
-                        if not chunk:
-                            selector.unregister(key.fileobj)
-                            continue
-                        count += len(chunk)
-                        if count > LIMIT:
-                            raise ValueError("probe-output-limit")
-                        if key.data:
-                            output.extend(chunk)
+    reader, writer = os.pipe()
+    try:
+        process = subprocess.Popen([sys.executable, "-I", "-c", SUPERVISOR, str(writer), *argv],
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, env=ENV, start_new_session=True,
+                                   pass_fds=(writer,))
+    except BaseException:
+        os.close(reader)
+        raise
+    finally:
+        os.close(writer)
+    try:
+        output = bytearray()
+        status = bytearray()
+        count = 0
+        deadline = time.monotonic() + timeout
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+            selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+            selector.register(reader, selectors.EVENT_READ, "status")
+            while selector.get_map():
                 remaining = deadline - time.monotonic()
-                if remaining <= 0 or process.wait(timeout=remaining) != 0:
-                    raise ValueError("probe-command-failed")
-            completed = True
-            return bytes(output)
-        finally:
-            # Include descendants retaining pipes or surviving the direct child.
-            if not completed:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            process.wait()
+                if remaining <= 0:
+                    raise ValueError("probe-timeout")
+                for key, _ in selector.select(min(remaining, 0.25)):
+                    chunk = os.read(key.fd, 4096)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+                    count += len(chunk)
+                    if count > LIMIT:
+                        raise ValueError("probe-output-limit")
+                    if key.data == "stdout":
+                        output.extend(chunk)
+                    elif key.data == "status":
+                        status.extend(chunk)
+        if status != b"0":
+            raise ValueError("probe-command-failed")
+        return bytes(output)
+    finally:
+        cleanup_error = False
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            cleanup_error = True
+        process.stdout.close()
+        process.stderr.close()
+        os.close(reader)
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            raise ValueError("probe-cleanup-timeout") from None
+        if cleanup_error:
+            raise ValueError("probe-cleanup-failed") from None
 
 
 def gpu_inventory(data):
@@ -130,7 +165,7 @@ def collect(run=capture, read=bounded_read, exists=Path.exists):
     for name, task in tasks.items():
         try:
             checks[name] = task()
-        except (OSError, ValueError, UnicodeError, subprocess.SubprocessError):
+        except (OSError, ValueError, UnicodeError, csv.Error, subprocess.SubprocessError):
             report["errors"].append(name + "-unavailable")
     report["eight_b200_reported"] = (len(checks.get("gpus", [])) == 8
                                       and all(g["family"] == "B200" for g in checks["gpus"]))
