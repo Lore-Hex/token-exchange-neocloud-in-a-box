@@ -7,12 +7,17 @@ whose TLS key is bound to hardware attestation. Nodes can be verified by anyone
 and listed on [TrustedRouter](https://trustedrouter.com/providers/marketplace),
 and their tokens can be traded on the NY Token Exchange.
 
-The first two nodes serve
+The first two nodes are planned to serve
 [DeepSeek-V4.1-Flash-1017](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017)
 and [GLM-5.3](https://huggingface.co/zai-org/GLM-5.3) on HGX 8×B200 servers.
 
 **Read [PLAN.md](PLAN.md)** for sizing, the order of work and the phases.
 Agents working in this repo read [AGENTS.md](AGENTS.md) first.
+
+Our first provider is **Hixtube** (`hixtube`), using `hixtube.com`. This is
+the operator's identity, not a rename of the reusable Apache-2.0 toolkit.
+The [Hixtube launch checklist](docs/operators/hixtube.md) separates domain setup
+from an actually serving, independently verified confidential node.
 
 ## Status
 
@@ -22,7 +27,8 @@ Pre-alpha. **Nothing in this repository has run on confidential hardware yet.**
 |---|---|
 | Plan, sizing, phase definitions | written ([PLAN.md](PLAN.md)) |
 | CLI skeleton and repository checks | implemented; no serving runtime ([development](docs/development.md)) |
-| Model packs (pinned revisions and checksums) | not started (P0) |
+| Model packs (pinned revisions and checksums) | source-audited drafts; not deployable confidential profiles ([model packs](models/README.md)) |
+| Guest services | implemented with release-deny behavior and tagged fake tests ([guest services](guest/README.md)) |
 | GPU-free end-to-end node in CI | not started (P1) |
 | Model bring-up and benchmarks, non-confidential | not started (P2) |
 | Confidential pipeline on a 1-GPU TDX VM | not started (P3) |

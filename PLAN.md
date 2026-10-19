@@ -921,14 +921,17 @@ $1.80/$5.75).
 
 ## 11. Open questions for Joseph
 
-1. Provider display name and slug on TR (proposal: "Token Exchange Neocloud",
-   `neocloud`).
+1. **Resolved 2026-10-19:** provider **Hixtube**, slug `hixtube`, as named by
+   Joseph. The reusable project remains Token Exchange Neocloud-in-a-Box.
 2. Rent or buy for P5 (proposal: rent month to month from a CC-capable
    provider; decide on buying an HGX B200 after 30 days of P6 utilization).
    Which providers to contact first (proposal: Hydra Host, ServerMO, Spheron,
    Sesterce).
 3. Prices for both routes (proposals in P6 and P7).
-4. The domain for node endpoints and the catalog (e.g. `*.neocloud.trustedrouter.com`).
+4. **Resolved 2026-10-19:** `hixtube.com`; Joseph reports delegating it to Google
+   Cloud DNS. Planned first-node origin: `api.hixtube.com`. See the
+   [Hixtube launch checklist](docs/operators/hixtube.md); delegation alone does
+   not establish a serving endpoint or satisfy the hardware launch gates.
 5. Does NYTE need anything from v1 beyond the TR listing? (Proposal: no; P9.)
 
 ## 12. Sources
