@@ -29,9 +29,8 @@ AI compatibility matrix; obtain owner direction before continuing P0.T2.`
 
 The [agent instructions](../AGENTS.md#how-to-pick-work) require stopping when
 a vendor document contradicts the plan. PLAN.md has therefore been left
-unchanged. The user requested no PR or push, so this finding is recorded on
-the isolated task branch instead of in a PR. No alternative SKU, memory
-budget, or software stack has been selected.
+unchanged. This draft PR records the finding pending owner direction. No
+alternative SKU, memory budget, or software stack has been selected.
 
 ## Licensing and gates retained
 
