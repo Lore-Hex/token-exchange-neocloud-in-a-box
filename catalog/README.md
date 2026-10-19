@@ -10,9 +10,9 @@ invented market rates. Both referenced model packs remain unvalidated drafts.
 From the repository root:
 
 ```sh
-go build -trimpath -o build/nib-catalog ./cmd/nib-catalog
-./build/nib-catalog --root . --pricing catalog/pricing.yaml > build/catalog.v2.json
-go test -race -count=1 ./internal/catalog ./cmd/nib-catalog
+go build -trimpath -o build/nib ./cmd/nib
+./build/nib catalog --root . --pricing catalog/pricing.yaml > build/catalog.v2.json
+go test -race -count=1 ./internal/catalog ./cmd/nib ./cmd/nib-catalog
 uv run --project catalog/checker --frozen python -m unittest discover -s catalog/checker
 uv run --project catalog/checker --frozen python catalog/checker/prove.py
 ```
@@ -28,12 +28,12 @@ Use a new destination: shell redirection can truncate an existing file even when
 generation fails. Exit codes are 0 success/help, 1 invalid configuration or I/O,
 and 2 invalid command-line usage. Diagnostics do not echo configuration values.
 
-`cmd/nib` is intentionally untouched to avoid the concurrent CLI owner's work.
-The integration API is `catalog.Run(argsAfterCatalog, stdout, stderr) int` in
-[internal/catalog](../internal/catalog/cli.go). `nib catalog` wiring and the full
-P1.T3 `make test-e2e` pipeline remain with the parent/integration owner. This
-task adds a separate read-only CI job for its local Tier 1 proof, not a claim
-that all of P1 is complete.
+`nib catalog` and the standalone `nib-catalog` test adapter both call
+`catalog.Run(argsAfterCatalog, stdout, stderr)` in
+[internal/catalog](../internal/catalog/cli.go). The local proof exercises the
+main CLI. The full P1.T3 `make test-e2e` pipeline remains separate. This task
+adds a read-only CI job for its local Tier 1 proof, not a claim that all of P1
+is complete.
 
 ## Contract and safety
 

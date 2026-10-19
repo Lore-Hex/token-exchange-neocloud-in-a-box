@@ -29,6 +29,28 @@ func TestModelDispatch(t *testing.T) {
 	}
 }
 
+func TestCatalogDispatch(t *testing.T) {
+	var out, errs bytes.Buffer
+	if code := run([]string{"catalog", "--help"}, &out, &errs); code != 0 || !strings.Contains(out.String(), "local-test-only") || errs.Len() != 0 {
+		t.Fatal("catalog help dispatch failed")
+	}
+	out.Reset()
+	if code := run([]string{"catalog", "--root", "../.."}, &out, &errs); code != 0 || errs.Len() != 0 {
+		t.Fatal("catalog generation dispatch failed")
+	}
+	want, err := os.ReadFile("../../catalog/testdata/catalog.v2.golden.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(out.Bytes(), want) {
+		t.Fatal("catalog CLI differs from validated golden declaration")
+	}
+	out.Reset()
+	if code := run([]string{"catalog", "--root", "/missing/private-canary"}, &out, &errs); code != 1 || out.Len() != 0 || strings.Contains(errs.String(), "canary") {
+		t.Fatal("catalog error dispatch or redaction failed")
+	}
+}
+
 func TestEvidenceDispatch(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "deny")
 	if err := os.WriteFile(path, []byte("planted-cli-token\n"), 0o600); err != nil {
