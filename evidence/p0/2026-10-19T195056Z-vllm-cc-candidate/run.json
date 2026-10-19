@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I scripts/check-engine-candidate.py --record",
+  "ended_utc": "2026-10-19T19:51:00Z",
+  "execution": "software",
+  "git_sha": "8a742261a7143e9ecb1910c0173bbb84f184d966",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "darwin/arm64",
+    "provider": "local"
+  },
+  "notes": "BLOCKED candidate. Sparse source application and fake-object software contracts only; no upstream package import, build, GPU, attestation or deployment. Committed input bundle SHA-256: da977f3dd6c9b27430b43a15b9d555b2cb5b2049777879aa8bbfc0fb28103a55",
+  "phase": "P0",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-19T19:50:56Z",
+  "task": "T4"
+}

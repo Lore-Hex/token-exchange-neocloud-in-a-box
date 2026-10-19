@@ -161,6 +161,18 @@ full-model run. Full repository checks and independent final-head review are
 separate requirements; this source preparation does not satisfy hardware gates.
 That historical run predates the fourth-stage guard and does not prove it.
 
+The four-stage [sink-guard run](../../evidence/p0/2026-10-19T195056Z-vllm-cc-candidate/run.json)
+passed from `8a742261a7143e9ecb1910c0173bbb84f184d966`. Its
+[structured output](../../evidence/p0/2026-10-19T195056Z-vllm-cc-candidate/output.log)
+records 24 focused software tests and all five file hashes (base plus four
+stages). Input bundle SHA-256:
+`da977f3dd6c9b27430b43a15b9d555b2cb5b2049777879aa8bbfc0fb28103a55`.
+This run used `python3 -I scripts/check-engine-candidate.py --record` without
+`--fetch`: it verified the committed, unchanged upstream fixtures offline,
+not fresh public responses. The earlier public-source comparisons remain
+historical evidence. No GPU package import, image build, hardware run or runtime
+activation occurred; status remains BLOCKED and `cpu_offload:false` is unchanged.
+
 ## Remaining Gates
 
 - This is not a blanket no-UVA guarantee. The fourth patch guards one generic
