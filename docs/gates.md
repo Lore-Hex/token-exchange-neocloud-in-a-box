@@ -21,7 +21,7 @@ that request only.
 | G-TR-PROD | Merge or deploy changes to TrustedRouter production (quill-cloud-proxy, quill-router) | per PR | Merging quill-cloud-proxy main deploys the production enclave. |
 | G-TR-CREDITS | Send requests through the TR gateway with an API key | per run | The provider checker runs directly against our own node and needs no gateway. |
 | G-PRICE | Set route prices on TR | per route | Proposals in PLAN.md P6 and P7. |
-| G-DNS | Create DNS names for node endpoints and the catalog | per name | Domain is an open question in PLAN.md §11. |
+| G-DNS | Create DNS names for node endpoints and the catalog | per name | Joseph selected `hixtube.com`; see the [Hixtube launch checklist](operators/hixtube.md). Address records still require an identified, validated target. |
 
 ## Software coordination
 
@@ -40,3 +40,4 @@ In particular, P1 still requires merged P0.T1-T3.
 | Date (UTC) | Gate | Request (PR link) | Cost estimate | Status |
 |---|---|---|---|---|
 | 2026-10-19 | G-HW-RENT | Joseph reports existing HydraHost email concerning eight B200 GPUs; [P0.T2 hardware questionnaire](hardware.md#procurement-and-questionnaire), [PR #2](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/pull/2) | Not quoted | Outreach performed by Joseph; hardware, terms and qualification pending. No rental, spending or further contact approved. |
+| 2026-10-19 | G-DNS | Joseph selected Hixtube, reports delegating `hixtube.com` to GCP, and requested making the provider work; [launch checklist](operators/hixtube.md) | Read-only checks; no new resources | Hixtube naming/domain setup authorized; address publication awaits a validated target. No serving IP, GPU rental, lab project, quota, route price or commercial CC entitlement established by this instruction. No records or production routes changed. |
