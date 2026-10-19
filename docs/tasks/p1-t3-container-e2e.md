@@ -60,7 +60,9 @@ the exact commit in a private repository, and verifies every extracted file
 against its committed blob. It executes `make test-e2e` and the scrubber there,
 not in the working tree. An allowlisted environment excludes inherited Make,
 Git, Go, Python and Docker overrides; Go uses isolated caches, readonly modules,
-`GOENV=off`, `GOWORK=off`, and `go mod download` plus `go mod verify`. Only a
+`GOENV=off`, `GOWORK=off`, exact `GOTOOLCHAIN=go1.27.2`, and `go mod download`
+plus `go mod verify`. Toolchain/module downloads use the public checksum
+database with an isolated cache and no inherited credentials. Only a
 local Unix-socket Docker endpoint is accepted. The original commit ID is
 retained in that private repository, so the harness records the correct SHA.
 
@@ -72,6 +74,13 @@ cleanup records and scrubs operational output through the committed
 nonblocking/no-follow opens, regular-file checks and a bounded read; FIFOs,
 symlinks and oversized records are rejected. The bootstrap recorder/helper
 must themselves match the commit. Uncommitted application files are not used.
+
+The first hardened attempt at source `4fb6c9b` is preserved in
+`evidence/p1/2026-10-19-committed-snapshot-node`. It failed before Docker:
+`GOTOOLCHAIN=local` selected the host's Go 1.24.2, below the committed module's
+Go 1.27.2 requirement. No container or image was created. Exact toolchain
+selection replaces that host-dependent assumption; the failed artifact is
+not overwritten or counted as a passing proof.
 
 ## Isolation and pins
 

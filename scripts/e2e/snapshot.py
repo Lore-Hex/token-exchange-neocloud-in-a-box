@@ -19,7 +19,8 @@ def controlled_env(control):
         "LANG": "C", "LC_ALL": "C", "PYTHONDONTWRITEBYTECODE": "1",
         "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
         "GIT_NO_REPLACE_OBJECTS": "1", "GIT_TEMPLATE_DIR": str(control / "templates"),
-        "GOENV": "off", "GOWORK": "off", "GOTOOLCHAIN": "local", "GOFLAGS": "-mod=readonly",
+        # Exact version matches committed go.mod and the pinned Go build image.
+        "GOENV": "off", "GOWORK": "off", "GOTOOLCHAIN": "go1.27.2", "GOFLAGS": "-mod=readonly",
         "CGO_ENABLED": "0", "GOPATH": str(control / "go"),
         "GOCACHE": str(control / "go-cache"), "GOMODCACHE": str(control / "go-mod"),
         "GOPROXY": "https://proxy.golang.org", "GOSUMDB": "sum.golang.org",

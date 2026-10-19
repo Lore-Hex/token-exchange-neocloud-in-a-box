@@ -166,6 +166,7 @@ def record_proof(relative, output, control, env, revision):
         except (ValueError, OSError, subprocess.SubprocessError):
             run["result"] = "fail"
             run["notes"] += " Output scrubbing failed; raw output was not saved."
+            (output / "output.log").write_text("FAIL: no trusted scrubbed operational output; raw output omitted.\n")
         run["ended_utc"] = utc()
         write_json(output / "run.json", run)
     print("Full software-only container proof:", run["result"], relative.as_posix())

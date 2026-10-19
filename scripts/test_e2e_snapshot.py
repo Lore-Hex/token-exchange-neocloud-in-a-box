@@ -56,6 +56,7 @@ class SnapshotTest(unittest.TestCase):
             self.assertEqual(controlled["GOFLAGS"], "-mod=readonly")
             self.assertEqual(controlled["GOENV"], "off")
             self.assertEqual(controlled["GOWORK"], "off")
+            self.assertEqual(controlled["GOTOOLCHAIN"], "go1.27.2")
             self.assertEqual(controlled["GIT_NO_REPLACE_OBJECTS"], "1")
             for key in ("MAKEFLAGS", "MAKEFILES", "GIT_INDEX_FILE", "GIT_CONFIG_COUNT",
                         "GIT_ALTERNATE_OBJECT_DIRECTORIES", "PYTHONPATH", "DOCKER_HOST"):
@@ -70,7 +71,9 @@ class SnapshotTest(unittest.TestCase):
             self.assertEqual(checked.stdout, b"committed harness ran\n")
             # Editing the original after snapshotting cannot change executed code.
             (root / "main.go").write_text('package main\nfunc main() { panic("concurrent edit") }\n')
-            no_network = {**controlled, "GOPROXY": "off"}
+            # This stdlib-only fixture can use the installed compiler offline;
+            # the actual recorder uses the exact pinned toolchain above.
+            no_network = {**controlled, "GOPROXY": "off", "GOTOOLCHAIN": "local"}
             subprocess.run(["go", "mod", "verify"], cwd=source, env=no_network, check=True, capture_output=True, timeout=60)
             binary = control / "fixture"
             subprocess.run(["go", "build", "-o", str(binary), "."], cwd=source, env=no_network,
