@@ -3,6 +3,21 @@
 Status: **draft v1, 2026-10-18**. Owner: Joseph Perla. Executors: coding agents
 (read [AGENTS.md](AGENTS.md) first).
 
+**Source-corrected documentation, 2026-10-19.** P0.T2 adds
+[architecture](docs/architecture.md), [sizing](docs/sizing.md),
+[hardware](docs/hardware.md) and [threat-model](docs/threat-model.md) contracts.
+B300 planning uses the R595 CC SKU's 270 GB, not the former 288 GB. Complete
+model manifests count all files, not just weight shards (P0.T4 below).
+These are documented facts/design requirements and labelled estimates, not
+hardware validation. Legacy market/benchmark snapshots below are not run-cost
+approvals or our measurements; recheck before acting.
+
+Joseph authorized continued software work and self-merge only after CI is green
+and independent review of the final head is clean. Spending,
+production, releases, settings and contact gates remain. Joseph reports existing
+HydraHost outreach for eight B200 GPUs; hardware is pending, not procured.
+See [gates](docs/gates.md). Phase dependencies are unchanged.
+
 Every fact below that comes from outside this repo has a source in
 [§12](#12-sources). Facts about models, engines, drivers and clouds change
 weekly. Re-check the source before acting on one, and stop if it no longer
@@ -44,10 +59,10 @@ been generally available for HGX B200 since NVIDIA's R590 driver (December
 
 **Start now (human critical path, in parallel with P0–P3).** These have lead
 times measured in weeks:
-1. **Source the confidential server (G-HW-RENT).** No large GPU cloud rents bare
-   metal with confidential computing enabled in the BIOS. Send the
-   questionnaire in [§3.4](#34-where-to-get-the-hardware) to the candidates
-   listed there.
+1. **Source the confidential server (G-HW-RENT).** Joseph has contacted
+   HydraHost; availability and exact TDX/CC configuration remain pending.
+   The questionnaire in [§3.4](#34-where-to-get-the-hardware) is preparation,
+   not authorization for agents to contact additional providers.
 2. **Request a quote for NVIDIA's Enterprise license (G-NVIDIA-LICENSE).**
    NVIDIA's terms require one for commercial use of confidential computing,
    including its attestation services. Development and proof-of-concept use is
@@ -124,8 +139,12 @@ times measured in weeks:
 ## 3. Sizing: how big each node must be
 
 All memory numbers are **estimates** from published sizes. P2 measures the real
-values. Usable HBM per GPU: H200 141 GB, B200 180 GB, B300 288 GB (marketing GB;
-leave about 15 GB per GPU for activations, CUDA graphs and workspace).
+values. NVIDIA's R595 CC SKU table labels H200 141 GB, B200 180 GB and
+**B300 270 GB**, not the former 288 GB planning input
+([R595 v02, pages 5-7](https://docs.nvidia.com/595trd1-trusted-computing-solutions-release-notes.pdf#page=5)).
+These are nominal vendor capacities, not measured usable HBM. The 15 GB/GPU
+activation/graph/workspace reserve is an **estimate**. Unit-consistent
+arithmetic and runtime limitations are in [docs/sizing.md](docs/sizing.md).
 
 ### 3.1 DeepSeek-V4.1-Flash-1017
 
@@ -136,13 +155,16 @@ leave about 15 GB per GPU for activations, CUDA graphs and workspace).
 - **Engram tables must stay in GPU memory on a confidential node.** vLLM's
   default puts them in pinned host memory read over UVA. In CC mode
   `cudaHostRegister` (pinning) is unsupported, and every transfer between the
-  GPU and host memory goes through shared, unencrypted bounce buffers whose
-  access pattern the host can watch. Engram lookups are deterministic from the
-  input, so that pattern leaks the prompt. Tinfoil keeps the tables on the GPU
+  GPU and host memory uses shared bounce-buffer pages carrying encrypted
+  payloads, not plaintext ([NVIDIA whitepaper, Bounce Buffers](https://docs.nvidia.com/nvidia-secure-ai-with-blackwell-and-hopper-gpus-whitepaper.pdf#page=12)).
+  Input-dependent lookup patterns remain a threat even with encrypted payloads;
+  no prompt-recovery rate is claimed here. Tinfoil keeps the tables on the GPU
   (`VLLM_DISABLE_UVA=1`). **Engram offload is forbidden in every confidential
   profile.**
-- **KV cache is tiny:** about 890 B per token. A 1M-token context needs
-  ~0.9 GB, so the KV cache never limits concurrency on these GPUs.
+- **KV estimate:** the original 890 B/token heuristic gives
+  `890 × 1,048,576 / 10^9 = 0.933 GB`. This is not a verified cache layout or
+  unlimited-concurrency guarantee. The released Tinfoil configuration uses
+  `fp8_ds_mla`; see the [source and sensitivity analysis](docs/sizing.md#kv-sensitivity-and-concurrency).
 - **Fit:**
   - **4×B200 (720 GB):** ~128 GB per GPU of weights, ~37 GB per GPU left. One
     replica. This is Tinfoil's confidential configuration.
@@ -190,18 +212,18 @@ leave about 15 GB per GPU for activations, CUDA graphs and workspace).
 
 | Component | Requirement | Source / why |
 |---|---|---|
-| GPUs | HGX 8×B200 (8×B300 also fine), air-cooled HGX board | NVIDIA's CC SKU list; GB200/GB300 NVL racks are **not** CC-capable today |
+| GPUs | HGX 8×B200, air-cooled; B300 is a separately qualified alternative | [Mode matrix](docs/hardware.md#gpu-mode-matrix); do not infer support for other cooling variants or GB200/GB300 racks |
 | GPU CC mode | Blackwell multi-GPU passthrough CC: up to 8 GPUs per VM, NVLink encrypted, CPU↔GPU via encrypted bounce buffers | GA for HGX B200 in R590 (driver 590.48.01); R595 adds B300 |
 | CPU | Intel Xeon with TDX: 5th Gen Emerald Rapids (TDX module 1.5.x) or 6th Gen Granite Rapids (2.0.x) | NVIDIA CC deployment guide v7.1; canonical/tdx |
 | BIOS | TME, TME-MT, TDX, SEAM loader and SGX enabled; non-zero TDX key split; 46-bit physical-address limit off | NVIDIA CC deployment guide v7.1 |
-| Host OS | Ubuntu 26.04 LTS (TDX host support built in; kernel ≥ 6.17), QEMU ≥ 10.1 | Canonical; NVIDIA R595 release notes (validated Intel hosts on kernel 6.17+) |
-| Driver and firmware | NVIDIA R595 trusted-computing release (driver 595.x, CUDA 13.2), GPU firmware per those release notes; Fabric Manager placed where NVIDIA's deployment guide puts it (the guide installs it on the host) | NVIDIA R595 TRD1 release notes; CC deployment guide |
+| Host OS | Ubuntu 26.04 LTS is our intended host; exact kernel/QEMU/OVMF combination must be pinned and qualified | Canonical TDX setup is not NVIDIA validation of this combination; R595 lists Intel Ubuntu 25.10 / kernel 6.17.0+ |
+| Driver and firmware | R595 reference: driver 595.58.03, CUDA 13.2; exact board firmware still needs selection | [Hardware sources](docs/hardware.md#host-guest-and-fabric-ownership); Blackwell Fabric Manager is on host in the guide, Hopper PPCIe's is in guest |
 | Guest OS | Ubuntu 24.04 (NVIDIA-validated guest) | NVIDIA R595 release notes |
 | RAM | ≥ 2 TB DDR5 | TDX VM memory, weight staging |
 | Disk | ≥ 15 TB NVMe | weight caches for both models plus verity trees |
 | Network | ≥ 1×100 GbE | weight downloads; inference traffic is small |
 | Out of band | BMC with Redfish/IPMI, plus BIOS access or a provider that sets the BIOS profile above for us | TDX settings, power control |
-| Power | ~14.3 kW maximum per node (DGX B200 figure) | colocation sizing |
+| Power | 14.3 kW is an illustrative budget assumption, not the chosen server's specification | Obtain OEM power/cooling requirements; [estimate](docs/sizing.md#host-storage-and-cost-estimates) |
 
 What CC mode forbids or changes, and the engines must respect:
 - no GPUDirect RDMA, MPS, MIG or `cudaHostRegister`;
@@ -218,7 +240,8 @@ one CC VM owns the whole node.
 
 ### 3.4 Where to get the hardware
 
-**Hyperscalers:** none offers multi-GPU confidential VMs.
+**Lab scope:** use only the documented configuration selected for each phase;
+the following survey is not proof of universal cloud availability or absence.
 - GCP has `a3-highgpu-1g` (1×H100, TDX) and `g4-standard-48` (1× RTX PRO 6000,
   SEV).
 - Azure has NCCadsH100v5 (1×H100, SEV-SNP).
@@ -301,10 +324,16 @@ confidential setup, and DeepSeek-V4.1-Flash is slow on Hopper.
 
 | Register | Covers | Who computes the expected value |
 |---|---|---|
-| MRTD | virtual firmware (TDVF/OVMF). Bare metal: our pinned OVMF build. GCP: Google's firmware | bare metal: `nib measure`; GCP: Google's signed launch endorsement or the observed value, recorded |
+| MRTD | initial TD construction including virtual firmware (TDVF/OVMF); profile-specific | bare metal: `nib measure`; GCP: verified applicable endorsement. An observed value is an observation-only lab pin, not an independently predicted or endorsed measurement |
 | RTMR0 | firmware configuration and ACPI tables. Depends on the VM shape (vCPUs, memory, devices) and the QEMU version | `nib measure` per hardware profile (fixed QEMU command line) |
 | RTMR1, RTMR2 | the boot path: our Unified Kernel Image (kernel, initrd, command line). The command line carries the dm-verity root hash of the read-only root filesystem | `nib measure` from the built image |
 | RTMR3 | runtime events (reserved; not used in v1) | — |
+
+This is the intended mapping: P3/P5 must replay the actual event log and prove
+the mapping for each firmware/launch profile. An observed quote must not be
+used as its own independent prediction. Observation-only lab results do not
+satisfy prediction/reproducibility criteria and cannot silently become release
+acceptance policy. See [measurement contract](docs/architecture.md#measurement-contract).
 
 The **root filesystem is read-only and dm-verity protected**, and its root hash
 is in the measured kernel command line. That one value therefore pins
@@ -316,13 +345,19 @@ the egress allowlist and `trcs`.
 profile).** Changing any of them produces a new measurement, which TR pins
 explicitly, the same way it pins PCR0 for its AWS enclaves.
 
-**Data that never exists outside the VM in plaintext:**
+**Data required to remain within the node's private CPU/GPU boundary** (the
+buyer and trusted gateway necessarily also handle request content):
 - prompts and completions;
 - the TLS private key;
 - KV cache and any engine scratch.
 
 Model weights are public. We protect their **integrity**, not their secrecy:
-dm-verity over the weight volume detects any host tampering on every read.
+dm-verity verifies weight blocks on device reads. Release rootfs and weight
+mounts must forbid `check_at_most_once` and `ignore_corruption`
+([kernel documentation](https://docs.kernel.org/admin-guide/device-mapper/verity.html)).
+Post-mount bit-flip tests must force a new device read, including after a prior
+successful read; no unverified cache path may bypass the mapping. Verity does
+not itself prevent rollback to an older accepted release.
 
 **GPU attestation.** Two layers, both required:
 1. At boot, `nib-gpu-gate` collects evidence for every GPU (and NVSwitch where
@@ -333,10 +368,23 @@ dm-verity over the weight volume detects any host tampering on every read.
    relying party's nonce (`gpu_nonce` per the protocol), so TR can re-verify
    itself.
 
+The verifier must authenticate every expected device's vendor report, nonce,
+identity, accepted mode/firmware, RIM and revocation status, plus required
+fabric evidence. A JSON envelope nonce, claimed success or CLI exit code zero
+is not GPU verification. Until the real P3 appraiser exists, production
+verification returns fail/partial with GPU verification incomplete; positive
+fake results exist only in `nibfake` builds and never imply confidentiality.
+No runtime bypass or unsafe injectable verifier may turn a release verdict green.
+
 Tooling: NVIDIA's C++ Attestation SDK and its `nvattest` CLI, pinned. nvtrust's
 Python SDK and local verifier are deprecated. RIM and OCSP fetches go to NVIDIA
 services, and an NGC API key is advised. Commercial use of these services needs
 NVIDIA's Enterprise license (G-NVIDIA-LICENSE).
+The C++ SDK source itself is Apache-2.0; source licensing is distinct from
+commercial CC services/driver conditions. The reviewed release `2026.10.02`
+lists `nvattest` 2.0.0; use a pinned legacy v1 evidence contract initially,
+not experimental CoRIM v2 without review. See
+[tooling sources and licensing](docs/hardware.md#licenses-and-action-gates).
 
 ## 6. Repository layout (created in P0)
 
@@ -376,7 +424,7 @@ license: MIT
 served_model_name: deepseek-v4.1-flash-1017   # native id on /v1/models
 tr_model_id: deepseek/deepseek-v4.1-flash-1017
 files: files.sha256                          # "<sha256>  <bytes>  <path>" per file, sorted
-total_bytes: 510296708312
+total_bytes: 510311045295                     # all files, not only weight shards
 weights_volume:                              # deterministic erofs image + dm-verity (P5)
   format: erofs
   verity_root_hash: <hex>                    # filled in P5; empty until then
@@ -466,8 +514,15 @@ a task is blocked on a gate, move to the next unblocked task.
   - `nib model check-remote <pack>` re-fetches and compares.
   - Engine profiles copy the upstream recipes (vLLM recipes repo, SGLang
     cookbook), with a source comment per flag.
-  - AC: `nib model check-remote` passes for both, and `total_bytes` equals
-    510,296,708,312 and 755,632,050,320.
+  - AC: `nib model check-remote` passes for both, and complete-manifest
+    `total_bytes` equals **510,311,045,295** and **755,663,689,302** at revisions
+    `1bae0e1088993b9b82de08f59de5be5a34e42170` and
+    `ba32f8c19c8738e2c57c71798c601d477a7bf844`, respectively. The old values
+    510,296,708,312 and 755,632,050,320 are **weight shard subtotals**, not pack
+    totals. Preserve non-weight files and hash them; metadata arithmetic alone
+    is not pack validation. Primary pinned trees and arithmetic are in
+    [docs/sizing.md](docs/sizing.md#units-and-source-bytes), based on P0.T4's
+    source audit. This correction does not itself mark P0.T4 accepted.
 - **T5. Evidence tooling.**
   - `nib evidence new <phase> <slug>` scaffolds `run.json`.
   - `scripts/scrub-secrets.sh` redacts tokens, keys and IPs listed in a local
@@ -485,8 +540,9 @@ a task is blocked on a gate, move to the next unblocked task.
     builds must not contain it; CI checks the binary's symbols.
   - AC: unit tests; the release build contains no `nibfake` symbols.
 - **T2. trcs integration.**
-  - Build `trcs` from a pinned commit of trustedrouter-confidential-stack as a
-    Go module dependency.
+  - Build `trcs` as a pinned, hash-checked binary dependency from
+    trustedrouter-confidential-stack. Its implementation is internal Go
+    packages, not an assumed public library API; do not copy them here.
   - The changes trcs needs are pull requests **to that repo**, one feature
     each, with tests:
     - (a) an `X-Request-Id` response header;
@@ -494,21 +550,35 @@ a task is blocked on a gate, move to the next unblocked task.
       `Retry-After`, and pass the engine's 503 through with `Retry-After`;
     - (c) evidence for N GPUs plus NVSwitches as separate tagged bundles;
     - (d) a health endpoint that reveals nothing about requests.
+    - (e) fixed route-class logging instead of user-controlled raw URL paths,
+      including error/debug paths, with adversarial-path privacy tests.
+    - (f) any fake TSM/agent backend must be explicitly fake and compile-tagged
+      out of releases, paired only with a fake verifier. Do not export unsafe
+      verifier injection as a production API.
   - AC: each trcs PR merged with tests; this repo pins the merge commit.
 - **T3. `make test-e2e`.**
   - Runs in a container: fake engine (an OpenAI-compatible stub with streaming,
-    usage and errors), fake TSM evidence, fake GPU bundles, real `trcs`.
+    usage and errors), explicit fake evidence sources, fake GPU bundles, real
+    pinned `trcs`, and a `nibfake` verifier.
   - Runs `trustedrouter-provider-check --tier 4` against it, then `nib verify`.
-  - AC: provider-check exits 0; `nib verify` passes; CI runs it on every PR.
+  - AC: provider-check exits 0; the `nibfake` verifier passes; CI runs it on
+    every PR. This is fake-mode integration only. The release verifier must
+    fail/return partial until all real appraisal requirements are implemented.
 - **T4. `nib verify` v0.**
   - Fetch evidence on the same TLS connection with a fresh nonce.
   - Check `report_data` = SHA-256(SPKI) ‖ SHA-256("tr-attestation/v0"‖0x00‖nonce)
     using the protocol's golden vectors.
   - Parse the TDX quote and verify its signature chain against Intel PCS
     collateral with `github.com/google/go-tdx-guest`.
+    Enable `GetCollateral` and `CheckRevocations` explicitly (both default off),
+    retain TCB-status checking, and enable `EnableTdDebugCheck` and
+    `EnableTdMigratableCheck` in policy validation. Use nonempty expected report
+    data/measurement policy, supported quote-format checks and bounded,
+    context-aware collateral retrieval. Source: [verification contract](docs/architecture.md#evidence-and-relying-party-verification).
   - Compare MRTD/RTMR0–2 to a release manifest.
   - GPU bundles: parse and check binding to `gpu_nonce`; real signature
-    verification arrives in P3.
+    verification arrives in P3. This structural check never grants a production
+    GPU-verified/confidential verdict; positive fake testing is `nibfake` only.
   - AC: mutation tests, one per field, each of which must fail verification:
     wrong SPKI, stale nonce, wrong MRTD, each wrong RTMR, a truncated quote and
     a wrong GPU nonce.
@@ -521,7 +591,9 @@ a task is blocked on a gate, move to the next unblocked task.
     file server passes in e2e.
 
 **Exit P1:** `make test-e2e` green in CI with provider-check Tier 4 and
-`nib verify`, and all mutation tests failing as designed.
+`nibfake` verification, and all mutation tests failing as designed. No P1 fake
+or partial result claims confidentiality or hardware validation; the release
+verifier remains fail-closed while GPU cryptographic appraisal is incomplete.
 
 ### P2: Model bring-up on GCP, non-confidential
 
@@ -624,6 +696,11 @@ Gates: G-GCP-QUOTA (1× H100 Spot), G-NGC, G-RUN.
     Google's firmware endorsement (or the recorded observed value, flagged as
     such), RTMR1/2 against `nib measure`, and GPU evidence (certificate chain
     to NVIDIA's root, RIM measurements, OCSP).
+    Observation-only MRTD pins need explicit lab-policy acceptance, never count
+    as independent prediction, and cannot silently become production policy.
+    Require the enabled Intel collateral/CRL/debug/non-migratable policy checks
+    from P1.T4 and authenticated vendor results for every assigned GPU. Unknown,
+    missing or failed appraisal stays fail/partial, not confidential success.
   - AC: passes against the live node. Each mutation from P1.T4, replayed
     against real evidence, fails.
 - **T5. `nib measure`.**
@@ -694,7 +771,9 @@ Gates:
   - A BIOS checklist for the actual server vendor: TME, TME-MT, TDX, SEAM
     loader, SGX, a non-zero TDX key split, the 46-bit physical-address limit
     off, VT-d/IOMMU on.
-  - Host OS Ubuntu 26.04 LTS (kernel ≥ 6.17, QEMU ≥ 10.1). Set up Intel QGS and
+  - Qualify the intended Ubuntu 26.04 host and pin its exact kernel/QEMU/OVMF
+    against the actual hardware; do not label it NVIDIA-validated solely from
+    R595's Ubuntu 25.10 reference. Set up Intel QGS and
     PCCS (quote generation; needs G-INTEL-PCS).
   - Driver and GPU firmware at the R595 trusted-computing versions. Use NVIDIA's
     tool to put **all 8 GPUs** into Blackwell multi-GPU CC mode (on the H200
@@ -815,13 +894,13 @@ $1.80/$5.75).
 
 | # | Decision | Why | Revisit when |
 |---|---|---|---|
-| D1 | One node = one TDX VM = one model, single machine | multi-GPU CC needs the whole node in one VM; multi-node CC is impractical | Blackwell multi-node CC is documented |
-| D2 | Hardware SKU 8×B200 + TDX Xeon; 8×H200 fallback | runs both models; FP4 kernels are Blackwell-only | B300 price/availability |
-| D3 | Bare metal: Canonical TDX host stack + our own QEMU launch. Not dstack, not Kubernetes/CoCo | smallest TCB we control; one image across GCP and bare metal; no external KMS | fleet of 10+ nodes (P9) |
-| D4 | Guest image: mkosi, Ubuntu 24.04, UKI + dm-verity rootfs, one image per (pack, engine, profile) | the measurement identifies exactly what runs | — |
-| D5 | Weights: deterministic erofs + dm-verity, root hash in the measured image | integrity on every read; no check-then-use gap | — |
-| D6 | Engine: vLLM default for both models; SGLang only by ADR with >25% win | one engine in the TCB; vLLM publishes advisories; Tinfoil's CC config is vLLM | P2 results |
-| D7 | Attestation: `tr-attestation/v0` via `trcs`; GPU gate at boot plus per-request GPU evidence | reuse our protocol; TR verifies generically | P4.T1 |
+| [D1](docs/decisions/0001-one-node-one-trust-domain.md) | One node = one TDX VM = one model, single machine | deliberate project scope, not a universal whole-server CC requirement | reviewed multi-node confidential design |
+| [D2](docs/decisions/0002-hardware-profile.md) | Hardware target 8×B200 + TDX Xeon; separately qualified 8×H200 fallback | candidate fit for both models; Hopper needs its own kernels/fabric tests | B300 price/availability |
+| [D3](docs/decisions/0003-bare-metal-launch.md) | Canonical TDX host stack + explicit QEMU launch, no default dstack/Kubernetes/CoCo | fewer configuration paths to audit; image portability remains unvalidated; no external KMS | fleet scale (P9) |
+| [D4](docs/decisions/0004-measured-guest-image.md) | mkosi, Ubuntu 24.04, UKI + verified rootfs per (pack, engine, profile, variant) | bind effective executable/configuration inputs through measured boot | image design changes |
+| [D5](docs/decisions/0005-verified-model-volume.md) | deterministic erofs + dm-verity; model root in measured image | verified device reads; no unverified alternate path or permissive verity options | equivalent integrity design |
+| [D6](docs/decisions/0006-inference-engine.md) | vLLM default; SGLang only by ADR with >25% measured win at equal latency/quality/security | one default engine to review | P2 results |
+| [D7](docs/decisions/0007-attestation-protocol.md) | pinned trcs binary; boot GPU gate plus fresh evidence per attestation request | reuse protocol; full CPU/GPU/fabric cryptography required for confidential acceptance | P4.T1 |
 
 ## 10. Risks
 
