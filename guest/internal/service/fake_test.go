@@ -306,6 +306,14 @@ func TestStrictFakeJSON(t *testing.T) {
 			t.Fatalf("accepted %q", input)
 		}
 	}
+	for _, input := range []string{`{"\u017fchema":"nib.guest-fake/v1"}`, `{"schema":"wrong","\u017fchema":"nib.guest-fake/v1"}`} {
+		var v struct {
+			Schema string `json:"schema"`
+		}
+		if strictJSON([]byte(input), &v) == nil {
+			t.Fatal("accepted Unicode case alias")
+		}
+	}
 	f := newFixture(t)
 	f.write("guest.json", bytes.Repeat([]byte(" "), configLimit+1))
 	if s, err := openFakeConfig(f.path); err == nil {

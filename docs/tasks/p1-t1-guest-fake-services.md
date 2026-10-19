@@ -44,6 +44,11 @@ Initial attempts hit sandbox denials for the default Go/staticcheck caches and
 loopback `bind`; checks were rerun with writable cache/local socket access.
 No test was skipped or relaxed.
 
+A regression test demonstrated that Go accepts Unicode case aliases for ASCII
+struct fields even after lowercase-only validation. The fixture parser now
+requires ASCII field names; the alias and duplicate-alias tests reject that
+input. This hardening remains compiled only under `nibfake`.
+
 ## Not done / follow-ups
 
 - Parent reports PR 2 CI green and merge in progress. This branch retains the

@@ -170,8 +170,15 @@ func jsonValue(d *json.Decoder, depth int) error {
 		if delim == '{' {
 			key, err := d.Token()
 			name, ok := key.(string)
-			if err != nil || !ok || seen[name] || name != strings.ToLower(name) {
+			if err != nil || !ok || seen[name] {
 				return errors.New("duplicate or invalid JSON key")
+			}
+			// encoding/json also folds Unicode aliases, such as long s to S.
+			// This private format uses lowercase ASCII field names only.
+			for _, c := range name {
+				if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' {
+					return errors.New("invalid JSON key")
+				}
 			}
 			seen[name] = true
 		}
