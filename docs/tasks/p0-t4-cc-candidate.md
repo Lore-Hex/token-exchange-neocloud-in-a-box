@@ -122,7 +122,14 @@ The recorder reads regular blobs directly from the pinned local Git commit,
 not the working tree, an archive with attributes, ignored bytecode or imports
 from ambient paths. Git configuration/environment overrides and replacement
 objects are disabled. Executing bootstrap bytes must match the committed
-recorder. A deterministic length-framed bundle digest binds the runner, tests
+recorder. Git lazy fetching and all Git transport protocols are disabled, with
+terminal prompts off: a missing partial-clone blob fails locally rather than
+contacting its promisor remote. This also rejects transports on older Git
+versions that do not recognize the lazy-fetch control. The local-helper positive
+control test proves the fixture attempts a fetch without these guards; it never
+contacts a remote endpoint. Explicit `--fetch` remains the separate, fixed and
+bounded urllib source comparison described below.
+A deterministic length-framed bundle digest binds the runner, tests
 and candidate inputs; this is a sparse input digest, not a whole-repository
 archive digest or attestation of the compiler/OS. Installed Python, Git, OS and
 the local trusted checkout remain trusted. Stop other writers during recording.
@@ -172,6 +179,8 @@ This run used `python3 -I scripts/check-engine-candidate.py --record` without
 not fresh public responses. The earlier public-source comparisons remain
 historical evidence. No GPU package import, image build, hardware run or runtime
 activation occurred; status remains BLOCKED and `cpu_offload:false` is unchanged.
+This record predates the missing-promisor-blob transport guard and is retained
+as history, not proof of that additional offline property.
 
 ## Remaining Gates
 

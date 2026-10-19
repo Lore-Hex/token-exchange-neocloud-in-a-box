@@ -485,6 +485,46 @@ class CandidateTest(unittest.TestCase):
             self.assertEqual(revision, original)
             self.assertEqual(bundle, BUNDLE)
 
+    def test_missing_promisor_blob_never_invokes_transport(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            CHECKER.git(root, "init", "--quiet")
+            for name, data in BUNDLE.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+            CHECKER.git(root, "add", ".")
+            CHECKER.git(root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                        "-c", "commit.gpgsign=false", "commit", "-qm", "fixture")
+            missing = CHECKER.DIRECTORY + "/base/" + CHECKER.PATHS[0]
+            oid = CHECKER.git(root, "rev-parse", "HEAD:" + missing).decode().strip()
+            (root / ".git/objects" / oid[:2] / oid[2:]).unlink()
+            marker, helper = root / "transport-called", root / "transport.py"
+            helper.write_text("from pathlib import Path\nPath(" + repr(str(marker)) + ").touch()\n"
+                              "raise SystemExit(1)\n")
+            CHECKER.git(root, "config", "remote.origin.url", "ext::" + sys.executable + " -I -B " + str(helper))
+            CHECKER.git(root, "config", "remote.origin.promisor", "true")
+            CHECKER.git(root, "config", "remote.origin.partialclonefilter", "blob:none")
+            CHECKER.git(root, "config", "protocol.ext.allow", "always")
+            protected = CHECKER.tool_env()
+            self.assertEqual(protected["GIT_NO_LAZY_FETCH"], "1")
+            self.assertEqual(protected["GIT_ALLOW_PROTOCOL"], "")
+            self.assertEqual(protected["GIT_TERMINAL_PROMPT"], "0")
+            # The transport deny also protects Git versions without lazy-fetch control.
+            for ignored in (None, "GIT_NO_LAZY_FETCH"):
+                env = {key: value for key, value in protected.items() if key != ignored}
+                with patch.object(CHECKER, "tool_env", return_value=env), self.assertRaises(ValueError):
+                    CHECKER.committed_bundle(root)
+                self.assertFalse(marker.exists())
+                self.assertFalse((root / "evidence").exists())
+            # Positive control: allow only this local helper, never a remote endpoint.
+            env = {key: value for key, value in protected.items()
+                   if key not in ("GIT_NO_LAZY_FETCH", "GIT_ALLOW_PROTOCOL")}
+            result = subprocess.run(["git", "-C", str(root), "cat-file", "-s", oid],
+                                    env=env, capture_output=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(marker.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

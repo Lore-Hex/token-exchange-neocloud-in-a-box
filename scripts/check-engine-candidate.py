@@ -67,9 +67,11 @@ def read_regular(path, limit=LIMIT):
 
 def tool_env():
     # No inherited Git replacements/config/index, Python path, proxy or credentials.
+    # Missing partial-clone objects must fail locally, never trigger a transport.
     return {"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", "HOME": "/nonexistent",
             "LANG": "C", "LC_ALL": "C", "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_NO_REPLACE_OBJECTS": "1"}
+            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_NO_LAZY_FETCH": "1", "GIT_ALLOW_PROTOCOL": "", "GIT_TERMINAL_PROMPT": "0"}
 
 
 def git(root, *args, input=None):
