@@ -8,6 +8,11 @@ toolkit supplies the inference endpoint, not a second business platform.
 The full confidential GPU node is still in development. No deployment command
 in this guide grants a confidential, E2EE or ZDR classification.
 
+The [local Linux proof](../../evidence/p3/2026-10-19-provider-neutral-linux/run.json)
+exercises configured provider metadata and passes all 18 service checks with
+real Qwen inference, streaming usage, retirement and shutdown. It runs offline
+in local Docker, not on a public node; it does not test payment settlement.
+
 ## 1. Configure Your Endpoint
 
 Keep deployment files outside Git. Start from
