@@ -4,6 +4,7 @@ import datetime
 import json
 import os
 from pathlib import Path
+import re
 import ssl
 import subprocess
 import sys
@@ -49,7 +50,7 @@ class ServiceTests(unittest.TestCase):
         for public in (False, True):
             with self.subTest(public=public), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                for name, data in (("cert", b"mock-cert"), ("key", b"mock-key"), ("api-key", b"x" * 32),
+                for name, data in (("cert", b"mock-cert"), ("key", b"mock-key"), ("api-key", b"x" * 64),
                                    ("provider.json", provider)):
                     (root / name).write_bytes(data)
                     (root / name).chmod(0o600)
@@ -257,12 +258,42 @@ class ServiceTests(unittest.TestCase):
                 service.private_input(root / "fifo", root / "copy", secret=False, limit=64)
 
     def test_auth_requires_one_nontrivial_key(self):
-        for key in (b"x" * 32, b"aB9_-" * 20 + b"\n", b"x" * 256):
+        for key in (b"x" * 64, b"x" * 64 + b"\n", b"aB9_-" * 20 + b"\n", b"x" * 256, b"x" * 256 + b"\n"):
             service.validate_api_key(key)
-        for key in (b"", b"short", b"x" * 257, b" " + b"x" * 32,
-                    b"x" * 32 + b"\r\n", b"x" * 32 + b",another-key", b"x" * 32 + b"\n\n"):
+        for key in (b"", b"short", b"x" * 32, b"x" * 63, b"x" * 257, b" " + b"x" * 64,
+                    b"x" * 64 + b"\r\n", b"x" * 64 + b",another-key", b"x" * 64 + b"\n\n",
+                    b"x" * 64 + b"=", b"x" * 64 + b"\x00"):
             with self.assertRaises(service.pilot.PilotError):
                 service.validate_api_key(key)
+
+    def test_documented_key_generation_is_private_and_non_overwriting(self):
+        doc = (service.ROOT / "docs/operators/trustedrouter.md").read_text()
+        section = doc.split("### Dedicated Long API Key\n", 1)[1]
+        command = section.split("```sh\n", 1)[1].split("```", 1)[0]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            key_file = root / "trustedrouter-inference.key"
+
+            def generate():
+                return subprocess.run(["sh", "-c", "umask 000\n" + command], cwd=root,
+                                      capture_output=True, timeout=10)
+
+            result = generate()
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, b"")
+            key = key_file.read_bytes()
+            self.assertTrue(re.fullmatch(rb"[0-9a-f]{64}\n", key) is not None)
+            self.assertEqual(key_file.stat().st_mode & 0o777, 0o600)
+            service.validate_api_key(key)
+            result = generate()
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(key_file.read_bytes() == key)
+            self.assertTrue(key.strip() not in result.stdout + result.stderr)
+            key_file.rename(root / "existing-key")
+            key_file.symlink_to(root / "existing-key")
+            result = generate()
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue((root / "existing-key").read_bytes() == key)
 
     def test_public_mode_changes_only_tls_front_door(self):
         front = service.pilot.shim_command("trcs", 8443, 8000, "cert", "key", host="0.0.0.0")

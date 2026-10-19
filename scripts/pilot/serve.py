@@ -46,8 +46,8 @@ def private_input(source, target, *, secret, limit):
 
 
 def validate_api_key(value):
-    # One key, no alternate authentication syntax or whitespace-delimited extras.
-    pilot.require(re.fullmatch(rb"[A-Za-z0-9_-]{32,256}\n?", value) is not None,
+    # One long key; generate from at least 32 random bytes, not a password.
+    pilot.require(re.fullmatch(rb"[A-Za-z0-9_-]{64,256}\n?", value) is not None,
                   "api-key-format")
 
 

@@ -19,7 +19,7 @@ import (
 
 func TestCLIRequiresExplicitProviderConfiguration(t *testing.T) {
 	keyFile := filepath.Join(t.TempDir(), "api-key")
-	if err := os.WriteFile(keyFile, []byte("synthetic-pilot-key-not-a-real-credential\n"), 0600); err != nil {
+	if err := os.WriteFile(keyFile, []byte(strings.Repeat("synthetic-test-", 5)+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	base := []string{"--api-key-file", keyFile, "--input-price", "0.10", "--output-price", "0.20"}
@@ -80,6 +80,24 @@ func TestCLIRequiresExplicitProviderConfiguration(t *testing.T) {
 	}
 	if _, err := configuredHandler(append(args, "--public", "--retirement-at", cutoff)); err == nil {
 		t.Fatal("public mode accepted the onboarding example")
+	}
+}
+
+func TestCLIKeyFileLengthAndNewline(t *testing.T) {
+	keyFile := filepath.Join(t.TempDir(), "api-key")
+	args := []string{"--api-key-file", keyFile, "--provider-config", "../../examples/provider.json",
+		"--input-price", "0.10", "--output-price", "0.20"}
+	for _, size := range []int{32, 63, 64, 256, 257} {
+		for _, suffix := range []string{"", "\n", "\r\n", "\n\n"} {
+			if err := os.WriteFile(keyFile, []byte(strings.Repeat("x", size)+suffix), 0600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := configuredHandler(args)
+			valid := size >= 64 && size <= 256 && (suffix == "" || suffix == "\n")
+			if (err == nil) != valid {
+				t.Fatal("CLI key file validation disagrees with documented format")
+			}
+		}
 	}
 }
 

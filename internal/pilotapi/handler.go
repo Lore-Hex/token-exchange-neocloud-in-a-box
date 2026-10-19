@@ -25,6 +25,7 @@ const MaxOutput = 256
 const ContextLength = 4096
 
 var pricePattern = regexp.MustCompile(`^(0|[1-9][0-9]{0,5})(\.[0-9]{1,6})?$`)
+var apiKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{64,256}$`)
 
 // Catalog requires explicit prices; absent or malformed prices never become free.
 func Catalog(provider ProviderConfig, inputPrice, outputPrice string, retirement time.Time) ([]byte, error) {
@@ -73,7 +74,7 @@ type Handler struct {
 // New fixes the backend to loopback. Neither requests nor environment variables
 // can supply an alternate destination for provider credentials or prompt bytes.
 func New(provider ProviderConfig, key, inputPrice, outputPrice, retirementAt string) (*Handler, error) {
-	if !regexp.MustCompile(`^[A-Za-z0-9_-]{32,256}$`).MatchString(key) {
+	if !apiKeyPattern.MatchString(key) {
 		return nil, errors.New("invalid pilot key")
 	}
 	retirement, err := parseRetirement(retirementAt, time.Now())

@@ -13,12 +13,27 @@ import (
 	"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/catalog"
 )
 
-const testKey = "local-pilot-test-key-not-a-real-credential"
+const testKey = "local-pilot-test-key-not-a-real-credential-only-for-synthetic-tests"
 const requestBody = `{"model":"qwen/qwen3-0.6b","messages":[{"role":"user","content":"PONG"}]}`
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestAPIKeyLengthAndSyntax(t *testing.T) {
+	for _, key := range []string{strings.Repeat("a", 64), strings.Repeat("aB9_-", 20), strings.Repeat("b", 256)} {
+		if _, err := New(testProvider(), key, "0.1", "0.1", ""); err != nil {
+			t.Fatal("valid key shape rejected")
+		}
+	}
+	for _, key := range []string{"", "short", strings.Repeat("a", 32), strings.Repeat("a", 63),
+		strings.Repeat("a", 257), " " + testKey, testKey + "\n", testKey + "\r\n",
+		testKey + ",another-key", testKey + "=", testKey + "\x00"} {
+		if _, err := New(testProvider(), key, "0.1", "0.1", ""); err == nil {
+			t.Fatal("invalid key shape accepted")
+		}
+	}
+}
 
 func TestCatalogExactPricesAndSchema(t *testing.T) {
 	data, err := Catalog(testProvider(), "0.10", "0.20", time.Time{})
