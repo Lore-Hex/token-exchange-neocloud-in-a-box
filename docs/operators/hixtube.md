@@ -10,8 +10,9 @@ using this brand or domain.
 | Provider slug | `hixtube` |
 | Public site | `hixtube.com` |
 | First-node API base | `https://api.hixtube.com/v1` (planned, not live) |
-| First model | `deepseek/deepseek-v4.1-flash-1017` |
-| Native first-model ID | `deepseek-v4.1-flash-1017` |
+| First pilot | `qwen/qwen3-0.6b`, local real CPU inference, not listed |
+| First large production target | `deepseek/deepseek-v4.1-flash-1017` |
+| Native large-model ID | `deepseek-v4.1-flash-1017` |
 | Second model | `z-ai/glm-5.3`, on a separately validated node |
 | Current launch status | Not listed; no validated confidential inference node |
 
@@ -19,6 +20,11 @@ The API and site have different trust requirements. The site can serve public
 documentation and a catalog; it must not receive inference requests. The API
 must terminate TLS **inside the attested confidential VM**. A DNS record, ordinary
 web certificate, or successful health check is not evidence of that property.
+
+Joseph's 2026-10-19 update prioritizes a [small real Qwen pilot](qwen-pilot.md)
+before renting the large-model node. Hixtube must have its own cloud project,
+service accounts, credentials, network and resources. Sharing the Apache-2.0
+toolkit is fine; sharing TrustedRouter production infrastructure is not.
 
 ## Check the domain
 
