@@ -8,6 +8,7 @@ using this brand or domain.
 |---|---|
 | Provider display name | Hixtube |
 | Provider slug | `hixtube` |
+| Dedicated GCP project | `hixtube-neocloud` (active, billing disabled; no serving node) |
 | Public site | `hixtube.com` |
 | First-node API base | `https://api.hixtube.com/v1` (planned, not live) |
 | First pilot | `qwen/qwen3-0.6b`, local real CPU inference, not listed |
@@ -25,6 +26,11 @@ Joseph's 2026-10-19 update prioritizes a [small real Qwen pilot](qwen-pilot.md)
 before renting the large-model node. Hixtube must have its own cloud project,
 service accounts, credentials, network and resources. Sharing the Apache-2.0
 toolkit is fine; sharing TrustedRouter production infrastructure is not.
+
+The [first committed-source Qwen run](../../evidence/p3/2026-10-19-qwen-local-1/run.json)
+passed [17 provider checks](../../evidence/p3/2026-10-19-qwen-local-1/output.log),
+authenticated generation, usage accounting, backend-failure propagation and
+cleanup. It was a local CPU test, not a public service or attestation proof.
 
 ## Check the domain
 
