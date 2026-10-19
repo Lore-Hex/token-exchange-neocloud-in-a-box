@@ -102,11 +102,15 @@ def retirement_deadline(value, *, public):
     return cutoff, started + remaining
 
 
+def retirement_reached(retirement):
+    return retirement is not None and (time.time() >= retirement[0] or time.monotonic() >= retirement[1])
+
+
 def supervise(processes, shutdown, *, max_seconds, health_check, retirement=None):
     deadline = time.monotonic() + max_seconds
     next_health = time.monotonic()
     while not shutdown.is_set():
-        if retirement is not None and (time.time() >= retirement[0] or time.monotonic() >= retirement[1]):
+        if retirement_reached(retirement):
             return  # Normal retirement drains the existing streams via ExitStack.
         pilot.require(all(process.poll() is None for process in processes), "service-exited")
         pilot.require(time.monotonic() < deadline, "run-duration-exceeded")
@@ -115,6 +119,8 @@ def supervise(processes, shutdown, *, max_seconds, health_check, retirement=None
                 healthy = health_check()
             except (OSError, http.client.HTTPException):
                 healthy = False
+            if retirement_reached(retirement):
+                return  # A health probe may cross the API's retirement boundary.
             pilot.require(healthy, "service-unhealthy")
             next_health = time.monotonic() + 10
         shutdown.wait(0.1)
