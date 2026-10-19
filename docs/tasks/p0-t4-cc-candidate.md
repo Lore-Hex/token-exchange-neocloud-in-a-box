@@ -182,6 +182,14 @@ activation occurred; status remains BLOCKED and `cpu_offload:false` is unchanged
 This record predates the missing-promisor-blob transport guard and is retained
 as history, not proof of that additional offline property.
 
+The [transport-hardened offline run](../../evidence/p0/2026-10-19T195509Z-vllm-cc-candidate/run.json)
+passed from `0540c7bd72b50f500a4a12456743526e48971476`. Its
+[structured output](../../evidence/p0/2026-10-19T195509Z-vllm-cc-candidate/output.log)
+records 25 focused tests, including the missing-promisor local-helper positive
+control, and the unchanged four candidate patch stages. Input bundle SHA-256:
+`592633db3d73da57602483ccf0db98640cf5fef10c2a95a480c846a5b33fd27d`.
+No public-source fetch was requested; software-only/BLOCKED limitations remain.
+
 ## Remaining Gates
 
 - This is not a blanket no-UVA guarantee. The fourth patch guards one generic
