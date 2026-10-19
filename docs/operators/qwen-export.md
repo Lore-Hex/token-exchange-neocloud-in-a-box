@@ -48,6 +48,10 @@ This task does not create service keys, public certificates, prices or DNS.
    exact image ID/platform and recheck the archive. This is not a clean-host or
    cross-Docker-version portability test. No runtime is started by `image load`.
 5. Remove the proof container and build tag using the existing cleanup path.
+   A bounded pre-build ID inventory distinguishes pre-existing shared images.
+   A successful post-cleanup inventory must show the tested ID and archive config
+   ID absent, or already present before the build. Unexpected retained IDs or an
+   unreadable inventory block publication; the exporter never deletes by ID.
    An interrupted load has unknown daemon completion and blocks publication,
    even if the tag currently appears absent.
 6. Verify the source snapshot and evidence schema, reserve the exclusive evidence
@@ -71,7 +75,8 @@ archives fail closed. No general-purpose OCI repacker is introduced.
 An uncatchable host crash can leave private staging or a complete renamed bundle
 without final evidence. Only accept a bundle alongside the matching terminal
 PASS evidence; never infer success from a directory's presence. Cleanup checks
-the task's container and image tag, not all unrelated images or BuildKit caches.
+the task's container, image tag and exported image IDs, not unrelated images or
+BuildKit caches. Any preserved pre-existing image is identified explicitly.
 
 ## Offline handoff
 

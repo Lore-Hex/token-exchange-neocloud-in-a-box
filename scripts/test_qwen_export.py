@@ -350,7 +350,7 @@ class LifecycleTests(unittest.TestCase):
     def test_export_follows_pass_and_precedes_cleanup(self):
         runtime = {"execution": "real-cpu-model", "confidential": False, "hardware_validated": False,
                    "result": "pass", "runtime_platform": {"system": "Linux", "machine": "x86_64"}}
-        for failure in (None, "proof", "load-timeout", "cleanup", "stale-input"):
+        for failure in (None, "proof", "load-timeout", "cleanup", "stale-input", "dangling-image", "shared-image", "inventory"):
             summary = {"result": "fail", "export": {}}
             artifact = Mock()
             runtime["result"] = "fail" if failure == "proof" else "pass"
@@ -378,6 +378,11 @@ class LifecycleTests(unittest.TestCase):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
                 stack.enter_context(patch.object(container.snapshot, "local_docker_endpoint", return_value="unix:///local"))
                 stack.enter_context(patch.object(container.snapshot, "require_buildkit"))
+                inventories = [{"sha256:" + "a" * 64} if failure == "shared-image" else set(),
+                               {"sha256:" + "a" * 64} if failure in {"shared-image", "dangling-image"} else set()]
+                if failure == "inventory":
+                    inventories[1] = ValueError("inventory failed")
+                stack.enter_context(patch.object(container, "image_ids", side_effect=inventories))
                 context = stack.enter_context(patch.object(container, "build_context", return_value={
                     "base_images": {"platform": "linux/amd64", "go_image": "go", "python_image": "python"}, "model": {}}))
                 if failure == "stale-input":
@@ -385,12 +390,28 @@ class LifecycleTests(unittest.TestCase):
                 stack.enter_context(patch.object(container.snapshot, "execute_process_group", side_effect=execute))
                 stack.enter_context(patch.object(container.e2e, "cleanup_resources", side_effect=cleanup))
                 container.run(Path(directory), summary, {}, Path(directory), export=artifact)
-            self.assertEqual(summary["result"], "pass" if failure is None else "fail")
+            self.assertEqual(summary["result"], "pass" if failure in {None, "shared-image"} else "fail")
             self.assertEqual(events, ["cleanup"] if failure == "stale-input" else
                              ["proof", "cleanup"] if failure == "proof" else ["proof", "save", "cleanup"])
             artifact.publish.assert_not_called()
             if failure == "load-timeout":
                 self.assertEqual(summary["container_cleanup"]["load_completion"], "unknown")
+            if failure in {"shared-image", "dangling-image", "inventory"}:
+                self.assertEqual(summary["container_cleanup"]["exported_images"]["result"],
+                                 "pass" if failure == "shared-image" else "fail")
+
+    def test_inventory_is_read_only_bounded_and_fail_closed(self):
+        identity = "sha256:" + "a" * 64
+        for output, code in ((identity.encode() + b"\n", 0), (b"", 0), (b"short\n", 0), (b"", 1)):
+            with patch.object(container.snapshot, "execute_process_group",
+                              return_value=subprocess.CompletedProcess([], code, output)) as execute:
+                if code or output == b"short\n":
+                    with self.assertRaises((container.pilot.PilotError, subprocess.SubprocessError)):
+                        container.image_ids({})
+                else:
+                    self.assertEqual(container.image_ids({}), {identity} if output else set())
+                self.assertEqual(execute.call_args.args[0], ["docker", "image", "ls", "--all", "--quiet", "--no-trunc"])
+                self.assertEqual(execute.call_args.kwargs["max_output_bytes"], 65536)
 
     def test_streaming_output_is_bounded_and_process_reaped(self):
         for mode in ("stdout", "stderr", "timeout"):

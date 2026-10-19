@@ -26,9 +26,13 @@ MODEL_LICENSE_REVISION = "23749fefcc72300e3a2ad315e1317431b06b590a"
 MODEL_LICENSE_REPOSITORY = "Qwen/Qwen3-0.6B-GGUF"
 
 
+class ExportError(ValueError):
+    """Only fixed, non-sensitive validation reasons may enter evidence."""
+
+
 def require(condition, reason):
     if not condition:
-        raise ValueError(reason)
+        raise ExportError(reason)
 
 
 def digest(stream, limit, deadline):
@@ -50,9 +54,11 @@ def safe_name(name):
 def validate_archive(stream, identity):
     try:
         return inspect_archive(stream, identity)
+    except ExportError:
+        raise
     except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError, EOFError,
             tarfile.TarError, zlib.error) as error:
-        raise ValueError("invalid or unsupported image archive") from error
+        raise ExportError("invalid or unsupported image archive") from error
 
 
 def inspect_archive(stream, identity):
@@ -310,7 +316,11 @@ class Bundle:
             stream.flush()
             os.fsync(stream.fileno())
             self.summary["export"]["stage"] = "archive-validation"
-            self.archive = validate_archive(stream, identity)
+            try:
+                self.archive = validate_archive(stream, identity)
+            except ExportError as error:
+                self.summary["export"]["failure_code"] = str(error)
+                raise
             # Load the validated untagged archive while our build tag still owns
             # the image. Never remove unrelated images or create a deployment tag.
             self.summary["export"]["load_started"] = True
