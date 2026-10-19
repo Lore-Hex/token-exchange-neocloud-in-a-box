@@ -8,6 +8,7 @@ import (
 
 	"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/config"
 	"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/evidence"
+	"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/verify"
 )
 
 func run(args []string, out, errOut io.Writer) int {
@@ -20,6 +21,7 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 		fmt.Fprintln(out, "No node has been validated on confidential hardware. See PLAN.md.")
 		fmt.Fprintln(out, "Commands: evidence new <P0..P9> <slug>; evidence scrub --deny-file <path>")
 		fmt.Fprintln(out, "Usage: nib lint [repository-root]")
+		fmt.Fprintln(out, "Usage: nib verify --endpoint <https-origin> --release <file> --release-sha256 <digest> --profile <file> --profile-sha256 <digest>")
 		return 0
 	}
 	if args[0] == "lint" {
@@ -40,6 +42,9 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 	}
 	if args[0] == "evidence" {
 		return evidence.Run(args[1:], in, out, errOut)
+	}
+	if args[0] == "verify" {
+		return verify.Run(args[1:], out, errOut)
 	}
 	// Do not echo arguments: future operator commands may receive sensitive paths.
 	fmt.Fprintln(errOut, "unsupported command; run nib --help")
