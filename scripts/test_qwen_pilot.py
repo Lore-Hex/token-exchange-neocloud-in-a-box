@@ -8,6 +8,7 @@ import tempfile
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location("qwen_pilot", Path(__file__).parent / "pilot/run.py")
 pilot = importlib.util.module_from_spec(SPEC)
@@ -100,6 +101,17 @@ class QwenPilotTests(unittest.TestCase):
             pid = int(pid_file.read_text())
             with self.assertRaises(ProcessLookupError):
                 os.killpg(pid, 0)
+
+    def test_evidence_uses_authoritative_schema_before_publication(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(recorder.subprocess, "run") as run:
+                run.side_effect = subprocess.CalledProcessError(1, ["nib", "lint"])
+                with self.assertRaises(subprocess.CalledProcessError):
+                    recorder.validate_record({"schema": "invalid"}, "/trusted/nib", root, {})
+                self.assertEqual(run.call_args.args[0],
+                                 ["/trusted/nib", "lint", str(root / "evidence-validation")])
+                self.assertTrue(run.call_args.kwargs["check"])
 
 
 if __name__ == "__main__":

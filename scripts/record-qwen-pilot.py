@@ -48,6 +48,17 @@ def execute_pilot(args, *, env, cwd, timeout=1800):
         process.stderr.close()
 
 
+def validate_record(record, nib, work, env):
+    # The repository's schema is authoritative; do not publish a run that only
+    # matches a hand-maintained Python approximation of that contract.
+    root = work / "evidence-validation"
+    destination = root / "evidence/p3/candidate"
+    destination.mkdir(parents=True)
+    (destination / "run.json").write_text(json.dumps(record) + "\n")
+    subprocess.run([str(nib), "lint", str(root)], env=env, check=True,
+                   capture_output=True, timeout=20)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inputs", type=Path, required=True)
@@ -82,12 +93,6 @@ def main():
         nib = work / "nib"
         subprocess.run(["go", "build", "-trimpath", "-buildvcs=false", "-o", str(nib), "./cmd/nib"],
                        cwd=source, env=env, check=True, capture_output=True, timeout=180)
-        created = subprocess.run([str(nib), "evidence", "new", "P3", args.slug], cwd=ROOT,
-                                 env=env, check=True, capture_output=True, text=True, timeout=20)
-        relative = created.stdout.strip()
-        if not re.fullmatch(r"evidence/p3/\d{4}-\d{2}-\d{2}-" + args.slug, relative):
-            raise ValueError("unexpected evidence path")
-        destination = ROOT / relative
         record = {
             "schema": "nib.evidence/v1", "phase": "P3", "task": "T7", "git_sha": revision,
             "command": "python3 scripts/record-qwen-pilot.py --inputs " + str(args.inputs.resolve())
@@ -100,6 +105,13 @@ def main():
                      "cloud resources, public endpoint, billing integration or confidential-compute claim. "
                      "Source archive SHA-256: " + archive_digest,
         }
+        validate_record(record, nib, work, env)
+        created = subprocess.run([str(nib), "evidence", "new", "P3", args.slug], cwd=ROOT,
+                                 env=env, check=True, capture_output=True, text=True, timeout=20)
+        relative = created.stdout.strip()
+        if not re.fullmatch(r"evidence/p3/\d{4}-\d{2}-\d{2}-" + args.slug, relative):
+            raise ValueError("unexpected evidence path")
+        destination = ROOT / relative
         (destination / "output.log").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
         pending = destination / "run.json.pending"
         with pending.open("x") as stream:
