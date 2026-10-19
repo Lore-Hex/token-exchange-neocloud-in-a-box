@@ -20,6 +20,151 @@ STATUS = {"pass", "rejected", "unavailable"}
 TOKEN = r"[A-Za-z0-9_.+!-]{1,180}"
 SHA = r"[0-9a-f]{64}"
 READ_ERRORS = (OSError, ValueError, KeyError, TypeError, AttributeError, UnicodeError, SyntaxError, csv.Error)
+CENSUS_LIMITS = {"entries": 1000000, "depth": 32, "seconds": 120, "report_bytes": 16384}
+CENSUS_BYTES = 1 << 60
+CENSUS_FILE = 1 << 50
+CENSUS_GROUPS = ("vllm", "torch", "nvidia", "triton", "other")
+CENSUS_TYPES = ("regular", "directory", "symlink", "fifo", "socket", "block", "character", "other")
+CENSUS_SIZES = {"empty": 0, "le_4k": 4096, "le_1m": 1 << 20, "le_64m": 64 << 20,
+                "le_1g": 1 << 30, "gt_1g": CENSUS_FILE}
+CENSUS_REASONS = {"entry-limit", "depth-limit", "time-limit", "size-limit", "unsafe-name",
+                  "metadata-rejected", "directory-changed", "device-boundary", "root-selection"}
+
+
+def census_counts():
+    return {"entries": 0, "types": dict.fromkeys(CENSUS_TYPES, 0), "regular_bytes": 0,
+            "largest_regular_bytes": 0, "multiply_linked_regular_entries": 0,
+            "regular_sizes": dict.fromkeys(CENSUS_SIZES, 0)}
+
+
+def census_report():
+    return {"schema": "nib.engine-image-census/v1", "collection": "partial", "reason": "root-selection",
+            "platform": "linux/amd64", "python": platform.python_version(),
+            "candidate_status": "BLOCKED", "deployable": False, "abi_validated": False,
+            "hardware_validated": False, "overlay_admission": "not-evaluated",
+            "content_read": False, "link_targets_read": False, "selected_root": "sysconfig-purelib",
+            "limits": dict(CENSUS_LIMITS), "max_depth": 0, "totals": census_counts(),
+            "groups": {name: census_counts() for name in CENSUS_GROUPS}}
+
+
+def metadata_census(overlay, tree, report):
+    """Count directory entries using metadata only; never open non-directories."""
+    deadline = min(tree.deadline, time.monotonic() + CENSUS_LIMITS["seconds"])
+    device = os.fstat(tree.fd).st_dev
+
+    def require(condition, reason):
+        if not condition:
+            raise overlay.InventoryRejected(reason)
+
+    def timely():
+        require(time.monotonic() < deadline, "time-limit")
+
+    def walk(fd, depth, group=None):
+        timely()
+        before = os.fstat(fd)
+        with os.scandir(fd) as entries:
+            for entry in entries:
+                timely()
+                require(report["totals"]["entries"] < CENSUS_LIMITS["entries"], "entry-limit")
+                require(depth < CENSUS_LIMITS["depth"], "depth-limit")
+                try:
+                    overlay.safe_name(entry.name)
+                except ValueError:
+                    raise overlay.InventoryRejected("unsafe-name") from None
+                info = entry.stat(follow_symlinks=False)
+                require(info.st_dev == device, "device-boundary")
+                kind = next((name for name, predicate in (
+                    ("regular", stat.S_ISREG), ("directory", stat.S_ISDIR), ("symlink", stat.S_ISLNK),
+                    ("fifo", stat.S_ISFIFO), ("socket", stat.S_ISSOCK), ("block", stat.S_ISBLK),
+                    ("character", stat.S_ISCHR)) if predicate(info.st_mode)), "other")
+                size = info.st_size if kind == "regular" else 0
+                require(0 <= size <= CENSUS_FILE and report["totals"]["regular_bytes"] + size <= CENSUS_BYTES,
+                        "size-limit")
+                bucket = next(key for key, ceiling in CENSUS_SIZES.items() if size <= ceiling)
+                category = group or (entry.name if entry.name in CENSUS_GROUPS[:-1] else "other")
+                for counts in (report["totals"], report["groups"][category]):
+                    counts["entries"] += 1
+                    counts["types"][kind] += 1
+                    if kind == "regular":
+                        counts["regular_bytes"] += size
+                        counts["largest_regular_bytes"] = max(counts["largest_regular_bytes"], size)
+                        counts["multiply_linked_regular_entries"] += int(info.st_nlink > 1)
+                        counts["regular_sizes"][bucket] += 1
+                report["max_depth"] = max(report["max_depth"], depth + 1)
+                if kind == "directory":
+                    child = os.open(entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                    try:
+                        require(overlay.identity(info) == overlay.identity(os.fstat(child)), "directory-changed")
+                        walk(child, depth + 1, category)
+                        require(overlay.identity(info) == overlay.identity(os.fstat(child))
+                                == overlay.identity(os.stat(entry.name, dir_fd=fd, follow_symlinks=False)),
+                                "directory-changed")
+                    finally:
+                        os.close(child)
+                else:
+                    current = os.stat(entry.name, dir_fd=fd, follow_symlinks=False)
+                    require(overlay.identity(info) == overlay.identity(current) and info.st_nlink == current.st_nlink,
+                            "metadata-rejected")
+        require(overlay.identity(before) == overlay.identity(os.fstat(fd)), "directory-changed")
+        timely()
+
+    try:
+        walk(tree.fd, 0)
+        report.update(collection="pass", reason=None)
+    except overlay.InventoryRejected as failure:
+        report["reason"] = failure.reason
+    except READ_ERRORS:
+        report["reason"] = "metadata-rejected"
+
+
+def collect_census(overlay, paths):
+    report = census_report()
+    # The pinned image's interpreter selects the root, not an operator path or
+    # imported distribution. No METADATA, RECORD, hooks or engine files are read.
+    if paths["purelib"] == paths["platlib"]:
+        try:
+            with overlay.directory(paths["purelib"]) as fd:
+                metadata_census(overlay, overlay.Tree(fd), report)
+        except READ_ERRORS:
+            report.update(collection="partial", reason="metadata-rejected")
+    validate_census(overlay, report)
+    return report
+
+
+def validate_census(overlay, report):
+    expected = census_report()
+    overlay.require(set(report) == set(expected))
+    dynamic = {"collection", "reason", "python", "max_depth", "totals", "groups"}
+    overlay.require(all(report[key] == value for key, value in expected.items() if key not in dynamic)
+                    and all(report[key] is False for key in ("deployable", "abi_validated", "hardware_validated",
+                                                            "content_read", "link_targets_read"))
+                    and re.fullmatch(r"3\.12\.[0-9]{1,3}", report["python"])
+                    and report["collection"] in {"pass", "partial"}
+                    and (report["reason"] is None if report["collection"] == "pass" else report["reason"] in CENSUS_REASONS))
+    overlay.require(type(report["max_depth"]) is int and 0 <= report["max_depth"] <= CENSUS_LIMITS["depth"]
+                    and set(report["groups"]) == set(CENSUS_GROUPS))
+    for counts in [report["totals"], *report["groups"].values()]:
+        overlay.require(set(counts) == set(census_counts()) and set(counts["types"]) == set(CENSUS_TYPES)
+                        and set(counts["regular_sizes"]) == set(CENSUS_SIZES))
+        values = [counts["entries"], counts["multiply_linked_regular_entries"],
+                  *counts["types"].values(), *counts["regular_sizes"].values()]
+        overlay.require(all(type(value) is int and 0 <= value <= CENSUS_LIMITS["entries"] for value in values)
+                        and type(counts["regular_bytes"]) is int and 0 <= counts["regular_bytes"] <= CENSUS_BYTES
+                        and type(counts["largest_regular_bytes"]) is int
+                        and 0 <= counts["largest_regular_bytes"] <= min(counts["regular_bytes"], CENSUS_FILE)
+                        and counts["entries"] == sum(counts["types"].values())
+                        and counts["types"]["regular"] == sum(counts["regular_sizes"].values())
+                        and counts["multiply_linked_regular_entries"] <= counts["types"]["regular"])
+    totals, groups = report["totals"], list(report["groups"].values())
+    for key in totals:
+        if isinstance(totals[key], dict):
+            overlay.require(all(value == sum(group[key][name] for group in groups) for name, value in totals[key].items()))
+        elif key == "largest_regular_bytes":
+            overlay.require(totals[key] == max(group[key] for group in groups))
+        else:
+            overlay.require(totals[key] == sum(group[key] for group in groups))
+    overlay.require((report["max_depth"] == 0) == (totals["entries"] == 0)
+                    and len(overlay.json_bytes(report)) <= CENSUS_LIMITS["report_bytes"])
 
 
 def check(operation):
@@ -104,6 +249,10 @@ def collect(overlay, contract):
     overlay.require(platform.system() == "Linux" and platform.machine() == "x86_64"
                     and sys.version_info[:2] == (3, 12))
     paths = sysconfig.get_paths()
+    mode = contract.get("diagnostic_mode", "integrity")
+    overlay.require(mode in {"integrity", "metadata-census"})
+    if mode == "metadata-census":
+        return collect_census(overlay, paths)
     roots = sorted(set(site.getsitepackages()) | {paths["purelib"], paths["platlib"]})
     overlay.require(len(roots) <= 4)
     report = {"schema": "nib.engine-image-diagnostic/v1", "collection": "pass",
@@ -159,6 +308,11 @@ def collect(overlay, contract):
 
 def validate_report(overlay, report, contract):
     """Reject unknown child fields/strings before any child output is published."""
+    mode = contract.get("diagnostic_mode", "integrity")
+    overlay.require(mode in {"integrity", "metadata-census"})
+    if mode == "metadata-census":
+        validate_census(overlay, report)
+        return
     overlay.require(set(report) - {"inventory_failure"} == {"schema", "collection", "platform", "python", "candidate_status", "deployable",
         "abi_validated", "hardware_validated", "roots", "source_files", "checks", "overlay_admission"})
     overlay.require(report["schema"] == "nib.engine-image-diagnostic/v1" and report["collection"] in {"pass", "partial"}

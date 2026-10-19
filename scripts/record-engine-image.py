@@ -32,7 +32,7 @@ MAX_REPORT = 2 << 20
 GO_TOOLCHAIN = "go1.27.2"
 PREPARER_SHA = "f82c4166a01e6a3cf1e1e5b4c639792bdb73b1f657f8a7383c2224c3fcbc630b"
 SNAPSHOT_SHA = "b7f5753ecacde3cda2bf5fdc673b6f2af239875f2a9468e34a5219a797b78b3a"
-DIAGNOSTIC_SHA = "fc172ca44b1493d6cd246884ab010749e8b8dbe6c2f3861a279e584e2b4185fb"
+DIAGNOSTIC_SHA = "b8ed130702e9d946417d2f4d8bcd597e8fc0ab218c67c35629dcaa5f7f7e3aaa"
 CANCELLED = False
 
 
@@ -107,10 +107,12 @@ def inputs(root=ROOT):
     return revision, bundle, extra
 
 
-def payload_files(revision, bundle, extra):
+def payload_files(revision, bundle, extra, *, mode="integrity"):
     # Reuse exact candidate validation/application in memory, never apply to an image.
     prepared, _ = prep.prepare_files(revision, bundle, extra)
     contract = overlay.load_json(prepared["payload/contract.json"])
+    overlay.require(mode in {"integrity", "metadata-census"})
+    contract["diagnostic_mode"] = mode
     files = {"engine_overlay.py": extra[prep.INSPECTOR], "engine_image_diagnostic.py": extra[DIAGNOSTIC],
              "probe.py": extra[PROBE]}
     contract["payload_sources"] = {name: overlay.digest(data) for name, data in files.items()}
@@ -247,7 +249,8 @@ def run_container(payload, contract, config, env, execute=snapshot.execute_proce
         check_container(info, owner, payload, contract_sha, value["Id"], expected_env)
         overlay.require(info["Id"] == created and info["State"]["Status"] == "created")
         report["stage"] = "read-only-diagnostic"
-        data = call(["docker", "container", "start", "--attach", name], env, execute=execute, timeout=600)
+        limit = diagnostic.CENSUS_LIMITS["report_bytes"] if contract.get("diagnostic_mode") == "metadata-census" else MAX_REPORT
+        data = call(["docker", "container", "start", "--attach", name], env, execute=execute, timeout=600, limit=limit)
         result = overlay.load_json(data)
         diagnostic.validate_report(overlay, result, contract)
         terminal = docker_json("container", name, env, execute)
@@ -257,6 +260,8 @@ def run_container(payload, contract, config, env, execute=snapshot.execute_proce
         report["diagnostic"] = result
         report["result"] = "pass" if result["overlay_admission"] == "accepted" else "fail"
         report["stage"] = "complete" if report["result"] == "pass" else "overlay-rejected"
+        if contract.get("diagnostic_mode") == "metadata-census":
+            report["stage"] = "metadata-census-complete" if result["collection"] == "pass" else "metadata-census-partial"
     except (OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError):
         report["failure"] = "diagnostic-stage-failed"
     finally:
@@ -362,14 +367,19 @@ def publish_evidence(record, report, nib, work, destination, env):
     prep.publish(destination, {"run.json": overlay.json_bytes(record), "output.log": overlay.json_bytes(report)})
 
 
-def evidence_record(revision, slug, started, report):
+def evidence_record(revision, slug, started, report, *, mode="integrity"):
+    overlay.require(mode in {"integrity", "metadata-census"})
+    census = mode == "metadata-census"
+    overlay.require(not census or report["result"] == "fail")
     return {"schema": "nib.evidence/v1", "phase": "P0", "task": "T4", "git_sha": revision,
-            "command": "python3 -I -S scripts/record-engine-image.py --slug " + slug,
+            "command": "python3 -I -S scripts/record-engine-image.py " + ("--metadata-census " if census else "") + "--slug " + slug,
             "started_utc": started, "ended_utc": now(), "result": report["result"], "execution": "software",
             "hardware_validated": False, "host": {"provider": "local", "machine": "local-software-diagnostic",
                 "gpus": "none", "driver": None, "cuda": None},
             "notes": "Read-only software diagnostic, not ABI/hardware/confidential qualification. "
-                     "Overlay rejection is a failed run even when collection completes. Docker/OS/interpreter trusted. "
+                     + ("Metadata-only census does not evaluate admission; the run stays failed even if counting completes. "
+                        if census else "Overlay rejection is a failed run even when collection completes. ")
+                     + "Docker/OS/interpreter trusted. "
                      "No pull, build, image deletion, engine import or application. Payload SHA-256: "
                      + report["provenance"]["payload_sha256"]}
 
@@ -379,10 +389,12 @@ def main():
     signal.signal(signal.SIGINT, cancel)
     parser = overlay.QuietParser(description=__doc__)
     parser.add_argument("--slug", required=True)
+    parser.add_argument("--metadata-census", action="store_true", help="Count metadata only; never evaluate admission.")
     args = parser.parse_args()
     overlay.require(re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", args.slug) and len(args.slug) <= 64)
     revision, bundle, extra = inputs()
-    files, contract = payload_files(revision, bundle, extra)
+    mode = "metadata-census" if args.metadata_census else "integrity"
+    files, contract = payload_files(revision, bundle, extra, mode=mode)
     started = now()
     destination = ROOT / "evidence/p0" / (started[:10] + "-" + args.slug)
     overlay.require(not os.path.lexists(destination))
@@ -418,8 +430,8 @@ def main():
         report["provenance"] = {"git_sha": revision, "source_bundle_sha256": contract["source_bundle_sha256"],
                                 "payload_sha256": overlay.bundle_digest(files), "validator_source_sha256": validator_sha,
                                 "requested_image": overlay.BASE_IMAGE, "expected_config_sha256": contract["official_config"]["sha256"],
-                                "raw_oci_metadata_verified": raw_verified}
-        record = evidence_record(revision, args.slug, started, report)
+                                "raw_oci_metadata_verified": raw_verified, "diagnostic_mode": mode}
+        record = evidence_record(revision, args.slug, started, report, mode=mode)
         publish_evidence(record, report, nib, work, destination, env)
     print(destination.relative_to(ROOT).as_posix())
     return 0 if record["result"] == "pass" else 1
