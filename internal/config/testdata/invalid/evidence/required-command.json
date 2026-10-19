@@ -1,0 +1,19 @@
+{
+  "schema": "nib.evidence/v1",
+  "phase": "P1",
+  "task": "T3",
+  "git_sha": "1111111111111111111111111111111111111111",
+  "started_utc": "2026-10-18T00:00:00Z",
+  "ended_utc": "2026-10-18T00:00:01Z",
+  "host": {
+    "provider": "synthetic",
+    "machine": "synthetic",
+    "gpus": "synthetic",
+    "driver": "1.2.3",
+    "cuda": "1.2.3"
+  },
+  "result": "pass",
+  "execution": "fake",
+  "hardware_validated": false,
+  "notes": "Synthetic schema fixture only. No hardware was validated."
+}

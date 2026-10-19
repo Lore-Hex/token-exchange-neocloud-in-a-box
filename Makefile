@@ -1,16 +1,19 @@
 SHELL := /bin/bash
 .DELETE_ON_ERROR:
-.PHONY: check test test-e2e lint fmt-check staticcheck shellcheck yamllint docs-check secrets secrets-positive-control build
+.PHONY: check test test-e2e test-evidence lint fmt-check staticcheck shellcheck yamllint schema-lint docs-check secrets secrets-positive-control build
 
-check: lint test secrets secrets-positive-control
+check: lint test test-evidence secrets secrets-positive-control
 
 test:
 	go test -race -count=1 ./...
 
+test-evidence: build
+	sh scripts/test-scrub-secrets.sh
+
 build:
 	go build -trimpath -o build/nib ./cmd/nib
 
-lint: fmt-check staticcheck shellcheck yamllint docs-check
+lint: fmt-check staticcheck shellcheck yamllint schema-lint docs-check
 	go vet ./...
 
 fmt-check:
@@ -25,6 +28,10 @@ shellcheck:
 
 yamllint:
 	uv run --project tools --frozen yamllint --strict .github .yamllint.yaml
+	@find schemas models profiles -type f \( -name '*.yaml' -o -name '*.yml' \) ! -path '*/testdata/*' ! -path '*/tests/*' -print0 | xargs -0 -r uv run --project tools --frozen yamllint --strict
+
+schema-lint:
+	go run ./cmd/nib lint
 
 docs-check:
 	uv run --project tools --frozen python scripts/check-doc-links.py
