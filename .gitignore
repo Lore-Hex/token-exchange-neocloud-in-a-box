@@ -1,0 +1,39 @@
+# Build outputs
+/build/
+/dist/
+/out/
+*.raw
+*.qcow2
+*.efi
+*.img
+*.iso
+
+# Local state and secrets (never commit)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+kubeconfig*
+id_*
+known_hosts
+/state/
+/scratch/
+
+# Model weights and caches
+/models/**/weights/
+*.safetensors
+*.gguf
+/.cache/
+/hf-cache/
+
+# Tooling
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+.DS_Store
+
+# Local agent state
+.claude/
