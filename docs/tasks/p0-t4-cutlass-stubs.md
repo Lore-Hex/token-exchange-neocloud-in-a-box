@@ -1,10 +1,41 @@
 # Exact CUTLASS AOT Stub Diagnostic
 
-**Implemented and tested against synthetic files; not yet run against the
-installed image.** This is a diagnostic classification, not an overlay admission
+**Recorded against the cached official image: complete selected-root inventory and
+four exact stub classifications; RECORD/wheel and admission rejected.** This is
+a diagnostic classification, not an overlay admission
 exception. The candidate remains `BLOCKED`, `deployable:false`, `image:null`.
 No SDK/engine import, proprietary code copy, binary vendoring, package install,
 image build, GPU execution, ABI or confidentiality validation is involved.
+
+## Recorded Outcome
+
+The [recorded run](../../evidence/p0/2026-10-19-official-vllm-cutlass-stubs/run.json)
+used committed source `2dea53cd9ab7556de9dd1a705266496c949735b7` on 2026-10-19,
+23:18:25 to 23:19:34 UTC. The
+[unchanged output](../../evidence/p0/2026-10-19-official-vllm-cutlass-stubs/output.log)
+records payload SHA-256
+`4abc71cc78671cd1dfa0cbdcb03c560da0de6520a2ec56657d30848737ce4525`
+and source-bundle SHA-256
+`a0c9377d29f76e6e5677b7e27274feebc8fef5983ae968e6b5400a92d9437821`.
+
+- `collection:pass` and `filesystem_inventory:pass`: the bounded selected-root inventory
+  completed under the exact image/config/census policy. All four installed
+  assets matched the exact published path, full-byte hash, size and header
+  requirements below. This does not make them host-native libraries.
+- `record_integrity`, `wheel_integrity`, `root_admission` and
+  `selected_root_admission` are all `rejected`. Overall `result:fail`,
+  `stage:overlay-rejected` and recorder exit 1 are retained. The exact RECORD and
+  wheel rejection causes are **not identified by this artifact**; complete
+  inventory is not RECORD/dependency integrity or permission to weaken gates.
+- All 13 candidate base-source expectations match: 12 readable files and the
+  expected absent helper. No patch was applied and no engine/SDK code imported.
+- The owned container was removed with `cleanup:confirmed`; the cached image
+  was retained. Raw OCI/config linkage and local manifest/platform/DiffID
+  association passed, but local layer/config storage was not independently
+  rehashed. Docker, the OS and interpreter remain trusted.
+- Root/startup restrictions remain in place. There is no native ABI, GPU,
+  inference, attestation, confidentiality or deployable-image qualification.
+  Historical failed runs and their source bindings are preserved unchanged.
 
 ## Fixed Public Sources
 
@@ -99,7 +130,7 @@ identity binding, unchanged resource/root/hook gates and no-write generic
 overlay rejection. Existing source-bound payload and historical artifact tests
 remain in the combined suite.
 
-An actual image diagnostic still requires independent review of the committed
+Any further image diagnostic still requires independent review of the committed
 source and separate run approval. Use the existing recorder and lifecycle;
 do not rerun historical sources or claim installed-asset verification from
 synthetic tests. Normalization, image builds and runtime activation are not part

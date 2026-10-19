@@ -1,8 +1,10 @@
 # Read-Only Engine Image Diagnostic
 
-**Recorded against the official cached image: partial collection, rejected
-admission.** The [recorded run](../../evidence/p0/2026-10-19-official-vllm-image-diagnostic/run.json)
-is a failed P0.T4 software diagnostic, not qualification. The candidate
+**Latest recorded outcome: complete selected-root inventory with four exact AOT
+stub classifications; RECORD/wheel and admission rejected.** See the
+[measured result](p0-t4-cutlass-stubs.md#recorded-outcome). The earlier partial
+[recorded run](../../evidence/p0/2026-10-19-official-vllm-image-diagnostic/run.json)
+below remains a failed P0.T4 software diagnostic, not qualification. The candidate
 remains `BLOCKED`, `deployable:false`, `image:null`. No engine import, patch
 application, model weights, image build/publication, GPU, ABI, confidentiality or
 hardware qualification is performed. The existing overlay admission rules remain
@@ -226,8 +228,12 @@ file is NVIDIA-proprietary; no implementation code was copied.
 
 ### Exact Published Stub Classification
 
-The subsequent [four-asset diagnostic policy](p0-t4-cutlass-stubs.md) is
-implemented and tested against synthetic files, not yet run against the image.
+The subsequent [four-asset diagnostic policy](p0-t4-cutlass-stubs.md) has now
+[completed a recorded inventory](p0-t4-cutlass-stubs.md#recorded-outcome) from
+source `2dea53cd9ab7556de9dd1a705266496c949735b7`: all four assets match,
+collection and filesystem inventory pass, and cleanup is confirmed. RECORD,
+wheel, root and selected-root admission checks reject; overall result remains
+`fail`. The exact RECORD/wheel rejection causes remain unresolved.
 It requires the exact image/config, path, whole-file hash, size and AArch64 header
 for four published CUTLASS 4.8.0 AOT link-time stubs. It does not alter generic
 native checks, overlay admission, root/startup gates or historical evidence.

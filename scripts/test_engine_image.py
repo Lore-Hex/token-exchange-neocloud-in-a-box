@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-image-diagnostic"
 CENSUS_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-metadata-census"
 BOUNDED_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-bounded-integrity"
+STUBS_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-cutlass-stubs"
 
 
 def source(name, relative):
@@ -960,7 +961,7 @@ class ImageTests(unittest.TestCase):
         env = recorder.offline_environment(self.work / "control")
         binary, source_hash = recorder.build_validator(ROOT, revision, self.work, env)
         self.assertRegex(source_hash, r"^[0-9a-f]{64}$")
-        for index, source_directory in enumerate((RECORDED, CENSUS_RECORDED, BOUNDED_RECORDED)):
+        for index, source_directory in enumerate((RECORDED, CENSUS_RECORDED, BOUNDED_RECORDED, STUBS_RECORDED)):
             recorded = self.work / "recorded/evidence/p0" / ("official-image-" + str(index))
             recorded.mkdir(parents=True)
             (recorded / "run.json").write_bytes(recorder.prep.read_source(source_directory / "run.json"))
@@ -1103,6 +1104,55 @@ class ImageTests(unittest.TestCase):
         for item in (child, report):
             self.assertEqual(item["candidate_status"], "BLOCKED")
             self.assertTrue(all(item[key] is False for key in ("deployable", "abi_validated", "hardware_validated")))
+        self.assertEqual(overlay.MAX_FILES, 100000)
+
+    def test_recorded_stubs_complete_inventory_without_integrity_or_admission(self):
+        hashes = {"run.json": "d9d8aade573234c5db08ac3cd9e9adf026e130cb43686a3e852675474402aee8",
+                  "output.log": "53888d555e37984f67dbe526a6dff482250c12c577971bade0007278ec007f19"}
+        files = {}
+        for name, digest in hashes.items():
+            data = recorder.prep.read_source(STUBS_RECORDED / name)
+            self.assertLessEqual(len(data), 65536)
+            self.assertEqual(overlay.digest(data), digest)
+            files[name] = overlay.load_json(data)
+        run, report = files["run.json"], files["output.log"]
+        child, provenance = report["diagnostic"], report["provenance"]
+        contract = {**self.contract, "diagnostic_inventory_policy": overlay.DIAGNOSTIC_INVENTORY_POLICY,
+                    "diagnostic_nonhost_policy": overlay.CUTLASS_STUB_POLICY}
+        diagnostic.validate_report(overlay, child, contract)
+        self.assertEqual(run["git_sha"], "2dea53cd9ab7556de9dd1a705266496c949735b7")
+        self.assertEqual(provenance["git_sha"], run["git_sha"])
+        self.assertEqual(provenance["payload_sha256"], "4abc71cc78671cd1dfa0cbdcb03c560da0de6520a2ec56657d30848737ce4525")
+        self.assertEqual(provenance["source_bundle_sha256"], "a0c9377d29f76e6e5677b7e27274feebc8fef5983ae968e6b5400a92d9437821")
+        self.assertEqual(provenance["diagnostic_mode"], "integrity")
+        self.assertEqual(run["execution"], "software")
+        self.assertEqual(run["command"], "python3 -I -S scripts/record-engine-image.py --slug official-vllm-cutlass-stubs")
+        self.assertEqual((run["started_utc"], run["ended_utc"]), ("2026-10-19T23:18:25Z", "2026-10-19T23:19:34Z"))
+        self.assertFalse(run["hardware_validated"])
+        self.assertEqual(run["result"], report["result"])
+        self.assertEqual(report["result"], "fail")
+        self.assertEqual(report["cleanup"], "confirmed")
+        self.assertEqual(report["stage"], "overlay-rejected")
+        self.assertEqual(child["collection"], "pass")
+        self.assertEqual(child["overlay_admission"], "rejected")
+        self.assertNotIn("inventory_failure", child)
+        self.assertEqual(child["checks"], dict(filesystem_inventory="pass", record_integrity="rejected",
+            wheel_integrity="rejected", root_admission="rejected", selected_root_admission="rejected"))
+        self.assertEqual(child["inventory_policy"], overlay.DIAGNOSTIC_INVENTORY_POLICY)
+        self.assertEqual(child["nonhost_policy"], overlay.CUTLASS_STUB_POLICY)
+        self.assertEqual(child["classified_nonhost_assets"], [
+            {"path": name, "bytes": 71320, "sha256": "0e0fc2fbde506983308e2d02a9c7673f43e07b7638224cebd00ebcba1b1e5645",
+             "classification": "published-cutlass-aot-crosscompile-stub"} for name in overlay.CUTLASS_STUB_POLICY["paths"]])
+        self.assertEqual(len(child["source_files"]), 13)
+        self.assertTrue(all(item["matches_base"] for item in child["source_files"]))
+        self.assertEqual(sum(item["status"] == "absent" for item in child["source_files"]), 1)
+        for item in (child, report):
+            self.assertEqual(item["candidate_status"], "BLOCKED")
+            self.assertTrue(all(item[key] is False for key in ("deployable", "abi_validated", "hardware_validated")))
+        self.assertTrue(report["image"]["raw_config_link_verified"])
+        self.assertEqual(report["image"]["raw_config_sha256"], overlay.CUTLASS_STUB_POLICY["config_sha256"])
+        self.assertFalse(report["image"]["local_config_bytes_rehashed"])
+        self.assertFalse(report["image"]["local_layers_rehashed"])
         self.assertEqual(overlay.MAX_FILES, 100000)
 
     def test_validator_toolchain_resolution_is_cache_only_and_exact(self):
