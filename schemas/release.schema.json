@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.neocloud.invalid/nib/release.schema.json",
+  "$comment": "SPDX-License-Identifier: Apache-2.0. Structural validation is not signature or attestation verification. PLAN sections 5 and 7.",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "id", "variant", "created_utc", "git_sha", "images", "uki_sha384", "rootfs_verity_root_hash", "model_pack", "profiles"],
+  "properties": {
+    "schema": {"const": "nib.release/v1"},
+    "id": {"$ref": "common.schema.json#/$defs/name"},
+    "variant": {"const": "release"},
+    "created_utc": {"$ref": "common.schema.json#/$defs/utc"},
+    "git_sha": {"$ref": "common.schema.json#/$defs/revision"},
+    "images": {
+      "type": "object", "additionalProperties": false, "required": ["base", "guest", "engine"],
+      "properties": {
+        "base": {"$ref": "common.schema.json#/$defs/image"},
+        "guest": {"$ref": "common.schema.json#/$defs/image"},
+        "engine": {"$ref": "common.schema.json#/$defs/image"}
+      }
+    },
+    "uki_sha384": {"$ref": "common.schema.json#/$defs/sha384"},
+    "rootfs_verity_root_hash": {"$ref": "common.schema.json#/$defs/sha256"},
+    "model_pack": {
+      "type": "object", "additionalProperties": false, "required": ["id", "verity_root_hash"],
+      "properties": {"id": {"$ref": "common.schema.json#/$defs/packID"}, "verity_root_hash": {"$ref": "common.schema.json#/$defs/sha256"}}
+    },
+    "profiles": {
+      "type": "object", "minProperties": 1, "propertyNames": {"$ref": "common.schema.json#/$defs/name"},
+      "additionalProperties": {
+        "type": "object", "additionalProperties": false, "required": ["mrtd", "rtmr0", "rtmr1", "rtmr2"],
+        "properties": {
+          "mrtd": {"$ref": "common.schema.json#/$defs/sha384"},
+          "rtmr0": {"$ref": "common.schema.json#/$defs/sha384"},
+          "rtmr1": {"$ref": "common.schema.json#/$defs/sha384"},
+          "rtmr2": {"$ref": "common.schema.json#/$defs/sha384"}
+        }
+      }
+    }
+  }
+}

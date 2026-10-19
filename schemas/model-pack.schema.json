@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.neocloud.invalid/nib/model-pack.schema.json",
+  "$comment": "SPDX-License-Identifier: Apache-2.0. PLAN section 7. Draft validity is not deployability.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "hf_repo", "hf_revision", "license", "served_model_name", "tr_model_id", "files", "total_bytes", "weights_volume", "engine_profiles"],
+  "properties": {
+    "schema": {"const": "nib.model-pack/v1"},
+    "id": {"$ref": "common.schema.json#/$defs/packID"},
+    "hf_repo": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$", "maxLength": 256},
+    "hf_revision": {"$ref": "common.schema.json#/$defs/revision"},
+    "license": {"$ref": "common.schema.json#/$defs/text"},
+    "served_model_name": {"$ref": "common.schema.json#/$defs/name"},
+    "tr_model_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$", "maxLength": 256},
+    "files": {"const": "files.sha256"},
+    "total_bytes": {"$ref": "common.schema.json#/$defs/positive"},
+    "weights_volume": {
+      "type": "object", "additionalProperties": false,
+      "required": ["format", "verity_root_hash"],
+      "properties": {
+        "format": {"const": "erofs"},
+        "verity_root_hash": {"anyOf": [{"const": ""}, {"$ref": "common.schema.json#/$defs/sha256"}]}
+      }
+    },
+    "engine_profiles": {
+      "type": "object", "propertyNames": {"$ref": "common.schema.json#/$defs/name"},
+      "additionalProperties": {"$ref": "#/$defs/engineProfile"}
+    }
+  },
+  "$defs": {
+    "engineProfile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["engine", "image", "args", "env", "max_model_len", "replicas"],
+      "properties": {
+        "engine": {"enum": ["vllm", "sglang"]},
+        "image": {"$ref": "common.schema.json#/$defs/image"},
+        "args": {"$ref": "common.schema.json#/$defs/args"},
+        "env": {
+          "type": "object", "propertyNames": {"pattern": "^[A-Z_][A-Z0-9_]*$"},
+          "additionalProperties": {"type": "string", "maxLength": 4096}
+        },
+        "max_model_len": {"$ref": "common.schema.json#/$defs/positive"},
+        "replicas": {"type": "integer", "minimum": 1, "maximum": 8}
+      }
+    }
+  }
+}
