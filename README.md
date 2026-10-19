@@ -29,7 +29,7 @@ Pre-alpha. **Nothing in this repository has run on confidential hardware yet.**
 | CLI skeleton and repository checks | implemented; no serving runtime ([development](docs/development.md)) |
 | Model packs (pinned revisions and checksums) | source-audited drafts; not deployable confidential profiles ([model packs](models/README.md)) |
 | Guest services | implemented with release-deny behavior and tagged fake tests ([guest services](guest/README.md)) |
-| GPU-free end-to-end node | tested against fakes from a committed snapshot with merged, pinned trcs; final review and P1 CI acceptance pending ([evidence](evidence/p1/2026-10-19-committed-snapshot-node-v3/run.json), [results](evidence/p1/2026-10-19-committed-snapshot-node-v3/result.json)) |
+| GPU-free end-to-end node | tested against fakes from a committed snapshot with merged, pinned trcs; final review and P1 CI acceptance pending ([evidence](evidence/p1/2026-10-19-combined-node-v4/run.json), [results](evidence/p1/2026-10-19-combined-node-v4/result.json)) |
 | Model bring-up and benchmarks, non-confidential | not started (P2) |
 | Confidential pipeline on a 1-GPU TDX VM | not started (P3) |
 | TrustedRouter generic verifier | not started (P4) |

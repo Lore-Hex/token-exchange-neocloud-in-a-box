@@ -9,7 +9,30 @@ and PR8 catalog history; it does not copy unmerged implementation files. No
 hardware, production service, API keys, deployment, paid resources, image
 publication or confidentiality claim.
 
-The current [v3 proof](../../evidence/p1/2026-10-19-committed-snapshot-node-v3/run.json)
+The integration branch includes reviewed PR9 head
+`7c8aba12194fa38563ef28122c9d45442585e74b` and PR11 head
+`e1f40fab454c8463aad08c2f2a1ebf368a905004`, preserving their history rather
+than copying files. PR10 remains draft and depends on both PRs merging after
+their own CI/review gates. Only the expected README status conflict required
+resolution: Hixtube identity, source-audited model drafts, guest services and
+the tested P1 status are all retained. Both `verify` and `catalog` dispatch
+regressions and the domain checker are included. No DNS mutation or live
+domain-check run was performed as part of this integration.
+
+The current [combined v4 proof](../../evidence/p1/2026-10-19-combined-node-v4/run.json)
+ran from source `0890cc1227aa6ce2dba236c94133145a3ab3e842`. The
+[expected snapshot](../../evidence/p1/2026-10-19-combined-node-v4/snapshot.json)
+and [actual build inputs](../../evidence/p1/2026-10-19-combined-node-v4/inputs.json)
+both have context SHA-256
+`d79f1dc19230024ddf104aab4630bdabf4ec3d58b62e943cc92e0ff4b245176e`.
+Its [results](../../evidence/p1/2026-10-19-combined-node-v4/result.json) pass all
+18 provider checks, fake verification, all 14 rejection mutations, admission,
+privacy and weight gate; release verification fails as required. Cleanup
+confirms both `nib-e2e-38270df7118a` and `nib-e2e-local:38270df7118a` absent.
+Full combined `make check` passes, including both race suites and 28 Python
+tests. Final combined-head/evidence review and CI acceptance remain pending.
+
+The pre-integration [v3 proof](../../evidence/p1/2026-10-19-committed-snapshot-node-v3/run.json)
 ran the full committed harness from snapshot source
 `fa821420f6e874871438d86e22cc8eee70924a81`. Its
 [snapshot binding](../../evidence/p1/2026-10-19-committed-snapshot-node-v3/snapshot.json)
