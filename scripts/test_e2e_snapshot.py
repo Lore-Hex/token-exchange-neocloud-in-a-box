@@ -58,6 +58,7 @@ class SnapshotTest(unittest.TestCase):
             self.assertEqual(controlled["GOWORK"], "off")
             self.assertEqual(controlled["GOTOOLCHAIN"], "go1.27.2")
             self.assertEqual(controlled["GIT_NO_REPLACE_OBJECTS"], "1")
+            self.assertEqual(controlled["DOCKER_BUILDKIT"], "1")
             for key in ("MAKEFLAGS", "MAKEFILES", "GIT_INDEX_FILE", "GIT_CONFIG_COUNT",
                         "GIT_ALTERNATE_OBJECT_DIRECTORIES", "PYTHONPATH", "DOCKER_HOST"):
                 self.assertNotIn(key, controlled)
@@ -142,6 +143,16 @@ class SnapshotTest(unittest.TestCase):
                         with self.assertRaises(ValueError):
                             snapshot.local_docker_endpoint(env, root)
                     self.assertNotIn("DOCKER_HOST", command.call_args.kwargs["env"])
+
+    def test_missing_buildkit_fails_before_a_build(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = snapshot.controlled_env(Path(directory))
+            with patch.object(snapshot.shutil, "which", return_value="/unavailable/docker"), \
+                    patch.object(snapshot.subprocess, "run", side_effect=subprocess.CalledProcessError(1, "buildx")) as command:
+                with self.assertRaises(subprocess.CalledProcessError):
+                    snapshot.require_buildkit(env)
+                self.assertEqual(command.call_args.args[0], ["docker", "buildx", "version"])
+                self.assertEqual(command.call_args.kwargs["env"]["DOCKER_BUILDKIT"], "1")
 
 
 if __name__ == "__main__":

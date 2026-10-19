@@ -126,6 +126,7 @@ def record_proof(relative, output, control, env, revision):
                                               "expected_source_sha256": expected_digest,
                                               "replacement_objects": False, "working_tree_used": False})
         env = {**env, "DOCKER_HOST": snapshot.local_docker_endpoint(env, home)}
+        snapshot.require_buildkit(env)
         for command in (["go", "mod", "download"], ["go", "mod", "verify"], ["make", "build"]):
             snapshot.validate_snapshot(source, expected)
             built = subprocess.run(command, cwd=source, env=env, capture_output=True, timeout=300)

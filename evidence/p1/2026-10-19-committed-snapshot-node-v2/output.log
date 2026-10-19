@@ -1,0 +1,31 @@
+go: downloading go1.27.2 (darwin/arm64)
+all modules verified
+go build -trimpath -o build/nib ./cmd/nib
+python3 scripts/e2e/run.py
+Sending build context to Docker daemon  1.047MB
+Step 1/31 : ARG GO_IMAGE
+Step 2/31 : ARG PYTHON_IMAGE
+Step 3/31 : FROM ${GO_IMAGE} AS engine-build
+1.27.2-bookworm: Pulling from library/golang
+Digest: sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61
+Status: Downloaded newer image for golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61
+ ---> 5cf287a799e6
+Step 4/31 : ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOFLAGS=-mod=readonly
+ ---> Running in c2d8b3476417
+ ---> Removed intermediate container c2d8b3476417
+ ---> 157229fa0042
+Step 5/31 : WORKDIR /src
+ ---> Running in 3bd5698f78b9
+ ---> Removed intermediate container 3bd5698f78b9
+ ---> 443614d5ceaa
+Step 6/31 : COPY repo/ ./
+{"cleanup": {"container": {"absence": "confirmed", "removal": {"exit_code": 0, "status": "exited"}, "resource": "nib-e2e-36c70c8d57a5"}, "image": {"absence": "confirmed", "removal": {"exit_code": 1, "status": "exited"}, "resource": "nib-e2e-local:36c70c8d57a5"}, "result": "pass"}, "confidential": false, "execution": "fake", "failed_check": "host-run-failed", "hardware_validated": false, "result": "fail", "scope": "full-fake-node"}
+Software-only test artifacts: [REDACTED]/source/build/e2e/36c70c8d57a5
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+failed to get destination image "sha256:443614d5ceaa8afe09c9d7fb5dd712ea6c1931e32dbf96266c52d14985f6f3c3": image with reference sha256:443614d5ceaa8afe09c9d7fb5dd712ea6c1931e32dbf96266c52d14985f6f3c3 was found but does not provide the specified platform (linux/amd64)
+E2E failed; check pinned inputs, build output and software-only result artifacts
+make: *** [test-e2e] Error 1
+FAIL: full container proof; inspect bounded result and cleanup records.

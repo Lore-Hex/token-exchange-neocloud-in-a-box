@@ -82,6 +82,15 @@ Go 1.27.2 requirement. No container or image was created. Exact toolchain
 selection replaces that host-dependent assumption; the failed artifact is
 not overwritten or counted as a passing proof.
 
+The v2 attempt at source `a161c1b` verified modules but failed in Docker's
+legacy builder: the private empty Docker configuration did not discover the
+host's OrbStack Buildx plugin. Its named resources were absent; the two
+identified intermediate images (`443614d5ceaa` and `157229fa0042`) were then
+removed and absence-checked. The recorder now requires BuildKit and exposes
+only the installed sibling Buildx executable in its private plugin directory;
+it does not import Docker configuration or credentials. The failed v2 artifact
+is also retained separately.
+
 ## Isolation and pins
 
 - `pins.json` contains registry-resolved immutable Go 1.27.2 and Python 3.12.13

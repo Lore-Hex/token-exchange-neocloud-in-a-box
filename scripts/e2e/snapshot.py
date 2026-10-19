@@ -4,6 +4,7 @@
 import hashlib
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tarfile
 
@@ -25,6 +26,7 @@ def controlled_env(control):
         "GOCACHE": str(control / "go-cache"), "GOMODCACHE": str(control / "go-mod"),
         "GOPROXY": "https://proxy.golang.org", "GOSUMDB": "sum.golang.org",
         "DOCKER_CONFIG": str(control / "docker"), "BUILDX_CONFIG": str(control / "docker/buildx"),
+        "DOCKER_BUILDKIT": "1",
     }
 
 
@@ -43,6 +45,21 @@ def local_docker_endpoint(env, home):
     if not endpoint.startswith("unix:///") or "\n" in endpoint or "\r" in endpoint:
         raise ValueError("only a local Unix-socket Docker endpoint is allowed")
     return endpoint
+
+
+def require_buildkit(env):
+    # OrbStack installs Buildx next to its Docker executable, while Linux
+    # packages normally use Docker's system plugin directories. Expose only
+    # that installed executable, never the user's Docker config/credentials.
+    docker = shutil.which("docker", path=env["PATH"])
+    if docker is None:
+        raise ValueError("Docker executable unavailable")
+    sibling = Path(docker).resolve().with_name("docker-buildx")
+    if sibling.is_file() and os.access(sibling, os.X_OK):
+        plugins = Path(env["DOCKER_CONFIG"]) / "cli-plugins"
+        plugins.mkdir()
+        (plugins / "docker-buildx").symlink_to(sibling)
+    subprocess.run(["docker", "buildx", "version"], env=env, check=True, capture_output=True, timeout=10)
 
 
 def snapshot_commit(root, destination, control, env, revision=None):

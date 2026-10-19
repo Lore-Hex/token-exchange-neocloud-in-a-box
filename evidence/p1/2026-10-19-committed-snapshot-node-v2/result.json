@@ -1,0 +1,27 @@
+{
+  "cleanup": {
+    "container": {
+      "absence": "confirmed",
+      "removal": {
+        "exit_code": 0,
+        "status": "exited"
+      },
+      "resource": "nib-e2e-36c70c8d57a5"
+    },
+    "image": {
+      "absence": "confirmed",
+      "removal": {
+        "exit_code": 1,
+        "status": "exited"
+      },
+      "resource": "nib-e2e-local:36c70c8d57a5"
+    },
+    "result": "pass"
+  },
+  "confidential": false,
+  "execution": "fake",
+  "failed_check": "host-run-failed",
+  "hardware_validated": false,
+  "result": "fail",
+  "scope": "full-fake-node"
+}
