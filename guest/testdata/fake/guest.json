@@ -1,0 +1,19 @@
+{
+  "schema": "nib.guest-fake/v1",
+  "engine_address": "127.0.0.1:18000",
+  "devices": [
+    {"id": "gpu0", "kind": "gpu"},
+    {"id": "gpu1", "kind": "gpu"},
+    {"id": "switch0", "kind": "switch"}
+  ],
+  "inventory_file": "inventory.json",
+  "network_file": "network.json",
+  "weights": [
+    {
+      "path": "weights.txt",
+      "bytes": 10,
+      "sha256": "18c4f85a180cf29ddc1f8e3a3143ff54d643d1c306dbe610f4f70482632071d4"
+    }
+  ],
+  "egress": []
+}
