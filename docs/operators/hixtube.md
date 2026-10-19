@@ -45,10 +45,11 @@ python3 scripts/record-domain-check.py --domain hixtube.com --slug hixtube-dns
 This explicitly creates a new local evidence directory, recording the source
 revision, timestamps and exact sanitized DNS report. It builds the checker and
 evidence helper from a committed Git snapshot, excluding ignored/untracked Go
-files, overlays, workspaces and ambient build flags. Build dependencies may need
-to be downloaded; the DNS checker itself makes no HTTP requests. Use Python
-3.12 or later for the recorder's explicit archive extraction filter. It never overwrites an
-existing run. Use a new slug for a subsequent check. The checker is reusable
+files, overlays, workspaces and ambient build flags. Local Git replacement refs
+are disabled. Build dependencies may need to be downloaded; the DNS checker
+itself makes no HTTP requests. Use Python 3.12 or later for the recorder's
+explicit archive extraction filter. It never overwrites an existing run.
+Use a new slug for a subsequent check. The checker is reusable
 for any operator; its tests do not depend on Hixtube's DNS.
 
 The [2026-10-19 snapshot-built check](../../evidence/p1/2026-10-19-hixtube-dns-v2/run.json)

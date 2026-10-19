@@ -28,7 +28,7 @@ def command_environment():
     for cache in ("GOCACHE", "GOMODCACHE"):
         if os.environ.get(cache):
             env[cache] = os.environ[cache]
-    env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
+    env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_NO_REPLACE_OBJECTS="1",
                GOENV="off", GOWORK="off", GOFLAGS="-mod=readonly", CGO_ENABLED="0",
                GOTOOLCHAIN="auto", GOPROXY="https://proxy.golang.org", GOSUMDB="sum.golang.org")
     return env

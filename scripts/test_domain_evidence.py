@@ -103,6 +103,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(env["GOENV"], "off")
         self.assertEqual(env["GOWORK"], "off")
         self.assertEqual(env["GOTOOLCHAIN"], "auto")
+        self.assertEqual(env["GIT_NO_REPLACE_OBJECTS"], "1")
         for key in ("GOOS", "GOARCH", "GOEXPERIMENT", "GODEBUG", "GIT_DIR", "CGO_CFLAGS"):
             self.assertNotIn(key, env)
 
@@ -126,6 +127,25 @@ class EvidenceTests(unittest.TestCase):
             git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
                 "-c", "commit.gpgsign=false", "commit", "-qm", "fixture")
             sha = git("rev-parse", "HEAD")
+            # Replacement refs can silently change git archive's source without
+            # changing HEAD or status. Prove the override exists, then require
+            # the protected snapshot and both built binaries to ignore it.
+            for name in ("nib-domain-check", "nib"):
+                (root / "cmd" / name / "main.go").write_text(
+                    'package main\nimport "fmt"\nfunc main() { fmt.Print("replacement") }\n')
+            git("add", "cmd")
+            git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                "-c", "commit.gpgsign=false", "commit", "-qm", "replacement fixture")
+            replacement = git("rev-parse", "HEAD")
+            git("checkout", "-q", "--detach", sha)
+            git("replace", sha, replacement)
+            unsafe_env = recorder.command_environment()
+            unsafe_env.pop("GIT_NO_REPLACE_OBJECTS")
+            unsafe = subprocess.run(["git", "show", sha + ":cmd/nib/main.go"], cwd=root,
+                                    env=unsafe_env, capture_output=True, text=True, timeout=10)
+            self.assertEqual(unsafe.returncode, 0)
+            self.assertIn('fmt.Print("replacement")', unsafe.stdout)
+            self.assertEqual(git("rev-parse", "HEAD"), sha)
             (root / "ignored.go").write_text("package main // must not execute\n")
             for name in ("nib-domain-check", "nib"):
                 (root / "cmd" / name / "ignored.go").write_text(
