@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
 
 	"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/config"
 )
@@ -33,6 +34,11 @@ type LocalProof struct {
 func CheckLocal(ctx context.Context, packPath, directory string) (*LocalProof, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	// Reject lexical rewrites rather than allowing a trailing slash or dot to
+	// make Lstat follow a root symlink. Callers provide one canonical spelling.
+	if directory == "" || filepath.Clean(directory) != directory {
+		return nil, errors.New("modelpack: canonical staged directory path required")
 	}
 	p, manifest, err := Load(packPath)
 	if err != nil {
@@ -87,34 +93,93 @@ func CheckLocal(ctx context.Context, packPath, directory string) (*LocalProof, e
 
 func localInventory(ctx context.Context, root *os.Root, want map[string]config.ManifestFile, dirs map[string]bool) (map[string]os.FileInfo, error) {
 	seen := make(map[string]os.FileInfo, len(want))
-	err := fs.WalkDir(root.FS(), ".", func(name string, entry fs.DirEntry, walkErr error) error {
+	seenDirs := map[string]bool{".": true}
+	pending := []string{"."}
+	for len(pending) != 0 {
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, err
 		}
-		if walkErr != nil {
-			return errors.New("modelpack: cannot inspect staged directory")
+		dir := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		f, err := openLocalWeight(root, dir)
+		if err != nil {
+			return nil, errors.New("modelpack: cannot safely open staged directory")
 		}
-		if entry.IsDir() && dirs[name] {
+		i, err := f.Stat()
+		if err != nil || !i.IsDir() {
+			f.Close()
+			return nil, errors.New("modelpack: staged directory changed")
+		}
+		err = readLocalDirectory(ctx, f, func(entry fs.DirEntry) error {
+			name := path.Join(dir, entry.Name())
+			if entry.IsDir() && dirs[name] {
+				if seenDirs[name] {
+					return errors.New("modelpack: duplicate staged directory")
+				}
+				seenDirs[name] = true
+				pending = append(pending, name)
+				return nil
+			}
+			expected, ok := want[name]
+			if !ok || !entry.Type().IsRegular() {
+				return errors.New("modelpack: staged file set differs or contains unsafe entries")
+			}
+			i, err := entry.Info()
+			if err != nil || !i.Mode().IsRegular() || i.Size() != expected.Bytes {
+				return errors.New("modelpack: staged file size or type differs")
+			}
+			if _, duplicate := seen[name]; duplicate {
+				return errors.New("modelpack: duplicate staged file")
+			}
+			seen[name] = i
 			return nil
+		})
+		f.Close()
+		if err != nil {
+			return nil, err
 		}
-		f, ok := want[name]
-		if !ok || !entry.Type().IsRegular() {
-			return errors.New("modelpack: staged file set differs or contains unsafe entries")
-		}
-		i, err := entry.Info()
-		if err != nil || !i.Mode().IsRegular() || i.Size() != f.Bytes {
-			return errors.New("modelpack: staged file size or type differs")
-		}
-		seen[name] = i
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
 	if len(seen) != len(want) {
 		return nil, errors.New("modelpack: staged files missing")
 	}
 	return seen, nil
+}
+
+const localDirectoryBatch = 64
+
+type localDirectoryReader interface {
+	ReadDir(int) ([]fs.DirEntry, error)
+}
+
+// Do not use WalkDir/ReadDir(-1): unexpected directory contents must not cause
+// unbounded allocation or sorting before we can reject them or honor cancel.
+func readLocalDirectory(ctx context.Context, dir localDirectoryReader, visit func(fs.DirEntry) error) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		entries, readErr := dir.ReadDir(localDirectoryBatch)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			return errors.New("modelpack: cannot inspect staged directory")
+		}
+		for _, entry := range entries {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := visit(entry); err != nil {
+				return err
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			return nil
+		}
+		if len(entries) == 0 {
+			return errors.New("modelpack: staged directory enumeration made no progress")
+		}
+	}
 }
 
 func sameLocalFile(a, b os.FileInfo) bool {

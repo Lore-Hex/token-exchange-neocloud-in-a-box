@@ -22,6 +22,10 @@ nested paths, missing/extra files and directories, same-size corruption,
 truncation, inode replacement with identical bytes/mtime, symlink/FIFO swaps,
 unsafe roots, cancellation and diagnostic redaction. Existing parser mutation
 fixtures also exercise the shared typed parser and forbid partial output.
+Independent review caught unbounded whole-directory enumeration and a root-link
+spelling bypass. Both are corrected: reads use 64-entry batches and the root
+argument must be canonical. Tests cover cancellation during enumeration,
+enumeration bounds, and root symlinks followed by `/` or `/.`.
 
 Focused and full checks, hosted CI and independent final-head review must pass
 before merge. The PR records exact commands and outcomes.

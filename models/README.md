@@ -14,12 +14,15 @@ directory (not a symlink-based Hugging Face cache), run on Linux or macOS:
 nib model check-local models/deepseek-v4.1-flash-1017/1 /path/to/staged-model
 ```
 
+Use a canonical directory path, without a trailing slash, `/.` or `..` segments.
 The pack and its `files.sha256` must come from your trusted, pinned toolkit
 revision. Keep them outside the staged model directory. The command checks the
 exact file set and each file's size and SHA-256, with a 256 KiB hashing buffer;
 it does not load a shard into RAM. Missing/extra files, extra directories,
 symlinks, special files and observed replacements fail closed. It checks again
 after reading for changes to the file set, identity, size, mode or mtime.
+Directory enumeration uses batches of at most 64 entries, rejecting unexpected
+entries and checking cancellation without sorting an entire directory first.
 Linux/macOS nonblocking, no-follow file opens prevent a leaf FIFO/link swap
 from turning verification into a blocking read or following that link.
 

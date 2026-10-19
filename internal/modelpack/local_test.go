@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -122,10 +123,82 @@ func TestCheckLocalCancellationAndUnsafeRoot(t *testing.T) {
 	if err := os.Symlink(dir, link); err != nil {
 		t.Fatal(err)
 	}
-	for _, root := range []string{link, filepath.Join(dir, "config.json"), "/missing/SECRET"} {
+	for _, root := range []string{link, link + "/", link + "/.", dir + "/../" + filepath.Base(dir), filepath.Join(dir, "config.json"), "/missing/SECRET"} {
 		if proof, err := CheckLocal(context.Background(), p, root); proof != nil || err == nil || strings.Contains(err.Error(), "SECRET") {
 			t.Fatal("unsafe root accepted or leaked")
 		}
+	}
+}
+
+type directoryReaderFunc func(int) ([]fs.DirEntry, error)
+
+func (f directoryReaderFunc) ReadDir(n int) ([]fs.DirEntry, error) { return f(n) }
+
+func TestLocalDirectoryEnumerationBounded(t *testing.T) {
+	i, err := os.Stat(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := fs.FileInfoToDirEntry(i)
+	calls := 0
+	dir := directoryReaderFunc(func(n int) ([]fs.DirEntry, error) {
+		calls++
+		if n != localDirectoryBatch {
+			t.Fatal("unbounded directory read")
+		}
+		entries := make([]fs.DirEntry, n)
+		for i := range entries {
+			entries[i] = entry
+		}
+		return entries, nil
+	})
+	rejected := errors.New("unexpected entry")
+	if err := readLocalDirectory(context.Background(), dir, func(fs.DirEntry) error { return rejected }); !errors.Is(err, rejected) || calls != 1 {
+		t.Fatal("enumerated beyond first unexpected batch")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	calls = 0
+	visited := 0
+	if err := readLocalDirectory(ctx, dir, func(fs.DirEntry) error {
+		visited++
+		if visited == localDirectoryBatch+1 {
+			cancel()
+		}
+		return nil
+	}); !errors.Is(err, context.Canceled) || calls != 2 || visited != localDirectoryBatch+1 {
+		t.Fatal("ignored mid-enumeration cancellation")
+	}
+}
+
+func TestLocalDirectoryReadErrorsAndCancellation(t *testing.T) {
+	for _, kind := range []string{"cancel", "read-error", "no-progress", "end"} {
+		t.Run(kind, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			dir := directoryReaderFunc(func(n int) ([]fs.DirEntry, error) {
+				if n != localDirectoryBatch {
+					t.Fatal("unbounded read")
+				}
+				switch kind {
+				case "cancel":
+					cancel()
+					return nil, io.EOF
+				case "read-error":
+					return nil, errors.New("SECRET")
+				case "no-progress":
+					return nil, nil
+				default:
+					return nil, io.EOF
+				}
+			})
+			err := readLocalDirectory(ctx, dir, func(fs.DirEntry) error { t.Fatal("unexpected entry"); return nil })
+			if (err == nil) != (kind == "end") || (err != nil && strings.Contains(err.Error(), "SECRET")) {
+				t.Fatal("invalid result or leaked diagnostic")
+			}
+			if kind == "cancel" && !errors.Is(err, context.Canceled) {
+				t.Fatal("cancellation lost")
+			}
+		})
 	}
 }
 
