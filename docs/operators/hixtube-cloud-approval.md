@@ -18,8 +18,11 @@ denied reads do not prove zero assets. The active credential remains unchanged.
 Request approval to enable Cloud Billing in **`hixtube-neocloud`**, verify that
 it is still unlinked, attach the privately approved existing billing account,
 enable Compute, then perform read-only inventory/image/quota checks there.
-No VM, disk, address reservation, network, IAM grant, quota increase, DNS,
-production change or workload is included. No resource allocation is proposed;
+No VM, disk, address reservation, custom network, direct IAM grant, quota increase,
+DNS, production change or workload is included. Compute activation can create
+default network/firewall objects and service identities, with policy-dependent
+automatic role grants; these side effects are part of this setup request and
+must be inventoried before any workload. No billable allocation is proposed;
 attaching billing nevertheless enables future charges and is not a spending cap.
 Do not promise zero liability for assets not yet inventoried.
 
@@ -60,6 +63,8 @@ gc billing projects describe hixtube-neocloud --format='yaml(projectId,billingEn
 gc services list --enabled --format='table(config.name,state)'
 ```
 
+Use an exclusive change window for this project: the read-then-link guard is
+not an atomic compare-and-set. If another operator is changing billing, stop.
 Stop on any failure or changed billing association; never fall back to a
 production consumer, silently move billing, enable extra APIs or grant roles.
 The operator needs existing billing-association and service-enablement permissions;
