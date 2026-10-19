@@ -137,7 +137,15 @@ publication are performed by either command.
 
 ## Recorded Runs
 
-The final [live check](../evidence/p0/2026-10-19T015247Z-model-pack-check/run.json)
+The [0.32.0 engine check](../evidence/p0/2026-10-19T103148Z-model-pack-check/run.json)
+passed from `c6f5b54`. The
+[report](../evidence/p0/2026-10-19T103148Z-model-pack-check/report.json)
+records the reviewed release source, exact Linux/amd64 manifest/configuration
+hashes and self-declared source metadata, and both unchanged complete weight
+manifests. This is the current software metadata audit; it does not execute
+vLLM or establish GPU/confidential compatibility.
+
+The earlier [0.31.0 live check](../evidence/p0/2026-10-19T015247Z-model-pack-check/run.json)
 passed from committed checker `230be00`, including both public `CheckRemote`
 calls, all-file manifests, fixed pack identities and both registry digests.
 Its [structured report](../evidence/p0/2026-10-19T015247Z-model-pack-check/report.json)

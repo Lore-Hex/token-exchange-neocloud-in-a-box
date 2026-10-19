@@ -57,6 +57,14 @@ only. Its immutable run record belongs under `evidence/p0/`; prior failed and
 successful runs are never replaced. It does not download 510 GB of weights,
 start a cloud VM, execute a GPU kernel or claim confidential success.
 
+The [live check](../../evidence/p0/2026-10-19T103148Z-model-pack-check/run.json)
+passed from committed source `c6f5b54`. Its
+[report](../../evidence/p0/2026-10-19T103148Z-model-pack-check/report.json)
+records all seven source hashes, the image/configuration metadata proof and both
+complete model manifests. Registry/config/auth responses totaled 59,187 bytes;
+no container layers were downloaded. The exact selected DeepSeek manifest still
+covers 83 files and 510,311,045,295 bytes. This remains metadata-only evidence.
+
 ## Remaining Full DeepSeek Work
 
 1. Obtain the actual server details and bounded run authorization. Joseph's
