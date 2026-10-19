@@ -13,6 +13,8 @@ ZMQ listener imports/lifecycle, asynchronous fallback copies and 64-bit indexing
 0002 is the original second commit, byte-for-byte, including author attribution.
 0003 changes selection to fail closed, sanitizes diagnostics, clarifies the lack
 of attestation, and unconditionally orders staged-buffer stream handoff.
+0004 rejects generic CUDA host mapping when the candidate CC path is selected,
+using a fixed error instead of silently replacing a required alias with a copy.
 
 All base files retain upstream copyright/SPDX headers. The patches are marked
 modified and remain Apache-2.0. Upstream benchmark statements in original patch

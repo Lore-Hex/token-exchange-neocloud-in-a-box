@@ -119,9 +119,14 @@ class CandidateTest(unittest.TestCase):
         self.assertIs(self.manifest["deployable"], False)
         self.assertIsNone(self.manifest["image"])
         self.assertEqual(self.local[CHECKER.PATCHES[1]], self.local["upstream/" + CHECKER.COMMITS[1] + ".patch"])
+        self.assertEqual(len(CHECKER.PATCHES), 4)
+        for item in self.manifest["files"]:
+            self.assertEqual(len(item["sha256"]), 5)
+            self.assertEqual(item["sha256"][3] != item["sha256"][4],
+                             item["path"] == "vllm/utils/torch_utils.py")
 
     def test_tampered_sources_patches_and_policy_are_rejected(self):
-        for name in ("base/vllm/envs.py", CHECKER.PATCHES[0], CHECKER.PATCHES[1], "LICENSE"):
+        for name in ("base/vllm/envs.py", *CHECKER.PATCHES, "LICENSE"):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 changed = dict(BUNDLE)
                 changed[CHECKER.DIRECTORY + "/" + name] += b"\nchanged\n"
@@ -136,12 +141,13 @@ class CandidateTest(unittest.TestCase):
                 CHECKER.verify(changed)
 
     def test_resigned_bad_after_hash_and_unexpected_file_are_rejected(self):
-        changed = dict(BUNDLE)
-        manifest = copy.deepcopy(self.manifest)
-        manifest["files"][0]["sha256"][1] = "0" * 64
-        changed[CHECKER.DIRECTORY + "/candidate.json"] = json.dumps(manifest).encode()
-        with self.assertRaises(ValueError):
-            CHECKER.verify(changed)
+        for stage in range(1, len(CHECKER.PATCHES) + 1):
+            changed = dict(BUNDLE)
+            manifest = copy.deepcopy(self.manifest)
+            manifest["files"][0]["sha256"][stage] = "0" * 64
+            changed[CHECKER.DIRECTORY + "/candidate.json"] = json.dumps(manifest).encode()
+            with self.subTest(stage=stage), self.assertRaises(ValueError):
+                CHECKER.verify(changed)
         changed = dict(BUNDLE)
         changed[CHECKER.DIRECTORY + "/ignored.py"] = b"raise Exception()"
         with self.assertRaises(ValueError):
@@ -156,8 +162,14 @@ class CandidateTest(unittest.TestCase):
         function = next(n for n in after.body if getattr(n, "name", None) == "async_tensor_h2d")
         function.body = [n for n in function.body if not (isinstance(n, ast.If)
                          and ast.unparse(n.test) == "_confidential_compute_enabled()")]
+        mapping = next(n for n in after.body if getattr(n, "name", None) == "get_accelerator_view_from_cpu_tensor")
+        cuda = next(n for n in ast.walk(mapping) if isinstance(n, ast.If)
+                    and ast.unparse(n.test) == "current_platform.is_cuda_alike()")
+        guard = cuda.body.pop(0)
+        self.assertIsInstance(guard, ast.If)
+        self.assertEqual(ast.unparse(guard.test), "current_platform.is_confidential_compute()")
         # Whole-module AST equality includes lazy PIN_MEMORY, DP seeds, ultraquant,
-        # direct-view helper and every other release function, not just strings.
+        # direct-view behavior outside the new guard and every other release function.
         self.assertEqual(ast.dump(before), ast.dump(after))
         calls = []
         namespace = functions(self.files[path], ["__getattr__"],
@@ -223,6 +235,62 @@ class CandidateTest(unittest.TestCase):
              "torch": types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: available)),
              "logger": types.SimpleNamespace(info=lambda text, *args: messages.append(text % args if args else text))})
         return namespace, events, messages
+
+    def mapping_helper(self, detector, xpu=False):
+        calls, alias = [], object()
+        def selected():
+            calls.append("select")
+            return detector()
+        def mapping(tensor, kind):
+            calls.append((kind, tensor))
+            return alias
+        platform = types.SimpleNamespace(is_xpu=lambda: xpu, is_cuda_alike=lambda: not xpu,
+                                         is_confidential_compute=selected)
+        torch = types.SimpleNamespace(ops=types.SimpleNamespace(_C=types.SimpleNamespace(
+            get_cuda_view_from_cpu_tensor=lambda tensor: mapping(tensor, "cuda"),
+            get_xpu_view_from_cpu_tensor=lambda tensor: mapping(tensor, "xpu"))))
+        helper = functions(self.files["vllm/utils/torch_utils.py"], ["get_accelerator_view_from_cpu_tensor"],
+            {"torch": torch}, {"vllm.platforms": types.SimpleNamespace(current_platform=platform)})
+        return helper["get_accelerator_view_from_cpu_tensor"], calls, alias
+
+    def test_confidential_sink_rejects_before_mapping_without_copy_or_tensor_diagnostics(self):
+        class PrivateTensor:
+            def __repr__(self):
+                raise AssertionError("tensor must not enter diagnostics")
+        detectors = [lambda: True, self.selection("1")[0]["_detect_confidential_compute"],
+                     self.selection()[0]["_detect_confidential_compute"]]
+        for detector in detectors:
+            helper, calls, _ = self.mapping_helper(detector)
+            with self.subTest(detector=detector), self.assertRaises(RuntimeError) as caught:
+                helper(PrivateTensor())
+            self.assertEqual(str(caught.exception), "CUDA host mapping is disabled by the CC candidate")
+            self.assertEqual(calls, ["select"])
+
+    def test_nonconfidential_sink_preserves_raw_mapping_and_returned_alias(self):
+        tensor = object()
+        helper, calls, alias = self.mapping_helper(lambda: False)
+        self.assertIs(helper(tensor), alias)
+        self.assertEqual(calls, ["select", ("cuda", tensor)])
+
+    def test_sink_detection_errors_never_map_and_remain_sanitized(self):
+        secret = "synthetic-sink-secret\nforged"
+        for kwargs in ({"override": secret}, {"error": RuntimeError(secret)}):
+            namespace, _, messages = self.selection(**kwargs)
+            helper, calls, _ = self.mapping_helper(namespace["_detect_confidential_compute"])
+            try:
+                helper(object())
+            except (ValueError, RuntimeError):
+                self.assertNotIn(secret, traceback.format_exc())
+            else:
+                self.fail("failed detection allowed host mapping")
+            self.assertEqual(calls, ["select"])
+            self.assertEqual(messages, [])
+
+    def test_xpu_sink_preserves_mapping_without_cc_selection(self):
+        tensor = types.SimpleNamespace(numel=lambda: 1, is_pinned=lambda: True)
+        helper, calls, alias = self.mapping_helper(lambda: self.fail("XPU must not select CUDA CC"), xpu=True)
+        self.assertIs(helper(tensor), alias)
+        self.assertEqual(calls, [("xpu", tensor)])
 
     def test_explicit_copy_selection_is_not_nvml_or_attestation(self):
         namespace, events, messages = self.selection("1", error=Exception("unreachable"))
@@ -416,6 +484,46 @@ class CandidateTest(unittest.TestCase):
                 revision, bundle = CHECKER.committed_bundle(root)
             self.assertEqual(revision, original)
             self.assertEqual(bundle, BUNDLE)
+
+    def test_missing_promisor_blob_never_invokes_transport(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            CHECKER.git(root, "init", "--quiet")
+            for name, data in BUNDLE.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+            CHECKER.git(root, "add", ".")
+            CHECKER.git(root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                        "-c", "commit.gpgsign=false", "commit", "-qm", "fixture")
+            missing = CHECKER.DIRECTORY + "/base/" + CHECKER.PATHS[0]
+            oid = CHECKER.git(root, "rev-parse", "HEAD:" + missing).decode().strip()
+            (root / ".git/objects" / oid[:2] / oid[2:]).unlink()
+            marker, helper = root / "transport-called", root / "transport.py"
+            helper.write_text("from pathlib import Path\nPath(" + repr(str(marker)) + ").touch()\n"
+                              "raise SystemExit(1)\n")
+            CHECKER.git(root, "config", "remote.origin.url", "ext::" + sys.executable + " -I -B " + str(helper))
+            CHECKER.git(root, "config", "remote.origin.promisor", "true")
+            CHECKER.git(root, "config", "remote.origin.partialclonefilter", "blob:none")
+            CHECKER.git(root, "config", "protocol.ext.allow", "always")
+            protected = CHECKER.tool_env()
+            self.assertEqual(protected["GIT_NO_LAZY_FETCH"], "1")
+            self.assertEqual(protected["GIT_ALLOW_PROTOCOL"], "")
+            self.assertEqual(protected["GIT_TERMINAL_PROMPT"], "0")
+            # The transport deny also protects Git versions without lazy-fetch control.
+            for ignored in (None, "GIT_NO_LAZY_FETCH"):
+                env = {key: value for key, value in protected.items() if key != ignored}
+                with patch.object(CHECKER, "tool_env", return_value=env), self.assertRaises(ValueError):
+                    CHECKER.committed_bundle(root)
+                self.assertFalse(marker.exists())
+                self.assertFalse((root / "evidence").exists())
+            # Positive control: allow only this local helper, never a remote endpoint.
+            env = {key: value for key, value in protected.items()
+                   if key not in ("GIT_NO_LAZY_FETCH", "GIT_ALLOW_PROTOCOL")}
+            result = subprocess.run(["git", "-C", str(root), "cat-file", "-s", oid],
+                                    env=env, capture_output=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(marker.exists())
 
 
 if __name__ == "__main__":
