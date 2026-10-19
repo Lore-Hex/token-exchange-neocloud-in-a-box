@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import hashlib
 import importlib.util
+import py_compile
 import os
 from pathlib import Path
 import tarfile
@@ -112,6 +113,42 @@ class QwenPilotTests(unittest.TestCase):
                 self.assertEqual(run.call_args.args[0],
                                  ["/trusted/nib", "lint", str(root / "evidence-validation")])
                 self.assertTrue(run.call_args.kwargs["check"])
+
+    def test_ignored_bytecode_cannot_override_helper_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "helper.py"
+            path.write_text("VALUE = 'forged'\n")
+            original = path.stat()
+            py_compile.compile(str(path), doraise=True)
+            # Same source size and mtime: a normal import trusts the forged pyc.
+            path.write_text("VALUE = 'source'\n")
+            os.utime(path, ns=(original.st_atime_ns, original.st_mtime_ns))
+            normal_spec = importlib.util.spec_from_file_location("normal_helper", path)
+            normal = importlib.util.module_from_spec(normal_spec)
+            normal_spec.loader.exec_module(normal)
+            self.assertEqual(normal.VALUE, "forged")
+            loaded, source = recorder.load_source("safe_helper", path)
+            self.assertEqual(loaded.VALUE, "source")
+            self.assertEqual(source, path.read_bytes())
+
+    def test_bootstrap_must_match_committed_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "scripts/e2e").mkdir(parents=True)
+            (root / "scripts/record-qwen-pilot.py").write_bytes(recorder.BOOTSTRAP_SOURCE)
+            helper = root / "scripts/e2e/snapshot.py"
+            helper.write_bytes(recorder.SNAPSHOT_SOURCE)
+            recorder.validate_bootstrap(root)
+            helper.write_text("raise RuntimeError('modified helper')\n")
+            with self.assertRaises(ValueError):
+                recorder.validate_bootstrap(root)
+
+    def test_recorder_refuses_nonisolated_python(self):
+        result = subprocess.run([sys.executable, str(Path(recorder.__file__)), "--help"],
+                                capture_output=True, timeout=10)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"python -I", result.stderr)
 
 
 if __name__ == "__main__":

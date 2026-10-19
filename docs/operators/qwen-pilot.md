@@ -31,12 +31,14 @@ may be downloaded during setup; inference uses local weights and loopback only.
 From a clean committed checkout, run the evidence recorder:
 
 ```sh
-uv run --project tools --frozen python scripts/record-qwen-pilot.py \
+uv run --project tools --frozen python -I scripts/record-qwen-pilot.py \
   --inputs /tmp/hixtube-pilot-inputs --slug qwen-local-1
 ```
 
 Use a new slug for each run. The recorder executes a private committed-source
 snapshot and saves `run.json` and sanitized `output.log` under `evidence/p3/`.
+Isolated Python mode is required; helpers are loaded from source bytes, not
+ignored bytecode, and the bootstrap source must match the committed snapshot.
 A successful report requires all 17 applicable provider checks, real generation,
 authentication checks, upstream-failure propagation and cleanup. The separate
 public catalog declaration is not tested; it needs approved prices and listing.

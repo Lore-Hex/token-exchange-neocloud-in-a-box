@@ -18,11 +18,21 @@ import sys
 import tarfile
 import tempfile
 import time
+import types
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "scripts/e2e"))
-from snapshot import controlled_env  # noqa: E402
-from exercise import REQUIRED  # noqa: E402
+
+
+def source_module(name):
+    path = ROOT / "scripts/e2e" / (name + ".py")
+    module = types.ModuleType("pilot_" + name)
+    module.__file__ = str(path)
+    exec(compile(path.read_bytes(), str(path), "exec"), module.__dict__)
+    return module
+
+
+controlled_env = source_module("snapshot").controlled_env
+REQUIRED = source_module("exercise").REQUIRED
 
 
 class PilotError(Exception):

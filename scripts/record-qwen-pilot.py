@@ -2,6 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Run the local Qwen pilot from committed source and retain sanitized evidence."""
 
+import sys
+
+if __name__ == "__main__" and not sys.flags.isolated:
+    sys.exit("Run this recorder with python -I to exclude ambient Python imports.")
+
 import argparse
 import datetime
 import json
@@ -11,12 +16,32 @@ import platform
 import re
 import signal
 import subprocess
-import sys
 import tempfile
+import types
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "scripts/e2e"))
-from snapshot import controlled_env, git, snapshot_commit, validate_snapshot  # noqa: E402
+BOOTSTRAP_SOURCE = Path(__file__).read_bytes()
+
+
+def load_source(name, path):
+    # Normal imports may execute ignored timestamp-valid __pycache__ code.
+    source = path.read_bytes()
+    module = types.ModuleType(name)
+    module.__file__ = str(path)
+    exec(compile(source, str(path), "exec"), module.__dict__)
+    return module, source
+
+
+snapshot, SNAPSHOT_SOURCE = load_source("pilot_snapshot", ROOT / "scripts/e2e/snapshot.py")
+controlled_env, git = snapshot.controlled_env, snapshot.git
+snapshot_commit, validate_snapshot = snapshot.snapshot_commit, snapshot.validate_snapshot
+
+
+def validate_bootstrap(source):
+    for path, expected in (("scripts/record-qwen-pilot.py", BOOTSTRAP_SOURCE),
+                           ("scripts/e2e/snapshot.py", SNAPSHOT_SOURCE)):
+        if (source / path).read_bytes() != expected:
+            raise ValueError("bootstrap differs from committed source")
 
 
 def now():
@@ -74,8 +99,9 @@ def main():
             raise ValueError("commit source before recording")
         source = work / "source"
         revision, expected, archive_digest = snapshot_commit(ROOT, source, work / "control", env)
+        validate_bootstrap(source)
         try:
-            result = execute_pilot([sys.executable, str(source / "scripts/pilot/run.py"),
+            result = execute_pilot([sys.executable, "-I", "-B", str(source / "scripts/pilot/run.py"),
                                     "--inputs", str(args.inputs.resolve())], env=env, cwd=source)
             if len(result.stdout) > 65536:
                 raise ValueError("oversized pilot report")
@@ -95,7 +121,7 @@ def main():
                        cwd=source, env=env, check=True, capture_output=True, timeout=180)
         record = {
             "schema": "nib.evidence/v1", "phase": "P3", "task": "T7", "git_sha": revision,
-            "command": "python3 scripts/record-qwen-pilot.py --inputs " + str(args.inputs.resolve())
+            "command": "python3 -I scripts/record-qwen-pilot.py --inputs " + str(args.inputs.resolve())
                        + " --slug " + args.slug,
             "started_utc": started, "ended_utc": now(),
             "host": {"provider": "local", "machine": platform.system().lower() + "/" + platform.machine(),
