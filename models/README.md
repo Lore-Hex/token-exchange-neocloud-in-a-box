@@ -5,6 +5,10 @@ source-backed plain-only draft profiles; see [verification and limits](SOURCES.m
 Model licenses are separate from this repository's Apache-2.0
 license. No weights are distributed here.
 
+An Apache-licensed [blocked CC source candidate](engine-patches/vllm-0.32.0-cc/README.md)
+rebases PR59981 onto the pinned vLLM release for software-only checks. It is not
+selected by either pack and does not qualify the engine or hardware for CC.
+
 ## Stage pinned weights
 
 Start with an offline plan. This only reads the trusted pack and manifest:
