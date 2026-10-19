@@ -126,8 +126,14 @@ and official config digest. All source links below use release revision
 - [Engine arguments](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/engine/arg_utils.py), [offload](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/config/offload.py), [compilation](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/config/compilation.py), [cache](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/config/cache.py): verified control names and unset-versus-zero semantics.
 - [Frontend arguments](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/entrypoints/launchers/cli_args.py) and [plugins](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/plugins/__init__.py): logging controls and empty plugin allowlist.
 
-The actual installed wheel, its full dependency inventory and startup hooks have
-**not been inspected**. This implementation does not promise the official image
+The actual installed wheel and its full dependency inventory remain
+**unqualified**. A [committed read-only diagnostic](../../evidence/p0/2026-10-19-official-vllm-image-diagnostic/run.json)
+from source `694394cfe631ab6d09cd5695087a70351f203fae` retained partial observations
+but rejected admission: hooks and a populated alternate root remain rejected,
+filesystem inventory failed, and RECORD/wheel integrity were unavailable. All
+13 base-source expectations matched, but no overlay was applied. The
+[diagnostic scope](p0-t4-engine-image-diagnostic.md) distinguishes those observations
+from qualification. This implementation does not promise the official image
 will pass: unknown startup hooks/layouts must be separately inspected and reviewed,
 not exempted to make a run pass. Tests execute real filesystem functions against
 fake wheel trees with a deliberately non-importable engine and synthetic ELF
