@@ -222,12 +222,17 @@ class ImageTests(unittest.TestCase):
     def test_unsupported_inventory_entries_preserve_prior_hooks(self):
         self.fixture.write("unknown.pth", b"raise AssertionError('must not execute')\n")
         path = self.root / "unrelated.so"
-        for kind in ("symlink", "fifo", "native"):
+        for kind, reason in (("symlink", "symlink"), ("fifo", "non-regular-file"),
+                             ("native", "native-header"), ("hardlink", "hardlink")):
             with self.subTest(kind=kind):
                 if kind == "symlink":
                     path.symlink_to("missing")
                 elif kind == "fifo":
                     os.mkfifo(path)
+                elif kind == "hardlink":
+                    target = self.work / "outside-content"
+                    target.write_bytes(b"SYNTHETIC_PRIVATE_VALUE")
+                    os.link(target, path)
                 else:
                     path.write_bytes(b"not an ELF library")
                 try:
@@ -236,8 +241,38 @@ class ImageTests(unittest.TestCase):
                     path.unlink()
                 self.assertEqual(child["collection"], "partial")
                 self.assertEqual(child["checks"]["filesystem_inventory"], "rejected")
+                self.assertEqual(child["inventory_failure"], {"reason": reason, "path": "unrelated.so"})
+                self.assertNotIn("SYNTHETIC_PRIVATE_VALUE", json.dumps(child))
                 self.assertTrue(child["roots"][0]["hooks"])
                 self.assertEqual(len(child["source_files"]), len(self.contract["files"]))
+
+    def test_inventory_diagnostic_limits_and_unsafe_names_do_not_leak_paths(self):
+        with mock.patch.object(overlay, "MAX_FILES", 0):
+            child = self.collect()
+        self.assertEqual(child["inventory_failure"], {"reason": "entry-limit", "path": None})
+        path = self.root / "unsafe\nSYNTHETIC_PRIVATE_VALUE"
+        path.write_bytes(b"must never be read")
+        child = self.collect()
+        self.assertEqual(child["inventory_failure"], {"reason": "unsafe-name", "path": None})
+        self.assertNotIn("SYNTHETIC_PRIVATE_VALUE", json.dumps(child))
+
+    def test_inventory_failure_report_is_bounded_and_cannot_claim_acceptance(self):
+        report = self.collect()
+        report["collection"] = "partial"
+        report["checks"].update(filesystem_inventory="rejected", wheel_integrity="unavailable",
+                               record_integrity="unavailable", selected_root_admission="unavailable")
+        report["overlay_admission"] = "rejected"
+        report["inventory_failure"] = {"reason": "symlink", "path": "public-package/library.so"}
+        diagnostic.validate_report(overlay, report, self.contract)
+        for failure in ({"reason": "unbounded-error", "path": None},
+                        {"reason": "symlink", "path": "../escape"},
+                        {"reason": "symlink", "path": "/absolute/path"},
+                        {"reason": "symlink", "path": "a" * 513},
+                        {"reason": "symlink", "path": "ok", "target": "SYNTHETIC_PRIVATE_VALUE"}):
+            with self.subTest(failure=failure), self.assertRaises(ValueError):
+                diagnostic.validate_report(overlay, {**report, "inventory_failure": failure}, self.contract)
+        with self.assertRaises(ValueError):
+            diagnostic.validate_report(overlay, {**report, "collection": "pass"}, self.contract)
 
     def test_malformed_metadata_and_inaccessible_roots_preserve_other_observations(self):
         self.fixture.write("aaa-1.dist-info/METADATA", b"Name: SYNTHETIC_PRIVATE_VALUE\n")

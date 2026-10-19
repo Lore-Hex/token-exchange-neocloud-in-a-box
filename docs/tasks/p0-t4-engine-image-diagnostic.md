@@ -123,6 +123,12 @@ earlier bounded root/hook observations with `collection:partial` and fixed
 rejected/unavailable check statuses. Safely readable patched sources can still
 be hashed; an unreadable source is never treated as confirmed absent. Such a
 partial report cannot admit an overlay or produce a passing run.
+Filesystem rejections may include `inventory_failure`: a fixed reason code and
+a bounded relative path within the pinned public image. Symlink targets,
+file contents and raw exception strings are never included. Unsafe or oversized
+names are omitted. This diagnostic context does not change inventory admission:
+links, non-regular files, unsupported native headers and exceeded limits still
+fail closed. Previously recorded reports without this optional field stay valid.
 An overlay rejection makes `run.json` fail even if diagnostic collection and
 cleanup complete successfully. Successful software checks still leave the
 candidate blocked and ABI/hardware validation false.

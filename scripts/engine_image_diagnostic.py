@@ -131,7 +131,11 @@ def collect(overlay, contract):
                 tree = overlay.Tree(fd)
                 report["source_files"] = source_observations(overlay, tree, contract)
                 report["checks"]["filesystem_inventory"] = "rejected"
-                inventory = tree.inventory()
+                try:
+                    inventory = tree.inventory()
+                except overlay.InventoryRejected as failure:
+                    report["inventory_failure"] = {"reason": failure.reason, "path": failure.path}
+                    raise
                 report["checks"]["filesystem_inventory"] = "pass"
                 with overlay.directory(paths["scripts"]) as scripts_fd:
                     console = (os.path.relpath(Path(paths["scripts"]) / "vllm", candidates[0]), overlay.Tree(scripts_fd))
@@ -155,7 +159,7 @@ def collect(overlay, contract):
 
 def validate_report(overlay, report, contract):
     """Reject unknown child fields/strings before any child output is published."""
-    overlay.require(set(report) == {"schema", "collection", "platform", "python", "candidate_status", "deployable",
+    overlay.require(set(report) - {"inventory_failure"} == {"schema", "collection", "platform", "python", "candidate_status", "deployable",
         "abi_validated", "hardware_validated", "roots", "source_files", "checks", "overlay_admission"})
     overlay.require(report["schema"] == "nib.engine-image-diagnostic/v1" and report["collection"] in {"pass", "partial"}
         and report["platform"] == "linux/amd64" and re.fullmatch(r"3\.12\.[0-9]{1,3}", report["python"])
@@ -163,6 +167,15 @@ def validate_report(overlay, report, contract):
         and report["abi_validated"] is False and report["hardware_validated"] is False)
     overlay.require(set(report["checks"]) == {"root_admission", "wheel_integrity", "record_integrity", "selected_root_admission", "filesystem_inventory"}
                     and all(value in STATUS for value in report["checks"].values()))
+    if "inventory_failure" in report:
+        failure = report["inventory_failure"]
+        overlay.require(isinstance(failure, dict) and set(failure) == {"reason", "path"}
+                        and failure["reason"] in overlay.INVENTORY_REASONS
+                        and report["collection"] == "partial"
+                        and report["checks"]["filesystem_inventory"] == "rejected")
+        if failure["path"] is not None:
+            overlay.require(isinstance(failure["path"], str) and 0 < len(failure["path"]) <= 512)
+            overlay.safe_name(failure["path"])
     accepted = report["collection"] == "pass" and all(value == "pass" for value in report["checks"].values())
     overlay.require(report["overlay_admission"] == ("accepted" if accepted else "rejected"))
     overlay.require(isinstance(report["roots"], list) and len(report["roots"]) <= 4)
