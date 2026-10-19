@@ -3,6 +3,7 @@
 
 import importlib.util
 import io
+from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
@@ -138,6 +139,35 @@ class E2EPolicyTest(unittest.TestCase):
         processes.logs = [io.BytesIO(b"x" * ((1 << 20) + 1))]
         with self.assertRaises(exercise.CheckFailure):
             processes.privacy()
+
+    def test_full_node_runs_mutations_and_restores_valid_state(self):
+        # Mock process/network boundaries only. Execute the real orchestration
+        # so a missing matrix or skipped mutation cannot hide in engine-only CI.
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            root = Path(directory)
+            state = root / "collector-state"
+            calls = []
+
+            def checked(args, **options):
+                calls.append((state.read_text(), options))
+                return {"status": "fake_pass" if options.get("success") else "fail"}
+
+            for name, value in {
+                "wait_ready": None, "bootstrap_test_cert": (root / "ca.pem", object()),
+                "catalog_server": "http://127.0.0.1:18002", "provider_check": {},
+                "policies": [], "privacy_requests": None, "upstream_unavailable": None,
+                "request_ids": None, "admission": None,
+            }.items():
+                stack.enter_context(patch.object(exercise, name, return_value=value))
+            stack.enter_context(patch.object(exercise, "verify", side_effect=checked))
+            summary = {}
+            exercise.full_node(stack, root, Mock(), summary)
+            expected = [("valid", {"success": True}), ("valid", {"release": True})]
+            expected.extend((mode, {}) for mode in exercise.MUTATIONS)
+            expected.append(("valid", {"success": True}))
+            self.assertEqual(calls, expected)
+            self.assertEqual(set(summary["mutations"]), set(exercise.MUTATIONS))
+            self.assertEqual(state.read_text(), "valid")
 
 
 if __name__ == "__main__":

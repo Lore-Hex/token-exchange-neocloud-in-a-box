@@ -137,3 +137,11 @@ checks through Tier 4 using that main CLI, plus the negative catalog, privacy,
 503 and weight-gate checks. Full `make check`, tagged staticcheck, all fourteen
 collector/appraiser mutations and twelve Python harness tests passed after the
 integration changes. No unmerged trcs revision has been assigned as a final pin.
+
+The mutation matrix is defined at module scope before `full_node` is called.
+A thirteenth harness test executes that orchestration with mocked external
+boundaries and checks all fourteen mutations plus the final valid-state recovery;
+this catches a missing definition or skipped loop even in engine-only CI.
+The repeat container run `build/e2e/b968fe228874/result.json` and full
+`make check` both passed. The upstream upload-read deadline/oversize fix changes
+neither the fixture requests nor the pending final-pin requirement.
