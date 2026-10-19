@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# systemd v255 directives: ../README.md#systemd-units
+[Unit]
+Description=Neocloud all-device GPU gate
+Requires=nib-network.service
+After=nib-network.service
+Before=nib-engine.service
+OnFailure=nib-failclosed.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/nib-gpu-gate --config /etc/nib/guest.json
+TimeoutStartSec=10
+User=nib
+Group=nib
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+UMask=0077
+LimitCORE=0
+StandardOutput=journal
+StandardError=journal

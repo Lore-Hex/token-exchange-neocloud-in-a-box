@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package guest reserves the confidential guest boundary. Guest services arrive
-// in P1; this package intentionally does not claim to implement a secure node.
+// Package guest defines the confidential guest source boundary. P1 services
+// exercise startup and failure paths using explicitly tagged simulations only.
+// Release helpers deny startup until real hardware backends are implemented.
 package guest

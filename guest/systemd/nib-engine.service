@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+# systemd v255 directives: ../README.md#systemd-units
+[Unit]
+Description=Neocloud gated engine wrapper
+Requires=nib-network.service nib-gpu-gate.service nib-weights.service
+BindsTo=nib-network.service nib-gpu-gate.service nib-weights.service
+After=nib-network.service nib-gpu-gate.service nib-weights.service
+OnFailure=nib-failclosed.target
+
+[Service]
+Type=exec
+ExecStart=/usr/libexec/nib-engine --config /etc/nib/guest.json
+Restart=no
+TimeoutStopSec=5
+KillMode=control-group
+User=nib
+Group=nib
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_INET AF_UNIX
+UMask=0077
+LimitCORE=0
+StandardOutput=journal
+StandardError=journal

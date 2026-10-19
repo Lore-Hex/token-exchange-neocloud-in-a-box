@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+# systemd v255 directives: ../README.md#systemd-units
+# Image integration only. Do not start this target on a development host.
+[Unit]
+Description=Power off after irrecoverable guest gate failure
+DefaultDependencies=no
+Requires=poweroff.target
+Before=poweroff.target
+After=nib-node.target nib-engine.service
+Conflicts=nib-node.target nib-engine.service
