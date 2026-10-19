@@ -1,0 +1,20 @@
+{
+  "command": "python3 scripts/e2e/prove.py --output evidence/p1/2026-10-19-combined-node-v4",
+  "ended_utc": "2026-10-19T04:21:21.904718Z",
+  "execution": "fake",
+  "git_sha": "0890cc1227aa6ce2dba236c94133145a3ab3e842",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none used",
+    "machine": "Darwin 24.6.0 arm64",
+    "provider": "local"
+  },
+  "notes": "Runs make test-e2e from a private exact Git archive with replacement objects disabled, controlled child environments, isolated Go caches and module verification. Original Git revision and expected/actual build-context hashes are bound to the committed tree. Local Docker Unix socket only; runtime network none, no devices, mounts, published ports or API secrets. Explicit fake CPU/GPU evidence; no confidential or hardware claim. Success requires verified container/image absence. Docker build cache is retained. CI acceptance is separate.",
+  "phase": "P1",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-19T04:20:16.631009Z",
+  "task": "T3"
+}

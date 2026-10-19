@@ -403,7 +403,7 @@ func TestFakeInFlightGateLossAndAdmission(t *testing.T) {
 	for i := 0; i < 8; i++ {
 		select {
 		case w := <-results:
-			if w.Code != 503 || strings.Contains(w.Body.String(), "SYNTHETIC") || w.Header().Get("Retry-After") != "1" {
+			if w.Code != 503 || strings.Contains(w.Body.String(), "PONG") || w.Header().Get("Retry-After") != "1" {
 				t.Fatal("in-flight request served through failed gate")
 			}
 		case <-time.After(3 * time.Second):

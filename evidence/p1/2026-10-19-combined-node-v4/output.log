@@ -1,0 +1,104 @@
+go: downloading go1.27.2 (darwin/arm64)
+all modules verified
+go build -trimpath -o build/nib ./cmd/nib
+python3 scripts/e2e/run.py
+{"admission": "pass", "catalog_negative": {"checks": {"catalog.declared-v2": "fail", "catalog.native-model-discovery": "pass"}, "exit_code": 1}, "cleanup": {"container": {"absence": "confirmed", "removal": {"exit_code": 0, "status": "exited"}, "resource": "nib-e2e-38270df7118a"}, "image": {"absence": "confirmed", "removal": {"exit_code": 0, "status": "exited"}, "resource": "nib-e2e-local:38270df7118a"}, "result": "pass"}, "confidential": false, "execution": "fake", "fake_verifier": {"confidential": false, "exit_code": 0, "status": "fake_pass"}, "hardware_validated": false, "mutations": {"cpu-binding": {"confidential": false, "exit_code": 1, "status": "fail"}, "cpu-debug": {"confidential": false, "exit_code": 1, "status": "fail"}, "cpu-measurement": {"confidential": false, "exit_code": 1, "status": "fail"}, "cpu-migratable": {"confidential": false, "exit_code": 1, "status": "fail"}, "cpu-nonce": {"confidential": false, "exit_code": 1, "status": "fail"}, "cpu-rtmr0": {"confidential": false, "exit_code": 1, "status": "fail"}, "cpu-rtmr1": {"confidential": false, "exit_code": 1, "status": "fail"}, "cpu-rtmr2": {"confidential": false, "exit_code": 1, "status": "fail"}, "cpu-truncated": {"confidential": false, "exit_code": 1, "status": "fail"}, "gpu-duplicate": {"confidential": false, "exit_code": 1, "status": "fail"}, "gpu-identity": {"confidential": false, "exit_code": 1, "status": "fail"}, "gpu-kind": {"confidential": false, "exit_code": 1, "status": "fail"}, "gpu-missing": {"confidential": false, "exit_code": 1, "status": "fail"}, "gpu-nonce": {"confidential": false, "exit_code": 1, "status": "fail"}}, "privacy": "pass", "provider": {"checks": {"callability.advertised-models": "pass", "catalog.declared-v2": "pass", "catalog.native-model-discovery": "pass", "chat.finish-reason": "pass", "chat.forwarded-fields": "pass", "chat.max-token-spelling": "pass", "chat.model": "pass", "chat.non-empty": "pass", "chat.pong": "pass", "chat.temperature-zero": "pass", "chat.usage": "pass", "stream.done": "pass", "stream.error-signaling": "pass", "stream.first-delta": "pass", "stream.incremental-delivery": "pass", "stream.response-status": "pass", "stream.sse-framing": "pass", "stream.usage": "pass"}, "exit_code": 0}, "release_verifier": {"confidential": false, "exit_code": 1, "status": "fail"}, "result": "pass", "scope": "full-fake-node", "weight_gate": "pass"}
+Software-only test artifacts: [REDACTED]/source/build/e2e/38270df7118a
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.94kB done
+#1 WARN: InvalidDefaultArgInFrom: Default value for ARG ${GO_IMAGE} results in empty or invalid base image name (line 5)
+#1 WARN: InvalidDefaultArgInFrom: Default value for ARG ${PYTHON_IMAGE} results in empty or invalid base image name (line 12)
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2
+#3 DONE 0.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 2B done
+#4 DONE 0.0s
+
+#5 [engine-build 1/4] FROM docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61
+#5 resolve docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61 0.0s done
+#5 DONE 0.0s
+
+#6 [python-base 1/9] FROM docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2
+#6 resolve docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2 0.0s done
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 766.12kB 0.0s done
+#7 DONE 0.1s
+
+#8 [engine-build 2/4] WORKDIR /src
+#8 CACHED
+
+#9 [python-base 7/9] COPY repo/internal/config/testdata/valid/ ./fixtures/schema/
+#9 CACHED
+
+#10 [python-base 2/9] COPY repo/scripts/e2e/requirements.lock /tmp/requirements.lock
+#10 CACHED
+
+#11 [python-base 3/9] RUN python -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /tmp/requirements.lock
+#11 CACHED
+
+#12 [python-base 5/9] COPY repo/scripts/e2e/exercise.py ./exercise.py
+#12 CACHED
+
+#13 [python-base 4/9] WORKDIR /opt/nib-e2e
+#13 CACHED
+
+#14 [python-base 6/9] COPY repo/guest/testdata/fake/ ./fixtures/guest/
+#14 CACHED
+
+#15 [python-base 8/9] COPY repo/scripts/e2e/pins.json ./pins.json
+#15 CACHED
+
+#16 [python-base 9/9] COPY inputs.json ./inputs.json
+#16 DONE 0.1s
+
+#17 [engine-build 3/4] COPY repo/ ./
+#17 DONE 0.1s
+
+#18 [engine-build 4/4] RUN go build -trimpath -buildvcs=false -tags nibfake -o /out/nib-engine ./guest/cmd/nib-engine     && go build -trimpath -buildvcs=false -o /out/nib-release ./cmd/nib
+#18 22.44 go: downloading github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
+#18 22.44 go: downloading github.com/google/go-tdx-guest v0.3.2-0.20261014222600-23b3eac9db39
+#18 22.44 go: downloading go.yaml.in/yaml/v3 v3.0.4
+#18 22.66 go: downloading golang.org/x/text v0.43.0
+#18 22.66 go: downloading go.uber.org/multierr v1.11.0
+#18 22.66 go: downloading google.golang.org/protobuf v1.36.12
+#18 22.66 go: downloading golang.org/x/crypto v0.58.0
+#18 22.66 go: downloading github.com/google/logger v1.1.1
+#18 DONE 34.7s
+
+#19 [node-build 1/3] COPY trcs.tar.gz /tmp/trcs.tar.gz
+#19 DONE 0.0s
+
+#20 [node-build 2/3] RUN printf '%s  /tmp/trcs.tar.gz\n' "df3fbc8886f6751ff62f6e028e60799a3c1ea9e59b7e8d63b7319b482fb03a80" | sha256sum -c -     && mkdir /trcs && tar -xzf /tmp/trcs.tar.gz --strip-components=1 -C /trcs     && cd /trcs && go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/trcs ./cmd/trcs     && printf '%s  /out/trcs\n' "e6fe6b412cfb974b35eb6e442141d3ff8ffd4adf0a702917979a1d6ba4267e4f" | sha256sum -c -
+#20 0.094 /tmp/trcs.tar.gz: OK
+#20 2.383 /out/trcs: OK
+#20 DONE 2.4s
+
+#21 [node-build 3/3] RUN go build -trimpath -buildvcs=false -tags nibfake -o /out/nib-fake ./cmd/nib     && go build -trimpath -buildvcs=false -tags nibfake -o /out/fake-agent ./tests/e2e/fake-agent
+#21 DONE 3.3s
+
+#22 [node-e2e 1/1] COPY --from=node-build /out/ /opt/nib-e2e/bin/
+#22 DONE 0.0s
+
+#23 exporting to image
+#23 exporting layers
+#23 exporting layers 1.3s done
+#23 exporting manifest sha256:af72202b3612b8e1abc9ecf176ce9a9428d3cdcf0a950b7d59e88b425aa752e6 done
+#23 exporting config sha256:69f0e938dc4cdfeb92b83cbdd1f03f2e47cf2a64d8262008726c011e6e6d049a done
+#23 exporting attestation manifest sha256:d7902d446b70da30a3ea88a9426a55d9c141ce89908af842c82957ce27f5f38d 0.0s done
+#23 exporting manifest list sha256:1a54088fa52ad177669a219f4603799e043dc65ec76cb2c316beb538feaa4858 done
+#23 naming to docker.io/library/nib-e2e-local:38270df7118a done
+#23 DONE 1.3s
+
+ [33m2 warnings found (use docker --debug to expand):
+[0m - InvalidDefaultArgInFrom: Default value for ARG ${GO_IMAGE} results in empty or invalid base image name (line 5)
+ - InvalidDefaultArgInFrom: Default value for ARG ${PYTHON_IMAGE} results in empty or invalid base image name (line 12)

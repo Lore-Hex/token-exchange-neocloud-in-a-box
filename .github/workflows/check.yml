@@ -37,3 +37,5 @@ jobs:
         run: make check
       - name: Build operator CLI
         run: make build
+      - name: Full software-only node E2E
+        run: make test-e2e

@@ -1,0 +1,141 @@
+{
+  "admission": "pass",
+  "catalog_negative": {
+    "checks": {
+      "catalog.declared-v2": "fail",
+      "catalog.native-model-discovery": "pass"
+    },
+    "exit_code": 1
+  },
+  "cleanup": {
+    "container": {
+      "absence": "confirmed",
+      "removal": {
+        "exit_code": 0,
+        "status": "exited"
+      },
+      "resource": "nib-e2e-524963258b17"
+    },
+    "image": {
+      "absence": "confirmed",
+      "removal": {
+        "exit_code": 0,
+        "status": "exited"
+      },
+      "resource": "nib-e2e-local:524963258b17"
+    },
+    "result": "pass"
+  },
+  "confidential": false,
+  "execution": "fake",
+  "fake_verifier": {
+    "confidential": false,
+    "exit_code": 0,
+    "status": "fake_pass"
+  },
+  "hardware_validated": false,
+  "mutations": {
+    "cpu-binding": {
+      "confidential": false,
+      "exit_code": 1,
+      "status": "fail"
+    },
+    "cpu-debug": {
+      "confidential": false,
+      "exit_code": 1,
+      "status": "fail"
+    },
+    "cpu-measurement": {
+      "confidential": false,
+      "exit_code": 1,
+      "status": "fail"
+    },
+    "cpu-migratable": {
+      "confidential": false,
+      "exit_code": 1,
+      "status": "fail"
+    },
+    "cpu-nonce": {
+      "confidential": false,
+      "exit_code": 1,
+      "status": "fail"
+    },
+    "cpu-rtmr0": {
+      "confidential": false,
+      "exit_code": 1,
+      "status": "fail"
+    },
+    "cpu-rtmr1": {
+      "confidential": false,
+      "exit_code": 1,
+      "status": "fail"
+    },
+    "cpu-rtmr2": {
+      "confidential": false,
+      "exit_code": 1,
+      "status": "fail"
+    },
+    "cpu-truncated": {
+      "confidential": false,
+      "exit_code": 1,
+      "status": "fail"
+    },
+    "gpu-duplicate": {
+      "confidential": false,
+      "exit_code": 1,
+      "status": "fail"
+    },
+    "gpu-identity": {
+      "confidential": false,
+      "exit_code": 1,
+      "status": "fail"
+    },
+    "gpu-kind": {
+      "confidential": false,
+      "exit_code": 1,
+      "status": "fail"
+    },
+    "gpu-missing": {
+      "confidential": false,
+      "exit_code": 1,
+      "status": "fail"
+    },
+    "gpu-nonce": {
+      "confidential": false,
+      "exit_code": 1,
+      "status": "fail"
+    }
+  },
+  "privacy": "pass",
+  "provider": {
+    "checks": {
+      "callability.advertised-models": "pass",
+      "catalog.declared-v2": "pass",
+      "catalog.native-model-discovery": "pass",
+      "chat.finish-reason": "pass",
+      "chat.forwarded-fields": "pass",
+      "chat.max-token-spelling": "pass",
+      "chat.model": "pass",
+      "chat.non-empty": "pass",
+      "chat.pong": "pass",
+      "chat.temperature-zero": "pass",
+      "chat.usage": "pass",
+      "stream.done": "pass",
+      "stream.error-signaling": "pass",
+      "stream.first-delta": "pass",
+      "stream.incremental-delivery": "pass",
+      "stream.response-status": "pass",
+      "stream.sse-framing": "pass",
+      "stream.usage": "pass"
+    },
+    "exit_code": 0
+  },
+  "release_verifier": {
+    "confidential": false,
+    "exit_code": 1,
+    "status": "fail"
+  },
+  "result": "pass",
+  "scope": "full-fake-node",
+  "weight_gate": "pass"
+}
