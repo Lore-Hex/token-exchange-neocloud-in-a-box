@@ -1,0 +1,106 @@
+{
+  "status": "blocked: total_bytes contract contradicts complete manifests",
+  "go_version": "go1.27.2",
+  "max_response_bytes": 4194304,
+  "downloaded_bytes": 235337,
+  "models": [
+    {
+      "repository": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+      "revision": "1bae0e1088993b9b82de08f59de5be5a34e42170",
+      "planned_total_bytes": 510296708312,
+      "file_count": 83,
+      "safetensors_count": 48,
+      "all_file_bytes": 510311045295,
+      "safetensors_bytes": 510296708312,
+      "other_file_bytes": 14336983,
+      "all_lfs_have_sha256": true,
+      "plan_matches_all_files": false
+    },
+    {
+      "repository": "zai-org/GLM-5.3",
+      "revision": "ba32f8c19c8738e2c57c71798c601d477a7bf844",
+      "planned_total_bytes": 755632050320,
+      "file_count": 156,
+      "safetensors_count": 141,
+      "all_file_bytes": 755663689302,
+      "safetensors_bytes": 755632050320,
+      "other_file_bytes": 31638982,
+      "all_lfs_have_sha256": true,
+      "plan_matches_all_files": false
+    }
+  ],
+  "sources": [
+    {
+      "name": "pinned model identity",
+      "url": "https://huggingface.co/api/models/deepseek-ai/DeepSeek-V4.1-Flash-1017/revision/1bae0e1088993b9b82de08f59de5be5a34e42170",
+      "sha256": "71f7c29be978c37fa19d751d2586ba5796b89b91c9467fb333217b7c74e04e7d",
+      "bytes": 5739
+    },
+    {
+      "name": "recursive pinned model tree",
+      "url": "https://huggingface.co/api/models/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/1bae0e1088993b9b82de08f59de5be5a34e42170?recursive=true\u0026limit=1000",
+      "sha256": "a00735cc257c5bfea80cb44c80a0efc5bde7c7d3e02217093e699cb53a1ba763",
+      "bytes": 19933
+    },
+    {
+      "name": "pinned model identity",
+      "url": "https://huggingface.co/api/models/zai-org/GLM-5.3/revision/ba32f8c19c8738e2c57c71798c601d477a7bf844",
+      "sha256": "aea5ba55e7faeff0220aa8346615b99ab27545c6e19181a796f4051dbc6d7e46",
+      "bytes": 42561
+    },
+    {
+      "name": "recursive pinned model tree",
+      "url": "https://huggingface.co/api/models/zai-org/GLM-5.3/tree/ba32f8c19c8738e2c57c71798c601d477a7bf844?recursive=true\u0026limit=1000",
+      "sha256": "57043f8c4129b9c4afc8847acc44cef483a4cf01ba29f42080de7bbba3fb9827",
+      "bytes": 47112
+    },
+    {
+      "name": "vLLM DeepSeek recipe",
+      "url": "https://raw.githubusercontent.com/vllm-project/recipes/2338e9edec1d5df5f823abf3c1f19e7ba0b2ed0e/models/deepseek-ai/DeepSeek-V4.1-Flash.yaml",
+      "sha256": "e79bf3906185a045490bf171aadc70293b38056f8a8ebe1cdf992bc782ea6044",
+      "bytes": 48863
+    },
+    {
+      "name": "vLLM GLM recipe",
+      "url": "https://raw.githubusercontent.com/vllm-project/recipes/2338e9edec1d5df5f823abf3c1f19e7ba0b2ed0e/models/zai-org/GLM-5.3.yaml",
+      "sha256": "0ed75e46d1c66e8ac5adad351385b3a76bd01526895c597a5ec4f7570cc9fed6",
+      "bytes": 16754
+    },
+    {
+      "name": "SGLang DeepSeek cookbook",
+      "url": "https://raw.githubusercontent.com/sgl-project/sglang/299da60131dbbd9d3be0e1b2463b1f82cd984729/docs/cookbook/autoregressive/DeepSeek/DeepSeek-V4_1.mdx",
+      "sha256": "9a195922457074e8580df7ee048965205e65862762b55469f2b7124513d27752",
+      "bytes": 22001
+    },
+    {
+      "name": "SGLang GLM cookbook",
+      "url": "https://raw.githubusercontent.com/sgl-project/sglang/299da60131dbbd9d3be0e1b2463b1f82cd984729/docs/cookbook/autoregressive/GLM/GLM-5.3.mdx",
+      "sha256": "c6068603c698a6accfbf31cd87df89c80a6eb0fc533ba65657e792c0fd970604",
+      "bytes": 18744
+    },
+    {
+      "name": "Tinfoil B200 main configuration",
+      "url": "https://raw.githubusercontent.com/tinfoilsh/confidential-deepseek-v4-1-flash/803246156cb54952d0fc93a9fb66cdd4d87af2b3/tinfoil-config.b200.yml",
+      "sha256": "4f5f6e6caabb1f489b14d8a1dae471be827e01e66e89b4ec0bbf6befc8a01936",
+      "bytes": 3462
+    },
+    {
+      "name": "Tinfoil main configuration",
+      "url": "https://raw.githubusercontent.com/tinfoilsh/confidential-deepseek-v4-1-flash/803246156cb54952d0fc93a9fb66cdd4d87af2b3/tinfoil-config.yml",
+      "sha256": "542592f576c67c7acf8c8e3ee90086d9c5bcb2b9676c77a454e71ed429c9c32b",
+      "bytes": 3011
+    },
+    {
+      "name": "Tinfoil B200 Dockerfile",
+      "url": "https://raw.githubusercontent.com/tinfoilsh/confidential-deepseek-v4-1-flash/803246156cb54952d0fc93a9fb66cdd4d87af2b3/Dockerfile.b200",
+      "sha256": "d4278fb10ea70c341266d9d828f07d55e6070e1d419713560131bf4587e48ac9",
+      "bytes": 3681
+    },
+    {
+      "name": "Tinfoil v0.0.7+b200 configuration",
+      "url": "https://raw.githubusercontent.com/tinfoilsh/confidential-deepseek-v4-1-flash/29bc3ea355129b1dda97282ce80ce972530ee4fc/tinfoil-config.yml",
+      "sha256": "1bbdd0d635c7abd2e118ff96aa30a3b2d5a98e3dbefa4bcd33ec5c8a933479fc",
+      "bytes": 3476
+    }
+  ]
+}

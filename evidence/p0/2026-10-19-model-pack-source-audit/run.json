@@ -1,0 +1,20 @@
+{
+  "command": "./build/sourceaudit",
+  "ended_utc": "2026-10-19T01:15:14Z",
+  "execution": "software",
+  "git_sha": "d5c6bcf907994d10cd8c1d28f5fc4e06b9a61722",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "darwin/arm64",
+    "provider": "local"
+  },
+  "notes": "Source audit completed; P0.T4 acceptance blocked by weights-only planned totals. No model weights, container layers or paid resources used.",
+  "phase": "P0",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-19T01:15:13Z",
+  "task": "T4"
+}

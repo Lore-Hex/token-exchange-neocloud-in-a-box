@@ -1,0 +1,70 @@
+{
+  "sources": [
+    {
+      "key": "A",
+      "url": "https://raw.githubusercontent.com/vllm-project/vllm/db9527a46873454610df6dbedf79a36d6bf1a7f6/vllm/engine/arg_utils.py",
+      "sha256": "95be1adb96f55933f6a52260c8cb2181d04707401ca21d97c33108c5ab58f3ac",
+      "bytes": 136087
+    },
+    {
+      "key": "F",
+      "url": "https://raw.githubusercontent.com/vllm-project/vllm/db9527a46873454610df6dbedf79a36d6bf1a7f6/vllm/entrypoints/launchers/cli_args.py",
+      "sha256": "c26330deb1bffb27b4ddbdc508a02ffd06efd5b201dba7d077d288e3b6ec2a8e",
+      "bytes": 22859
+    },
+    {
+      "key": "E",
+      "url": "https://raw.githubusercontent.com/vllm-project/vllm/db9527a46873454610df6dbedf79a36d6bf1a7f6/vllm/envs.py",
+      "sha256": "1d7101800f67b803a700fbf7489292cf1f0022b570085166ad407e6b1513dc15",
+      "bytes": 115599
+    },
+    {
+      "key": "D",
+      "url": "https://raw.githubusercontent.com/vllm-project/recipes/2338e9edec1d5df5f823abf3c1f19e7ba0b2ed0e/models/deepseek-ai/DeepSeek-V4.1-Flash.yaml",
+      "sha256": "e79bf3906185a045490bf171aadc70293b38056f8a8ebe1cdf992bc782ea6044",
+      "bytes": 48863
+    },
+    {
+      "key": "G",
+      "url": "https://raw.githubusercontent.com/vllm-project/recipes/2338e9edec1d5df5f823abf3c1f19e7ba0b2ed0e/models/zai-org/GLM-5.3.yaml",
+      "sha256": "0ed75e46d1c66e8ac5adad351385b3a76bd01526895c597a5ec4f7570cc9fed6",
+      "bytes": 16754
+    },
+    {
+      "key": "T-base",
+      "url": "https://raw.githubusercontent.com/tinfoilsh/confidential-deepseek-v4-1-flash/803246156cb54952d0fc93a9fb66cdd4d87af2b3/Dockerfile.b200",
+      "sha256": "d4278fb10ea70c341266d9d828f07d55e6070e1d419713560131bf4587e48ac9",
+      "bytes": 3681
+    },
+    {
+      "key": "T-release",
+      "url": "https://raw.githubusercontent.com/tinfoilsh/confidential-deepseek-v4-1-flash/29bc3ea355129b1dda97282ce80ce972530ee4fc/tinfoil-config.yml",
+      "sha256": "1bbdd0d635c7abd2e118ff96aa30a3b2d5a98e3dbefa4bcd33ec5c8a933479fc",
+      "bytes": 3476
+    },
+    {
+      "key": "T-UVA-patch",
+      "url": "https://raw.githubusercontent.com/tinfoilsh/confidential-deepseek-v4-1-flash/803246156cb54952d0fc93a9fb66cdd4d87af2b3/patches/0001-explicit-uva-fallback.patch",
+      "sha256": "edb2b069cb84b5d37cdb7d6e44cb661c035317044d6d005a0ea211bc18ed3267",
+      "bytes": 2716
+    }
+  ],
+  "models": null,
+  "images": [
+    {
+      "image": "vllm/vllm-openai@sha256:a4a4c0437bf7240089da5f08aa370c4aee17ae5290f7a3b468825ee26c4c3a6b",
+      "media_type": "application/vnd.docker.distribution.manifest.v2+json",
+      "manifest_bytes": 8685,
+      "downloaded_bytes": 14180
+    },
+    {
+      "image": "ghcr.io/tinfoilsh/confidential-deepseek-v4-1-flash@sha256:989d5d0d8c02b240254f39ada9ac4e898c430ac955b12feb68070d41bb12b639",
+      "media_type": "application/vnd.oci.image.index.v1+json",
+      "manifest_bytes": 857,
+      "downloaded_bytes": 958
+    }
+  ],
+  "manifest_sha256": {},
+  "mode": "generate",
+  "hardware_validated": false
+}

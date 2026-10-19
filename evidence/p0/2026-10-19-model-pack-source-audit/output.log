@@ -1,0 +1,12 @@
+deepseek-ai/DeepSeek-V4.1-Flash-1017 revision=1bae0e1088993b9b82de08f59de5be5a34e42170 files=83 all_file_bytes=510311045295 safetensors_bytes=510296708312 planned_total_bytes=510296708312 matches_all_files=false
+zai-org/GLM-5.3 revision=ba32f8c19c8738e2c57c71798c601d477a7bf844 files=156 all_file_bytes=755663689302 safetensors_bytes=755632050320 planned_total_bytes=755632050320 matches_all_files=false
+vLLM DeepSeek recipe fetched bytes=48863 sha256=e79bf3906185a045490bf171aadc70293b38056f8a8ebe1cdf992bc782ea6044
+vLLM GLM recipe fetched bytes=16754 sha256=0ed75e46d1c66e8ac5adad351385b3a76bd01526895c597a5ec4f7570cc9fed6
+SGLang DeepSeek cookbook fetched bytes=22001 sha256=9a195922457074e8580df7ee048965205e65862762b55469f2b7124513d27752
+SGLang GLM cookbook fetched bytes=18744 sha256=c6068603c698a6accfbf31cd87df89c80a6eb0fc533ba65657e792c0fd970604
+Tinfoil B200 main configuration fetched bytes=3462 sha256=4f5f6e6caabb1f489b14d8a1dae471be827e01e66e89b4ec0bbf6befc8a01936
+Tinfoil main configuration fetched bytes=3011 sha256=542592f576c67c7acf8c8e3ee90086d9c5bcb2b9676c77a454e71ed429c9c32b
+Tinfoil B200 Dockerfile fetched bytes=3681 sha256=d4278fb10ea70c341266d9d828f07d55e6070e1d419713560131bf4587e48ac9
+Tinfoil v0.0.7+b200 configuration fetched bytes=3476 sha256=1bbdd0d635c7abd2e118ff96aa30a3b2d5a98e3dbefa4bcd33ec5c8a933479fc
+FAIL P0.T4: planned totals count safetensors only; complete file totals differ. No pack generated.
+sourceaudit: P0.T4 acceptance blocked; see generated evidence

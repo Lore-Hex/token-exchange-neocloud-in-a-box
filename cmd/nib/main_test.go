@@ -18,6 +18,17 @@ func TestHelp(t *testing.T) {
 	}
 }
 
+func TestModelDispatch(t *testing.T) {
+	var out, errs bytes.Buffer
+	if code := run([]string{"model", "--help"}, &out, &errs); code != 0 || !strings.Contains(out.String(), "check-remote") {
+		t.Fatal("model help dispatch failed")
+	}
+	out.Reset()
+	if code := run([]string{"model", "check-remote", "/missing/private-canary"}, &out, &errs); code != 1 || out.Len() != 0 || strings.Contains(errs.String(), "canary") {
+		t.Fatal("model failure dispatch or redaction failed")
+	}
+}
+
 func TestEvidenceDispatch(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "deny")
 	if err := os.WriteFile(path, []byte("planted-cli-token\n"), 0o600); err != nil {
