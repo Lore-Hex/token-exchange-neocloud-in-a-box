@@ -1,0 +1,6 @@
+vLLM v0.32.0 release revision and immutable configuration sources checked; no global upstream VLLM_DISABLE_UVA setting. CC remains blocked.
+Engine manifest/configuration metadata verified: vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9 (8684 manifest bytes); no layers downloaded. This is not a signed build-provenance or runtime proof.
+deepseek-ai/DeepSeek-V4.1-Flash-1017@1bae0e1088993b9b82de08f59de5be5a34e42170: 83 files, 510311045295 all-file bytes, 14150191 metadata/non-LFS bytes fetched.
+zai-org/GLM-5.3@ba32f8c19c8738e2c57c71798c601d477a7bf844: 156 files, 755663689302 all-file bytes, 151962 metadata/non-LFS bytes fetched.
+Software metadata check only; no weights, container layers, serving or hardware validation.
+CheckRemote repeats the bounded HF fetch; reported model transfer bytes cover Generate only.

@@ -16,8 +16,8 @@ weights_volume:
 engine_profiles:
   b200x8-gcp-plain:
     engine: vllm
-    # Source T: upstream base 0.31.0; G: >=0.29.0. Registry checked by packcheck.
-    image: vllm/vllm-openai@sha256:a4a4c0437bf7240089da5f08aa370c4aee17ae5290f7a3b468825ee26c4c3a6b
+    # Source R: vLLM 0.32.0 linux/amd64; manifest/config checked by packcheck.
+    image: vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9
     args:
       # Source A: EngineArgs.add_cli_args model; operator mounts verified files at /model.
       - --model
@@ -53,5 +53,8 @@ engine_profiles:
     env:
       # Source E: VLLM_USE_RUST_FRONTEND; use the Python flags documented above.
       VLLM_USE_RUST_FRONTEND: "0"
+      # Source E: explicit usage-statistics and tracking opt-outs.
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_DO_NOT_TRACK: "1"
     max_model_len: 1048576
     replicas: 1

@@ -11,12 +11,14 @@ capacity, request-data logging behavior and performance before adopting a profil
 Each flag comment in `pack.yaml` names a key below and the relevant source section.
 These keys are references, not copied upstream implementation or a new license.
 
-- **A**, vLLM `EngineArgs.add_cli_args` and `AsyncEngineArgs.add_cli_args` at build `db9527a46873454610df6dbedf79a36d6bf1a7f6`: [arg_utils.py](https://github.com/vllm-project/vllm/blob/db9527a46873454610df6dbedf79a36d6bf1a7f6/vllm/engine/arg_utils.py).
-- **F**, vLLM `BaseFrontendArgs`, `FrontendArgs`, and `add_cli_args`: [launchers/cli_args.py](https://github.com/vllm-project/vllm/blob/db9527a46873454610df6dbedf79a36d6bf1a7f6/vllm/entrypoints/launchers/cli_args.py).
-- **E**, vLLM environment definitions: [envs.py](https://github.com/vllm-project/vllm/blob/db9527a46873454610df6dbedf79a36d6bf1a7f6/vllm/envs.py).
+- **A**, vLLM `EngineArgs.add_cli_args` and `AsyncEngineArgs.add_cli_args` at v0.32.0 revision `5df63a7203cdb9328d824a27b682e77c7b9928be`: [arg_utils.py](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/engine/arg_utils.py).
+- **F**, vLLM `BaseFrontendArgs`, `FrontendArgs`, and `add_cli_args`: [launchers/cli_args.py](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/entrypoints/launchers/cli_args.py).
+- **E**, vLLM environment definitions, including telemetry opt-outs: [envs.py](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/envs.py).
+- **C**, Engram configuration: [engram.py](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/config/engram.py). `cpu_offload` defaults true upstream; our DeepSeek profile explicitly overrides it to false.
+- **R**, official [v0.32.0 release](https://github.com/vllm-project/vllm/releases/tag/v0.32.0) and [release tag revision](https://api.github.com/repos/vllm-project/vllm/git/ref/tags/v0.32.0). Both packs pin its Linux/amd64 manifest `sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9`, not the mutable tag or multi-platform index. `packcheck` verifies the manifest and config digest, platform, entrypoint and source-revision metadata. Registry metadata is not signed build provenance or proof of the installed code.
 - **D**, official DeepSeek recipe, selected `variants.default` DS1017, `model`, `features`, `single_node_tp`, and GPU-resident Engram guide: [DeepSeek-V4.1-Flash.yaml](https://github.com/vllm-project/recipes/blob/2338e9edec1d5df5f823abf3c1f19e7ba0b2ed0e/models/deepseek-ai/DeepSeek-V4.1-Flash.yaml).
 - **G**, official GLM recipe, native FP8 `model`, `features` and guide / FP8 on 8xB200: [GLM-5.3.yaml](https://github.com/vllm-project/recipes/blob/2338e9edec1d5df5f823abf3c1f19e7ba0b2ed0e/models/zai-org/GLM-5.3.yaml).
-- **T**, Tinfoil [Dockerfile.b200](https://github.com/tinfoilsh/confidential-deepseek-v4-1-flash/blob/803246156cb54952d0fc93a9fb66cdd4d87af2b3/Dockerfile.b200) asserts upstream vLLM version/build and base digest. The [released B200 config](https://github.com/tinfoilsh/confidential-deepseek-v4-1-flash/blob/29bc3ea355129b1dda97282ce80ce972530ee4fc/tinfoil-config.yml) is a separate, patched four-GPU deployment.
+- **T (historical reference only)**, Tinfoil [Dockerfile.b200](https://github.com/tinfoilsh/confidential-deepseek-v4-1-flash/blob/803246156cb54952d0fc93a9fb66cdd4d87af2b3/Dockerfile.b200) supplied the former upstream 0.31.0 base pin. Its [released B200 config](https://github.com/tinfoilsh/confidential-deepseek-v4-1-flash/blob/29bc3ea355129b1dda97282ce80ce972530ee4fc/tinfoil-config.yml) is a separate patched four-GPU deployment, not our selected image. Current checks do not fetch or depend on Tinfoil's patches/image.
 
 ## Deliberate Limits
 
@@ -33,6 +35,7 @@ HF identifier. Image launch/mount integration belongs to later phases.
 pinned build. Tinfoil introduces it in
 [0001-explicit-uva-fallback.patch](https://github.com/tinfoilsh/confidential-deepseek-v4-1-flash/blob/803246156cb54952d0fc93a9fb66cdd4d87af2b3/patches/0001-explicit-uva-fallback.patch).
 Setting it on the unpatched base does not establish a global UVA prohibition.
+Neither our prior 0.31.0 base nor the selected 0.32.0 defines that variable.
 The pack therefore does not set it or provide `b200x8-tdx`. Disabling Engram
 offload is not equivalent to disabling all UVA use. CC requires a separately
 reviewed, pinned patched engine and actual hardware evidence. Tinfoil's release
@@ -45,20 +48,29 @@ reported `license: null`, and the LICENSE endpoint returned 404. Reuse and
 redistribution rights are not established: do not copy or relicense these patches,
 or select the patched image as redistributable, without establishing those rights.
 A future CC profile needs independently licensed upstream patches or permission.
-The plain-only profiles are unchanged.
+The plain-only profiles do not incorporate those patches.
 
-**Security freshness blocker:** the selected vLLM 0.31.0 is a reference candidate,
-not a security-current deployment recommendation. Upstream
+**Security update, still a draft:** the former vLLM 0.31.0 pin is replaced with
+the official 0.32.0 Linux/amd64 image. Upstream
 [v0.32.0 release notes](https://github.com/vllm-project/vllm/releases/tag/v0.32.0)
-(published 2026-10-18) list fixes for GHSA-4hhp-h66f-j5j7 (chat-template resource
-exhaustion), GHSA-q97c-p368-75c4 and GHSA-frvg-qw88-hww9. A security upgrade and
-review are required before deployment beyond isolated, plain P2 testing with
-synthetic inputs only; do not expose this candidate to users or untrusted traffic.
-Keep existing pins until a matching recipe and immutable image have been verified.
-The testing exception is not security validation or authorization to spend money.
+(published 2026-10-18) announce security and robustness changes. Their mapping
+of GHSA-4hhp-h66f-j5j7 to chat-template exhaustion conflicts with the
+[advisory itself](https://github.com/vllm-project/vllm/security/advisories/GHSA-4hhp-h66f-j5j7),
+which concerns MiMo SSRF/local-file access and names 0.26.0 as patched. Do not
+claim that advisory makes 0.31.0 vulnerable or that a version bump proves safety.
+The pinned recipe
+settings were reviewed against this release's argument/configuration sources;
+that is not execution of the CLI, a vulnerability scan, a compatibility test
+or permission to expose it. Only isolated plain P2 synthetic testing is an
+intended next use, subject to its hardware/run gates. Complete layer/dependency
+review, logging/error-path tests, full-model execution and all confidential
+hardware work remain outstanding. A newer version alone never marks this safe
+for untrusted traffic or deployable.
 
 Request/output logging and Uvicorn access logging are explicitly disabled using
-the pinned Python frontend flags. This is configuration, not a proven zero-data
+the pinned Python frontend flags. `VLLM_NO_USAGE_STATS=1` and
+`VLLM_DO_NOT_TRACK=1` also opt out of upstream usage tracking. This is
+configuration, not a proven zero-data
 retention or error-path audit of the full engine. No confidential deployment is
 authorized by these manifests. Empty verity roots must fail the shared deployable
 validator even when every remote metadata check succeeds.
@@ -103,20 +115,37 @@ including small LFS files, are never downloaded. Non-LFS bytes must match the
 tree's exact size and Git blob SHA-1 before their content SHA-256 is recorded.
 The tree must cover exactly the pinned identity response's sibling file set.
 
-Registry verification reads only a bounded manifest and, if necessary, a bounded
+Registry verification reads only a bounded manifest/configuration and, if necessary, a bounded
 anonymous public-pull token response from an allowlisted registry auth endpoint.
-It hashes the manifest bytes against the source-pinned digest; it downloads no
-layers or image config and proves neither publisher identity nor image safety.
+It hashes the manifest bytes against the source-pinned digest and the bounded
+config bytes against that manifest's descriptor; it downloads no layers and
+proves neither publisher identity nor image safety. The selected image must be
+Linux/amd64, declare the reviewed revision in its source/build metadata, and
+use the `vllm serve` entrypoint. Multi-platform indexes are rejected by the
+engine-specific check; the older generic reference checker remains unchanged.
+Docker's documented `production.cloudfront.docker.com` host is allowed for one
+307 redirect to the exact config-digest path only. Its signed query stays
+bounded and in memory; no registry authorization or cookies are forwarded.
+Further redirects fail, and the config size/hash must still match the manifest.
 Tokens stay in memory and are not included in evidence. The live `check` runs
 HF generation twice per pack (once to record transfer accounting, once through
 the public check API), so its maximum HF body budget is four times 64 MiB.
-Upstream text-source auditing has its own fixed request count and body caps.
+Upstream source auditing has seven fixed requests capped at 4 MiB each, including
+the public release-tag reference; credentials and redirects are not used.
 No weight downloads, credentials supplied by the operator, paid resources or
 publication are performed by either command.
 
 ## Recorded Runs
 
-The final [live check](../evidence/p0/2026-10-19T015247Z-model-pack-check/run.json)
+The [0.32.0 engine check](../evidence/p0/2026-10-19T103148Z-model-pack-check/run.json)
+passed from `c6f5b54`. The
+[report](../evidence/p0/2026-10-19T103148Z-model-pack-check/report.json)
+records the reviewed release source, exact Linux/amd64 manifest/configuration
+hashes and self-declared source metadata, and both unchanged complete weight
+manifests. This is the current software metadata audit; it does not execute
+vLLM or establish GPU/confidential compatibility.
+
+The earlier [0.31.0 live check](../evidence/p0/2026-10-19T015247Z-model-pack-check/run.json)
 passed from committed checker `230be00`, including both public `CheckRemote`
 calls, all-file manifests, fixed pack identities and both registry digests.
 Its [structured report](../evidence/p0/2026-10-19T015247Z-model-pack-check/report.json)

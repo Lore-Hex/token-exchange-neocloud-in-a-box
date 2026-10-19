@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -51,24 +52,19 @@ func TestSourceAuditFixedURLsAndNoSecrets(t *testing.T) {
 	calls := 0
 	client := sourceClient()
 	client.Transport = testTransport(func(req *http.Request) (*http.Response, error) {
-		if req.URL.String() != sourceURLs[calls].url || req.URL.Scheme != "https" || req.URL.Host != "raw.githubusercontent.com" || req.Header.Get("Authorization") != "" || req.Header.Get("Cookie") != "" {
+		if req.URL.String() != sourceURLs[calls].url || req.URL.Scheme != "https" || (req.URL.Host != "raw.githubusercontent.com" && req.URL.Host != "api.github.com") || req.Header.Get("Authorization") != "" || req.Header.Get("Cookie") != "" {
 			t.Fatal("unsafe source request")
 		}
 		key := sourceURLs[calls].key
 		calls++
-		body := "test source"
-		switch key {
-		case "T-base":
-			body = upstreamImage + " db9527a46873454610df6dbedf79a36d6bf1a7f6"
-		case "T-release":
-			body = tinfoilImage
-		case "T-UVA-patch":
-			body = `+    "VLLM_DISABLE_UVA":`
+		body := strings.Join(sourceAssertions[key], "\n")
+		if key == "R" {
+			body = releaseFixture()
 		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), ContentLength: int64(len(body))}, nil
 	})
 	proofs, err := auditSources(context.Background(), client)
-	if err != nil || len(proofs) != 8 || calls != 8 {
+	if err != nil || len(proofs) != len(sourceURLs) || calls != len(sourceURLs) {
 		t.Fatalf("audit: %v", err)
 	}
 	client.Transport = testTransport(func(*http.Request) (*http.Response, error) { return nil, errors.New("SECRET_URL") })
@@ -77,5 +73,32 @@ func TestSourceAuditFixedURLsAndNoSecrets(t *testing.T) {
 	}
 	if err := client.CheckRedirect(nil, nil); err != http.ErrUseLastResponse {
 		t.Fatal("source redirects enabled")
+	}
+}
+
+func releaseFixture() string {
+	return fmt.Sprintf(`{"ref":"refs/tags/v0.32.0","object":{"type":"commit","sha":%q}}`, upstreamRevision)
+}
+
+func TestSourceContractRejectsChanges(t *testing.T) {
+	for key, assertions := range sourceAssertions {
+		for i := range assertions {
+			body := strings.Join(append(append([]string{}, assertions[:i]...), assertions[i+1:]...), "\n")
+			if err := checkSource(key, []byte(body)); err == nil {
+				t.Errorf("missing %s assertion %d accepted", key, i)
+			}
+		}
+	}
+	if err := checkSource("E", []byte(strings.Join(sourceAssertions["E"], "\n")+`"VLLM_DISABLE_UVA":`)); err == nil {
+		t.Fatal("changed upstream UVA assumption accepted")
+	}
+	for _, body := range []string{
+		`{`, `{}`, strings.ReplaceAll(releaseFixture(), "v0.32.0", "v0.31.0"),
+		strings.ReplaceAll(releaseFixture(), "commit", "tag"),
+		strings.ReplaceAll(releaseFixture(), upstreamRevision, strings.Repeat("a", 40)),
+	} {
+		if err := checkSource("R", []byte(body)); err == nil {
+			t.Fatal("incorrect release pin accepted")
+		}
 	}
 }

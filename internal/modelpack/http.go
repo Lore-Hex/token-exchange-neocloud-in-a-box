@@ -73,7 +73,7 @@ func (t *transfer) get(ctx context.Context, u *url.URL, limit int64, headers htt
 			v, locationErr := resp.Location()
 			resp.Body.Close()
 			if locationErr != nil || hops >= 4 || redirect == nil || !redirect(v) || v.User != nil || v.Fragment != "" || v.Scheme != "https" {
-				return nil, nil, 0, errors.New("modelpack: pinned redirect policy rejected response")
+				return nil, resp.Header, resp.StatusCode, errors.New("modelpack: pinned redirect policy rejected response")
 			}
 			u = v
 			continue
