@@ -134,14 +134,16 @@ def ready(process, port, path, tls=None):
     raise PilotError("readiness-timeout")
 
 
-def stop(process):
+def stop(process, *, timeout=10):
     if process.poll() is None:
         process.terminate()
     try:
-        process.wait(timeout=10)
+        process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait(timeout=10)
+        return False
+    return True
 
 
 def provider_result(report, returncode):
@@ -157,14 +159,54 @@ def provider_result(report, returncode):
     return {"result": "pass" if passed else "fail", "checks": checks}
 
 
-def check_provider(checker, port, model, cert, api_key, env):
-    result = subprocess.run([str(checker),
-                             "--base-url", "https://127.0.0.1:" + str(port) + "/v1",
-                             "--model", model, "--tier", "4", "--json", "-"],
+def check_provider(checker, port, model, cert, api_key, env, *, catalog=False):
+    command = [str(checker), "--base-url", "https://127.0.0.1:" + str(port) + "/v1",
+               "--model", model, "--tier", "4", "--json", "-"]
+    if catalog:
+        command += ["--catalog-url", "https://127.0.0.1:" + str(port) + "/v1/models"]
+    result = subprocess.run(command,
                             env={**env, "SSL_CERT_FILE": str(cert), "TR_PROVIDER_API_KEY": api_key},
                             capture_output=True, timeout=180)
     require(len(result.stdout) <= 1 << 20, "checker-report-size")
     return provider_result(json.loads(result.stdout), result.returncode)
+
+
+def shutdown_during_stream(service, port, tls, api_key, model):
+    """Signal the entire real service after its first content delta, not at idle."""
+    payload = {"model": model, "stream": True, "stream_options": {"include_usage": True},
+               "max_tokens": 256, "temperature": 0,
+               "messages": [{"role": "user", "content": "Write a long numbered list of 100 useful facts about mathematics. Explain each item in a full sentence."}]}
+    with closing(http.client.HTTPSConnection("127.0.0.1", port, context=tls, timeout=140)) as connection:
+        connection.request("POST", "/v1/chat/completions", json.dumps(payload),
+                           {"Authorization": "Bearer " + api_key, "Content-Type": "application/json"})
+        response = connection.getresponse()
+        require(response.status == 200, "shutdown-stream-status")
+        signaled, done, used, finished, size = False, False, False, False, 0
+        while line := response.readline(65537):
+            size += len(line)
+            require(size <= 1 << 20 and len(line) <= 65536, "shutdown-stream-size")
+            if not line.startswith(b"data: "):
+                continue
+            raw = line[6:].strip()
+            if raw == b"[DONE]":
+                done = True
+                break
+            event = json.loads(raw)
+            if event.get("usage"):
+                usage = event["usage"]
+                require(all(type(usage.get(name)) is int and usage[name] > 0
+                            for name in ("prompt_tokens", "completion_tokens", "total_tokens")), "shutdown-usage")
+                require(usage["total_tokens"] == usage["prompt_tokens"] + usage["completion_tokens"], "shutdown-usage-sum")
+                used = True
+            for choice in event.get("choices", []):
+                if choice.get("finish_reason"):
+                    finished = True
+                if not signaled and choice.get("delta", {}).get("content"):
+                    require(not finished and service.poll() is None, "shutdown-started-too-late")
+                    service.terminate()
+                    signaled = True
+        require(signaled and done and used and finished, "shutdown-stream-incomplete")
+    require(stop(service, timeout=140) and service.returncode == 0, "service-graceful-shutdown")
 
 
 def prepare_native(inputs, work, env, pins, trcs, summary):
@@ -291,15 +333,18 @@ def run(inputs, summary, *, prepared=None):
                         "service-catalog")
                 require(request(public, "/v1/chat/completions", tls=tls, key=apikey,
                                 body={**payload, "max_tokens": 257})[0] == 400, "service-output-limit")
-                summary["service_provider"] = check_provider(checker, public, pins["model_id"], cert, apikey, env)
+                summary["service_provider"] = check_provider(checker, public, pins["model_id"], cert, apikey, env,
+                                                              catalog=True)
                 require(summary["service_provider"]["result"] == "pass", "service-conformance")
-                stop(service)
-                require(service.returncode == 0, "service-graceful-shutdown")
+                require(summary["service_provider"]["checks"].get("catalog.declared-v2") == "pass",
+                        "service-catalog-conformance")
+                shutdown_during_stream(service, public, tls, apikey, pins["model_id"])
                 for port in (8000, 8001, public):
                     with socket.socket() as probe:
                         require(probe.connect_ex(("127.0.0.1", port)) != 0, "service-port-cleanup")
                 summary["service"] = {"catalog_v2": "pass", "output_limit": "pass",
-                                      "graceful_shutdown": "pass", "listeners_closed": "pass"}
+                                      "graceful_shutdown": "pass", "inflight_stream_drained": "pass",
+                                      "listeners_closed": "pass"}
         require(all(process.poll() is not None for process in processes), "process-cleanup")
         summary["cleanup"] = "processes-stopped"
     require(not work.exists(), "temporary-cleanup")

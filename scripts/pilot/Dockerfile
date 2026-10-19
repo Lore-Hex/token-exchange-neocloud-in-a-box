@@ -95,6 +95,7 @@ RUN --network=none ./bin/llama-server --version \
     && openssl version \
     && trustedrouter-provider-check --help >/dev/null \
     && python -I -c 'import httpx,jsonschema,ssl'
-# The host must enforce --network=none and --read-only with private writable /tmp.
-# No VOLUME or EXPOSE; credentials, host mounts and published ports are not inputs.
+# The proof runner enforces --network=none and --read-only with private /tmp.
+# Persistent service deployment is a separate, explicitly configured operation;
+# see docs/operators/qwen-service.md. The default always runs the local proof.
 ENTRYPOINT ["python", "-I", "scripts/pilot/run.py", "--prepared", "/opt/nib-pilot"]

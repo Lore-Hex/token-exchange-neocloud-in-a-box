@@ -21,6 +21,8 @@ from an actually serving, independently verified confidential node.
 The first functional pilot uses [small Qwen](docs/operators/qwen-pilot.md) locally;
 its eventual cloud deployment is confined to the separate `hixtube-neocloud`
 project, not TrustedRouter production. See the [cloud preflight](docs/operators/hixtube-isolated-cloud.md).
+The [persistent pilot runbook](docs/operators/qwen-service.md) tracks public
+hosting and TR integration separately from confidential hardware validation.
 
 ## Status
 

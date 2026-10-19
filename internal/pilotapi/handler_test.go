@@ -72,6 +72,38 @@ func TestRequestLimits(t *testing.T) {
 	}
 }
 
+func TestRequestOptionsCannotEnableNativeFeatures(t *testing.T) {
+	for _, field := range []string{
+		`"n_probs":1000000`, `"logprobs":true`, `"top_logprobs":1000000`,
+		`"grammar":"root ::= .+"`, `"json_schema":{}`, `"chat_template_kwargs":{"enable_thinking":true}`,
+		`"reasoning_budget":-1`, `"reasoning":{"effort":"low","budget_tokens":999999}`,
+		`"thinking":{"type":"enabled"}`, `"reasoning_effort":"max"`,
+		`"stream_options":{"include_usage":true,"extra":1}`, `"stream_options":null`,
+		`"stream":"yes"`, `"stream":null`, `"temperature":3`, `"temperature":null`,
+		`"top_p":1.1`, `"top_k":1000000`, `"seed":-1`, `"stop":[null]`, `"stop":[]`,
+		`"presence_penalty":-3`, `"mirostat":2`, `"cache_prompt":true`,
+	} {
+		if _, err := BoundRequest([]byte(strings.TrimSuffix(requestBody, "}") + "," + field + "}")); err == nil {
+			t.Fatalf("native/unbounded option accepted: %s", field)
+		}
+	}
+	for _, message := range []string{`"content":null`, `"content":"PONG","tool_calls":[]`, `"content":"PONG","name":"override"`} {
+		if _, err := BoundRequest([]byte(strings.Replace(requestBody, `"content":"PONG"`, message, 1))); err == nil {
+			t.Fatalf("invalid message accepted: %s", message)
+		}
+	}
+	for _, field := range []string{`"temperature":0`, `"top_p":1`, `"top_k":40`, `"seed":42`, `"stop":["END"]`,
+		`"presence_penalty":-2`, `"frequency_penalty":2`, `"thinking":{"type":"disabled"}`, `"reasoning":{"effort":"low"}`, `"reasoning_effort":"low"`} {
+		bounded, err := BoundRequest([]byte(strings.TrimSuffix(requestBody, "}") + "," + field + "}"))
+		if err != nil {
+			t.Fatalf("bounded option rejected: %s", field)
+		}
+		if strings.Contains(string(bounded), "thinking") || strings.Contains(string(bounded), "reasoning") {
+			t.Fatal("compatibility hint reached the native engine")
+		}
+	}
+}
+
 func TestAuthenticationPathsAndStreamingUsage(t *testing.T) {
 	h, err := New(testKey, "0.1", "0.1")
 	if err != nil {
@@ -98,7 +130,8 @@ func TestAuthenticationPathsAndStreamingUsage(t *testing.T) {
 		method, path, key, body string
 		status                  int
 	}{
-		{"GET", "/v1/models", "", "", 401},
+		{"GET", "/v1/models", "", "", 200},
+		{"POST", "/v1/chat/completions", "", requestBody, 401},
 		{"POST", "/v1/chat/completions", "bad", requestBody, 401},
 		{"GET", "/v1/models", testKey, "", 200},
 		{"POST", "/v1/chat/completions", testKey, requestBody, 200},
@@ -136,7 +169,7 @@ func TestOverloadAndDuplicateAuthentication(t *testing.T) {
 	if w.Code != 429 || w.Header().Get("Retry-After") != "1" {
 		t.Fatal("overload must fail before inference")
 	}
-	r = httptest.NewRequest("GET", "/v1/models", nil)
+	r = httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(requestBody))
 	r.Header.Add("Authorization", "Bearer "+testKey)
 	r.Header.Add("Authorization", "Bearer "+testKey)
 	w = httptest.NewRecorder()

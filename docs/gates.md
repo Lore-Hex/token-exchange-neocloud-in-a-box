@@ -37,6 +37,16 @@ In particular, P1 still requires merged P0.T1-T3.
 
 ## Requests and owner-reported status
 
+Joseph's subsequent instruction, "make it public, integrate to TR", authorizes
+public Hixtube pilot preparation and the scoped TR integration. It does not
+approve an unspecified cloud bill or a price. Pending questions propose one
+small CPU VM for at most 24 hours (estimated under $5, subject to final inventory
+and bounded deployment review) and $0.10 per million input/output tokens.
+No GPU spending, new confidentiality claim or unrelated production change is
+included. The [service runbook](operators/qwen-service.md) records activation
+order; earlier setup requests below remain historical rather than silently
+superseded cost approvals.
+
 | Date (UTC) | Gate | Request (PR link) | Cost estimate | Status |
 |---|---|---|---|---|
 | 2026-10-19 | G-HW-RENT | Joseph reports existing HydraHost email concerning eight B200 GPUs; [P0.T2 hardware questionnaire](hardware.md#procurement-and-questionnaire), [PR #2](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/pull/2) | Not quoted | Outreach performed by Joseph; hardware, terms and qualification pending. No rental, spending or further contact approved. |

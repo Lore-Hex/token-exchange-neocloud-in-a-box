@@ -6,6 +6,7 @@ import (
 	"flag"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -38,21 +39,34 @@ func run() int {
 	server := &http.Server{Addr: "127.0.0.1:8001", Handler: handler,
 		ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second,
 		MaxHeaderBytes: 16384, ErrorLog: log.New(io.Discard, "", 0)}
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		select {
-		case <-ctx.Done():
-			shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_ = server.Shutdown(shutdown)
-		case <-done:
-		}
-	}()
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	listener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		return 1
+	}
+	if serve(ctx, server, listener) != nil {
 		return 1
 	}
 	return 0
+}
+
+func serve(ctx context.Context, server *http.Server, listener net.Listener) error {
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(listener) }()
+	select {
+	case err := <-served:
+		return err
+	case <-ctx.Done():
+	}
+	// Await handlers, not just the accept loop: Serve returns as soon as
+	// Shutdown closes the listener, before active streams have drained.
+	shutdown, cancel := context.WithTimeout(context.Background(), 130*time.Second)
+	defer cancel()
+	err := server.Shutdown(shutdown)
+	if err != nil {
+		_ = server.Close()
+	}
+	<-served
+	return err
 }
 
 func main() { os.Exit(run()) }

@@ -110,14 +110,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.proxy.ServeHTTP(w, r)
 		return
 	}
-	provided := sha256.Sum256([]byte(r.Header.Get("Authorization")))
-	if len(r.Header.Values("Authorization")) != 1 || subtle.ConstantTimeCompare(provided[:], h.key[:]) != 1 {
-		writeError(w, 401, "invalid_api_key")
-		return
-	}
+	// The published catalog contains no credentials or private deployment data.
 	if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(h.catalog)
+		return
+	}
+	provided := sha256.Sum256([]byte(r.Header.Get("Authorization")))
+	if len(r.Header.Values("Authorization")) != 1 || subtle.ConstantTimeCompare(provided[:], h.key[:]) != 1 {
+		writeError(w, 401, "invalid_api_key")
 		return
 	}
 	if r.Method != http.MethodPost || r.URL.Path != "/v1/chat/completions" {
@@ -180,10 +181,8 @@ func BoundRequest(body []byte) ([]byte, error) {
 			return nil, errors.New("unsupported role")
 		}
 	}
-	for _, field := range []string{"tools", "tool_choice", "response_format", "n_predict", "prompt", "input"} {
-		if _, ok := value[field]; ok {
-			return nil, errors.New("unsupported pilot feature")
-		}
+	if err := validateOptions(value); err != nil {
+		return nil, err
 	}
 	if raw, ok := value["n"]; ok {
 		var n int
@@ -206,4 +205,100 @@ func BoundRequest(body []byte) ([]byte, error) {
 	value["max_tokens"], _ = json.Marshal(limit)
 	delete(value, "max_completion_tokens")
 	return json.Marshal(value)
+}
+
+// The engine also accepts native sampling, grammar and template controls. Only
+// this small, bounded OpenAI subset may cross the public pilot boundary.
+func validateOptions(value map[string]json.RawMessage) error {
+	invalid := errors.New("unsupported pilot option")
+	for field, raw := range value {
+		if bytes.Equal(raw, []byte("null")) {
+			return invalid
+		}
+		switch field {
+		case "model", "max_tokens", "max_completion_tokens", "n":
+			// Validated by BoundRequest.
+		case "messages":
+			var messages []map[string]json.RawMessage
+			if json.Unmarshal(raw, &messages) != nil {
+				return invalid
+			}
+			for _, message := range messages {
+				if len(message) != 2 || message["role"] == nil || message["content"] == nil || bytes.Equal(message["content"], []byte("null")) {
+					return invalid
+				}
+			}
+		case "stream":
+			var enabled bool
+			if json.Unmarshal(raw, &enabled) != nil {
+				return invalid
+			}
+		case "stream_options":
+			var options map[string]json.RawMessage
+			var enabled bool
+			if json.Unmarshal(raw, &options) != nil || len(options) != 1 || bytes.Equal(options["include_usage"], []byte("null")) || json.Unmarshal(options["include_usage"], &enabled) != nil {
+				return invalid
+			}
+		case "temperature", "top_p", "frequency_penalty", "presence_penalty":
+			var number float64
+			low, high := 0.0, 2.0
+			if field == "top_p" {
+				high = 1
+			} else if field == "frequency_penalty" || field == "presence_penalty" {
+				low = -2
+			}
+			if json.Unmarshal(raw, &number) != nil || number < low || number > high {
+				return invalid
+			}
+		case "top_k", "seed":
+			var number int64
+			low, high := int64(0), int64(2147483647)
+			if field == "top_k" {
+				low, high = 1, 100
+			}
+			if json.Unmarshal(raw, &number) != nil || number < low || number > high {
+				return invalid
+			}
+		case "stop":
+			var text string
+			var stops []string
+			if json.Unmarshal(raw, &text) == nil {
+				stops = []string{text}
+			} else if json.Unmarshal(raw, &stops) != nil {
+				return invalid
+			}
+			if len(stops) == 0 || len(stops) > 4 {
+				return invalid
+			}
+			for _, stop := range stops {
+				if len(stop) == 0 || len(stop) > 1024 {
+					return invalid
+				}
+			}
+		case "thinking", "reasoning", "reasoning_effort":
+			// Compatibility probes may send these non-thinking hints. Never pass
+			// native reasoning budgets or template overrides into the engine.
+			var hint string
+			if field == "reasoning_effort" {
+				if json.Unmarshal(raw, &hint) != nil || (hint != "low" && hint != "none") {
+					return invalid
+				}
+			} else {
+				var options map[string]string
+				if json.Unmarshal(raw, &options) != nil || len(options) != 1 {
+					return invalid
+				}
+				if field == "thinking" && options["type"] != "disabled" {
+					return invalid
+				}
+				if field == "reasoning" && options["effort"] != "low" && options["effort"] != "none" {
+					return invalid
+				}
+			}
+			delete(value, field)
+		default:
+			return invalid
+		}
+	}
+	return nil
 }

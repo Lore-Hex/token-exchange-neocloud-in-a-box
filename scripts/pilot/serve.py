@@ -91,6 +91,13 @@ def supervise(processes, shutdown, *, max_seconds, health_check):
         shutdown.wait(0.1)
 
 
+def stop_serving(process):
+    # Front door drains first while API and engine remain alive. Its grace
+    # exceeds the API's request deadline; never silently kill an active stream.
+    graceful = pilot.stop(process, timeout=140)
+    pilot.require(graceful and process.returncode == 0, "service-shutdown")
+
+
 def serve(args, shutdown):
     pilot.require(re.fullmatch(r"[a-z0-9]+(?:[.-][a-z0-9]+)*", args.hostname) is not None,
                   "tls-hostname")
@@ -114,10 +121,10 @@ def serve(args, shutdown):
         trust = ssl.create_default_context(cafile=str(cert))
         env = pilot.controlled_env(work / "control")
         with ExitStack() as stack:
-            def start(command):
+            def start(command, *, serving=False):
                 process = subprocess.Popen(command, cwd=work, env=env,
                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                stack.callback(pilot.stop, process)
+                stack.callback(stop_serving if serving else pilot.stop, process)
                 return process
 
             server = start(pilot.engine_command(engine, weights, pins["model_id"], 8000, api_key))
@@ -125,12 +132,12 @@ def serve(args, shutdown):
             if shutdown.is_set():
                 return
             api = start([str(args.prepared / "bin/nib-pilot-api"), "--api-key-file", str(api_key),
-                         "--input-price", args.input_price, "--output-price", args.output_price])
+                         "--input-price", args.input_price, "--output-price", args.output_price], serving=True)
             wait_ready(api, lambda: pilot.request(8001, "/health")[0] == 200, shutdown)
             if shutdown.is_set():
                 return
             shim = start(pilot.shim_command(front, args.port, 8001, cert, key,
-                                            host="0.0.0.0" if args.public else "127.0.0.1"))
+                                            host="0.0.0.0" if args.public else "127.0.0.1"), serving=True)
             check = lambda: tls_health(args.port, args.hostname, trust)
             wait_ready(shim, check, shutdown)
             if shutdown.is_set():

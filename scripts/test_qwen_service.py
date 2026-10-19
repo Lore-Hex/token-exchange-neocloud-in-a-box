@@ -13,6 +13,19 @@ SPEC.loader.exec_module(service)
 
 
 class ServiceTests(unittest.TestCase):
+    def test_shutdown_waits_and_reports_forced_or_failed_exit(self):
+        child = Mock(returncode=0)
+        with patch.object(service.pilot, "stop", return_value=True) as stop:
+            service.stop_serving(child)
+            stop.assert_called_once_with(child, timeout=140)
+        with patch.object(service.pilot, "stop", return_value=False):
+            with self.assertRaisesRegex(service.pilot.PilotError, "service-shutdown"):
+                service.stop_serving(child)
+        child.returncode = 1
+        with patch.object(service.pilot, "stop", return_value=True):
+            with self.assertRaisesRegex(service.pilot.PilotError, "service-shutdown"):
+                service.stop_serving(child)
+
     def test_private_inputs_snapshot_and_permissions(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
