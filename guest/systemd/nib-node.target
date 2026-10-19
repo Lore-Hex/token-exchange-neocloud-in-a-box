@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+# systemd v255 directives: ../README.md#systemd-units
+[Unit]
+Description=Neocloud gated guest services
+Requires=nib-engine.service
+BindsTo=nib-engine.service
+After=nib-engine.service
+OnFailure=nib-failclosed.target
