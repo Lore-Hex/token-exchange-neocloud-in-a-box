@@ -189,9 +189,9 @@ def shutdown_during_stream(service, port, tls, api_key, model):
             require(size <= 1 << 20 and len(line) <= 65536, "shutdown-stream-size")
             require(not line.startswith(b"event:") or line[6:].strip() in {b"", b"message"},
                     "shutdown-stream-event")
-            if not line.startswith(b"data: "):
+            if not line.startswith(b"data:"):
                 continue
-            raw = line[6:].strip()
+            raw = line[5:].strip()
             if raw == b"[DONE]":
                 done = True
                 break

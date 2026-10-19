@@ -53,6 +53,8 @@ class QwenPilotTests(unittest.TestCase):
 
     def test_shutdown_proof_rejects_errors_and_malformed_events(self):
         for event in ({"error": {"message": "synthetic failure"}}, {"error": None},
+                      b'data:{"error":{"message":"synthetic failure"}}\n\n',
+                      b'data:\t{"error":null}\n\n',
                       b"event: error\n", [], {"choices": {}}, {"choices": [None]},
                       {"choices": [{"index": 0, "delta": "bad"}]},
                       {"usage": []}, {"usage": {"prompt_tokens": True}},
@@ -63,6 +65,11 @@ class QwenPilotTests(unittest.TestCase):
                 self.shutdown_stream(events)
         with self.assertRaises(pilot.PilotError):
             self.shutdown_stream(self.stream_events(), content_type="application/json")
+
+    def test_shutdown_proof_accepts_optional_sse_data_space(self):
+        events = [b"data:" + json.dumps(item).encode() + b"\n\n" if isinstance(item, dict)
+                  else item.replace(b"data: ", b"data:") for item in self.stream_events()]
+        self.shutdown_stream(events)
 
     def test_shutdown_proof_rejects_missing_terminal_evidence(self):
         for index in range(4):
