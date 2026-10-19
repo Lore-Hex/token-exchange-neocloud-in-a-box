@@ -47,12 +47,48 @@ The [unchanged output](../../evidence/p0/2026-10-19-official-vllm-inventory-reje
 retains `result:fail`, partial collection and confirmed cleanup. All 13 source
 expectations still match. Its payload SHA-256 is
 `c7e3be375e2220e56b373100242d9731523b7f0635889823ea00e88fd9a0ba25`.
-No admission limit was increased. The metadata-only census below is implemented
-and tested with synthetic filesystems, but has not run against the image.
-A measured, separately reviewed image-specific admission budget remains future
-work, not an implicit exception.
+No admission limit was increased. The separate metadata-only census below now
+records the selected root's counts and logical sizes. An image-specific admission
+budget still requires a separate reviewed change, not an implicit exception.
 
 ## Metadata-Only Census
+
+### Recorded Counts
+
+The [census run](../../evidence/p0/2026-10-19-official-vllm-metadata-census/run.json)
+from source `e753c351e8e5ec025c172fb3193b4d4268183923` on 2026-10-19,
+22:37:02 to 22:37:16 UTC, completed counting with `collection:pass` and
+`cleanup:confirmed`. The [unchanged output](../../evidence/p0/2026-10-19-official-vllm-metadata-census/output.log)
+retains `overlay_admission:not-evaluated`, `result:fail` and
+`stage:metadata-census-complete`; exit 1 is intentional, not failed counting.
+Its source-bound payload SHA-256 is
+`6c4697b6e7a397efad1642f05e86e425a007df5c7cb7a33c3af621c7f8d56777`.
+
+| Selected-root measurement | Observed value |
+|---|---:|
+| Entries, excluding the root itself | 204,969 |
+| Regular-file entries | 188,365 |
+| Directories | 16,604 |
+| Total logical regular-file bytes | 19,176,556,448 |
+| Largest regular-file bytes | 541,607,888 |
+| Maximum entry depth | 15 |
+| Symlink, multiply-linked regular and special-file entries | 0 each |
+
+These are metadata observations for the selected package root, not the whole
+image or a verified dependency inventory. No contents or link targets were read.
+Raw OCI linkage and local Docker metadata association were checked as described
+below; local layer/config storage was not independently rehashed. The owned
+container's absence was confirmed and the cached image retained.
+
+The census establishes a count above the existing 100,000-entry admission limit,
+but does not change that limit or validate entries. Wheel/RECORD consistency,
+native contents, startup hooks and alternate-root admission remain unresolved;
+the prior diagnostic's rejections are not overridden. No overlay application,
+engine import, model inference, GPU, ABI, attestation or confidentiality
+qualification occurred. Candidate status remains `BLOCKED`, `deployable:false`,
+`image:null`.
+
+### Mode And Limits
 
 After independent review of the committed source and separate run approval:
 
@@ -101,7 +137,7 @@ order is unspecified. A complete traversal reports `collection:pass` only for
 counting. In **both** cases, `overlay_admission:not-evaluated`, `result:fail`
 and recorder exit 1 are intentional: counting can never grant admission.
 Candidate status remains `BLOCKED`; deployment, ABI and hardware validation are
-false. No actual census result or revised inventory budget is claimed yet.
+false. The recorded counts above do not authorize a revised inventory budget.
 
 ## Fixed Inputs And Identity
 
@@ -253,3 +289,6 @@ FIFOs, no-content/no-link-target reads, root ambiguity, directory replacement,
 partial limits/errors, counter/report tampering, source-bound mode selection,
 fake Docker cleanup and authoritative evidence schema validation. They do not
 execute the image or relax the original inspector.
+The recorded census regression checks the unchanged artifact hashes, child
+contract, source/payload references, exact totals, intentional qualification
+failure and schema validity without repeating the image run.
