@@ -15,6 +15,23 @@ func TestHelp(t *testing.T) {
 		if code := run(args, &out, &errOut); code != 0 || !strings.Contains(out.String(), "pre-alpha") || errOut.Len() != 0 {
 			t.Fatalf("help failed: code=%d out=%q err=%q", code, out.String(), errOut.String())
 		}
+		for _, command := range []string{"nib verify ", "nib catalog "} {
+			if !strings.Contains(out.String(), command) {
+				t.Fatalf("help omitted %q", command)
+			}
+		}
+	}
+}
+
+func TestVerifyDispatch(t *testing.T) {
+	var out, errs bytes.Buffer
+	if code := run([]string{"verify"}, &out, &errs); code != 2 || out.Len() != 0 || !strings.Contains(errs.String(), "usage: nib verify") {
+		t.Fatal("verify usage dispatch failed")
+	}
+	errs.Reset()
+	args := []string{"verify", "--endpoint", "https://example.invalid", "--release", "/missing/private-canary", "--release-sha256", strings.Repeat("0", 64), "--profile", "/missing/private-canary", "--profile-sha256", strings.Repeat("0", 64)}
+	if code := run(args, &out, &errs); code != 1 || out.Len() != 0 || !strings.Contains(errs.String(), "cannot open policy file") || strings.Contains(errs.String(), "canary") {
+		t.Fatal("verify failure dispatch or redaction failed")
 	}
 }
 
@@ -26,6 +43,28 @@ func TestModelDispatch(t *testing.T) {
 	out.Reset()
 	if code := run([]string{"model", "check-remote", "/missing/private-canary"}, &out, &errs); code != 1 || out.Len() != 0 || strings.Contains(errs.String(), "canary") {
 		t.Fatal("model failure dispatch or redaction failed")
+	}
+}
+
+func TestCatalogDispatch(t *testing.T) {
+	var out, errs bytes.Buffer
+	if code := run([]string{"catalog", "--help"}, &out, &errs); code != 0 || !strings.Contains(out.String(), "local-test-only") || errs.Len() != 0 {
+		t.Fatal("catalog help dispatch failed")
+	}
+	out.Reset()
+	if code := run([]string{"catalog", "--root", "../.."}, &out, &errs); code != 0 || errs.Len() != 0 {
+		t.Fatal("catalog generation dispatch failed")
+	}
+	want, err := os.ReadFile("../../catalog/testdata/catalog.v2.golden.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(out.Bytes(), want) {
+		t.Fatal("catalog CLI differs from validated golden declaration")
+	}
+	out.Reset()
+	if code := run([]string{"catalog", "--root", "/missing/private-canary"}, &out, &errs); code != 1 || out.Len() != 0 || strings.Contains(errs.String(), "canary") {
+		t.Fatal("catalog error dispatch or redaction failed")
 	}
 }
 

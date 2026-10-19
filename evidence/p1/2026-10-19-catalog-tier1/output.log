@@ -1,0 +1,19 @@
+provider-report: checker exit 0
+TIER  STATUS  CHECK                           ASSERTION                                                                                           
+----  ------  ------------------------------  ----------------------------------------------------------------------------------------------------
+1     PASS    catalog.native-model-discovery  GET /models advertises at least one unique, non-empty native model id                               
+1     PASS    catalog.declared-v2             declared marketplace catalog conforms to the published v2 schema and vendored id/decimal/field rules
+Summary: 2 pass, 0 fail, 0 warn, 0 skip
+Conformance gate (Tiers 1-4): PASS
+Authentication: none; no Authorization header was sent
+JSON report: [REDACTED]/evidence/p1/2026-10-19-catalog-tier1/provider-report.json
+negative-control-report: checker exit 1
+TIER  STATUS  CHECK                           ASSERTION                                                                                           
+----  ------  ------------------------------  ----------------------------------------------------------------------------------------------------
+1     PASS    catalog.native-model-discovery  GET /models advertises at least one unique, non-empty native model id                               
+1     FAIL    catalog.declared-v2             declared marketplace catalog conforms to the published v2 schema and vendored id/decimal/field rules
+Summary: 1 pass, 1 fail, 0 warn, 0 skip
+Conformance gate (Tiers 1-4): FAIL
+Authentication: none; no Authorization header was sent
+JSON report: [REDACTED]/evidence/p1/2026-10-19-catalog-tier1/negative-control-report.json
+PASS: local Tier 1 discovery and declaration; rejecting-catalog control; no POST or authenticated requests.
