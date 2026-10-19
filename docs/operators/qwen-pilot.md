@@ -83,10 +83,10 @@ and local Docker build cache can remain; the recorder does not prune unrelated
 images or caches. An approved cloud run still needs its own bounded execution,
 network, billing, teardown and attestation gates.
 
-[The final Linux run](../../evidence/p3/2026-10-19-qwen-linux-3/run.json)
+[The final Linux run](../../evidence/p3/2026-10-19-qwen-linux-4/run.json)
 passed all 17 applicable conformance checks and the real-generation, auth, usage,
 backend-failure and cleanup checks. Its
-[results](../../evidence/p3/2026-10-19-qwen-linux-3/output.log) record Linux/x86_64
+[results](../../evidence/p3/2026-10-19-qwen-linux-4/output.log) record Linux/x86_64
 under local Docker on the macOS host, not a cloud VM. The native path also passed
 after the shared-runtime refactor ([regression evidence](../../evidence/p3/2026-10-19-qwen-native-regression-1/run.json)).
 
@@ -94,8 +94,10 @@ Review caught a build-timeout cleanup race before merge. The recorder now stops
 and verifies the whole local tool process group, including Docker plugins. If a
 build or run is interrupted before completion, it reports cleanup as unproven
 even when the current image/container listings are empty: stopping the client
-alone does not prove the daemon has finished. Regression tests cover a real
-delayed child process and this fail-closed classification. The earlier successful
+alone does not prove the daemon has finished. Completion requires a validated
+successful build or a valid terminal runtime report with the expected exit code.
+Regression tests cover a real delayed child process, signals, Docker failure
+codes, invalid output and this fail-closed classification. The earlier successful
 Linux runs remain as source-bound historical evidence, not timeout-path proof.
 
 Cloud deployment is a separate operation with an exact project, approved budget,
