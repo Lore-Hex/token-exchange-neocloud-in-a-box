@@ -5,11 +5,49 @@ import hashlib
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import tarfile
+import time
 
 
 TOOL_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+
+
+def execute_process_group(args, *, env, cwd=None, timeout=1800, capture_output=True):
+    """Bound the entire local tool tree, including Docker CLI plugins."""
+    stream = subprocess.PIPE if capture_output else subprocess.DEVNULL
+    process = subprocess.Popen(args, env=env, cwd=cwd, start_new_session=True,
+                               stdout=stream, stderr=stream)
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+        return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+    finally:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=10)
+        for pipe in (process.stdout, process.stderr):
+            if pipe is not None:
+                pipe.close()
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                os.killpg(process.pid, 0)
+            except ProcessLookupError:
+                break
+            if time.monotonic() >= deadline:
+                raise ValueError("tool process-group absence unproven")
+            time.sleep(0.05)
 
 
 def controlled_env(control):

@@ -93,7 +93,7 @@ def runtime_command(image, name):
             "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777", "--platform", "linux/amd64", image]
 
 
-def cleanup_resources(image, name):
+def cleanup_resources(image, name, *, env=None):
     resources = {
         "container": (name, ["docker", "rm", "-f", name],
                       ["docker", "container", "ls", "--all", "--quiet", "--filter", "name=^/" + re.escape(name) + "$"]),
@@ -105,7 +105,7 @@ def cleanup_resources(image, name):
     for kind, (resource, remove, _) in resources.items():
         item = report[kind] = {"resource": resource}
         try:
-            result = subprocess.run(remove, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+            result = subprocess.run(remove, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
             item["removal"] = {"status": "exited", "exit_code": result.returncode}
         except subprocess.TimeoutExpired:
             item["removal"] = {"status": "timeout"}
@@ -115,7 +115,7 @@ def cleanup_resources(image, name):
     # successful, empty listing proves absence; daemon errors never do.
     for kind, (_, _, query) in resources.items():
         try:
-            result = subprocess.run(query, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
+            result = subprocess.run(query, env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
             report[kind]["absence"] = ("unknown" if result.returncode != 0 else
                                        "present" if result.stdout.strip() else "confirmed")
         except (OSError, subprocess.SubprocessError):

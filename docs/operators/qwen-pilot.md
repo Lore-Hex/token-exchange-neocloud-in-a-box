@@ -50,6 +50,56 @@ passed these checks using real Qwen weights. Its
 [sanitized results](../../evidence/p3/2026-10-19-qwen-local-3/output.log) include
 24 prompt tokens and 2 completion tokens for the synthetic known-answer test.
 
+## Offline Linux runtime
+
+The same conformance runner can also run inside a local Linux/amd64 container:
+
+```sh
+uv run --project tools --frozen python -I scripts/record-qwen-pilot.py \
+  --inputs /tmp/hixtube-pilot-inputs --slug qwen-linux-1 --linux-container
+```
+
+Docker with BuildKit is required. The recorder permits only a local Unix-socket
+Docker endpoint and uses an empty Docker configuration, not your registry or
+cloud credentials. It builds from the existing digest-pinned Go/Python bases,
+verified source archives, hash-locked Python dependencies and verified Qwen
+weights. The build needs public network access; the resulting test runtime does
+not. Allow several GB of local disk and 3 GB of runtime RAM. Apple hosts execute
+Linux/amd64 through their local Docker virtualization/emulation; this is not a
+native cloud hardware benchmark.
+
+Inference runs as a non-root user with a read-only filesystem, no capabilities,
+no-new-privileges, no external network, no host mounts and no published ports.
+The only writable filesystem is bounded temporary memory. The runner creates
+ephemeral API/TLS keys there and exercises the exact same authentication, real
+generation, streaming, usage and backend-failure checks as the native pilot.
+It records the private build-context digest, resulting image ID, binary hashes
+and sanitized results. Success additionally requires confirmed absence of both
+the temporary container and its tagged image after cleanup.
+
+This is a development/test image, not a reproducible measured release or a
+confidential guest image. No image is pushed to a registry. Public base images
+and local Docker build cache can remain; the recorder does not prune unrelated
+images or caches. An approved cloud run still needs its own bounded execution,
+network, billing, teardown and attestation gates.
+
+[The final Linux run](../../evidence/p3/2026-10-19-qwen-linux-4/run.json)
+passed all 17 applicable conformance checks and the real-generation, auth, usage,
+backend-failure and cleanup checks. Its
+[results](../../evidence/p3/2026-10-19-qwen-linux-4/output.log) record Linux/x86_64
+under local Docker on the macOS host, not a cloud VM. The native path also passed
+after the shared-runtime refactor ([regression evidence](../../evidence/p3/2026-10-19-qwen-native-regression-1/run.json)).
+
+Review caught a build-timeout cleanup race before merge. The recorder now stops
+and verifies the whole local tool process group, including Docker plugins. If a
+build or run is interrupted before completion, it reports cleanup as unproven
+even when the current image/container listings are empty: stopping the client
+alone does not prove the daemon has finished. Completion requires a validated
+successful build or a valid terminal runtime report with the expected exit code.
+Regression tests cover a real delayed child process, signals, Docker failure
+codes, invalid output and this fail-closed classification. The earlier successful
+Linux runs remain as source-bound historical evidence, not timeout-path proof.
+
 Cloud deployment is a separate operation with an exact project, approved budget,
 expiry, teardown and evidence. Do not substitute `quill-cloud-proxy` when the
 dedicated Hixtube project is unavailable. CPU confidential testing, GPU

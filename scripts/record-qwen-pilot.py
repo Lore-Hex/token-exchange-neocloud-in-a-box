@@ -13,8 +13,8 @@ import json
 import os
 from pathlib import Path
 import platform
+import pwd
 import re
-import signal
 import subprocess
 import tempfile
 import types
@@ -35,6 +35,7 @@ def load_source(name, path):
 snapshot, SNAPSHOT_SOURCE = load_source("pilot_snapshot", ROOT / "scripts/e2e/snapshot.py")
 controlled_env, git = snapshot.controlled_env, snapshot.git
 snapshot_commit, validate_snapshot = snapshot.snapshot_commit, snapshot.validate_snapshot
+execute_pilot = snapshot.execute_process_group
 
 
 def validate_bootstrap(source):
@@ -46,31 +47,6 @@ def validate_bootstrap(source):
 
 def now():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def execute_pilot(args, *, env, cwd, timeout=1800):
-    # Timeouts/interruption must also stop compiler and server grandchildren.
-    process = subprocess.Popen(args, env=env, cwd=cwd, start_new_session=True,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    try:
-        stdout, stderr = process.communicate(timeout=timeout)
-        return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
-    finally:
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            pass
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        process.wait(timeout=10)
-        process.stdout.close()
-        process.stderr.close()
 
 
 def validate_record(record, nib, work, env):
@@ -88,6 +64,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inputs", type=Path, required=True)
     parser.add_argument("--slug", required=True)
+    parser.add_argument("--linux-container", action="store_true",
+                        help="Run the same real-model tests in a network-none local Linux container")
     args = parser.parse_args()
     if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", args.slug) or len(args.slug) > 64:
         raise ValueError("invalid evidence slug")
@@ -101,15 +79,24 @@ def main():
         revision, expected, archive_digest = snapshot_commit(ROOT, source, work / "control", env)
         validate_bootstrap(source)
         try:
-            result = execute_pilot([sys.executable, "-I", "-B", str(source / "scripts/pilot/run.py"),
-                                    "--inputs", str(args.inputs.resolve())], env=env, cwd=source)
-            if len(result.stdout) > 65536:
-                raise ValueError("oversized pilot report")
-            report = json.loads(result.stdout)
+            if args.linux_container:
+                runner, _ = load_source("container_pilot", source / "scripts/pilot/container.py")
+                report = {"result": "fail", "execution": "real-cpu-model", "confidential": False,
+                          "hardware_validated": False, "public_endpoint": False,
+                          "billing_integrated": False, "cloud_resources_created": False}
+                runner.run(args.inputs.resolve(), report, env, Path(pwd.getpwuid(os.getuid()).pw_dir))
+                returncode = 0 if report["result"] == "pass" else 1
+            else:
+                result = execute_pilot([sys.executable, "-I", "-B", str(source / "scripts/pilot/run.py"),
+                                        "--inputs", str(args.inputs.resolve())], env=env, cwd=source)
+                if len(result.stdout) > 65536:
+                    raise ValueError("oversized pilot report")
+                report = json.loads(result.stdout)
+                returncode = result.returncode
             if (report.get("confidential") is not False or report.get("hardware_validated") is not False
                     or report.get("execution") != "real-cpu-model"
                     or report.get("result") not in {"pass", "fail"}
-                    or (report.get("result") == "pass") != (result.returncode == 0)):
+                    or (report.get("result") == "pass") != (returncode == 0)):
                 raise ValueError("invalid pilot result")
         except (OSError, ValueError, AttributeError, subprocess.SubprocessError):
             report = {"result": "fail", "execution": "real-cpu-model", "confidential": False,
@@ -122,14 +109,15 @@ def main():
         record = {
             "schema": "nib.evidence/v1", "phase": "P3", "task": "T7", "git_sha": revision,
             "command": "python3 -I scripts/record-qwen-pilot.py --inputs " + str(args.inputs.resolve())
-                       + " --slug " + args.slug,
+                       + " --slug " + args.slug + (" --linux-container" if args.linux_container else ""),
             "started_utc": started, "ended_utc": now(),
             "host": {"provider": "local", "machine": platform.system().lower() + "/" + platform.machine(),
                      "gpus": "none", "driver": None, "cuda": None},
             "result": report["result"], "execution": "software", "hardware_validated": False,
             "notes": "Local-only real Qwen inference through standard TLS (tee=none). No fake engine, "
                      "cloud resources, public endpoint, billing integration or confidential-compute claim. "
-                     "Source archive SHA-256: " + archive_digest,
+                     + ("Linux/amd64 container on this local host; not a cloud VM. " if args.linux_container else "")
+                     + "Source archive SHA-256: " + archive_digest,
         }
         validate_record(record, nib, work, env)
         created = subprocess.run([str(nib), "evidence", "new", "P3", args.slug], cwd=ROOT,

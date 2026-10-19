@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I scripts/record-qwen-pilot.py --inputs /private/tmp/nib-qwen-inputs --slug qwen-linux-1 --linux-container",
+  "ended_utc": "2026-10-19T06:34:19Z",
+  "execution": "software",
+  "git_sha": "b79f03c618def160ebc69b26b73333c8974bd111",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "darwin/arm64",
+    "provider": "local"
+  },
+  "notes": "Local-only real Qwen inference through standard TLS (tee=none). No fake engine, cloud resources, public endpoint, billing integration or confidential-compute claim. Linux/amd64 container on this local host; not a cloud VM. Source archive SHA-256: 8d22d938cf2fcdec8946bdc5d70b90b52ba97e9485ccb6a10755af71855ec37d",
+  "phase": "P3",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-19T06:28:21Z",
+  "task": "T7"
+}
