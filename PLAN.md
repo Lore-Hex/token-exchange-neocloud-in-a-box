@@ -26,8 +26,17 @@ holds.
 ## 0. Summary
 
 We are building, in the open, all the software a small operator needs to run a
-**confidential GPU inference cloud**. The first operator is us, and the tokens
-are sold through TrustedRouter (TR) and the NY Token Exchange (NYTE).
+**confidential GPU inference cloud**, with tokens sold through TrustedRouter
+(TR) and the NY Token Exchange (NYTE). This repo is the reusable toolkit, not
+an individual provider's deployment or business.
+
+**Commercial boundary.** Operators serve an authenticated endpoint, publish
+their catalog and agreed rates, and return accurate engine usage. TrustedRouter
+keeps the customer accounting ledger, enforces credits, bills customers and
+handles payments and provider payouts under the onboarding agreement. Do not
+build a second ledger, customer-account system or payment service here.
+Local operations need only health checks and minimal content-free telemetry.
+See the [operator guide](docs/operators/trustedrouter.md).
 
 **What a node is.** A node is one 8-GPU server whose GPUs, model and inference
 engine all run inside one Intel TDX confidential VM, with the GPUs in NVIDIA
@@ -111,7 +120,8 @@ times measured in weeks:
 - renting raw VMs to tenants;
 - Kubernetes;
 - AMD GPUs and consumer GPUs;
-- our own billing (TR meters and bills);
+- local customer accounting, credit balances, billing, invoices, payment
+  processing or payouts (TR owns these; the node returns actual usage);
 - custom CUDA kernels (use upstream engines; carry patches only when CC requires
   them); and
 - any production fallback to non-confidential mode.
@@ -656,8 +666,9 @@ smokes in tolerance, benchmarks committed, packs final.
 project separation from TrustedRouter. [P3.T7](docs/operators/qwen-pilot.md) is a
 local real-model API-plumbing pilot that can run before cloud/GPU gates. It uses
 no fake engine and makes no confidential claim; see [D8](docs/decisions/0008-small-qwen-pilot.md).
-Subsequent cloud work must use a dedicated Hixtube project, never production
-`quill-cloud-proxy`. The confidentiality and listing gates below remain intact.
+Subsequent cloud work must use an operator-owned, isolated project, never
+TrustedRouter production. Operator deployment records belong outside this repo.
+The confidentiality and listing gates below remain intact.
 
 GCP's confidential GPU VMs have one GPU (`a3-highgpu-1g`: 1×H100 80GB on
 TDX; Spot or flex-start; zones us-central1-a, us-east5-a, europe-west4-c). Our
@@ -918,6 +929,8 @@ $1.80/$5.75).
 - Node inventory and an attest-by-IP reconciler that publishes DNS only for
   nodes that verify. TR's enclave DNS reconciler is the design reference.
 - Health and alerting without request data; capacity reporting.
+- Reuse TrustedRouter accounting, billing and payments. No local financial
+  ledger, customer portal, payment SDK or duplicated settlement worker.
 - An installer and operator guide: hardware bill of materials, provider list,
   step-by-step from a bare server to a TR listing, and a support matrix.
 - NYTE hooks: publish capacity and price to the exchange (designed with NYTE
@@ -954,17 +967,17 @@ $1.80/$5.75).
 
 ## 11. Open questions for Joseph
 
-1. **Resolved 2026-10-19:** provider **Hixtube**, slug `hixtube`, as named by
-   Joseph. The reusable project remains Token Exchange Neocloud-in-a-Box.
+1. Provider names, slugs and deployment configuration are supplied by each
+   operator outside this repo. The reusable project remains Token Exchange
+   Neocloud-in-a-Box.
 2. Rent or buy for P5 (proposal: rent month to month from a CC-capable
    provider; decide on buying an HGX B200 after 30 days of P6 utilization).
    Which providers to contact first (proposal: Hydra Host, ServerMO, Spheron,
    Sesterce).
 3. Prices for both routes (proposals in P6 and P7).
-4. **Resolved 2026-10-19:** `hixtube.com`; Joseph reports delegating it to Google
-   Cloud DNS. Planned first-node origin: `api.hixtube.com`. See the
-   [Hixtube launch checklist](docs/operators/hixtube.md); delegation alone does
-   not establish a serving endpoint or satisfy the hardware launch gates.
+4. Each operator owns its DNS/TLS and isolated hosting. A hostname does not
+   establish a serving endpoint or satisfy hardware launch gates; follow the
+   [operator checklist](docs/operators/trustedrouter.md).
 5. Does NYTE need anything from v1 beyond the TR listing? (Proposal: no; P9.)
 
 ## 12. Sources

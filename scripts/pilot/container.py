@@ -31,6 +31,7 @@ def build_context(inputs, context):
     pins = json.loads((ROOT / "scripts/pilot/pins.json").read_text())
     bases = e2e.load_pins()
     source_files = ("go.mod", "go.sum", "cmd/nib-pilot-api/main.go", "internal/pilotapi/handler.go",
+                    "internal/pilotapi/provider.go",
                     "scripts/pilot/run.py", "scripts/pilot/serve.py", "scripts/pilot/pins.json",
                     "scripts/pilot/build-requirements.lock", "scripts/e2e/pins.json",
                     "scripts/e2e/snapshot.py", "scripts/e2e/exercise.py",

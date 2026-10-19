@@ -120,7 +120,8 @@ Loading does not serve traffic. The default image entrypoint still runs the
 proof; persistent mode and its public retirement cutoff belong to
 [the service contract](qwen-service.md). Public hosting, nonroot/read-only runtime
 flags, TLS certificates, inference keys, absolute VM lifetime and teardown need
-separate review and approval in `hixtube-neocloud`. No deploy driver is included.
+separate review and approval in an isolated operator-owned project. No deploy
+driver is included.
 This artifact provides no ZDR, E2EE, GPU or confidential-compute guarantee.
 
 ## License provenance

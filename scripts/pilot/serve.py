@@ -137,6 +137,7 @@ def serve(args, shutdown):
     retirement = retirement_deadline(args.retirement_at, public=args.public)
     if args.public:
         pilot.require(retirement[1] - time.monotonic() <= args.max_seconds, "retirement-run-duration")
+    pilot.require(args.provider_config is not None, "provider-config-required")
     pilot.require(re.fullmatch(r"[a-z0-9]+(?:[.-][a-z0-9]+)*", args.hostname) is not None,
                   "tls-hostname")
     pilot.require(1024 <= args.port <= 65535 and args.port not in {8000, 8001}, "listen-port")
@@ -150,6 +151,9 @@ def serve(args, shutdown):
     with tempfile.TemporaryDirectory(prefix="nib-qwen-service-") as directory:
         work = Path(directory)
         cert, key, api_key = work / "cert.pem", work / "key.pem", work / "api-key"
+        provider_config = work / "provider.json"
+        # Snapshot only; the API's shared Go validator owns the metadata contract.
+        private_input(args.provider_config, provider_config, secret=False, limit=16384)
         private_input(args.cert, cert, secret=False, limit=65536)
         private_input(args.key, key, secret=True, limit=16384)
         validate_api_key(private_input(args.api_key_file, api_key, secret=True, limit=257))
@@ -170,9 +174,12 @@ def serve(args, shutdown):
             if shutdown.is_set():
                 return
             command = [str(args.prepared / "bin/nib-pilot-api"), "--api-key-file", str(api_key),
+                       "--provider-config", str(provider_config),
                        "--input-price", args.input_price, "--output-price", args.output_price]
             if args.retirement_at is not None:
                 command.extend(["--retirement-at", args.retirement_at])
+            if args.public:
+                command.append("--public")
             api = start(command, serving=True)
             wait_ready(api, lambda: pilot.request(8001, "/health")[0] == 200, shutdown)
             if shutdown.is_set():
@@ -196,6 +203,7 @@ def main():
     parser.add_argument("--cert", type=Path, required=True)
     parser.add_argument("--key", type=Path, required=True)
     parser.add_argument("--api-key-file", type=Path, required=True)
+    parser.add_argument("--provider-config", type=Path, required=True, help="Operator metadata JSON file (no default)")
     parser.add_argument("--hostname", required=True)
     parser.add_argument("--input-price", required=True, help="Approved USD per million input tokens")
     parser.add_argument("--output-price", required=True, help="Approved USD per million output tokens")

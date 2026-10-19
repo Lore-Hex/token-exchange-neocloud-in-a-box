@@ -70,7 +70,7 @@ covers 83 files and 510,311,045,295 bytes. This remains metadata-only evidence.
 1. Obtain the actual server details and bounded run authorization. Joseph's
    HydraHost outreach is still pending; no server access was supplied here.
 2. Run P2's full pinned-weight download, engine startup, provider conformance,
-   correctness and benchmarks on suitable GPUs in the isolated Hixtube project
+   correctness and benchmarks on suitable GPUs in an isolated operator project
    or approved server. Metadata hashes alone are not downloaded-weight checks.
 3. Qualify a licensed CC-compatible engine. Upstream 0.32.0 does not implement
    `VLLM_DISABLE_UVA`; disabling Engram CPU offload does not disable all UVA

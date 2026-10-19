@@ -69,7 +69,8 @@ class QwenContainerTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("committed fixture")
             (source / "scripts/pilot/pins.json").write_text(json.dumps(pins))
-            for name in ("go.mod", "go.sum", "cmd/nib-pilot-api/main.go", "internal/pilotapi/handler.go"):
+            for name in ("go.mod", "go.sum", "cmd/nib-pilot-api/main.go", "internal/pilotapi/handler.go",
+                         "internal/pilotapi/provider.go"):
                 path = source / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("committed fixture")
@@ -84,7 +85,8 @@ class QwenContainerTests(unittest.TestCase):
             self.assertEqual((context / "trcs/main.txt").read_bytes(), b"front")
             self.assertEqual((context / "inputs/model.gguf").read_bytes(), b"model")
             names = {path.relative_to(context).as_posix() for path in context.rglob("*") if path.is_file()}
-            self.assertEqual(len(names), 16)
+            self.assertEqual(len(names), 17)
+            self.assertIn("repo/internal/pilotapi/provider.go", names)
             self.assertFalse(any("secret" in name or "credential" in name or "__pycache__" in name for name in names))
             (inputs / "model.gguf").write_bytes(b"stale")
             stale = root / "stale-context"

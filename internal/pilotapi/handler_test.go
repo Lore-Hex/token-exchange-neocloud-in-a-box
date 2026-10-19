@@ -21,7 +21,7 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestCatalogExactPricesAndSchema(t *testing.T) {
-	data, err := Catalog("0.10", "0.20", time.Time{})
+	data, err := Catalog(testProvider(), "0.10", "0.20", time.Time{})
 	if err != nil || catalog.Validate(data) != nil {
 		t.Fatalf("invalid catalog: %v", err)
 	}
@@ -31,10 +31,10 @@ func TestCatalogExactPricesAndSchema(t *testing.T) {
 		}
 	}
 	for _, bad := range []string{"", "NaN", "-1", "1e2", "01", "0.1\n", "1000000"} {
-		if _, err := Catalog(bad, "0.10", time.Time{}); err == nil {
+		if _, err := Catalog(testProvider(), bad, "0.10", time.Time{}); err == nil {
 			t.Fatal("invalid input price accepted")
 		}
-		if _, err := Catalog("0.10", bad, time.Time{}); err == nil {
+		if _, err := Catalog(testProvider(), "0.10", bad, time.Time{}); err == nil {
 			t.Fatal("invalid output price accepted")
 		}
 	}
@@ -52,11 +52,11 @@ func TestRetirementValidationAndCatalog(t *testing.T) {
 	if err != nil || cutoff.Sub(now) != 24*time.Hour {
 		t.Fatal("exact 24h cutoff rejected")
 	}
-	data, err := Catalog("0.10", "0.20", cutoff)
+	data, err := Catalog(testProvider(), "0.10", "0.20", cutoff)
 	if err != nil || catalog.Validate(data) != nil || !strings.Contains(string(data), `"retirement_at":"2026-10-20T12:00:00Z"`) {
 		t.Fatalf("retirement missing from valid catalog: %s", data)
 	}
-	if _, err := New(testKey, "0.1", "0.1", "not-a-time"); err == nil {
+	if _, err := New(testProvider(), testKey, "0.1", "0.1", "not-a-time"); err == nil {
 		t.Fatal("invalid operator cutoff accepted")
 	}
 }
@@ -76,7 +76,7 @@ func (r *onRead) Read(p []byte) (int, error) {
 
 func TestRetirementRejectsAdmissionAndSlowUpload(t *testing.T) {
 	cutoff := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
-	h, err := New(testKey, "0.1", "0.1", cutoff.Format(time.RFC3339))
+	h, err := New(testProvider(), testKey, "0.1", "0.1", cutoff.Format(time.RFC3339))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestRequestOptionsCannotEnableNativeFeatures(t *testing.T) {
 }
 
 func TestAuthenticationPathsAndStreamingUsage(t *testing.T) {
-	h, err := New(testKey, "0.1", "0.1", "")
+	h, err := New(testProvider(), testKey, "0.1", "0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +235,7 @@ func TestAuthenticationPathsAndStreamingUsage(t *testing.T) {
 }
 
 func TestOverloadAndDuplicateAuthentication(t *testing.T) {
-	h, _ := New(testKey, "0.1", "0.1", "")
+	h, _ := New(testProvider(), testKey, "0.1", "0.1", "")
 	h.slots <- struct{}{}
 	h.slots <- struct{}{}
 	r := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(requestBody))
@@ -252,5 +252,29 @@ func TestOverloadAndDuplicateAuthentication(t *testing.T) {
 	h.ServeHTTP(w, r)
 	if w.Code != 401 {
 		t.Fatal("duplicate authentication accepted")
+	}
+}
+
+func TestUsageResponsesPassThroughUnchanged(t *testing.T) {
+	for _, tc := range []struct{ contentType, body string }{
+		{"application/json", `{"choices":[{"message":{"content":"synthetic"}}],"usage":{"prompt_tokens":17,"completion_tokens":9,"total_tokens":26,"prompt_tokens_details":{"cached_tokens":0}}}`},
+		{"text/event-stream", "data: {\"choices\":[{\"delta\":{\"content\":\"synthetic\"}}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":17,\"completion_tokens\":9,\"total_tokens\":26}}\n\ndata: [DONE]\n\n"},
+		{"application/json", `{"choices":[]}`}, // Never invent usage when absent upstream.
+	} {
+		h, err := New(testProvider(), testKey, "0.1", "0.1", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.proxy.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {tc.contentType}},
+				Body: io.NopCloser(strings.NewReader(tc.body))}, nil
+		})
+		r := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(requestBody))
+		r.Header.Set("Authorization", "Bearer "+testKey)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != 200 || w.Body.String() != tc.body || w.Header().Get("Content-Type") != tc.contentType {
+			t.Fatal("upstream response or usage was changed")
+		}
 	}
 }

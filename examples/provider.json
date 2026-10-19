@@ -1,0 +1,7 @@
+{
+  "id": "acme",
+  "status_url": "https://api.example.invalid/healthz",
+  "support_contact": "mailto:support@example.invalid",
+  "incident_contact": "mailto:ops@example.invalid",
+  "regions": ["US"]
+}

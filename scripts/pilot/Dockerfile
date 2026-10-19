@@ -67,9 +67,9 @@ ARG GO_IMAGE
 ARG PYTHON_IMAGE
 ARG TARGETOS
 ARG TARGETARCH
-LABEL org.opencontainers.image.title="Hixtube local Linux Qwen pilot" \
-    io.hixtube.scope="software-only" io.hixtube.confidential="false" \
-    io.hixtube.hardware-validated="false"
+LABEL org.opencontainers.image.title="Neocloud-in-a-Box local Linux Qwen pilot" \
+    io.nib.scope="software-only" io.nib.confidential="false" \
+    io.nib.hardware-validated="false"
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /opt/nib-pilot
 COPY repo/scripts/e2e/requirements.lock /tmp/requirements.lock

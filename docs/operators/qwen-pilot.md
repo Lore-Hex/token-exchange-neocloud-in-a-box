@@ -1,6 +1,6 @@
 # Local Qwen pilot
 
-This is a real local model behind Hixtube's reusable TLS front door. It is not
+This is a real local model behind the reusable `trcs` TLS front door. It is not
 public, billed, attested, or confidential. See [D8](../decisions/0008-small-qwen-pilot.md).
 
 Prerequisites: Python 3.12+, CMake, a C/C++ compiler, Go (the runner selects
@@ -10,16 +10,16 @@ GB of RAM. The native build uses four CPU threads. No cloud credits are used.
 Download the three public, immutable inputs into a private local directory:
 
 ```sh
-mkdir -p /tmp/hixtube-pilot-inputs
+mkdir -p /tmp/nib-pilot-inputs
 curl --fail --location --max-time 300 \
   https://huggingface.co/Qwen/Qwen3-0.6B-GGUF/resolve/23749fefcc72300e3a2ad315e1317431b06b590a/Qwen3-0.6B-Q8_0.gguf \
-  --output /tmp/hixtube-pilot-inputs/model.gguf
+  --output /tmp/nib-pilot-inputs/model.gguf
 curl --fail --location --max-time 120 \
   https://codeload.github.com/ggml-org/llama.cpp/tar.gz/620d2225cc436ab0b001e3200e590e3b286ef9ab \
-  --output /tmp/hixtube-pilot-inputs/llama.tar.gz
+  --output /tmp/nib-pilot-inputs/llama.tar.gz
 curl --fail --location --max-time 120 \
   https://codeload.github.com/Lore-Hex/trustedrouter-confidential-stack/tar.gz/8a87d9765ceabe76bbfa5e56a72c91da6d8290d5 \
-  --output /tmp/hixtube-pilot-inputs/trcs.tar.gz
+  --output /tmp/nib-pilot-inputs/trcs.tar.gz
 ```
 
 The runner verifies the exact model bytes/SHA-256 and both archive hashes.
@@ -32,7 +32,7 @@ From a clean committed checkout, run the evidence recorder:
 
 ```sh
 uv run --project tools --frozen python -I scripts/record-qwen-pilot.py \
-  --inputs /tmp/hixtube-pilot-inputs --slug qwen-local-1
+  --inputs /tmp/nib-pilot-inputs --slug qwen-local-1
 ```
 
 Use a new slug for each run. The recorder executes a private committed-source
@@ -60,7 +60,7 @@ The same conformance runner can also run inside a local Linux/amd64 container:
 
 ```sh
 uv run --project tools --frozen python -I scripts/record-qwen-pilot.py \
-  --inputs /tmp/hixtube-pilot-inputs --slug qwen-linux-1 --linux-container
+  --inputs /tmp/nib-pilot-inputs --slug qwen-linux-1 --linux-container
 ```
 
 Docker with BuildKit is required. The recorder permits only a local Unix-socket
@@ -105,11 +105,11 @@ codes, invalid output and this fail-closed classification. The earlier successfu
 Linux runs remain as source-bound historical evidence, not timeout-path proof.
 
 Cloud deployment is a separate operation with an exact project, approved budget,
-expiry, teardown and evidence. Do not substitute `quill-cloud-proxy` when the
-dedicated Hixtube project is unavailable. CPU confidential testing, GPU
+expiry, teardown and evidence. Do not substitute TrustedRouter production when
+the operator's dedicated project is unavailable. CPU confidential testing, GPU
 confidential testing and commercial readiness are distinct milestones.
-See the [isolated-cloud preflight](hixtube-isolated-cloud.md) for the dedicated
-project and dated, explicitly estimated C3/H100 costs.
+See the [operator guide](trustedrouter.md) for the integration boundary and
+[gates](../gates.md) before infrastructure changes.
 
 The persistent service requires the shutdown fix reviewed in
 [trcs PR #6](https://github.com/Lore-Hex/trustedrouter-confidential-stack/pull/6).
