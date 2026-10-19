@@ -3,5 +3,9 @@
   "platform": "linux/amd64",
   "go_image": "docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61",
   "python_image": "docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2",
-  "trcs": null
+  "trcs": {
+    "commit": "c02fd478484f93732ba880d2d8e93aa8c5d90dbe",
+    "archive_sha256": "df3fbc8886f6751ff62f6e028e60799a3c1ea9e59b7e8d63b7319b482fb03a80",
+    "binary_sha256": "e6fe6b412cfb974b35eb6e442141d3ff8ffd4adf0a702917979a1d6ba4267e4f"
+  }
 }

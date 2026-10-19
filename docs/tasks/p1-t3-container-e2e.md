@@ -20,21 +20,33 @@ test fixture, not either production-sized model. It checks PONG, timed flushed
 deltas, usage, optional fields, synthetic 503/Retry-After, privacy canaries and
 weight-gate shutdown. It does not start trcs or verify attestation.
 
-`make test-e2e` is the full integration entry point. It deliberately refuses to
-build while `scripts/e2e/pins.json` has `trcs: null`. The parent owns the final
-merged trcs commit/archive/binary provenance. The full path is implemented but
-not yet exercised: real trcs TLS/CoCo AA transport, fake CPU and GPU evidence,
-fake verifier pass, release verifier rejection, fourteen evidence mutations,
-admission 429 and health failure. CI currently runs only the bounded command;
-switch its step to `make test-e2e` when the final pin is integrated and the full
-path passes locally. The verifier's exact-byte CoCo AA case and file-read
-hardening are integrated by merging parent head `a4ed474`.
+`make test-e2e` is the full integration entry point, now also selected by CI.
+The final dependency is merged trcs main
+`c02fd478484f93732ba880d2d8e93aa8c5d90dbe`, independently checked with GitHub
+and `git fetch origin main`; its history includes upstream PRs 1-5. The source
+archive and linux/amd64 binary hashes are in `scripts/e2e/pins.json`. No
+unmerged candidate revision is used. Full execution covers real trcs TLS/CoCo
+AA transport, fake CPU and GPU evidence, fake verifier pass, release verifier
+rejection, fourteen evidence mutations, admission 429 and health failure.
+The verifier's exact-byte CoCo AA case and file-read hardening are integrated
+by merging parent head `a4ed474`.
+
+Record a clean committed source run with:
+
+```sh
+python3 scripts/e2e/prove.py --output evidence/p1/YYYY-MM-DD-full-fake-node
+```
+
+This wrapper executes `make test-e2e`, preserves the runner's bounded input,
+result and cleanup records, and scrubs operational build output through
+`scripts/scrub-secrets.sh`. It records the exact Git revision and UTC interval;
+the inputs also hash the actual build context. It refuses a dirty worktree.
 
 ## Isolation and pins
 
 - `pins.json` contains registry-resolved immutable Go 1.27.2 and Python 3.12.13
   image digests for linux/amd64. The source archive and actual compiled trcs
-  binary will both be hash-checked. No upstream internal implementation copy.
+  binary are both hash-checked. No upstream internal implementation copy.
 - Provider-check is the actual PyPI 0.1.8 wheel, installed with pinned transitive
   versions and mandatory hashes in `scripts/e2e/requirements.lock`. Go module
   checksums and `-mod=readonly` apply to the operator tools. Guest helpers and

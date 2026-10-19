@@ -22,9 +22,28 @@ def module(name):
 
 runner = module("run")
 exercise = module("exercise")
+proof = module("prove")
 
 
 class E2EPolicyTest(unittest.TestCase):
+    def test_evidence_collection_is_confined(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            artifacts = root / "build/e2e/0123456789ab"
+            artifacts.mkdir(parents=True)
+            for name in ("inputs", "result"):
+                (artifacts / (name + ".json")).write_text('{"result":"pass"}')
+            stdout = ("Software-only test artifacts: " + str(artifacts) + "\n").encode()
+            self.assertEqual(set(proof.collect_results(stdout, root)), {"inputs", "result"})
+            for bad in (b"", b"Software-only test artifacts: /tmp/other\n",
+                        ("Software-only test artifacts: " + str(root / "build/e2e/../outside") + "\n").encode()):
+                with self.assertRaises(ValueError):
+                    proof.collect_results(bad, root)
+            (artifacts / "result.json").unlink()
+            (artifacts / "result.json").symlink_to(artifacts / "inputs.json")
+            with self.assertRaises(ValueError):
+                proof.collect_results(stdout, root)
+
     def test_pins_require_immutable_inputs(self):
         original = runner.load_pins(engine_only=True)
         with tempfile.TemporaryDirectory() as directory:
