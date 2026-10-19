@@ -57,7 +57,7 @@ def main():
             raw_log.append(built.stdout + built.stderr)
             if built.returncode:
                 raise RuntimeError("local build failed")
-        generated = subprocess.run([str(ROOT / "build/nib-catalog"), "--root", str(ROOT)], cwd=ROOT, capture_output=True)
+        generated = subprocess.run([str(ROOT / "build/nib"), "catalog", "--root", str(ROOT)], cwd=ROOT, capture_output=True)
         if generated.returncode:
             raw_log.append(generated.stderr)
             raise RuntimeError("catalog generation failed")
