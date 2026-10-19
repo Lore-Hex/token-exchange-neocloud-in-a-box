@@ -390,14 +390,32 @@ class ImageTests(unittest.TestCase):
                 recorder.cancel(None, None)
             recorder.cancel(None, None)
 
+    def test_offline_environment_pins_toolchain_and_inherits_only_caches(self):
+        control = self.work / "control"
+        ambient = {"GOTOOLCHAIN": "local", "GOENV": "SYNTHETIC_PRIVATE_VALUE",
+                   "GOWORK": "SYNTHETIC_PRIVATE_VALUE", "GOFLAGS": "-overlay=SYNTHETIC_PRIVATE_VALUE",
+                   "GOPROXY": "https://example.invalid", "GOSUMDB": "SYNTHETIC_PRIVATE_VALUE",
+                   "CGO_ENABLED": "1", "GOOS": "SYNTHETIC_PRIVATE_VALUE", "PATH": "SYNTHETIC_PRIVATE_VALUE",
+                   "HTTP_PROXY": "SYNTHETIC_PRIVATE_VALUE", "GOCACHE": str(self.work / "existing-cache"),
+                   "GOMODCACHE": str(self.work / "existing-modules")}
+        with mock.patch.dict(os.environ, ambient, clear=True):
+            env = recorder.offline_environment(control)
+        for key, value in {"GOTOOLCHAIN": "go1.27.2", "GOENV": "off", "GOWORK": "off",
+                           "GOFLAGS": "-mod=readonly", "CGO_ENABLED": "0", "GOPROXY": "off", "GOSUMDB": "off",
+                           "PATH": recorder.checker.tool_env()["PATH"], "HOME": str(control / "home"),
+                           "GOCACHE": ambient["GOCACHE"], "GOMODCACHE": ambient["GOMODCACHE"]}.items():
+            self.assertEqual(env[key], value)
+        self.assertNotIn("GOOS", env)
+        self.assertNotIn("HTTP_PROXY", env)
+        self.assertNotIn("SYNTHETIC_PRIVATE_VALUE", json.dumps(env))
+        with mock.patch.dict(os.environ, {}, clear=True):
+            defaults = recorder.offline_environment(control)
+        self.assertEqual(defaults["GOCACHE"], str(control / "go-cache"))
+        self.assertEqual(defaults["GOMODCACHE"], str(control / "go-mod"))
+
     def test_generated_records_use_authoritative_offline_schema(self):
         revision = recorder.checker.git(ROOT, "rev-parse", "HEAD").decode().strip()
-        env = {**recorder.checker.tool_env(), "PATH": os.environ["PATH"], "HOME": str(self.work),
-               "GOENV": "off", "GOWORK": "off", "GOFLAGS": "-mod=readonly", "GOTOOLCHAIN": "local",
-               "CGO_ENABLED": "0", "GOPROXY": "off", "GOSUMDB": "off"}
-        for key in ("GOCACHE", "GOMODCACHE"):
-            if key in os.environ:
-                env[key] = os.environ[key]
+        env = recorder.offline_environment(self.work / "control")
         binary, source_hash = recorder.build_validator(ROOT, revision, self.work, env)
         self.assertRegex(source_hash, r"^[0-9a-f]{64}$")
         for result in ("pass", "fail"):
@@ -414,6 +432,65 @@ class ImageTests(unittest.TestCase):
         with self.assertRaises(subprocess.CalledProcessError):
             recorder.publish_evidence(record, report, binary, rejected, rejected / "published", env)
         self.assertFalse((rejected / "published").exists())
+
+    def test_validator_toolchain_resolution_is_cache_only_and_exact(self):
+        env = recorder.offline_environment(self.work / "control")
+        info = {"GOVERSION": "go1.24.2", "GOHOSTOS": "darwin", "GOHOSTARCH": "arm64",
+                "GOMODCACHE": str(self.work / "modules"), "GOCACHE": str(self.work / "compile-cache")}
+        binary = str(self.work / "modules/golang.org/toolchain@v0.0.1-go1.27.2.darwin-arm64/bin/go")
+        selection = mock.patch.object(recorder.shutil, "which", return_value="/host/toolchain/bin/go")
+        selection.start()
+        self.addCleanup(selection.stop)
+        with mock.patch.object(recorder, "call", side_effect=[overlay.json_bytes(info), b"go version go1.27.2 darwin/arm64\n"]) as calls:
+            selected, qualified = recorder.validator_toolchain(env)
+            self.assertEqual(selected, binary)
+            self.assertEqual(qualified["GOMODCACHE"], info["GOMODCACHE"])
+            self.assertEqual(qualified["GOCACHE"], info["GOCACHE"])
+            self.assertEqual(qualified["GOTOOLCHAIN"], "go1.27.2")
+        self.assertEqual(calls.call_args_list[0].args[0][0], "/host/toolchain/bin/go")
+        self.assertEqual(calls.call_args_list[1].args[0], [binary, "version"])
+        for invocation in calls.call_args_list:
+            local = invocation.args[1]
+            self.assertEqual(local["GOTOOLCHAIN"], "local")
+            self.assertEqual(local["GOPROXY"], "off")
+            self.assertEqual(local["GOSUMDB"], "off")
+        self.assertEqual(env["GOTOOLCHAIN"], "go1.27.2")
+        with mock.patch.object(recorder, "call", side_effect=[overlay.json_bytes(info), b"go version go1.24.2 darwin/arm64\n"]):
+            with self.assertRaises(ValueError):
+                recorder.validator_toolchain(env)
+        with mock.patch.object(recorder, "call", side_effect=[overlay.json_bytes(info), FileNotFoundError()]):
+            with self.assertRaises(FileNotFoundError):
+                recorder.validator_toolchain(env)
+        info["GOVERSION"] = "go1.27.2"
+        with mock.patch.object(recorder, "call", return_value=overlay.json_bytes(info)) as calls:
+            self.assertEqual(recorder.validator_toolchain(env)[0], "/host/toolchain/bin/go")
+            self.assertEqual(calls.call_count, 1)
+
+    def test_hosted_go_outside_fixed_path_discovers_default_caches(self):
+        hosted = self.work / "hosted-toolchain/bin"
+        hosted.mkdir(parents=True)
+        binary = hosted / "go"
+        info = {"GOVERSION": "go1.27.2", "GOHOSTOS": "linux", "GOHOSTARCH": "amd64",
+                "GOMODCACHE": str(self.work / "existing-modules"), "GOCACHE": str(self.work / "existing-cache")}
+        # Execute a real filesystem fixture, not the engine or a fake validator.
+        # Only discovery is synthetic; the authoritative schema test builds Go.
+        binary.write_text("#!/bin/sh\nset -eu\n"
+            'test "$GOTOOLCHAIN" = local\ntest "$GOENV" = off\ntest "$GOWORK" = off\n'
+            'test "$GOPROXY" = off\ntest "$GOSUMDB" = off\n'
+            'test -z "${GOPATH+x}${GOMODCACHE+x}${GOCACHE+x}"\n'
+            'test "$1" = env\ntest "$2" = -json\n'
+            "printf '%s\\n' '" + json.dumps(info) + "'\n")
+        binary.chmod(0o700)
+        with mock.patch.dict(os.environ, {"PATH": str(hosted), "GOENV": "SYNTHETIC_PRIVATE_VALUE",
+                                          "GOPATH": "SYNTHETIC_PRIVATE_VALUE"}, clear=True):
+            env = recorder.offline_environment(self.work / "control")
+            self.assertNotIn(str(hosted), env["PATH"])
+            selected, qualified = recorder.validator_toolchain(env)
+        self.assertEqual(selected, str(binary))
+        self.assertEqual(qualified["GOMODCACHE"], info["GOMODCACHE"])
+        self.assertEqual(qualified["GOCACHE"], info["GOCACHE"])
+        self.assertEqual(qualified["HOME"], env["HOME"])
+        self.assertEqual(qualified["GOTOOLCHAIN"], "go1.27.2")
 
 
 if __name__ == "__main__":

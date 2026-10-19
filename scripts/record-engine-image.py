@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import pwd
 import re
+import shutil
 import signal
 import stat
 import subprocess
@@ -28,6 +29,7 @@ DIAGNOSTIC = "scripts/engine_image_diagnostic.py"
 SNAPSHOT = "scripts/e2e/snapshot.py"
 TEST = "scripts/test_engine_image.py"
 MAX_REPORT = 2 << 20
+GO_TOOLCHAIN = "go1.27.2"
 PREPARER_SHA = "b8800e6dd2e09c71d910ac37f740b35ffe5cb3e03fa23ba918e27e0642d08290"
 SNAPSHOT_SHA = "b7f5753ecacde3cda2bf5fdc673b6f2af239875f2a9468e34a5219a797b78b3a"
 DIAGNOSTIC_SHA = "a3fe02f943e4875155fce943a0b3c4011734826fd0dbe2fda3412146374aefc0"
@@ -276,7 +278,48 @@ def run_container(payload, contract, config, env, execute=snapshot.execute_proce
     return report
 
 
+def offline_environment(control):
+    env = snapshot.controlled_env(control)
+    env.update(checker.tool_env(), GOPROXY="off", GOSUMDB="off", GOTOOLCHAIN=GO_TOOLCHAIN)
+    env["HOME"] = str(control / "home")
+    for key in ("GOCACHE", "GOMODCACHE"):
+        if key in os.environ:
+            env[key] = os.environ[key]
+    return env
+
+
+def validator_toolchain(env):
+    # The older bootstrap's updater re-verifies even cached toolchains via
+    # GOSUMDB. Query local metadata only, then invoke the pinned cache directly.
+    selected = shutil.which("go", path=os.environ.get("PATH", os.defpath))
+    overlay.require(selected is not None and Path(selected).is_absolute())
+    local = {**env, "GOTOOLCHAIN": "local", "HOME": pwd.getpwuid(os.getuid()).pw_dir}
+    # Discover normal host caches when no cache was explicitly supplied. Do not
+    # let the private GOPATH/HOME accidentally select empty temporary caches.
+    local.pop("GOPATH", None)
+    for key in ("GOCACHE", "GOMODCACHE"):
+        if key not in os.environ:
+            local.pop(key, None)
+    info = overlay.load_json(call([selected, "env", "-json", "GOVERSION", "GOHOSTOS", "GOHOSTARCH", "GOMODCACHE", "GOCACHE"],
+                                  local, timeout=10, limit=4096))
+    qualified = dict(env)
+    for key in ("GOCACHE", "GOMODCACHE"):
+        cache = Path(info[key])
+        overlay.require(cache.is_absolute() and ".." not in cache.parts)
+        qualified[key] = str(cache)
+    if info["GOVERSION"] == GO_TOOLCHAIN:
+        return selected, qualified
+    overlay.require(all(re.fullmatch(r"[a-z0-9]{1,16}", info[key]) for key in ("GOHOSTOS", "GOHOSTARCH")))
+    # Go cmd/go/internal/toolchain/select.go's public toolchain module layout.
+    module = "golang.org/toolchain@v0.0.1-" + GO_TOOLCHAIN + "." + info["GOHOSTOS"] + "-" + info["GOHOSTARCH"]
+    binary = str(Path(qualified["GOMODCACHE"]) / module / "bin/go")
+    version = call([binary, "version"], local, timeout=10, limit=4096)
+    overlay.require(version == ("go version " + GO_TOOLCHAIN + " " + info["GOHOSTOS"] + "/" + info["GOHOSTARCH"] + "\n").encode())
+    return binary, qualified
+
+
 def build_validator(root, revision, work, env):
+    go, env = validator_toolchain(env)
     source = work / "validator-source"
     source.mkdir()
     entries = checker.git(root, "ls-tree", "-r", "-z", revision, "--", "go.mod", "go.sum", "cmd/nib", "internal", "schemas")
@@ -297,7 +340,7 @@ def build_validator(root, revision, work, env):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
     binary = work / "nib"
-    call(["go", "build", "-trimpath", "-buildvcs=false", "-o", str(binary), "./cmd/nib"], env,
+    call([go, "build", "-trimpath", "-buildvcs=false", "-o", str(binary), "./cmd/nib"], env,
          execute=lambda args, **kw: snapshot.execute_process_group(args, cwd=source, **kw), timeout=180)
     return binary, overlay.bundle_digest(files)
 
@@ -340,12 +383,7 @@ def main():
     overlay.require(not os.path.lexists(destination))
     with tempfile.TemporaryDirectory(prefix="nib-image-diagnostic-", dir="/private/tmp" if sys.platform == "darwin" else None) as temporary:
         work = Path(temporary).resolve()
-        env = snapshot.controlled_env(work / "control")
-        env.update(checker.tool_env(), GOPROXY="off", GOSUMDB="off", GOTOOLCHAIN="go1.27.2")
-        env["HOME"] = str(work / "control/home")
-        for key in ("GOCACHE", "GOMODCACHE"):
-            if key in os.environ:
-                env[key] = os.environ[key]
+        env = offline_environment(work / "control")
         # Cache-only authoritative validator, built from the same committed source.
         nib, validator_sha = build_validator(ROOT, revision, work, env)
         report = {"result": "fail", "stage": "raw-oci-metadata", "cleanup": "not-created",

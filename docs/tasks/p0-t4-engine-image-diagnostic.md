@@ -56,8 +56,19 @@ memory; no stage is applied to the image. Shared helper changes are hash-bound.
 An offline, cache-only build of the same commit's `nib` validates evidence using
 the existing schema. A missing Go toolchain/module cache or schema rejection
 prevents publication; it does not trigger downloads or image execution.
-`GOCACHE` and `GOMODCACHE` may select existing caches; other ambient Go/Docker/Git
-settings, proxy variables and credentials are not forwarded to tool children.
+Production and the schema regression use the same sealed environment, with
+`GOTOOLCHAIN=go1.27.2`, `GOPROXY=off` and `GOSUMDB=off`. An older host bootstrap
+is queried in local-only mode to locate the already-cached pinned toolchain;
+the recorder checks its reported version and invokes it directly, avoiding the
+bootstrap's checksum-database-dependent updater. Missing or mismatched cached
+toolchains fail closed. Compiler binaries and local caches remain trusted host
+inputs, not attested artifacts.
+Go is resolved once from the host's `PATH` to an absolute executable, including
+CI's setup-go installation outside the fixed Git/Docker tool path. Sanitized
+`go env` with `GOENV=off` and the account's real home discovers default cache
+locations; explicit `GOCACHE` and `GOMODCACHE` take precedence. Only already
+cached tools/modules can be used. Other ambient Go/Docker/Git settings, proxy
+variables and credentials are not forwarded to tool children.
 Only local Docker endpoint discovery reads the user's selected context.
 
 The container is created stopped and inspected before start. It uses `runc`,
