@@ -44,13 +44,16 @@ This task does not create service keys, public certificates, prices or DNS.
 3. Save that same ID to a new private staging directory. Validate the outer tar
    without extracting it: one untagged Linux/amd64 image, expected nonroot user,
    config digest, ordered uncompressed layer DiffIDs and any OCI index bindings.
+   BuildKit's non-runnable provenance descriptors must refer to that sole image;
+   their config, payload and subject hashes are checked without rewriting the
+   archive or stripping metadata. This is not signature/attestation verification.
 4. Load those verified bytes back into the **same local daemon**, inspect the
    exact image ID/platform and recheck the archive. This is not a clean-host or
    cross-Docker-version portability test. No runtime is started by `image load`.
 5. Remove the proof container and build tag using the existing cleanup path.
    A bounded pre-build ID inventory distinguishes pre-existing shared images.
-   A successful post-cleanup inventory must show the tested ID and archive config
-   ID absent, or already present before the build. Unexpected retained IDs or an
+   A successful post-cleanup inventory must show the tested ID, config ID and
+   OCI manifest IDs absent, or already present before the build. Unexpected retained IDs or an
    unreadable inventory block publication; the exporter never deletes by ID.
    An interrupted load has unknown daemon completion and blocks publication,
    even if the tag currently appears absent.
@@ -132,6 +135,8 @@ remains gated and needs that audit; this task exports privately only.
 - [containerd importer](https://github.com/containerd/containerd/blob/main/core/images/archive/importer.go):
   OCI layout preference and Docker manifest handling. Both entry points must
   describe the same single image.
+- Docker's [BuildKit attestation storage](https://docs.docker.com/build/metadata/attestations/attestation-storage/):
+  unknown/unknown metadata descriptors, target manifest bindings and in-toto payloads.
 - [Linux rename](https://man7.org/linux/man-pages/man2/rename.2.html):
   `renameat2(RENAME_NOREPLACE)`. macOS uses local `renameatx_np(2)` with
   `RENAME_EXCL` from the SDK's `sys/stdio.h`; there is no replacing-rename fallback.

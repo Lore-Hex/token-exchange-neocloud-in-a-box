@@ -92,6 +92,43 @@ def inspect_archive(stream, identity):
             with archive.extractfile(members[name]) as data:
                 return json.load(data)
 
+        def descriptor_json(descriptor):
+            require(re.fullmatch(r"sha256:[0-9a-f]{64}", descriptor["digest"]), "OCI digest")
+            annotations = descriptor.get("annotations", {})
+            require(not any(key in annotations for key in (
+                "org.opencontainers.image.ref.name", "io.containerd.image.name")), "OCI tags forbidden")
+            name = "blobs/sha256/" + descriptor["digest"][7:]
+            value = read_json(name)
+            require(descriptor["size"] == members[name].size, "OCI descriptor size")
+            return value
+
+        def attestation(descriptor, target):
+            # https://docs.docker.com/build/metadata/attestations/attestation-storage/
+            # Preserve BuildKit metadata, never accept another runnable platform.
+            require(descriptor["platform"] == {"architecture": "unknown", "os": "unknown"}
+                    and descriptor["annotations"]["vnd.docker.reference.digest"] == target["digest"],
+                    "OCI attestation target/platform")
+            value = descriptor_json(descriptor)
+            require("manifests" not in value, "OCI attestation cannot be an index")
+            config = descriptor_json(value["config"])
+            if "artifactType" in value:
+                require(value["artifactType"] == "application/vnd.docker.attestation.manifest.v1+json"
+                        and value["subject"]["digest"] == target["digest"]
+                        and value["subject"]["size"] == target["size"]
+                        and value["config"]["mediaType"] == "application/vnd.oci.empty.v1+json"
+                        and config == {}, "OCI artifact attestation")
+            else:
+                require(config.get("os") == config.get("architecture") == "unknown"
+                        and config.get("rootfs") == {"type": "layers", "diff_ids": []},
+                        "OCI attestation must not be runnable")
+            require(0 < len(value["layers"]) <= 16, "OCI attestation layers")
+            for layer in value["layers"]:
+                require(layer["mediaType"] == "application/vnd.in-toto+json", "OCI attestation media type")
+                statement = descriptor_json(layer)
+                require(len(statement["subject"]) == 1
+                        and statement["subject"][0]["digest"] == {"sha256": target["digest"][7:]},
+                        "OCI attestation subject")
+
         manifest = read_json("manifest.json")
         require(isinstance(manifest, list) and len(manifest) == 1, "export must contain one image")
         row = manifest[0]
@@ -99,6 +136,7 @@ def inspect_archive(stream, identity):
         config = read_json(row["Config"])
         config_id = "sha256:" + hashes[row["Config"]]["sha256"]
         identities = {config_id}
+        load_ids = {config_id, identity}
         if "repositories" in members:
             require(not read_json("repositories"), "export repository tags forbidden")
         require(config["os"] == "linux" and config["architecture"] == "amd64", "export platform mismatch")
@@ -125,19 +163,23 @@ def inspect_archive(stream, identity):
         if "index.json" in members:
             require(read_json("oci-layout") == {"imageLayoutVersion": "1.0.0"}, "OCI layout version")
             index = read_json("index.json")
-            for _ in range(3):
+            for depth in range(3):
                 descriptors = index["manifests"]
-                require(len(descriptors) == 1, "OCI index must contain one image")
-                descriptor = descriptors[0]
-                require(re.fullmatch(r"sha256:[0-9a-f]{64}", descriptor["digest"]), "OCI digest")
-                annotations = descriptor.get("annotations", {})
-                require(not any(key in annotations for key in (
-                    "org.opencontainers.image.ref.name", "io.containerd.image.name")), "OCI tags forbidden")
-                if _ == 0:
+                require(0 < len(descriptors) <= 16, "OCI index size")
+                metadata = [entry for entry in descriptors if entry.get("annotations", {}).get(
+                    "vnd.docker.reference.type") == "attestation-manifest"]
+                runnable = [entry for entry in descriptors if entry not in metadata]
+                require(len(runnable) == 1, "OCI index must contain one runnable image")
+                descriptor = runnable[0]
+                if depth == 0:
+                    require(not metadata, "outer OCI archive index must have one root")
                     identities.add(descriptor["digest"])
-                name = "blobs/sha256/" + descriptor["digest"][7:]
-                index = read_json(name)
-                require(descriptor["size"] == members[name].size, "OCI descriptor size")
+                index = descriptor_json(descriptor)
+                load_ids.add(descriptor["digest"])
+                require(not metadata or "manifests" not in index, "nested attestation target")
+                for entry in metadata:
+                    attestation(entry, descriptor)
+                    load_ids.add(entry["digest"])
                 if "manifests" not in index:
                     break
             require(index["config"]["digest"] == config_id, "OCI config mismatch")
@@ -148,7 +190,7 @@ def inspect_archive(stream, identity):
         require(identity in identities, "export image identity mismatch")
     stream.seek(0)
     return {**result, "image_id": identity, "config_id": config_id,
-            "platform": "linux/amd64", "layers": len(layers)}
+            "platform": "linux/amd64", "layers": len(layers), "load_ids": sorted(load_ids)}
 
 
 def open_parent(destination):

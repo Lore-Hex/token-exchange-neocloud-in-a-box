@@ -61,7 +61,61 @@ def fixture(*, oci=False, compressed=False, user="65532:65532", platform="amd64"
     return files, identity
 
 
+def attested_fixture(*, artifact=False, mutation=None):
+    files, target_id = fixture(oci=True)
+    target = json.loads(files["index.json"])["manifests"][0]
+
+    def blob(value, media):
+        data = encoded(value)
+        files["blobs/sha256/" + sha(data)] = data
+        return {"digest": "sha256:" + sha(data), "size": len(data), "mediaType": media}
+
+    config = {} if artifact else {"os": "unknown", "architecture": "unknown",
+                                 "rootfs": {"type": "layers", "diff_ids": []}}
+    if mutation == "runnable":
+        config = {"os": "linux", "architecture": "amd64", "rootfs": {"type": "layers", "diff_ids": []}}
+    statement = {"_type": "https://in-toto.io/Statement/v1", "predicateType": "fixture", "predicate": {},
+                 "subject": [{"name": "fixture", "digest": {"sha256": target_id[7:]}}]}
+    if mutation == "subject":
+        statement["subject"][0]["digest"]["sha256"] = "0" * 64
+    metadata = {"schemaVersion": 2,
+                "config": blob(config, "application/vnd.oci.empty.v1+json" if artifact else "application/vnd.oci.image.config.v1+json"),
+                "layers": [blob(statement, "application/vnd.in-toto+json")]}
+    if artifact:
+        metadata.update(artifactType="application/vnd.docker.attestation.manifest.v1+json", subject=target)
+    descriptor = blob(metadata, "application/vnd.oci.image.manifest.v1+json")
+    descriptor["platform"] = {"os": "unknown", "architecture": "unknown"}
+    descriptor["annotations"] = {"vnd.docker.reference.type": "attestation-manifest",
+                                 "vnd.docker.reference.digest": target_id}
+    if mutation == "target":
+        descriptor["annotations"]["vnd.docker.reference.digest"] = "sha256:" + "0" * 64
+    elif mutation == "platform":
+        descriptor["platform"]["os"] = "linux"
+    elif mutation == "tag":
+        descriptor["annotations"]["io.containerd.image.name"] = "unrelated:tag"
+    index = {"schemaVersion": 2, "manifests": [target, descriptor]}
+    if mutation == "extra-image":
+        index["manifests"].append(target)
+    root = blob(index, "application/vnd.oci.image.index.v1+json")
+    files["index.json"] = encoded({"schemaVersion": 2, "manifests": [root]})
+    return files, root["digest"]
+
+
 class ArchiveTests(unittest.TestCase):
+    def test_buildkit_metadata_preserves_same_image_id(self):
+        for artifact in (False, True):
+            files, identity = attested_fixture(artifact=artifact)
+            result = export.validate_archive(io.BytesIO(packed(files)), identity)
+            self.assertEqual(result["image_id"], identity)
+            self.assertEqual(len(result["load_ids"]), 4)
+
+    def test_buildkit_metadata_cannot_smuggle_images_tags_or_another_subject(self):
+        for artifact in (False, True):
+            for mutation in ("runnable", "target", "subject", "platform", "tag", "extra-image"):
+                files, identity = attested_fixture(artifact=artifact, mutation=mutation)
+                with self.subTest(artifact=artifact, mutation=mutation), self.assertRaises(ValueError):
+                    export.validate_archive(io.BytesIO(packed(files)), identity)
+
     def test_classic_and_oci_bind_exact_identity_and_layers(self):
         for oci in (False, True):
             for compressed in (False, True):

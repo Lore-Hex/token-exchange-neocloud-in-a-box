@@ -155,7 +155,7 @@ def run(inputs, summary, env, home, *, export=None):
                 remaining = image_ids(env)
                 candidates = {identity}
                 if isinstance(export.archive, dict):
-                    candidates.add(export.archive["config_id"])
+                    candidates.update(export.archive["load_ids"])
                 check["identities"] = {value: {
                     "preexisting": value in preexisting,
                     "presence": "present" if value in remaining else "absent"
