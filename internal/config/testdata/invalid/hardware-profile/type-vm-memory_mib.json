@@ -1,0 +1,38 @@
+{
+  "schema": "nib.hardware-profile/v1",
+  "id": "b200x2-tdx",
+  "gpu": {
+    "model": "B200",
+    "count": 2
+  },
+  "cc_mode": "blackwell-mgpu-cc",
+  "cpu": {
+    "architecture": "x86_64",
+    "generation": "synthetic-test-fixture"
+  },
+  "vm": {
+    "vcpus": 2,
+    "memory_mib": "wrong-type"
+  },
+  "qemu": {
+    "version": "1.2.3",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "args": [
+      "-fixture-only"
+    ]
+  },
+  "ovmf": {
+    "revision": "1111111111111111111111111111111111111111",
+    "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "pci_devices": [
+    {
+      "address": "0000:01:00.0",
+      "kind": "gpu"
+    },
+    {
+      "address": "0000:02:00.0",
+      "kind": "gpu"
+    }
+  ]
+}

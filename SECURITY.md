@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Use GitHub's **[private vulnerability reporting](../../security/advisories/new)**
+Use GitHub's **[private vulnerability reporting](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/security/advisories/new)**
 for this repository. Reports stay visible only to maintainers while they are
 investigated, and the same thread carries the fix and any advisory.
 
@@ -25,8 +25,8 @@ There is no bug bounty programme.
 
 ## Scope
 
-[docs/threat-model.md](docs/threat-model.md) defines what this project claims
-and what it does not. Two limits are stated there and are not vulnerabilities
+[PLAN.md](PLAN.md) defines the intended security boundaries; the expanded
+`docs/threat-model.md` is scheduled for P0.T2. Two limits in the plan are not vulnerabilities
 in themselves: hardware attestation does not protect against an operator with
 physical access to the machine, and a node is only as trustworthy as the
 measurements its relying party chooses to accept.

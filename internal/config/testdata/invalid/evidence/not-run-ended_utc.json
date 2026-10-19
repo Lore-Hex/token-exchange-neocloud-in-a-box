@@ -1,0 +1,14 @@
+{
+  "schema": "nib.evidence/v1",
+  "phase": "P1",
+  "task": null,
+  "git_sha": "1111111111111111111111111111111111111111",
+  "command": "NOT RECORDED: no command has been executed.",
+  "started_utc": null,
+  "ended_utc": "2026-10-18T00:00:01Z",
+  "host": null,
+  "result": "not_run",
+  "execution": "not_run",
+  "hardware_validated": false,
+  "notes": "Scaffold only; no command executed or hardware validated."
+}

@@ -1,0 +1,29 @@
+{
+  "schema": "nib.model-pack/v1",
+  "id": "fixture@latest",
+  "hf_repo": "fixture-owner/fixture-model",
+  "hf_revision": "1111111111111111111111111111111111111111",
+  "license": "Apache-2.0",
+  "served_model_name": "fixture-model",
+  "tr_model_id": "fixture/fixture-model",
+  "files": "files.sha256",
+  "total_bytes": 3,
+  "weights_volume": {
+    "format": "erofs",
+    "verity_root_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "engine_profiles": {
+    "b200x2-tdx": {
+      "engine": "vllm",
+      "image": "example.invalid/fixture-engine@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "args": [
+        "--fixture-only"
+      ],
+      "env": {
+        "FIXTURE_ONLY": "1"
+      },
+      "max_model_len": 8,
+      "replicas": 1
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.neocloud.invalid/nib/hardware-profile.schema.json",
+  "$comment": "SPDX-License-Identifier: Apache-2.0. Configuration requirements, not a claim of hardware validation.",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "id", "gpu", "cc_mode", "cpu", "vm", "qemu", "ovmf", "pci_devices"],
+  "properties": {
+    "schema": {"const": "nib.hardware-profile/v1"},
+    "id": {"$ref": "common.schema.json#/$defs/name"},
+    "gpu": {
+      "type": "object", "additionalProperties": false, "required": ["model", "count"],
+      "properties": {"model": {"enum": ["H100", "H200", "B200", "B300"]}, "count": {"type": "integer", "minimum": 1, "maximum": 8}}
+    },
+    "cc_mode": {"enum": ["blackwell-mgpu-cc", "hopper-ppcie", "single-gpu-cc", "none"]},
+    "cpu": {
+      "type": "object", "additionalProperties": false, "required": ["architecture", "generation"],
+      "properties": {"architecture": {"const": "x86_64"}, "generation": {"$ref": "common.schema.json#/$defs/text"}}
+    },
+    "vm": {
+      "type": "object", "additionalProperties": false, "required": ["vcpus", "memory_mib"],
+      "properties": {"vcpus": {"$ref": "common.schema.json#/$defs/positive"}, "memory_mib": {"$ref": "common.schema.json#/$defs/positive"}}
+    },
+    "qemu": {
+      "type": "object", "additionalProperties": false, "required": ["version", "sha256", "args"],
+      "properties": {
+        "version": {"$ref": "common.schema.json#/$defs/version"},
+        "sha256": {"$ref": "common.schema.json#/$defs/sha256"},
+        "args": {"$ref": "common.schema.json#/$defs/args", "minItems": 1}
+      }
+    },
+    "ovmf": {
+      "type": "object", "additionalProperties": false, "required": ["revision", "sha256"],
+      "properties": {"revision": {"$ref": "common.schema.json#/$defs/revision"}, "sha256": {"$ref": "common.schema.json#/$defs/sha256"}}
+    },
+    "pci_devices": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["address", "kind"],
+        "properties": {
+          "address": {"type": "string", "pattern": "^[0-9a-f]{4}:[0-9a-f]{2}:[01][0-9a-f][.][0-7]$"},
+          "kind": {"enum": ["gpu", "nvswitch"]}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {"if": {"properties": {"cc_mode": {"const": "blackwell-mgpu-cc"}}}, "then": {"properties": {"gpu": {"properties": {"model": {"enum": ["B200", "B300"]}, "count": {"minimum": 2}}}}}},
+    {"if": {"properties": {"cc_mode": {"const": "hopper-ppcie"}}}, "then": {"properties": {"gpu": {"properties": {"model": {"enum": ["H100", "H200"]}, "count": {"minimum": 2}}}}}},
+    {"if": {"properties": {"cc_mode": {"const": "single-gpu-cc"}}}, "then": {"properties": {"gpu": {"properties": {"count": {"const": 1}}}}}}
+  ]
+}
