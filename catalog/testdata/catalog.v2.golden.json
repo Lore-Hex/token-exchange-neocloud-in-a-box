@@ -1,0 +1,114 @@
+{
+  "contract_version": "2.0",
+  "data": [
+    {
+      "capabilities": {
+        "prompt_caching": false,
+        "reasoning": false,
+        "streaming": false,
+        "structured_output": false,
+        "tools": false
+      },
+      "context_length": 1048576,
+      "endpoints": [
+        "chat/completions"
+      ],
+      "id": "deepseek/deepseek-v4.1-flash-1017",
+      "input_modalities": [
+        "text"
+      ],
+      "lifecycle": {
+        "deprecation_at": null,
+        "replacement_model_id": null,
+        "retirement_at": null,
+        "status": "active"
+      },
+      "max_output_tokens": 16,
+      "name": "SYNTHETIC LOCAL TEST ONLY - deepseek-v4.1-flash-1017@1",
+      "object": "model",
+      "output_modalities": [
+        "text"
+      ],
+      "owned_by": "deepseek",
+      "pricing": {
+        "cache_write": null,
+        "cached_input": null,
+        "currency": "USD",
+        "input": "0.000001",
+        "minimum_request": "0",
+        "output": "0.000002",
+        "unit": "per_1m_tokens"
+      },
+      "reliability": {
+        "capacity_scope": "model",
+        "completion_timeout_seconds": 60,
+        "first_token_timeout_seconds": 30,
+        "stream_idle_timeout_seconds": 30
+      },
+      "type": "chat"
+    },
+    {
+      "capabilities": {
+        "prompt_caching": false,
+        "reasoning": false,
+        "streaming": false,
+        "structured_output": false,
+        "tools": false
+      },
+      "context_length": 1048576,
+      "endpoints": [
+        "chat/completions"
+      ],
+      "id": "z-ai/glm-5.3",
+      "input_modalities": [
+        "text"
+      ],
+      "lifecycle": {
+        "deprecation_at": null,
+        "replacement_model_id": null,
+        "retirement_at": null,
+        "status": "active"
+      },
+      "max_output_tokens": 16,
+      "name": "SYNTHETIC LOCAL TEST ONLY - glm-5.3@1",
+      "object": "model",
+      "output_modalities": [
+        "text"
+      ],
+      "owned_by": "z-ai",
+      "pricing": {
+        "cache_write": null,
+        "cached_input": null,
+        "currency": "USD",
+        "input": "0.000003",
+        "minimum_request": "0",
+        "output": "0.000004",
+        "unit": "per_1m_tokens"
+      },
+      "reliability": {
+        "capacity_scope": "model",
+        "completion_timeout_seconds": 60,
+        "first_token_timeout_seconds": 30,
+        "stream_idle_timeout_seconds": 30
+      },
+      "type": "chat"
+    }
+  ],
+  "object": "list",
+  "provider": {
+    "error_contract": {
+      "account_quota_error_codes": [],
+      "overload_status": 503,
+      "rate_limit_status": 429,
+      "retry_after_header": "Retry-After"
+    },
+    "id": "nib-synthetic-local-test",
+    "incident_contact": "mailto:synthetic-only@nib.invalid",
+    "regions": [
+      "local-test-only"
+    ],
+    "request_id_header": "X-Request-Id",
+    "status_url": "https://nib.invalid/synthetic-only",
+    "support_contact": "mailto:synthetic-only@nib.invalid"
+  }
+}

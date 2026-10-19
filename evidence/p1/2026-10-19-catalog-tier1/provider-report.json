@@ -1,0 +1,80 @@
+{
+  "checks": [
+    {
+      "assertion": "GET /models advertises at least one unique, non-empty native model id",
+      "contract_ref": "enclave-go/internal/llm/byok.go (upstreamID is passed through)",
+      "failure_class": "success",
+      "id": "catalog.native-model-discovery",
+      "marketplace_bullet": "Native /v1/models ids are discoverable and are not forced into owner/model syntax.",
+      "measured": {
+        "error": null,
+        "http_status": 200,
+        "model_count": 2,
+        "model_ids": [
+          "deepseek-v4.1-flash-1017",
+          "glm-5.3"
+        ],
+        "reason": null,
+        "unreadable_row_count": 0
+      },
+      "owner": "none",
+      "remediation": "Return HTTP 200 JSON shaped as {\"object\":\"list\",\"data\":[{\"id\":...}]}; include every chat-served native id exactly once. Do not rename engine-native ids merely to satisfy the marketplace catalog regex.",
+      "status": "pass",
+      "tier": 1
+    },
+    {
+      "assertion": "declared marketplace catalog conforms to the published v2 schema and vendored id/decimal/field rules",
+      "contract_ref": "https://trustedrouter.com/providers/marketplace/catalog.v2.schema.json; scripts/pricing/provider_contract_catalog.py; enclave-go/internal/llm/byok.go",
+      "failure_class": "success",
+      "id": "catalog.declared-v2",
+      "marketplace_bullet": "Provider Reliability Contract v2 catalog is machine-valid.",
+      "measured": {
+        "declared_model_count": 2,
+        "error": null,
+        "reason": null,
+        "schema_source": "vendored-offline-fallback"
+      },
+      "owner": "none",
+      "remediation": "Validate the public declaration against catalog.v2.schema.json, emit every required field and no extras, use canonical owner/model ids only in this declaration, and encode every price as a non-negative decimal string. Keep /v1/models native ids unchanged.",
+      "status": "pass",
+      "tier": 1
+    }
+  ],
+  "contract_version": "973e380e5ab7e6303576dd7555c186244649befdc2da5c64017611abe9918769",
+  "generated_at": "2026-10-19T02:36:26.105830+00:00",
+  "performance": {
+    "advisory": true,
+    "reason": "Tier 6 was not requested",
+    "status": "not_run"
+  },
+  "report_version": "1.0",
+  "submission": {
+    "canonicalization": "JCS/RFC8785",
+    "nonce": null,
+    "signature": null,
+    "signing_key_id": null
+  },
+  "suite_version": "0.1.8",
+  "summary": {
+    "conformance_gate": true,
+    "failed": 0,
+    "passed": 2,
+    "provider_owned_failures": 0,
+    "skipped": 0,
+    "warned": 0
+  },
+  "target": {
+    "authentication": {
+      "authorization_header_sent": false,
+      "mode": "none",
+      "note": "none; no Authorization header was sent"
+    },
+    "base_url": "http://127.0.0.1:51960/v1",
+    "catalog_url": "http://127.0.0.1:51960/catalog.v2.json",
+    "max_sweep_models": 25,
+    "model": "deepseek-v4.1-flash-1017",
+    "perf_samples": 3,
+    "provider": "nib-synthetic-local-test",
+    "requested_tier": 1
+  }
+}

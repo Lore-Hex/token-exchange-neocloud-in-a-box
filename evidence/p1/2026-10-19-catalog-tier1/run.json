@@ -1,0 +1,20 @@
+{
+  "command": "uv run --project catalog/checker --frozen python catalog/checker/prove.py --output evidence/p1/2026-10-19-catalog-tier1",
+  "ended_utc": "2026-10-19T02:36:26.723878Z",
+  "execution": "fake",
+  "git_sha": "105532b359877f9ee44ce6ca18faada06574efd3",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none used",
+    "machine": "Darwin 24.6.0 arm64",
+    "provider": "local"
+  },
+  "notes": "Synthetic catalog and native discovery only. No model is served. No inference, paid traffic, publication, attestation or hardware validation. Child socket audit guard permits loopback only; public schema lookup uses checker offline fallback. Positive and rejecting-catalog control must both pass their assertions.",
+  "phase": "P1",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-19T02:36:24.838047Z",
+  "task": "T5"
+}
