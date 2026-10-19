@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: Apache-2.0
+# DRAFT, NOT DEPLOYABLE: no built weight volume, serving or hardware validation.
+# Source keys below resolve to immutable URLs in ../../SOURCES.md.
+schema: nib.model-pack/v1
+id: glm-5.3@1
+hf_repo: zai-org/GLM-5.3
+hf_revision: ba32f8c19c8738e2c57c71798c601d477a7bf844
+license: GLM-5.3 License
+served_model_name: glm-5.3
+tr_model_id: z-ai/glm-5.3
+files: files.sha256
+total_bytes: 755663689302
+weights_volume:
+  format: erofs
+  verity_root_hash: ""
+engine_profiles:
+  b200x8-gcp-plain:
+    engine: vllm
+    # Source T: upstream base 0.31.0; G: >=0.29.0. Registry checked by packcheck.
+    image: vllm/vllm-openai@sha256:a4a4c0437bf7240089da5f08aa370c4aee17ae5290f7a3b468825ee26c4c3a6b
+    args:
+      # Source A: EngineArgs.add_cli_args model; operator mounts verified files at /model.
+      - --model
+      - /model
+      # Source F: FrontendArgs host/port; loopback contract is PLAN section 5.
+      - --host
+      - 127.0.0.1
+      - --port
+      - "8000"
+      # Source G: guide / FP8 on 8xB200, native served name, TP8 and FP8 KV.
+      - --served-model-name
+      - glm-5.3
+      - --tensor-parallel-size
+      - "8"
+      - --kv-cache-dtype
+      - fp8_e4m3
+      - --max-num-seqs
+      - "32"
+      # Source G: features.tool_calling/reasoning and 8xB200 command.
+      - --tool-call-parser
+      - glm47
+      - --enable-auto-tool-choice
+      - --reasoning-parser
+      - glm47
+      # Sources A: max_model_len; G: model.context_length and full-1M guide.
+      - --max-model-len
+      - "1048576"
+      # Source A: AsyncEngineArgs BooleanOptionalAction (request logging).
+      - --no-enable-log-requests
+      # Source F: BaseFrontendArgs.enable_log_outputs; FrontendArgs access log.
+      - --no-enable-log-outputs
+      - --disable-uvicorn-access-log
+    env:
+      # Source E: VLLM_USE_RUST_FRONTEND; use the Python flags documented above.
+      VLLM_USE_RUST_FRONTEND: "0"
+    max_model_len: 1048576
+    replicas: 1

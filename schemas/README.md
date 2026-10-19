@@ -42,6 +42,9 @@ hardware profiles. Duplicate keys, aliases/anchors, merge/custom tags, non-strin
 keys and non-JSON numeric spellings (hex, octal, leading plus, underscores,
 NaN/infinity) are rejected. JSON numeric lexemes are preserved exactly, including
 decimal/exponent spellings; no validation decision uses rounded float64 values.
+Before schema arithmetic, numeric representations are limited to 128 characters
+and decimal exponents to -1024 through 1024 in both formats. These resource
+bounds are not rounding rules and do not apply to quoted strings.
 
 Release manifests only accept `variant: release`, complete hashes and TDX
 measurements MRTD/RTMR0-2. Repository validation checks their pack/profile
