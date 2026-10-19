@@ -30,7 +30,6 @@ make check
 go test -race -count=1 ./internal/catalog ./cmd/nib-catalog
 uv run --project catalog/checker --frozen python -m unittest discover -s catalog/checker
 uv run --project tools --frozen yamllint --strict catalog/pricing.yaml
-git diff --check
 ```
 
 `make check` includes formatting, staticcheck, shellcheck, YAML/schema lint,
@@ -41,6 +40,10 @@ cache environment overrides placed Go/uv caches under `/private/tmp`; the
 loopback proof needed sandbox permission to bind its ephemeral local listener.
 The [earlier failed sandbox attempt](../2026-10-19-catalog-tier1-sandbox-failed/README.md)
 is retained separately.
+
+`git diff --check` reports trailing alignment spaces in the checker's raw
+`output.log` table. They are retained as emitted, not cleaned out of evidence;
+the repository's required checks above pass.
 
 ## Explicitly incomplete
 
