@@ -9,7 +9,9 @@ import http.client
 import json
 import os
 from pathlib import Path
+import platform
 import secrets
+import shutil
 import socket
 import ssl
 import stat
@@ -153,7 +155,53 @@ def provider_result(report, returncode):
     return {"result": "pass" if passed else "fail", "checks": checks}
 
 
-def run(inputs, summary):
+def prepare_native(inputs, work, env, pins, trcs, summary):
+    for filename, digest, limit in (
+        ("model.gguf", pins["model"]["sha256"], pins["model"]["bytes"]),
+        ("llama.tar.gz", pins["engine"]["archive_sha256"], 64 << 20),
+        ("trcs.tar.gz", trcs["archive_sha256"], 16 << 20),
+    ):
+        checked_copy(inputs / filename, work / filename, digest, limit)
+    engine = unpack(work / "llama.tar.gz", work / "engine-source")
+    front = unpack(work / "trcs.tar.gz", work / "front-source")
+    summary["stage"] = "build-engine"
+    command(["cmake", "-S", engine, "-B", work / "engine-build", "-DCMAKE_BUILD_TYPE=Release",
+             "-DGGML_METAL=OFF", "-DGGML_CUDA=OFF", "-DGGML_OPENMP=OFF",
+             "-DLLAMA_BUILD_TESTS=OFF", "-DLLAMA_BUILD_EXAMPLES=OFF", "-DLLAMA_BUILD_APP=OFF",
+             "-DLLAMA_BUILD_UI=OFF", "-DLLAMA_USE_PREBUILT_UI=OFF", "-DLLAMA_OPENSSL=OFF",
+             "-DLLAMA_SUBPROCESS=OFF", "-DBUILD_SHARED_LIBS=OFF"], env)
+    command(["cmake", "--build", work / "engine-build", "--target", "llama-server", "-j", "4"],
+            env, timeout=900)
+    summary["stage"] = "build-front-door"
+    command(["go", "mod", "verify"], env, cwd=front)
+    command(["go", "build", "-trimpath", "-buildvcs=false", "-o", work / "trcs", "./cmd/trcs"],
+            env, cwd=front, timeout=300)
+    summary["stage"] = "install-checker"
+    command([sys.executable, "-m", "venv", work / "venv"], env)
+    command(["uv", "pip", "install", "--python", work / "venv/bin/python", "--require-hashes",
+             "-r", ROOT / "scripts/e2e/requirements.lock"], env)
+    return (work / "engine-build/bin/llama-server", work / "trcs", work / "model.gguf",
+            work / "venv/bin/trustedrouter-provider-check")
+
+
+def file_digest(path):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as stream:
+        require(stat.S_ISREG(os.fstat(stream.fileno()).st_mode), "prepared-file")
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def prepared_inputs(prepared, pins):
+    # Only the container harness uses this path: its rootfs and model are read-only.
+    weights = prepared / "model.gguf"
+    require(weights.stat().st_size == pins["model"]["bytes"]
+            and file_digest(weights) == pins["model"]["sha256"], "prepared-model-digest")
+    checker = shutil.which("trustedrouter-provider-check")
+    require(checker is not None, "prepared-checker")
+    return prepared / "bin/llama-server", prepared / "bin/trcs", weights, Path(checker)
+
+
+def run(inputs, summary, *, prepared=None):
     pins = json.loads((ROOT / "scripts/pilot/pins.json").read_text())
     trcs = json.loads((ROOT / "scripts/e2e/pins.json").read_text())["trcs"]
     summary["pins"] = {**pins, "trcs": {name: trcs[name] for name in ("commit", "archive_sha256")}}
@@ -161,34 +209,11 @@ def run(inputs, summary):
     with tempfile.TemporaryDirectory(prefix="nib-qwen-runtime-") as directory:
         work = Path(directory)
         env = controlled_env(work / "control")
-        for filename, digest, limit in (
-            ("model.gguf", pins["model"]["sha256"], pins["model"]["bytes"]),
-            ("llama.tar.gz", pins["engine"]["archive_sha256"], 64 << 20),
-            ("trcs.tar.gz", trcs["archive_sha256"], 16 << 20),
-        ):
-            checked_copy(inputs / filename, work / filename, digest, limit)
-        engine = unpack(work / "llama.tar.gz", work / "engine-source")
-        front = unpack(work / "trcs.tar.gz", work / "front-source")
-        summary["stage"] = "build-engine"
-        command(["cmake", "-S", engine, "-B", work / "engine-build", "-DCMAKE_BUILD_TYPE=Release",
-                 "-DGGML_METAL=OFF", "-DGGML_CUDA=OFF", "-DGGML_OPENMP=OFF",
-                 "-DLLAMA_BUILD_TESTS=OFF", "-DLLAMA_BUILD_EXAMPLES=OFF", "-DLLAMA_BUILD_APP=OFF",
-                 "-DLLAMA_BUILD_UI=OFF", "-DLLAMA_USE_PREBUILT_UI=OFF", "-DLLAMA_OPENSSL=OFF",
-                 "-DLLAMA_SUBPROCESS=OFF", "-DBUILD_SHARED_LIBS=OFF"], env)
-        command(["cmake", "--build", work / "engine-build", "--target", "llama-server", "-j", "4"],
-                env, timeout=900)
-        summary["stage"] = "build-front-door"
-        command(["go", "mod", "verify"], env, cwd=front)
-        command(["go", "build", "-trimpath", "-buildvcs=false", "-o", work / "trcs", "./cmd/trcs"],
-                env, cwd=front, timeout=300)
+        engine, front, weights, checker = (prepared_inputs(prepared, pins) if prepared is not None else
+                                          prepare_native(inputs, work, env, pins, trcs, summary))
         summary["built_binary_sha256"] = {
-            "llama-server": hashlib.sha256((work / "engine-build/bin/llama-server").read_bytes()).hexdigest(),
-            "trcs": hashlib.sha256((work / "trcs").read_bytes()).hexdigest(),
+            "llama-server": file_digest(engine), "trcs": file_digest(front),
         }
-        summary["stage"] = "install-checker"
-        command([sys.executable, "-m", "venv", work / "venv"], env)
-        command(["uv", "pip", "install", "--python", work / "venv/bin/python", "--require-hashes",
-                 "-r", ROOT / "scripts/e2e/requirements.lock"], env)
         cert, certkey, apikeyfile = work / "cert.pem", work / "key.pem", work / "api-key"
         command(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256",
                  "-nodes", "-keyout", certkey, "-out", cert, "-days", "1", "-subj", "/CN=localhost",
@@ -209,10 +234,10 @@ def run(inputs, summary):
                 return process
 
             summary["stage"] = "start-real-model"
-            server = start(engine_command(work / "engine-build/bin/llama-server", work / "model.gguf",
+            server = start(engine_command(engine, weights,
                                           pins["model_id"], upstream, apikeyfile))
             ready(server, upstream, "/health")
-            shim = start(shim_command(work / "trcs", public, upstream, cert, certkey))
+            shim = start(shim_command(front, public, upstream, cert, certkey))
             ready(shim, public, "/healthz", tls)
             summary["stage"] = "authenticated-inference"
             payload = {"model": pins["model_id"], "messages": [{"role": "user",
@@ -233,7 +258,7 @@ def run(inputs, summary):
                                     "usage": {name: usage[name] for name in
                                               ("prompt_tokens", "completion_tokens", "total_tokens")}}
             summary["stage"] = "provider-conformance"
-            result = subprocess.run([str(work / "venv/bin/trustedrouter-provider-check"),
+            result = subprocess.run([str(checker),
                                      "--base-url", "https://127.0.0.1:" + str(public) + "/v1",
                                      "--model", pins["model_id"], "--tier", "4", "--json", "-"],
                                     env={**env, "SSL_CERT_FILE": str(cert), "TR_PROVIDER_API_KEY": apikey},
@@ -254,13 +279,16 @@ def run(inputs, summary):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--inputs", type=Path, required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--inputs", type=Path)
+    mode.add_argument("--prepared", type=Path, help="Read-only container bundle; no runtime installation")
     args = parser.parse_args()
     summary = {"result": "fail", "stage": "verify-inputs", "execution": "real-cpu-model",
                "confidential": False, "hardware_validated": False, "public_endpoint": False,
-               "billing_integrated": False, "cloud_resources_created": False}
+               "billing_integrated": False, "cloud_resources_created": False,
+               "runtime_platform": {"system": platform.system(), "machine": platform.machine()}}
     try:
-        run(args.inputs, summary)
+        run(args.inputs, summary, prepared=args.prepared)
     except PilotError as error:
         summary["failure_code"] = str(error)  # Fixed internal check name, never exception details.
     except (OSError, ValueError, KeyError, TypeError, IndexError,

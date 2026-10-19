@@ -50,6 +50,39 @@ passed these checks using real Qwen weights. Its
 [sanitized results](../../evidence/p3/2026-10-19-qwen-local-3/output.log) include
 24 prompt tokens and 2 completion tokens for the synthetic known-answer test.
 
+## Offline Linux runtime
+
+The same conformance runner can also run inside a local Linux/amd64 container:
+
+```sh
+uv run --project tools --frozen python -I scripts/record-qwen-pilot.py \
+  --inputs /tmp/hixtube-pilot-inputs --slug qwen-linux-1 --linux-container
+```
+
+Docker with BuildKit is required. The recorder permits only a local Unix-socket
+Docker endpoint and uses an empty Docker configuration, not your registry or
+cloud credentials. It builds from the existing digest-pinned Go/Python bases,
+verified source archives, hash-locked Python dependencies and verified Qwen
+weights. The build needs public network access; the resulting test runtime does
+not. Allow several GB of local disk and 3 GB of runtime RAM. Apple hosts execute
+Linux/amd64 through their local Docker virtualization/emulation; this is not a
+native cloud hardware benchmark.
+
+Inference runs as a non-root user with a read-only filesystem, no capabilities,
+no-new-privileges, no external network, no host mounts and no published ports.
+The only writable filesystem is bounded temporary memory. The runner creates
+ephemeral API/TLS keys there and exercises the exact same authentication, real
+generation, streaming, usage and backend-failure checks as the native pilot.
+It records the private build-context digest, resulting image ID, binary hashes
+and sanitized results. Success additionally requires confirmed absence of both
+the temporary container and its tagged image after cleanup.
+
+This is a development/test image, not a reproducible measured release or a
+confidential guest image. No image is pushed to a registry. Public base images
+and local Docker build cache can remain; the recorder does not prune unrelated
+images or caches. An approved cloud run still needs its own bounded execution,
+network, billing, teardown and attestation gates.
+
 Cloud deployment is a separate operation with an exact project, approved budget,
 expiry, teardown and evidence. Do not substitute `quill-cloud-proxy` when the
 dedicated Hixtube project is unavailable. CPU confidential testing, GPU
