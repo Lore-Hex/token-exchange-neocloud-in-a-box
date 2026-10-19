@@ -27,12 +27,18 @@ before renting the large-model node. Hixtube must have its own cloud project,
 service accounts, credentials, network and resources. Sharing the Apache-2.0
 toolkit is fine; sharing TrustedRouter production infrastructure is not.
 
-The [schema-valid real Qwen run](../../evidence/p3/2026-10-19-qwen-local-2/run.json)
-passed [17 provider checks](../../evidence/p3/2026-10-19-qwen-local-2/output.log),
+The [source-bound real Qwen run](../../evidence/p3/2026-10-19-qwen-local-3/run.json)
+passed [17 provider checks](../../evidence/p3/2026-10-19-qwen-local-3/output.log),
 authenticated generation, token accounting, backend-failure propagation and
 cleanup. It was local CPU inference, not a public service or attestation proof.
 The [initial invalid recorder envelope](../../evidence/p3/2026-10-19-qwen-local-1/README.md)
 is retained as diagnostic history, not accepted evidence.
+The second run predates independent-review hardening of the recorder bootstrap;
+the third uses isolated Python, source-only helper loading and bootstrap matching.
+
+The [isolated-cloud preflight](hixtube-isolated-cloud.md) covers dedicated
+identities, networking, secrets, billing boundaries and a bounded CPU TDX
+experiment before the H100 test. It does not authorize a paid cloud run.
 
 ## Check the domain
 
