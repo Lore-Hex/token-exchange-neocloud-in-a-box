@@ -20,7 +20,7 @@ from snapshot import controlled_env, git, snapshot_commit, validate_snapshot  # 
 
 
 def now():
-    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def execute_pilot(args, *, env, cwd, timeout=1800):
@@ -89,16 +89,16 @@ def main():
             raise ValueError("unexpected evidence path")
         destination = ROOT / relative
         record = {
-            "schema": "nib.evidence/v1", "phase": "P3", "task": "T0", "git_sha": revision,
-            "source_archive_sha256": archive_digest,
+            "schema": "nib.evidence/v1", "phase": "P3", "task": "T7", "git_sha": revision,
             "command": "python3 scripts/record-qwen-pilot.py --inputs " + str(args.inputs.resolve())
                        + " --slug " + args.slug,
             "started_utc": started, "ended_utc": now(),
             "host": {"provider": "local", "machine": platform.system().lower() + "/" + platform.machine(),
                      "gpus": "none", "driver": None, "cuda": None},
-            "result": report["result"], "execution": "real-cpu-model", "hardware_validated": False,
+            "result": report["result"], "execution": "software", "hardware_validated": False,
             "notes": "Local-only real Qwen inference through standard TLS (tee=none). No fake engine, "
-                     "cloud resources, public endpoint, billing integration or confidential-compute claim.",
+                     "cloud resources, public endpoint, billing integration or confidential-compute claim. "
+                     "Source archive SHA-256: " + archive_digest,
         }
         (destination / "output.log").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
         pending = destination / "run.json.pending"

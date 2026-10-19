@@ -3,7 +3,7 @@
 Status: accepted for the local pilot on 2026-10-19. Cloud deployment remains gated.
 
 Joseph requested a smaller Qwen first, with Hixtube in a completely separate
-project from TrustedRouter. This adds P3.T0 before the GPU-dependent tasks; it
+project from TrustedRouter. This adds P3.T7, prioritized before the GPU-dependent tasks; it
 does not waive the confidential verification requirements or cloud gates.
 
 ## Decision
