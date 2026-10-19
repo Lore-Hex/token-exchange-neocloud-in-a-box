@@ -1,9 +1,12 @@
 # P0.T4: Source Audit Blocker
 
-Status: **blocked, not deployable**. DS1017 remains first. No `pack.yaml`,
-`files.sha256`, engine profile, generator API, or `CheckRemote` API is delivered.
-Per AGENTS.md, pack work stopped when primary sources contradicted the exact
-acceptance totals. PLAN.md has not been silently corrected.
+Status: **historical failed audit; all-file total correction approved**.
+DS1017 remains first. The user authorized resuming metadata manifests and draft
+non-confidential profiles. See [current sources and limits](SOURCES.md).
+The failed evidence below is preserved unchanged; its original acceptance totals
+were wrong. PLAN changes belong to its separate owner. Packs remain not deployable
+until built weight images and hardware validation exist. A newly verified
+Tinfoil-only global-UVA patch prevents claiming upstream CC compatibility.
 
 ## Complete-Manifest Totals
 
@@ -29,9 +32,8 @@ weights-only total. The full manifest must sum to **all-file bytes**; dropping
 required non-weight files or relabeling a weights-only sum is not acceptable.
 T3's complete-manifest sum validation agrees with this interpretation.
 
-TODO(verify): obtain the pending user-approved PLAN correction before generating
-packs. Preserve these weight-byte values as separately named facts, not as a
-complete pack's `total_bytes`. Do not treat P0.T4 as accepted or unblock P2 yet.
+The user subsequently approved the all-file totals. The original weight-byte
+values remain separately named facts, not a complete pack's `total_bytes`.
 
 ## Tinfoil Reference
 
@@ -75,8 +77,8 @@ Cookbook snapshot `sgl-project/sglang@299da60131dbbd9d3be0e1b2463b1f82cd984729`:
 - [DeepSeek cookbook](https://github.com/sgl-project/sglang/blob/299da60131dbbd9d3be0e1b2463b1f82cd984729/docs/cookbook/autoregressive/DeepSeek/DeepSeek-V4_1.mdx), installation: NVIDIA support uses the preview tag `lmsysorg/sglang:dev-dsv41`, not a release claimed by this audit.
 - [GLM cookbook](https://github.com/sgl-project/sglang/blob/299da60131dbbd9d3be0e1b2463b1f82cd984729/docs/cookbook/autoregressive/GLM/GLM-5.3.mdx), installation: the command uses `lmsysorg/sglang:latest`. A mutable tag is not an admissible measured-image pin.
 
-TODO(verify): resume engine-profile construction and registry digest verification
-only after the plan correction. No flags or image hashes have been invented.
+The resumed work performs registry digest verification separately and cites
+each candidate flag. No flags or image hashes have been invented.
 Recipe/config byte hashes in the evidence identify what was inspected; they are
 not container digests. The HF identity API can include changing download/like
 counters even for a pinned revision, so its response hash is an observation,

@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: Apache-2.0
+# DRAFT, NOT DEPLOYABLE: no built weight volume, serving or hardware validation.
+# Source keys below resolve to immutable URLs in ../../SOURCES.md.
+schema: nib.model-pack/v1
+id: deepseek-v4.1-flash-1017@1
+hf_repo: deepseek-ai/DeepSeek-V4.1-Flash-1017
+hf_revision: 1bae0e1088993b9b82de08f59de5be5a34e42170
+license: MIT
+served_model_name: deepseek-v4.1-flash-1017
+tr_model_id: deepseek/deepseek-v4.1-flash-1017
+files: files.sha256
+total_bytes: 510311045295
+weights_volume:
+  format: erofs
+  verity_root_hash: ""
+engine_profiles:
+  b200x8-gcp-plain:
+    engine: vllm
+    # Source T: Dockerfile.b200 VLLM_BASE_IMAGE; registry manifest checked by packcheck.
+    image: vllm/vllm-openai@sha256:a4a4c0437bf7240089da5f08aa370c4aee17ae5290f7a3b468825ee26c4c3a6b
+    args:
+      # Source A: EngineArgs.add_cli_args model; operator mounts verified files at /model.
+      - --model
+      - /model
+      # Source F: FrontendArgs host/port; loopback contract is PLAN section 5.
+      - --host
+      - 127.0.0.1
+      - --port
+      - "8000"
+      # Source A: served_model_name; native ID chosen in PLAN sections 1 and 7.
+      - --served-model-name
+      - deepseek-v4.1-flash-1017
+      # Sources D: single_node_tp default TP4; A: data_parallel_size; PLAN P2.T3 DP2.
+      # This composition is a P2 candidate, not an upstream-validated eight-GPU run.
+      - --tensor-parallel-size
+      - "4"
+      - --data-parallel-size
+      - "2"
+      # Sources D: model.base_args and features.tool_calling/reasoning.
+      - --tokenizer-mode
+      - deepseek_v41
+      - --tool-call-parser
+      - deepseek_v41
+      - --enable-auto-tool-choice
+      - --reasoning-parser
+      - deepseek_v41
+      # Sources A: engram_config; D: GPU-resident TP4; T: released cpu_offload false.
+      # This disables Engram offload, NOT every other upstream UVA code path.
+      - --engram-config
+      - '{"cpu_offload":false}'
+      # Source D: single_node_tp.hardware_overrides.blackwell (not B200 TP2 offload).
+      - --attention-config
+      - '{"backend":"FLASHINFER_MLA_SPARSE_DSV41","indexer_kv_dtype":"mxfp4","indexer_sparse_logits":true}'
+      - --kv-cache-dtype
+      - fp8
+      - --max-num-seqs
+      - "128"
+      # Sources A: max_model_len; D: model.context_length.
+      - --max-model-len
+      - "1048576"
+      # Source A: AsyncEngineArgs BooleanOptionalAction (request logging).
+      - --no-enable-log-requests
+      # Source F: BaseFrontendArgs.enable_log_outputs; FrontendArgs access log.
+      - --no-enable-log-outputs
+      - --disable-uvicorn-access-log
+    env:
+      # Source E: VLLM_USE_RUST_FRONTEND; use the Python flags documented above.
+      VLLM_USE_RUST_FRONTEND: "0"
+      # Source D: model.base_env.
+      VLLM_ENGINE_READY_TIMEOUT_S: "3600"
+    max_model_len: 1048576
+    replicas: 2
