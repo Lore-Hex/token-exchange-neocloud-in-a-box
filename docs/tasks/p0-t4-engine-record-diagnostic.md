@@ -80,8 +80,18 @@ between operations; the unchanged outer container supervisor bounds stalled I/O.
 The existing inventory and Docker limits are unchanged.
 
 Limits, unavailable reads and incomplete CSV parsing retain preceding bounded
-observations, with `complete:false` and outer `collection:partial`. Separate
-RECORD/bytecode completeness flags qualify counts; absent totals are `null` and
+observations, with `complete:false` and outer `collection:partial`. Metadata
+parse failures and values suppressed by the reporting grammar also
+require these partial flags; later independent stages still run. The producer
+and validator share a fixed set of incomplete-observation reasons. An unknown
+version or failed source-version evaluation is not reported as an ordinary
+version mismatch. The module-collision check conservatively marks rejection
+incomplete because its existing exception does not distinguish a collision from
+an interrupted scan. Fully observed policy mismatches, such as a readable wrong
+wheel tag or extra entry-point group, may remain complete observations, never
+acceptance.
+
+Separate RECORD/bytecode completeness flags qualify counts; absent totals are `null` and
 observed partial counts are not complete totals. Accounting uses interpretable,
 safe paths only; malformed rows retain their own fixed rejection counts. Sample
 lists are not complete file lists. Other metadata stages still run after normal

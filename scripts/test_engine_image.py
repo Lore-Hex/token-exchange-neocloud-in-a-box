@@ -526,7 +526,8 @@ class ImageTests(unittest.TestCase):
         (self.root / "torch-2.13.0.dist-info").rmdir()
         self.fixture.write("torch-2.12.0.dist-info/METADATA", b"Name: torch\nVersion: 2.12.0\n")
         report, details = self.details()
-        self.assertTrue(details["complete"])
+        self.assertFalse(details["complete"])
+        self.assertEqual(report["collection"], "partial")
         self.assertEqual(report["checks"]["record_integrity"], "rejected")
         self.assertEqual(report["checks"]["wheel_integrity"], "rejected")
         reasons = {row["reason"] for row in details["findings"]}
@@ -560,6 +561,8 @@ class ImageTests(unittest.TestCase):
         self.fixture.write(self.fixture.dist + "/entry_points.txt", b"[console_scripts]\nvllm = vllm.entrypoints.cli.main:main\n"
                            b"[vllm.general_plugins]\nfixture = SYNTHETIC_PRIVATE_VALUE:never_import\n")
         report, details = self.details()
+        self.assertTrue(details["complete"])
+        self.assertEqual(report["collection"], "pass")
         self.assertFalse(details["metadata"]["entrypoints_match"])
         self.assertEqual(details["metadata"]["entrypoint_groups"], [
             {"name": "console_scripts", "entries": 1}, {"name": "vllm.general_plugins", "entries": 1}])
@@ -569,9 +572,124 @@ class ImageTests(unittest.TestCase):
                      b"[group]\nname = first\nname = duplicate\n"):
             with self.subTest(data=data):
                 self.fixture.write(self.fixture.dist + "/entry_points.txt", data)
-                _, details = self.details()
+                report, details = self.details()
+                self.assertFalse(details["complete"])
+                self.assertEqual(report["collection"], "partial")
                 self.assertEqual(details["metadata"]["entrypoint_groups"], [])
-                self.assertIn("entrypoints", {row["reason"] for row in details["findings"]})
+                self.assertIn("entrypoints-metadata", {row["reason"] for row in details["findings"]})
+
+    def assert_incomplete_integrity_report(self, report, reason):
+        details = report["integrity_details"]
+        self.assertFalse(details["complete"])
+        self.assertEqual(report["collection"], "partial")
+        self.assertIn(reason, {row["reason"] for row in details["findings"]})
+        self.assertNotIn("SYNTHETIC_PRIVATE_VALUE", json.dumps(report))
+        for complete, collection in ((True, "partial"), (False, "pass"), (True, "pass")):
+            changed = {**report, "collection": collection, "integrity_details": {**details, "complete": complete}}
+            with self.assertRaises(ValueError):
+                diagnostic.validate_report(overlay, changed, self.contract)
+
+    def test_integrity_details_suppressed_or_unparsed_metadata_is_partial(self):
+        dist = self.fixture.dist
+        # Keep root selection observable even while the selected METADATA is malformed.
+        self.fixture.write("vllm.egg-info/PKG-INFO", b"Name: vllm\nVersion: 0.32.0\n")
+        metadata = (self.root / dist / "METADATA").read_bytes()
+        wheel = (self.root / dist / "WHEEL").read_bytes()
+        cases = [
+            (dist + "/WHEEL", wheel.replace(b"cp38-abi3-linux_x86_64", b"https://SYNTHETIC_PRIVATE_VALUE.invalid"), "metadata-value"),
+            (dist + "/WHEEL", b"not a header\n", "wheel-metadata"),
+            (dist + "/METADATA", b"not a header\n", "metadata-invalid"),
+            (dist + "/METADATA", metadata.replace(b">=3.11,<3.15", b"https://SYNTHETIC_PRIVATE_VALUE.invalid"), "metadata-value"),
+            (dist + "/METADATA", metadata.replace(b"\n\n", b"\nRequires-Dist: @SYNTHETIC_PRIVATE_VALUE\n\n", 1), "requirement-malformed"),
+            (dist + "/entry_points.txt", b"not ini\n", "entrypoints-metadata"),
+            (dist + "/entry_points.txt", b"\xff", "entrypoints-metadata"),
+            (dist + "/direct_url.json", b"{SYNTHETIC_PRIVATE_VALUE", "direct-url"),
+            (dist + "/direct_url.json", b"[]", "direct-url"),
+            (dist + "/direct_url.json", b'{"dir_info":{"editable":"SYNTHETIC_PRIVATE_VALUE"}}', "direct-url"),
+            ("vllm/_version.py", b"not python syntax\n", "source-version-unavailable"),
+            ("vllm/_version.py", b"__version__ = call_never_executed()\n", "source-version-unavailable"),
+        ]
+        for name, data, reason in cases:
+            path = self.root / name
+            original = path.read_bytes() if path.exists() else None
+            with self.subTest(name=name, reason=reason, data=data):
+                try:
+                    self.fixture.write(name, data)
+                    report, details = self.details()
+                    self.assert_incomplete_integrity_report(report, reason)
+                    self.assertEqual(details["record"]["rows"], len(self.record_rows()))
+                    self.assertEqual(len(details["dependencies"]), len(self.contract["dependency_pins"]))
+                    if name != dist + "/WHEEL":
+                        self.assertEqual(details["metadata"]["wheel_version"], ["1.0"])
+                    if name not in (dist + "/METADATA", "vllm/_version.py"):
+                        self.assertTrue(details["metadata"]["generated_version_match"])
+                finally:
+                    if original is None:
+                        path.unlink()
+                    else:
+                        self.fixture.write(name, original)
+
+    def test_integrity_details_unreportable_version_is_partial(self):
+        version = "1" * 181
+        self.fixture.write("extra-" + version + ".dist-info/METADATA", ("Name: extra\nVersion: " + version + "\n").encode())
+        report, details = self.details()
+        self.assert_incomplete_integrity_report(report, "metadata-value")
+        self.assertTrue(details["metadata"]["generated_version_match"])
+        self.assertEqual(details["metadata"]["wheel_version"], ["1.0"])
+
+    def test_integrity_details_read_and_collision_failures_require_partial(self):
+        dist = self.fixture.dist
+        self.fixture.write("vllm.egg-info/PKG-INFO", b"Name: vllm\nVersion: 0.32.0\n")
+        self.fixture.write(dist + "/direct_url.json", b"{}")
+        original = overlay.Tree.read
+        for name, reason in ((dist + "/WHEEL", "wheel-read"), (dist + "/METADATA", "metadata-read"),
+                             (dist + "/entry_points.txt", "entrypoints-read"), (dist + "/direct_url.json", "direct-url"),
+                             (dist + "/RECORD", "record-read"), ("vllm/_version.py", "source-version-unavailable"),
+                             ("vllm", "console-read")):
+            def read(tree, path, *, retain=True):
+                if retain and path == name:
+                    raise OSError("SYNTHETIC_PRIVATE_VALUE")
+                return original(tree, path, retain=retain)
+            with self.subTest(name=name), mock.patch.object(overlay.Tree, "read", read):
+                report, details = self.details()
+                self.assert_incomplete_integrity_report(report, reason)
+                self.assertEqual(report["checks"]["filesystem_inventory"], "pass")
+                self.assertEqual(len(details["dependencies"]), len(self.contract["dependency_pins"]))
+        with mock.patch.object(overlay.Tree, "check_module_collisions", side_effect=OSError("SYNTHETIC_PRIVATE_VALUE")):
+            report, _ = self.details()
+            self.assert_incomplete_integrity_report(report, "module-collision")
+
+    def test_integrity_details_observed_policy_mismatches_remain_complete(self):
+        self.fixture.write(self.fixture.dist + "/WHEEL", b"Wheel-Version: 9.0\nRoot-Is-Purelib: true\nTag: cp312-cp312-linux_aarch64\n")
+        self.fixture.write("vllm/_version.py", b"__version__ = '0.32.99'\n")
+        self.fixture.write(self.fixture.dist + "/direct_url.json", b'{"dir_info":{"editable":true}}')
+        report, details = self.details()
+        self.assertTrue(details["complete"])
+        self.assertEqual(report["collection"], "pass")
+        self.assertEqual(details["metadata"]["wheel_tags"], ["cp312-cp312-linux_aarch64"])
+        self.assertFalse(details["metadata"]["generated_version_match"])
+        reasons = {row["reason"] for row in details["findings"]}
+        self.assertTrue({"wheel-version", "wheel-purelib", "wheel-tags", "source-version", "editable-source"} <= reasons)
+        self.assertEqual(report["overlay_admission"], "rejected")
+
+    def test_integrity_details_validator_requires_partial_for_unavailable_reasons(self):
+        report, details = self.details()
+        for reason in diagnostic.INTEGRITY_INCOMPLETE_REASONS:
+            with self.subTest(reason=reason):
+                details["findings"] = [{"reason": reason, "count": 1, "paths": []}]
+                with self.assertRaises(ValueError):
+                    diagnostic.validate_report(overlay, report, self.contract)
+        details["findings"] = []
+        for key in ("distribution", "engine_version", "entrypoints_match", "generated_version_match"):
+            changed = copy.deepcopy(report)
+            changed["integrity_details"]["metadata"][key] = None
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                diagnostic.validate_report(overlay, changed, self.contract)
+        changed = copy.deepcopy(report)
+        row = changed["integrity_details"]["dependencies"][0]
+        row.update(installed=[None], installed_matches=False)
+        with self.assertRaises(ValueError):
+            diagnostic.validate_report(overlay, changed, self.contract)
 
     def test_integrity_details_retains_candidate_absence_and_shadow_checks(self):
         self.fixture.write("vllm/v1/__pycache__/conf_compute_utils.cpython-312.pyc", b"never executed")

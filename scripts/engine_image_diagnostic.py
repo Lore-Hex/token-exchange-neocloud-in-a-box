@@ -33,16 +33,19 @@ CENSUS_REASONS = {"entry-limit", "depth-limit", "time-limit", "size-limit", "uns
                   "metadata-rejected", "directory-changed", "device-boundary", "root-selection"}
 INTEGRITY_LIMITS = {"metadata_bytes": 16 << 20, "metadata_files": 2048, "record_rows": 100000,
                     "requirements": 4096, "seconds": 30, "paths_per_reason": 4, "path_chars": 180, "report_bytes": 65536}
-INTEGRITY_REASONS = frozenset({"diagnostic-time-limit", "diagnostic-byte-limit", "diagnostic-file-limit",
+# These observations could not be recovered or safely reported, not just compared.
+INTEGRITY_INCOMPLETE_REASONS = frozenset({"diagnostic-time-limit", "diagnostic-byte-limit", "diagnostic-file-limit",
     "record-row-limit", "metadata-field-limit", "metadata-read", "metadata-invalid", "metadata-value",
-    "duplicate-distribution", "engine-distribution", "engine-version", "requires-python", "direct-url",
-    "editable-source", "entrypoints-read", "entrypoints", "console-read", "record-read", "record-csv",
-    "record-row", "record-path", "record-missing-file", "record-duplicate", "record-blank-fields",
+    "engine-distribution", "direct-url", "entrypoints-read", "entrypoints-metadata", "console-read",
+    "record-read", "record-csv", "record-row", "record-path", "wheel-read", "wheel-metadata",
+    "requirement-malformed", "source-version-unavailable", "module-collision", "diagnostic-prerequisite"})
+INTEGRITY_REASONS = INTEGRITY_INCOMPLETE_REASONS | frozenset({
+    "duplicate-distribution", "engine-version", "requires-python", "editable-source", "entrypoints",
+    "record-missing-file", "record-duplicate", "record-blank-fields",
     "record-hash-format", "record-size", "record-hash", "record-unlisted-owned", "record-unowned",
-    "record-self", "record-console", "wheel-read", "wheel-metadata", "wheel-version", "wheel-purelib",
-    "wheel-tags", "requirement-malformed", "requirement-duplicate", "requirement-pin", "requirement-set",
-    "dependency-missing", "dependency-version", "dependency-ambiguous", "source-version", "module-collision",
-    "candidate-source", "engine-shadow", "diagnostic-prerequisite"})
+    "record-self", "record-console", "wheel-version", "wheel-purelib", "wheel-tags",
+    "requirement-duplicate", "requirement-pin", "requirement-set", "dependency-missing",
+    "dependency-version", "dependency-ambiguous", "source-version", "candidate-source", "engine-shadow"})
 
 
 class IntegrityLimit(ValueError):
@@ -76,6 +79,8 @@ def integrity_observations(overlay, tree, inventory, dist, contract, console):
 
     def issue(reason, path=None):
         overlay.require(reason in INTEGRITY_REASONS)
+        if reason in INTEGRITY_INCOMPLETE_REASONS:
+            result["complete"] = False
         item = findings.setdefault(reason, {"reason": reason, "count": 0, "paths": []})
         item["count"] += 1
         if (path is not None and len(path) <= INTEGRITY_LIMITS["path_chars"]
@@ -150,10 +155,8 @@ def integrity_observations(overlay, tree, inventory, dist, contract, console):
                     result["metadata"]["entrypoint_groups"] = groups
                 except IntegrityLimit:
                     raise
-                except configparser.Error:
-                    issue("entrypoints", dist + "/entry_points.txt")
-                except READ_ERRORS:
-                    issue("entrypoints", dist + "/entry_points.txt")
+                except (configparser.Error, *READ_ERRORS):
+                    issue("entrypoints-metadata", dist + "/entry_points.txt")
         data = read(record_name, "record-read")
         if data is not None:
             try:
@@ -250,7 +253,10 @@ def integrity_observations(overlay, tree, inventory, dist, contract, console):
                 if data is not None:
                     try:
                         direct = overlay.load_json(data)
-                        flags({"editable-source": isinstance(direct, dict) and not direct.get("dir_info", {}).get("editable", False)}, name)
+                        overlay.require(isinstance(direct, dict))
+                        info = direct.get("dir_info", {})
+                        overlay.require(isinstance(info, dict) and type(info.get("editable", False)) is bool)
+                        flags({"editable-source": not info.get("editable", False)}, name)
                     except READ_ERRORS:
                         issue("direct-url", name)
             if not (name.endswith(".dist-info/METADATA") and name.count("/") == 1):
@@ -264,11 +270,14 @@ def integrity_observations(overlay, tree, inventory, dist, contract, console):
                 distribution_counts[package] = distribution_counts.get(package, 0) + 1
                 if versions:
                     issue("duplicate-distribution", name)
+                observed_version = version if re.fullmatch(TOKEN, version) else None
+                if observed_version is None:
+                    issue("metadata-value", name)
                 if len(versions) < 2:
-                    versions.append(version if re.fullmatch(TOKEN, version) else None)
+                    versions.append(observed_version)
                 if name == dist + "/METADATA":
                     engine = meta
-                    result["metadata"]["engine_version"] = version if re.fullmatch(TOKEN, version) else None
+                    result["metadata"]["engine_version"] = observed_version
                     flags(overlay.engine_metadata_checks(version, meta), name)
                     result["metadata"]["requires_python"] = values(meta, "Requires-Python", r"[<>=!~0-9., *]{1,80}")
             except IntegrityLimit:
@@ -316,15 +325,16 @@ def integrity_observations(overlay, tree, inventory, dist, contract, console):
                 raise
             except READ_ERRORS:
                 issue("wheel-metadata", dist + "/WHEEL")
-        data = read("vllm/_version.py", "source-version")
+        data = read("vllm/_version.py", "source-version-unavailable")
         if data is not None:
             try:
-                matched = (result["metadata"]["engine_version"] is not None
-                           and overlay.generated_versions(data) == [result["metadata"]["engine_version"]])
+                versions = overlay.generated_versions(data)
+                overlay.require(result["metadata"]["engine_version"] is not None)
+                matched = versions == [result["metadata"]["engine_version"]]
                 result["metadata"]["generated_version_match"] = matched
                 flags({"source-version": matched}, "vllm/_version.py")
             except READ_ERRORS:
-                issue("source-version", "vllm/_version.py")
+                issue("source-version-unavailable", "vllm/_version.py")
         try:
             tree.check_module_collisions(item["path"] for item in contract["files"])
         except READ_ERRORS:
@@ -370,6 +380,7 @@ def validate_integrity_observations(overlay, value, contract):
                             and re.fullmatch(r"[A-Za-z0-9_./+-]+", path))
             overlay.safe_name(path)
     overlay.require(seen == sorted(seen))
+    overlay.require(not value["complete"] or not (set(seen) & INTEGRITY_INCOMPLETE_REASONS))
     record, bytecode = value["record"], value["bytecode"]
     overlay.require(type(record) is dict and set(record) == {"complete", "rows", "unique_paths", "owned_files", "listed_missing", "listed_unowned", "unlisted_owned"}
                     and type(record["complete"]) is bool)
@@ -407,6 +418,9 @@ def validate_integrity_observations(overlay, value, contract):
         overlay.require(all(type(item) is str and re.fullmatch(pattern, item) for item in meta[key]))
     for key in ("entrypoints_match", "generated_version_match"):
         overlay.require(meta[key] is None or type(meta[key]) is bool)
+    if value["complete"]:
+        overlay.require(all(meta[key] is not None for key in
+                            ("distribution", "engine_version", "entrypoints_match", "generated_version_match")))
     groups = meta["entrypoint_groups"]
     overlay.require(type(groups) is list and len(groups) <= 16)
     names = []
@@ -429,6 +443,7 @@ def validate_integrity_observations(overlay, value, contract):
                         and type(row["installed_matches"]) is bool and type(row["declared_matches"]) is bool
                         and type(row["declared_count"]) is int and 0 <= row["declared_count"] <= INTEGRITY_LIMITS["requirements"])
         seen.append(row["name"])
+        overlay.require(not value["complete"] or None not in row["installed"])
         overlay.require(row["installed_matches"] == (row["installed_count"] == 1
             and overlay.dependency_matches(row["name"], row["installed"][0], row["expected"])))
         overlay.require(row["declared_count"] > 0 or not row["declared_matches"])
