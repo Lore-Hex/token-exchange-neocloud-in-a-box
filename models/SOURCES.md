@@ -38,6 +38,15 @@ offload is not equivalent to disabling all UVA use. CC requires a separately
 reviewed, pinned patched engine and actual hardware evidence. Tinfoil's release
 digest is checked only as a reference, not selected as this pack's engine.
 
+**Tinfoil licensing warning (reference-only):** the coordinator's read-only
+audit of the [released tree](https://github.com/tinfoilsh/confidential-deepseek-v4-1-flash/tree/29bc3ea355129b1dda97282ce80ce972530ee4fc)
+found no LICENSE/COPYING/NOTICE; [repository metadata](https://api.github.com/repos/tinfoilsh/confidential-deepseek-v4-1-flash)
+reported `license: null`, and the LICENSE endpoint returned 404. Reuse and
+redistribution rights are not established: do not copy or relicense these patches,
+or select the patched image as redistributable, without establishing those rights.
+A future CC profile needs independently licensed upstream patches or permission.
+The plain-only profiles are unchanged.
+
 Request/output logging and Uvicorn access logging are explicitly disabled using
 the pinned Python frontend flags. This is configuration, not a proven zero-data
 retention or error-path audit of the full engine. No confidential deployment is
