@@ -4,8 +4,11 @@ Official Google sources checked **2026-10-19 UTC**. This document is research,
 not deployment approval, a completed cloud preflight or hardware evidence.
 The parent verified dedicated project **`hixtube-neocloud` is ACTIVE** and
 **`billingEnabled: false`**, separate from TrustedRouter production; the active
-credential was untouched. **Enabled-service inventory has not been verified**:
-do not claim Compute is enabled or absent until reading that inventory.
+credential was untouched. A later **05:15Z read-only service inventory** found 23
+default services enabled; Compute and Cloud Billing API were absent. A billing
+recheck using Hixtube as the quota project returned `SERVICE_DISABLED`, not a new
+billing result. The earlier `billingEnabled: false` remains the last successful
+read. This is not a completed isolation or zero-asset audit.
 Keep billing/user identifiers and the immutable project number out of Git.
 No further cloud mutations or spending are authorized by this document.
 
@@ -61,7 +64,9 @@ maximum **30 running minutes**, **USD 1.00 all-in ceiling**.
 Compute + CC: `0.5 * $0.0866264 = $0.0433132`; remaining allowance:
 `$1.00 - $0.0433132 = $0.9566868`. Itemize every extra through verified deletion
 before approval; if the conservative total exceeds $1, stop and re-request.
-This is neither an enforced cloud cap nor permission to spend.
+This is neither an enforced cloud cap nor permission to spend. The
+[setup approval request](hixtube-cloud-approval.md) separates immediate API/billing
+setup from the still-unready VM run and itemizes a provisional run estimate.
 [Alerts-only budgets do not cap spending](https://docs.cloud.google.com/billing/docs/how-to/budgets).
 
 ## Required isolation
@@ -110,11 +115,24 @@ ro() {
     --billing-project=hixtube-neocloud --quiet --no-log-http "$@" </dev/null
 }
 ro version
-ro config list --all --format='yaml(auth,billing,api_endpoint_overrides,proxy)'
+ro config list --all --format=json |
+  python3 -I -c '
+import json, sys
+c = json.load(sys.stdin)
+auth = c.get("auth", {})
+blocked = any(v not in (None, "") for k, v in auth.items() if k != "disable_credentials")
+disabled = auth.get("disable_credentials")
+canonical_false = disabled is None or disabled is False or (isinstance(disabled, str) and disabled in ("", "false"))
+blocked = blocked or not canonical_false
+blocked = blocked or any(c.get("proxy", {}).values()) or any(c.get("api_endpoint_overrides", {}).values())
+print("STOP: configured auth/proxy/endpoint override" if blocked else "Configuration override check passed")
+sys.exit(1 if blocked else 0)'
 ```
 
 The clean environment still reads the existing default config/credential store.
-Stop on unexplained impersonation, credential overrides, proxy or API endpoints.
+Stop on configured impersonation, credential overrides, proxy or API endpoints.
+Do not dump their values: auth and proxy sections can contain credentials. The
+isolated Python check above prints only a fixed pass/stop message.
 API-prompt suppression was checked in SDK **566.0.0** `core/properties.py` and
 `api_lib/{util/apis.py,compute/batch_helper.py}`; recheck on upgrade.
 [CLI flags](https://docs.cloud.google.com/sdk/gcloud/reference); `--quiet` alone is not a safety boundary.
