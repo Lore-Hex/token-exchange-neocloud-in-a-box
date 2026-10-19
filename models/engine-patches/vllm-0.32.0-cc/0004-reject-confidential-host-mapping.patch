@@ -1,0 +1,18 @@
+Subject: [BLOCKED CANDIDATE] Reject generic CUDA host mapping on the CC path
+
+Modified by the neocloud-in-a-box project; see NOTICE and candidate.json.
+Apache-2.0; upstream copyrights retained. Not a runtime qualification.
+Keep aliasing semantics: reject the mapping rather than substituting a copy.
+
+diff --git a/vllm/utils/torch_utils.py b/vllm/utils/torch_utils.py
+--- a/vllm/utils/torch_utils.py
++++ b/vllm/utils/torch_utils.py
+@@ -958,6 +958,8 @@
+             return torch.ops._C.get_xpu_view_from_cpu_tensor(pinned)
+         return torch.ops._C.get_xpu_view_from_cpu_tensor(cpu_tensor)
+     elif current_platform.is_cuda_alike():
++        if current_platform.is_confidential_compute():
++            raise RuntimeError("CUDA host mapping is disabled by the CC candidate")
+         return torch.ops._C.get_cuda_view_from_cpu_tensor(cpu_tensor)
+     else:
+         raise ValueError(

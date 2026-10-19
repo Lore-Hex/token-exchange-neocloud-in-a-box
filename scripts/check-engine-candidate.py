@@ -34,7 +34,8 @@ DIRECTORY = "models/engine-patches/vllm-0.32.0-cc"
 BASE = "5df63a7203cdb9328d824a27b682e77c7b9928be"
 PARENT = "ce49174247fd84c322f293a31cbe1d0460aaa7fe"
 COMMITS = ("c8309e4215fefe376a190ad68c872f832418d9f2", "c16c248aa2255dc2b13f732b00b90e44bb7311e4")
-PATCHES = ("0001-v2-copy-backport.patch", "0002-prep-stream-ordering.patch", "0003-fail-closed-and-buffer-ordering.patch")
+PATCHES = ("0001-v2-copy-backport.patch", "0002-prep-stream-ordering.patch",
+           "0003-fail-closed-and-buffer-ordering.patch", "0004-reject-confidential-host-mapping.patch")
 PATHS = ("vllm/envs.py", "vllm/platforms/cuda.py", "vllm/platforms/interface.py",
          "vllm/utils/platform_utils.py", "vllm/utils/torch_utils.py", "vllm/v1/conf_compute_utils.py",
          "vllm/v1/utils.py", "vllm/v1/worker/gpu/async_utils.py", "vllm/v1/worker/gpu/buffer_utils.py",
@@ -156,7 +157,7 @@ def metadata(bundle):
             raise ValueError("candidate patch differs")
     for item in manifest["files"]:
         hashes = item["sha256"]
-        if (len(hashes) != 4 or any(not isinstance(h, str) or not re.fullmatch(r"[0-9a-f]{64}", h)
+        if (len(hashes) != len(PATCHES) + 1 or any(not isinstance(h, str) or not re.fullmatch(r"[0-9a-f]{64}", h)
                                    for h in hashes[1:]) or item["mode"] not in ("100644", "100755")):
             raise ValueError("invalid file contract")
         if item["path"] == "vllm/v1/conf_compute_utils.py":

@@ -31,10 +31,12 @@ indexing. Whole-module AST comparisons outside the intended additions protect
 these semantics; `async_copy_to_np(copy=True)` is also retained. This is source
 equivalence testing, not execution of all those release features.
 
-The second patch is byte-identical to upstream commit 3. The third is a local
-Apache-licensed hardening patch. Every touched file has four SHA-256 values in
-the manifest: release base (null for the new helper), rebased first patch,
-upstream ordering correction, final candidate. No intermediate stage is usable.
+The second patch is byte-identical to upstream commit 3. The third and fourth
+are local Apache-licensed hardening patches. Every touched file has five SHA-256
+values in the manifest: release base (null for the new helper), rebased first
+patch, upstream ordering correction, strict selection/buffer ordering, and the
+generic CUDA host-mapping guard. The first three patches and their stage hashes
+are unchanged by the fourth patch. No intermediate stage is usable.
 
 ## Selection And Ordering
 
@@ -64,6 +66,32 @@ must still retire every GPU reader before reusing a pool slot.** A stream wait
 does not establish safe slot reuse, hardware memory coherence or CUDA graph
 correctness. Deferred D2H behavior remains an upstream candidate requiring real
 runner/lifetime validation.
+
+## Generic Mapping Guard
+
+The release's
+[`get_accelerator_view_from_cpu_tensor`](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/utils/torch_utils.py#L920-L946)
+CUDA-alike branch directly invokes `torch.ops._C.get_cuda_view_from_cpu_tensor`.
+Patch 4 checks `current_platform.is_confidential_compute()` immediately before
+that call. When true, it raises only the fixed message
+`CUDA host mapping is disabled by the CC candidate`. It does not inspect or log
+the tensor, override values or raw detection errors. Selection failures from the
+candidate's existing fail-closed detector propagate without reaching mapping.
+
+The helper promises a view, so substituting a device copy would change its
+aliasing contract. This patch rejects instead. When selection returns false,
+the original raw mapping call receives the same tensor and its result is
+returned unchanged. XPU and unsupported-platform branches are unchanged.
+The existing strict CUDA detector does not gain a new opt-out or false-return
+path: unknown hardware remains unqualified. Software selection is not hardware
+attestation, and blocking this one helper is not a blanket no-UVA policy.
+
+Focused AST tests execute only the helper and existing detector with local fake
+objects. They assert no raw mapping or copy on CC rejection/detection failure,
+fixed diagnostics, unchanged non-CC alias identity, and XPU behavior. The
+whole-module release comparison excludes only the deliberate additions; all
+existing release-semantics and stream-ordering tests still run. These checks do
+not establish GPU memory coherence or coverage of other mapping/collective paths.
 
 ## Reproduction
 
@@ -121,7 +149,7 @@ success. `nib lint` remains the authoritative evidence-schema check.
 
 ## Recorded Result
 
-The [committed-source run](../../evidence/p0/2026-10-19T190821Z-vllm-cc-candidate/run.json)
+The original three-stage [committed-source run](../../evidence/p0/2026-10-19T190821Z-vllm-cc-candidate/run.json)
 passed from `9403b662a6e6da103e3e3d5bf64dace3f95600b9`. Its
 [structured output](../../evidence/p0/2026-10-19T190821Z-vllm-cc-candidate/output.log)
 records 20 focused software tests, exact hashes at all patch stages, and eleven
@@ -131,13 +159,14 @@ The existing `nib lint` accepted the evidence record. Candidate status remains
 BLOCKED, `deployable:false`, `hardware_validated:false`. This is not a GPU or
 full-model run. Full repository checks and independent final-head review are
 separate requirements; this source preparation does not satisfy hardware gates.
+That historical run predates the fourth-stage guard and does not prove it.
 
 ## Remaining Gates
 
-- This is not a blanket no-UVA guarantee. The release's generic
-  [`get_accelerator_view_from_cpu_tensor`](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/utils/torch_utils.py#L920)
-  remains unguarded. Disabling a UVA capability query also does not prohibit
-  explicit-copy weight offload. Neither problem is silently declared solved.
+- This is not a blanket no-UVA guarantee. The fourth patch guards one generic
+  CUDA mapping helper only; other raw mapping/collective paths need their own
+  source audit and policy. Disabling a UVA capability query or rejecting this
+  helper also does not prohibit explicit-copy weight offload.
 - Multi-GPU settings, device inventory/readiness, production versus devtools,
   CPU/GPU evidence and topology qualification remain blocked. No interpretation
   of `multiGpuMode` is added here.
