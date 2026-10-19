@@ -22,6 +22,10 @@ nib verify --endpoint https://node.example \
 ```
 
 The CLI validates both files against the repository schemas and their hashes.
+Policy files must be local regular files, not final-component symlinks or
+special files. Unix uses nonblocking opens to reject FIFOs without hanging;
+other platforms currently fail closed before opening a file. Untrusted network
+filesystems and device drivers are outside this local-input contract.
 It rejects debug releases, non-confidential profiles, missing profile bindings
 and malformed measurements. The release supplies expected MRTD and RTMR0-2;
 the hardware profile supplies expected GPU and NVSwitch counts. These are
@@ -88,6 +92,10 @@ variant accepts only explicitly fake CPU/device evidence and returns
 false. It is not a replacement for a vendor verifier and must not be used for
 real inference. Release builds reject these bytes even if relabeled as TDX.
 There is no runtime fake switch or injectable appraiser in the public API.
+The container harness may carry the fake CPU bytes through the real shim's
+CoCo AA transport, which retains its `coco-aa` source/provider labels. That
+transport is accepted only by the tagged fake appraiser and only with the exact
+fake byte format; the release appraiser rejects it.
 
 CI runs both tagged and untagged race suites. It builds Linux release and fake
 CLI binaries, checks release symbols exclude the fake appraiser, and checks

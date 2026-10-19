@@ -22,7 +22,12 @@ func nibfakeAppraiseCPU(ctx context.Context, cpu protocol.CPU, p Policy, data [6
 	if ctx.Err() != nil {
 		return errors.New("fake verification cancelled")
 	}
-	if cpu.Source != "nibfake" || cpu.Provider != "nibfake-tdx-v1" || !bytes.Equal(cpu.Evidence, protocol.FakeTDXQuote(data, p.measurements, 0)) {
+	// The integration harness uses the real shim's CoCo AA byte transport.
+	// Its collector is nibfake-only; the payload must still be this exact fake
+	// format. No production TDX or opaque agent evidence is accepted here.
+	fakeSource := cpu.Source == "nibfake" && cpu.Provider == "nibfake-tdx-v1"
+	fakeTransport := cpu.Source == "coco-aa" && cpu.Provider == "coco-aa"
+	if (!fakeSource && !fakeTransport) || !bytes.Equal(cpu.Evidence, protocol.FakeTDXQuote(data, p.measurements, 0)) {
 		return errors.New("fake CPU transcript, measurements or attributes do not match")
 	}
 	return nil
