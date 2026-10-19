@@ -145,6 +145,36 @@ class QwenContainerTests(unittest.TestCase):
             self.assertEqual(summary["container_cleanup"]["result"], "fail")
             self.assertEqual(summary["container_cleanup"]["build_completion"], "unknown")
 
+    def test_nonterminal_exits_never_confirm_daemon_cleanup(self):
+        terminal = {"execution": "real-cpu-model", "confidential": False,
+                    "hardware_validated": False, "result": "fail",
+                    "runtime_platform": {"system": "Linux", "machine": "x86_64"}}
+        cases = [(stage, code, b"", True) for stage in ("build", "runtime") for code in (-9, -15, 0, 1, 125)]
+        cases += [("runtime", 125, json.dumps(terminal).encode(), True),
+                  ("runtime", 1, json.dumps(terminal).encode(), False)]
+        for stage, code, output, uncertain in cases:
+            with self.subTest(stage=stage, code=code, terminal=bool(output)), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                summary = {"result": "fail"}
+
+                def execute(args, **kwargs):
+                    if args[1] == "build" and stage != "build":
+                        Path(args[args.index("--iidfile") + 1]).write_text("sha256:" + "a" * 64)
+                        return subprocess.CompletedProcess(args, 0)
+                    return subprocess.CompletedProcess(args, code, output, b"")
+
+                with patch.object(container.snapshot, "local_docker_endpoint", return_value="unix:///local/docker.sock"), \
+                        patch.object(container.snapshot, "require_buildkit"), \
+                        patch.object(container, "build_context", return_value={"base_images": {
+                            "platform": "linux/amd64", "go_image": "go", "python_image": "python"}}), \
+                        patch.object(container.snapshot, "execute_process_group", side_effect=execute), \
+                        patch.object(container.e2e, "cleanup_resources", return_value={"result": "pass"}):
+                    container.run(root, summary, {"PATH": "/bin"}, root)
+                self.assertEqual(summary["result"], "fail")
+                self.assertEqual(summary["container_cleanup"]["result"], "fail" if uncertain else "pass")
+                if uncertain:
+                    self.assertEqual(summary["container_cleanup"][stage + "_completion"], "unknown")
+
     def test_timeout_kills_plugin_descendant_before_cleanup(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

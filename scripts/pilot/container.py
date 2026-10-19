@@ -99,24 +99,25 @@ def run(inputs, summary, env, home):
                             "--build-arg", "GO_IMAGE=" + bases["go_image"],
                             "--build-arg", "PYTHON_IMAGE=" + bases["python_image"], str(context)],
                            env=env, capture_output=False, timeout=1200)
-            build_finished = True
             built.check_returncode()
             identity = iid.read_text().strip()
             pilot.require(re.fullmatch(r"sha256:[0-9a-f]{64}", identity), "container-identity")
+            build_finished = True
             summary["container"]["image_id"] = identity
             summary["stage"] = "execute-container"
             runtime_started = True
             result = snapshot.execute_process_group(runtime_command(identity, name), env=env, timeout=600)
-            runtime_finished = True
             pilot.require(len(result.stdout) <= 65536, "container-report-size")
             report = json.loads(result.stdout)
             pilot.require(isinstance(report, dict) and report.get("execution") == "real-cpu-model"
                           and report.get("confidential") is False
                           and report.get("hardware_validated") is False
                           and report.get("result") in {"pass", "fail"}
+                          and result.returncode in {0, 1}
                           and (report["result"] == "pass") == (result.returncode == 0), "container-report")
             pilot.require(report.get("runtime_platform") == {"system": "Linux", "machine": "x86_64"},
                           "container-platform")
+            runtime_finished = True
             # Host-side input and isolation evidence cannot be replaced by child output.
             summary["runtime"] = report
             summary["result"] = report["result"]
