@@ -5,15 +5,17 @@ release. Joseph requested public hosting and TrustedRouter integration on
 2026-10-19. The service implementation is being validated locally; no public
 endpoint, cloud deployment or customer billing has been verified yet.
 
-The [recorded Linux run](../../evidence/p3/2026-10-19-qwen-service-linux-3/run.json)
+The [recorded Linux run](../../evidence/p3/2026-10-19-qwen-service-linux-4/run.json)
 passed all 18 service conformance checks, including Catalog v2, auth, streaming
 and integer usage. It signals the entire service after the first real content
 delta and requires the final finish reason, usage and `[DONE]` before exit.
-[Results](../../evidence/p3/2026-10-19-qwen-service-linux-3/output.log) confirm
+[Results](../../evidence/p3/2026-10-19-qwen-service-linux-4/output.log) confirm
 closed listeners and removal of the temporary container/image. It ran offline
 on local Docker using real model weights, not on a cloud VM.
-The shutdown proof rejects SSE errors, invalid finish reasons and malformed or
-missing usage even when a terminal `[DONE]` is present. TLS readiness retains
+The shutdown proof checks complete single-data-field UTF-8 LF/CRLF frames and
+requires finish, one usage chunk, then `[DONE]`. It rejects errors, truncation,
+unsupported wire formats, invalid finish reasons and malformed or missing usage.
+TLS readiness retains
 system CA roots for public fullchains; a real root/intermediate/leaf handshake
 regression checks both successful validation and wrong-hostname rejection.
 
