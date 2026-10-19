@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S scripts/record-engine-image.py --metadata-census --slug official-vllm-metadata-census",
+  "ended_utc": "2026-10-19T22:37:16Z",
+  "execution": "software",
+  "git_sha": "e753c351e8e5ec025c172fb3193b4d4268183923",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "local-software-diagnostic",
+    "provider": "local"
+  },
+  "notes": "Read-only software diagnostic, not ABI/hardware/confidential qualification. Metadata-only census does not evaluate admission; the run stays failed even if counting completes. Docker/OS/interpreter trusted. No pull, build, image deletion, engine import or application. Payload SHA-256: 6c4697b6e7a397efad1642f05e86e425a007df5c7cb7a33c3af621c7f8d56777",
+  "phase": "P0",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-19T22:37:02Z",
+  "task": "T4"
+}

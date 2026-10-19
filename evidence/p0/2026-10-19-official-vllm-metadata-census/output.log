@@ -1,0 +1,198 @@
+{
+  "abi_validated": false,
+  "candidate_status": "BLOCKED",
+  "cleanup": "confirmed",
+  "deployable": false,
+  "diagnostic": {
+    "abi_validated": false,
+    "candidate_status": "BLOCKED",
+    "collection": "pass",
+    "content_read": false,
+    "deployable": false,
+    "groups": {
+      "nvidia": {
+        "entries": 2900,
+        "largest_regular_bytes": 541607888,
+        "multiply_linked_regular_entries": 0,
+        "regular_bytes": 3221771788,
+        "regular_sizes": {
+          "empty": 0,
+          "gt_1g": 0,
+          "le_1g": 15,
+          "le_1m": 1188,
+          "le_4k": 1466,
+          "le_64m": 25
+        },
+        "types": {
+          "block": 0,
+          "character": 0,
+          "directory": 206,
+          "fifo": 0,
+          "other": 0,
+          "regular": 2694,
+          "socket": 0,
+          "symlink": 0
+        }
+      },
+      "other": {
+        "entries": 177150,
+        "largest_regular_bytes": 193177432,
+        "multiply_linked_regular_entries": 0,
+        "regular_bytes": 13218729713,
+        "regular_sizes": {
+          "empty": 43683,
+          "gt_1g": 0,
+          "le_1g": 11,
+          "le_1m": 83956,
+          "le_4k": 34260,
+          "le_64m": 832
+        },
+        "types": {
+          "block": 0,
+          "character": 0,
+          "directory": 14408,
+          "fifo": 0,
+          "other": 0,
+          "regular": 162742,
+          "socket": 0,
+          "symlink": 0
+        }
+      },
+      "torch": {
+        "entries": 15111,
+        "largest_regular_bytes": 469850385,
+        "multiply_linked_regular_entries": 0,
+        "regular_bytes": 1142279296,
+        "regular_sizes": {
+          "empty": 89,
+          "gt_1g": 0,
+          "le_1g": 2,
+          "le_1m": 4171,
+          "le_4k": 9870,
+          "le_64m": 12
+        },
+        "types": {
+          "block": 0,
+          "character": 0,
+          "directory": 967,
+          "fifo": 0,
+          "other": 0,
+          "regular": 14144,
+          "socket": 0,
+          "symlink": 0
+        }
+      },
+      "triton": {
+        "entries": 552,
+        "largest_regular_bytes": 460782192,
+        "multiply_linked_regular_entries": 0,
+        "regular_bytes": 721543538,
+        "regular_sizes": {
+          "empty": 5,
+          "gt_1g": 0,
+          "le_1g": 1,
+          "le_1m": 276,
+          "le_4k": 169,
+          "le_64m": 17
+        },
+        "types": {
+          "block": 0,
+          "character": 0,
+          "directory": 84,
+          "fifo": 0,
+          "other": 0,
+          "regular": 468,
+          "socket": 0,
+          "symlink": 0
+        }
+      },
+      "vllm": {
+        "entries": 9256,
+        "largest_regular_bytes": 307955360,
+        "multiply_linked_regular_entries": 0,
+        "regular_bytes": 872232113,
+        "regular_sizes": {
+          "empty": 121,
+          "gt_1g": 0,
+          "le_1g": 3,
+          "le_1m": 5733,
+          "le_4k": 2448,
+          "le_64m": 12
+        },
+        "types": {
+          "block": 0,
+          "character": 0,
+          "directory": 939,
+          "fifo": 0,
+          "other": 0,
+          "regular": 8317,
+          "socket": 0,
+          "symlink": 0
+        }
+      }
+    },
+    "hardware_validated": false,
+    "limits": {
+      "depth": 32,
+      "entries": 1000000,
+      "report_bytes": 16384,
+      "seconds": 120
+    },
+    "link_targets_read": false,
+    "max_depth": 15,
+    "overlay_admission": "not-evaluated",
+    "platform": "linux/amd64",
+    "python": "3.12.3",
+    "reason": null,
+    "schema": "nib.engine-image-census/v1",
+    "selected_root": "sysconfig-purelib",
+    "totals": {
+      "entries": 204969,
+      "largest_regular_bytes": 541607888,
+      "multiply_linked_regular_entries": 0,
+      "regular_bytes": 19176556448,
+      "regular_sizes": {
+        "empty": 43898,
+        "gt_1g": 0,
+        "le_1g": 32,
+        "le_1m": 95324,
+        "le_4k": 48213,
+        "le_64m": 898
+      },
+      "types": {
+        "block": 0,
+        "character": 0,
+        "directory": 16604,
+        "fifo": 0,
+        "other": 0,
+        "regular": 188365,
+        "socket": 0,
+        "symlink": 0
+      }
+    }
+  },
+  "hardware_validated": false,
+  "image": {
+    "binding": "local-manifest-reference-platform-and-diffids",
+    "daemon_os_interpreter_trusted": true,
+    "docker_reported_id": "sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "local_config_bytes_rehashed": false,
+    "local_layers_rehashed": false,
+    "manifest_sha256": "6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "platform": "linux/amd64",
+    "raw_config_link_verified": true,
+    "raw_config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d"
+  },
+  "provenance": {
+    "diagnostic_mode": "metadata-census",
+    "expected_config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d",
+    "git_sha": "e753c351e8e5ec025c172fb3193b4d4268183923",
+    "payload_sha256": "6c4697b6e7a397efad1642f05e86e425a007df5c7cb7a33c3af621c7f8d56777",
+    "raw_oci_metadata_verified": true,
+    "requested_image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "source_bundle_sha256": "5d60e8dadb3f25e42562ffe08335eede526b92d456dbca65875b9549432f986d",
+    "validator_source_sha256": "c18f7f7028758f683f01a67806cbe5db9d44f503c6f58357393329b01a243232"
+  },
+  "result": "fail",
+  "stage": "metadata-census-complete"
+}

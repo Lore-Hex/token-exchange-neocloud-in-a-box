@@ -16,6 +16,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-image-diagnostic"
+CENSUS_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-metadata-census"
 
 
 def source(name, relative):
@@ -135,6 +136,198 @@ class ImageTests(unittest.TestCase):
     def collect(self, others=()):
         with self.layout(others):
             return diagnostic.collect(overlay, self.contract)
+
+    def census(self):
+        with self.layout():
+            return diagnostic.collect(overlay, {**self.contract, "diagnostic_mode": "metadata-census"})
+
+    def empty_census_root(self):
+        root = self.work / "census"
+        root.mkdir()
+        self.paths.update(purelib=str(root), platlib=str(root))
+        return root
+
+    def test_census_never_reads_content_targets_or_opens_non_directories(self):
+        root = self.empty_census_root()
+        (root / "vllm").mkdir()
+        (root / "vllm/native.so").write_bytes(b"not native; never inspected")
+        (root / "sitecustomize.py").write_bytes(b"raise AssertionError('never execute')")
+        os.mkfifo(root / "SYNTHETIC_PRIVATE_FIFO")
+        (root / "SYNTHETIC_PRIVATE_LINK").symlink_to(self.root, target_is_directory=True)
+        os.link(root / "vllm/native.so", root / "hardlink")
+        original_open = os.open
+        def directory_only(path, flags, *args, **kwargs):
+            self.assertTrue(flags & os.O_DIRECTORY)
+            return original_open(path, flags, *args, **kwargs)
+        with mock.patch.object(overlay.Tree, "read", side_effect=AssertionError("no content")), \
+                mock.patch.object(overlay.Tree, "inventory", side_effect=AssertionError("no admission")), \
+                mock.patch.object(os, "readlink", side_effect=AssertionError("no link targets")), \
+                mock.patch.object(os, "open", side_effect=directory_only):
+            report = self.census()
+        self.assertEqual(report["collection"], "pass")
+        self.assertEqual(report["overlay_admission"], "not-evaluated")
+        self.assertEqual(report["totals"]["entries"], 6)
+        self.assertEqual(report["totals"]["types"], dict(regular=3, directory=1, symlink=1, fifo=1,
+                                                        socket=0, block=0, character=0, other=0))
+        self.assertEqual(report["totals"]["multiply_linked_regular_entries"], 2)
+        self.assertEqual(report["groups"]["vllm"]["entries"], 2)
+        self.assertNotIn("SYNTHETIC_PRIVATE", json.dumps(report))
+        self.assertNotIn(str(self.work), json.dumps(report))
+
+    def test_census_size_distribution_and_fixed_groups(self):
+        root = self.empty_census_root()
+        sizes = [0, 1, 4096, 4097, 1 << 20, (1 << 20) + 1, 64 << 20, (64 << 20) + 1,
+                 1 << 30, (1 << 30) + 1]
+        for index, size in enumerate(sizes):
+            path = root / str(index)
+            path.touch()
+            os.truncate(path, size)  # Sparse fixture: no large data allocation/read.
+        report = self.census()
+        self.assertEqual(report["totals"]["regular_bytes"], sum(sizes))
+        self.assertEqual(report["totals"]["largest_regular_bytes"], max(sizes))
+        self.assertEqual(report["totals"]["regular_sizes"],
+                         dict(empty=1, le_4k=2, le_1m=2, le_64m=2, le_1g=2, gt_1g=1))
+        self.assertEqual(report["groups"]["other"], report["totals"])
+        self.assertEqual(set(report["groups"]), {"vllm", "torch", "nvidia", "triton", "other"})
+
+    def test_census_limits_are_partial_and_do_not_change_admission(self):
+        root = self.empty_census_root()
+        for index in range(3):
+            (root / str(index)).write_bytes(b"x")
+        self.assertEqual(overlay.MAX_FILES, 100000)
+        self.assertEqual(diagnostic.CENSUS_LIMITS["entries"], 1000000)
+        with mock.patch.dict(diagnostic.CENSUS_LIMITS, entries=2):
+            report = self.census()
+            self.assertEqual((report["collection"], report["reason"], report["totals"]["entries"]),
+                             ("partial", "entry-limit", 2))
+        with mock.patch.object(overlay, "MAX_FILES", 2):
+            self.assertEqual(self.census()["collection"], "pass")
+            with overlay.directory(root) as fd, self.assertRaises(overlay.InventoryRejected):
+                overlay.Tree(fd).inventory()
+        with mock.patch.dict(diagnostic.CENSUS_LIMITS, seconds=0):
+            report = self.census()
+        self.assertEqual((report["collection"], report["reason"]), ("partial", "time-limit"))
+        with mock.patch.object(diagnostic, "CENSUS_FILE", 0):
+            report = self.census()
+        self.assertEqual((report["collection"], report["reason"]), ("partial", "size-limit"))
+
+    def test_census_depth_bound_and_empty_root(self):
+        root = self.empty_census_root()
+        self.assertEqual(self.census()["totals"]["entries"], 0)
+        (root / "a/b/c").mkdir(parents=True)
+        with mock.patch.dict(diagnostic.CENSUS_LIMITS, depth=2):
+            report = self.census()
+        self.assertEqual((report["collection"], report["reason"], report["max_depth"]),
+                         ("partial", "depth-limit", 2))
+        self.assertEqual(report["totals"]["entries"], 2)
+
+    def test_census_metadata_errors_retain_counts_without_exception_or_name(self):
+        root = self.empty_census_root()
+        (root / "SYNTHETIC_PRIVATE_DIRECTORY").mkdir()
+        original_scan = os.scandir
+        scans = 0
+        def interrupted(fd):
+            nonlocal scans
+            scans += 1
+            if scans == 2:
+                raise PermissionError("SYNTHETIC_PRIVATE_EXCEPTION")
+            return original_scan(fd)
+        with mock.patch.object(os, "scandir", side_effect=interrupted):
+            report = self.census()
+        self.assertEqual(report["reason"], "metadata-rejected")
+        self.assertEqual(report["collection"], "partial")
+        self.assertEqual(report["totals"]["entries"], 1)
+        self.assertNotIn("SYNTHETIC_PRIVATE", json.dumps(report))
+        (root / "bad\nSYNTHETIC_PRIVATE_NAME").touch()
+        report = self.census()
+        self.assertEqual(report["reason"], "unsafe-name")
+        self.assertNotIn("SYNTHETIC_PRIVATE", json.dumps(report))
+
+    def test_census_directory_swap_never_follows_link(self):
+        root = self.empty_census_root()
+        (root / "vllm").mkdir()
+        original_open = os.open
+        def swap(path, flags, *args, **kwargs):
+            if path == "vllm":
+                (root / "vllm").rename(root / "old")
+                (root / "vllm").symlink_to(self.root, target_is_directory=True)
+            return original_open(path, flags, *args, **kwargs)
+        with mock.patch.object(os, "open", side_effect=swap):
+            report = self.census()
+        self.assertEqual((report["collection"], report["reason"]), ("partial", "metadata-rejected"))
+        self.assertEqual(report["totals"]["entries"], 1)
+
+    def test_census_detects_replaced_directory_and_changing_file_metadata(self):
+        root = self.empty_census_root()
+        (root / "vllm").mkdir()
+        original_open = os.open
+        def replace(path, flags, *args, **kwargs):
+            if path == "vllm":
+                (root / "vllm").rename(root / "old")
+                (root / "vllm").mkdir()
+            return original_open(path, flags, *args, **kwargs)
+        with mock.patch.object(os, "open", side_effect=replace):
+            report = self.census()
+        self.assertEqual((report["collection"], report["reason"]), ("partial", "directory-changed"))
+        (root / "file").write_bytes(b"old")
+        original_stat = os.stat
+        def change(path, *args, **kwargs):
+            if path == "file" and "dir_fd" in kwargs:
+                (root / "file").write_bytes(b"changed")
+            return original_stat(path, *args, **kwargs)
+        with mock.patch.object(os, "stat", side_effect=change):
+            report = self.census()
+        self.assertEqual((report["collection"], report["reason"]), ("partial", "metadata-rejected"))
+
+    def test_census_ambiguous_or_symlinked_root_is_rejected(self):
+        root = self.empty_census_root()
+        self.paths["platlib"] = str(self.root)
+        self.assertEqual(self.census()["reason"], "root-selection")
+        root.rmdir()
+        root.symlink_to(self.root, target_is_directory=True)
+        self.paths["platlib"] = str(root)
+        report = self.census()
+        self.assertEqual(report["reason"], "metadata-rejected")
+        self.assertEqual(report["totals"]["entries"], 0)
+
+    def test_census_report_rejects_tamper_and_cross_mode_reports(self):
+        report = self.census()
+        contract = {**self.contract, "diagnostic_mode": "metadata-census"}
+        mutations = [("overlay_admission", "accepted"), ("deployable", True), ("content_read", 0),
+                     ("reason", "SYNTHETIC_PRIVATE"), ("collection", "partial"), ("max_depth", 33),
+                     ("selected_root", str(self.root)), ("path", "SYNTHETIC_PRIVATE"),
+                     ("limits", {**report["limits"], "entries": 999999999})]
+        for key, value in mutations:
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                diagnostic.validate_report(overlay, {**report, key: value}, contract)
+        for field in ("entries", "regular_bytes", "largest_regular_bytes", "multiply_linked_regular_entries"):
+            broken = copy.deepcopy(report)
+            broken["totals"][field] += 1
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                diagnostic.validate_report(overlay, broken, contract)
+        with self.assertRaises(ValueError):
+            diagnostic.validate_report(overlay, report, self.contract)
+        with self.assertRaises(ValueError):
+            diagnostic.validate_report(overlay, self.collect(), contract)
+
+    def test_census_lifecycle_never_passes_admission_and_preserves_cleanup(self):
+        contract = {**self.contract, "diagnostic_mode": "metadata-census"}
+        for partial in (False, True):
+            child = self.census()
+            if partial:
+                child.update(collection="partial", reason="entry-limit")
+            for fault in (None, "network", "run-timeout", "still-present", "bad-result"):
+                with self.subTest(partial=partial, fault=fault):
+                    fake = FakeDocker(self.image, child, fault)
+                    report = recorder.run_container(self.payload, contract, self.config, {}, fake)
+                    self.assertEqual(report["result"], "fail")
+                    if fault is None:
+                        self.assertEqual(report["stage"], "metadata-census-partial" if partial else "metadata-census-complete")
+                        self.assertEqual(report["cleanup"], "confirmed")
+                        self.assertEqual(report["diagnostic"], child)
+                    if fault == "network":
+                        self.assertFalse(fake.started)
+                    self.assertNotIn("SYNTHETIC_PRIVATE", json.dumps(report))
 
     def test_read_only_collection_preserves_admission_and_files(self):
         with overlay.directory(self.root) as fd:
@@ -404,6 +597,12 @@ class ImageTests(unittest.TestCase):
         git("add", ".")
         git("commit", "-qm", "synthetic diagnostic source")
         result = recorder.inputs(repo)
+        for mode in ("integrity", "metadata-census"):
+            files, contract = recorder.payload_files(*result, mode=mode)
+            self.assertEqual(contract["diagnostic_mode"], mode)
+            self.assertEqual(overlay.load_json(files["contract.json"]), contract)
+            self.assertEqual(files["engine_image_diagnostic.py"], extra[recorder.DIAGNOSTIC])
+            self.assertEqual(contract["payload_sources"]["engine_image_diagnostic.py"], recorder.DIAGNOSTIC_SHA)
         (repo / recorder.PROBE).write_bytes(b"uncommitted source must not be used")
         (repo / "scripts/ignored.pyc").write_bytes(b"ignored bytecode must not execute")
         self.assertEqual(recorder.inputs(repo), result)
@@ -461,18 +660,24 @@ class ImageTests(unittest.TestCase):
         env = recorder.offline_environment(self.work / "control")
         binary, source_hash = recorder.build_validator(ROOT, revision, self.work, env)
         self.assertRegex(source_hash, r"^[0-9a-f]{64}$")
-        recorded = self.work / "recorded/evidence/p0/official-image"
-        recorded.mkdir(parents=True)
-        (recorded / "run.json").write_bytes((RECORDED / "run.json").read_bytes())
+        for index, source_directory in enumerate((RECORDED, CENSUS_RECORDED)):
+            recorded = self.work / "recorded/evidence/p0" / ("official-image-" + str(index))
+            recorded.mkdir(parents=True)
+            (recorded / "run.json").write_bytes(recorder.prep.read_source(source_directory / "run.json"))
         recorder.call([str(binary), "lint", str(self.work / "recorded")], env, timeout=20)
-        for result in ("pass", "fail"):
-            work = self.work / result
+        for result, mode in (("pass", "integrity"), ("fail", "integrity"), ("fail", "metadata-census")):
+            work = self.work / (result + "-" + mode)
             work.mkdir()
             report = {"result": result, "provenance": {"payload_sha256": "a" * 64}}
-            record = recorder.evidence_record(revision, "fixture", recorder.now(), report)
+            record = recorder.evidence_record(revision, "fixture", recorder.now(), report, mode=mode)
             destination = work / "published"
             recorder.publish_evidence(record, report, binary, work, destination, env)
             self.assertEqual(json.loads((destination / "run.json").read_bytes())["execution"], "software")
+            if mode == "metadata-census":
+                self.assertIn("--metadata-census --slug fixture", record["command"])
+                self.assertIn("does not evaluate admission", record["notes"])
+        with self.assertRaises(ValueError):
+            recorder.evidence_record(revision, "fixture", recorder.now(), {**report, "result": "pass"}, mode="metadata-census")
         rejected = self.work / "rejected"
         rejected.mkdir()
         record["hardware_validated"] = True
@@ -521,6 +726,44 @@ class ImageTests(unittest.TestCase):
         self.assertFalse(run["hardware_validated"])
         self.assertEqual(report["cleanup"], "confirmed")
         self.assertEqual(report["diagnostic"]["inventory_failure"], {"reason": "entry-limit", "path": None})
+        self.assertEqual(overlay.MAX_FILES, 100000)
+
+    def test_recorded_census_preserves_measurements_without_qualification(self):
+        hashes = {"run.json": "1abb42f1746bcddc0e7e70de128b6684cbc9b2994717d8b777ffe9922f02bd66",
+                  "output.log": "006235bf2a5ce571a307efc942b33978f4ef79ab4be91d88db1824470e8f0fd0"}
+        files = {}
+        for name, digest in hashes.items():
+            data = recorder.prep.read_source(CENSUS_RECORDED / name)
+            self.assertLessEqual(len(data), 16384)
+            self.assertEqual(overlay.digest(data), digest)
+            files[name] = overlay.load_json(data)
+        run, report = files["run.json"], files["output.log"]
+        child, provenance = report["diagnostic"], report["provenance"]
+        diagnostic.validate_report(overlay, child, {**self.contract, "diagnostic_mode": "metadata-census"})
+        self.assertEqual(run["git_sha"], "e753c351e8e5ec025c172fb3193b4d4268183923")
+        self.assertEqual(provenance["git_sha"], run["git_sha"])
+        self.assertEqual(provenance["payload_sha256"], "6c4697b6e7a397efad1642f05e86e425a007df5c7cb7a33c3af621c7f8d56777")
+        self.assertEqual(provenance["source_bundle_sha256"], "5d60e8dadb3f25e42562ffe08335eede526b92d456dbca65875b9549432f986d")
+        self.assertEqual(provenance["diagnostic_mode"], "metadata-census")
+        self.assertEqual(run["execution"], "software")
+        self.assertFalse(run["hardware_validated"])
+        self.assertEqual(run["result"], report["result"])
+        self.assertEqual(report["result"], "fail")
+        self.assertEqual(report["cleanup"], "confirmed")
+        self.assertEqual(report["stage"], "metadata-census-complete")
+        self.assertEqual(child["collection"], "pass")
+        self.assertEqual(child["overlay_admission"], "not-evaluated")
+        for item in (child, report):
+            self.assertEqual(item["candidate_status"], "BLOCKED")
+            self.assertTrue(all(item[key] is False for key in ("deployable", "abi_validated", "hardware_validated")))
+        self.assertEqual(child["totals"], {
+            "entries": 204969, "regular_bytes": 19176556448, "largest_regular_bytes": 541607888,
+            "multiply_linked_regular_entries": 0,
+            "types": dict(regular=188365, directory=16604, symlink=0, fifo=0, socket=0, block=0, character=0, other=0),
+            "regular_sizes": dict(empty=43898, le_4k=48213, le_1m=95324, le_64m=898, le_1g=32, gt_1g=0)})
+        self.assertEqual(child["max_depth"], 15)
+        self.assertFalse(child["content_read"])
+        self.assertFalse(child["link_targets_read"])
         self.assertEqual(overlay.MAX_FILES, 100000)
 
     def test_validator_toolchain_resolution_is_cache_only_and_exact(self):

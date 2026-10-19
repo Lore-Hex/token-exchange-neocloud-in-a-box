@@ -47,8 +47,97 @@ The [unchanged output](../../evidence/p0/2026-10-19-official-vllm-inventory-reje
 retains `result:fail`, partial collection and confirmed cleanup. All 13 source
 expectations still match. Its payload SHA-256 is
 `c7e3be375e2220e56b373100242d9731523b7f0635889823ea00e88fd9a0ba25`.
-No admission limit was increased. A bounded metadata census and a separately
-reviewed image-specific budget are follow-up work, not implicit exceptions.
+No admission limit was increased. The separate metadata-only census below now
+records the selected root's counts and logical sizes. An image-specific admission
+budget still requires a separate reviewed change, not an implicit exception.
+
+## Metadata-Only Census
+
+### Recorded Counts
+
+The [census run](../../evidence/p0/2026-10-19-official-vllm-metadata-census/run.json)
+from source `e753c351e8e5ec025c172fb3193b4d4268183923` on 2026-10-19,
+22:37:02 to 22:37:16 UTC, completed counting with `collection:pass` and
+`cleanup:confirmed`. The [unchanged output](../../evidence/p0/2026-10-19-official-vllm-metadata-census/output.log)
+retains `overlay_admission:not-evaluated`, `result:fail` and
+`stage:metadata-census-complete`; exit 1 is intentional, not failed counting.
+Its source-bound payload SHA-256 is
+`6c4697b6e7a397efad1642f05e86e425a007df5c7cb7a33c3af621c7f8d56777`.
+
+| Selected-root measurement | Observed value |
+|---|---:|
+| Entries, excluding the root itself | 204,969 |
+| Regular-file entries | 188,365 |
+| Directories | 16,604 |
+| Total logical regular-file bytes | 19,176,556,448 |
+| Largest regular-file bytes | 541,607,888 |
+| Maximum entry depth | 15 |
+| Symlink, multiply-linked regular and special-file entries | 0 each |
+
+These are metadata observations for the selected package root, not the whole
+image or a verified dependency inventory. No contents or link targets were read.
+Raw OCI linkage and local Docker metadata association were checked as described
+below; local layer/config storage was not independently rehashed. The owned
+container's absence was confirmed and the cached image retained.
+
+The census establishes a count above the existing 100,000-entry admission limit,
+but does not change that limit or validate entries. Wheel/RECORD consistency,
+native contents, startup hooks and alternate-root admission remain unresolved;
+the prior diagnostic's rejections are not overridden. No overlay application,
+engine import, model inference, GPU, ABI, attestation or confidentiality
+qualification occurred. Candidate status remains `BLOCKED`, `deployable:false`,
+`image:null`.
+
+### Mode And Limits
+
+After independent review of the committed source and separate run approval:
+
+```sh
+python3 -I -S scripts/record-engine-image.py --metadata-census --slug engine-metadata-census
+```
+
+This explicit mode uses the same pinned image, raw OCI linkage, committed-source
+payload, offline schema validator, isolation, private no-overwrite publication
+and owned-container cleanup as the integrity diagnostic. There is no alternate
+image, root-path argument or budget override. The mode is included in the hashed
+payload contract and recorded command/provenance. It does not run wheel/RECORD
+validation, source hashing or hook-content collection inside the image.
+
+The image's isolated Python interpreter must report matching `purelib` and
+`platlib` roots. Only that selected root is walked, anchored with the existing
+no-follow directory/Tree helpers. Ancestors and child directories are opened
+without following links; non-directory entries are only statted with
+`follow_symlinks=False`. Directory identities are checked across traversal,
+device boundaries are rejected, and no file contents or link targets are read.
+The image interpreter and daemon remain trusted; this is not a filesystem
+snapshot, signature verification or hostile-OS proof.
+
+The fixed diagnostic budget is **1,000,000 entries, depth 32, 120 seconds and
+16 KiB child JSON**. Time checks occur between metadata operations; the existing
+600-second container supervisor bounds stalled operations. Counters use finite
+1 PiB/file and 1 EiB aggregate logical-byte ceilings. These are census safety
+bounds, not permission to accept files of those sizes. The ordinary inspector's
+100,000 entries, 32 GiB total, 4 GiB/file and all other admission rules are
+unchanged. No bytes are read to compute the census size totals.
+
+The bounded report contains entry-type counts, logical regular-file bytes,
+largest regular-file size, multiply-linked regular-entry count, maximum observed
+entry depth and six fixed size buckets. The root itself is excluded from entry
+counts. Hard-linked regular files are counted once per directory entry, not
+deduplicated; sparse-file sizes are logical, not allocated disk bytes. Fixed
+groups `vllm`, `torch`, `nvidia` and `triton` aggregate entries under exactly
+those top-level names; everything else falls into `other`. They are not verified
+package identities or a dependency inventory. No observed file names, paths,
+link targets, environment values or raw exceptions are published in this mode.
+
+On a limit, race or metadata error, preceding counters survive as
+`collection:partial` with a fixed reason. They are incomplete observations, not
+complete totals; entries counted before an error can be included, and traversal
+order is unspecified. A complete traversal reports `collection:pass` only for
+counting. In **both** cases, `overlay_admission:not-evaluated`, `result:fail`
+and recorder exit 1 are intentional: counting can never grant admission.
+Candidate status remains `BLOCKED`; deployment, ABI and hardware validation are
+false. The recorded counts above do not authorize a revised inventory budget.
 
 ## Fixed Inputs And Identity
 
@@ -195,3 +284,11 @@ responses, the preserved diagnostic artifact and authoritative schema validation
 contracts. They never pull, build, start or modify an actual image. The artifact
 regression validates the recorded failure; it does not repeat the diagnostic.
 The PR28 acceptance regressions remain enabled.
+Metadata-census regressions exercise real sparse files, hard links, symlinks,
+FIFOs, no-content/no-link-target reads, root ambiguity, directory replacement,
+partial limits/errors, counter/report tampering, source-bound mode selection,
+fake Docker cleanup and authoritative evidence schema validation. They do not
+execute the image or relax the original inspector.
+The recorded census regression checks the unchanged artifact hashes, child
+contract, source/payload references, exact totals, intentional qualification
+failure and schema validity without repeating the image run.
