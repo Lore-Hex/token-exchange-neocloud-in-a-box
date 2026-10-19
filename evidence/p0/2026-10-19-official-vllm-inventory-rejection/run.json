@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S scripts/record-engine-image.py --slug official-vllm-inventory-rejection",
+  "ended_utc": "2026-10-19T22:23:09Z",
+  "execution": "software",
+  "git_sha": "4f97ef0b9116571620706c9080f40986c9624baa",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "local-software-diagnostic",
+    "provider": "local"
+  },
+  "notes": "Read-only software diagnostic, not ABI/hardware/confidential qualification. Overlay rejection is a failed run even when collection completes. Docker/OS/interpreter trusted. No pull, build, image deletion, engine import or application. Payload SHA-256: c7e3be375e2220e56b373100242d9731523b7f0635889823ea00e88fd9a0ba25",
+  "phase": "P0",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-19T22:22:29Z",
+  "task": "T4"
+}

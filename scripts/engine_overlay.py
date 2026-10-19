@@ -33,6 +33,23 @@ MAX_BYTES = 32 << 30
 MAX_FILE = 4 << 30
 MAX_SMALL = 2 << 20
 MAX_CONTEXT = 8 << 20
+INVENTORY_REASONS = frozenset({"depth-limit", "entry-limit", "time-limit", "unsafe-name",
+    "symlink", "non-regular-file", "hardlink", "file-size-limit", "total-size-limit",
+    "native-header", "python-abi", "entry-read-rejected"})
+
+
+class InventoryRejected(ValueError):
+    """Bounded public-image diagnostic context; never include exception text."""
+
+    def __init__(self, reason, path=None):
+        super().__init__("offline inventory rejected")
+        self.reason = reason
+        self.path = path
+
+
+def inventory_require(condition, reason, path=None):
+    if not condition:
+        raise InventoryRejected(reason, path)
 
 
 def require(condition):
@@ -179,13 +196,18 @@ class Tree:
         result, total, visited = {}, 0, 0
         def walk(fd, prefix, depth):
             nonlocal total, visited
-            require(depth <= 32)
+            inventory_require(depth <= 32, "depth-limit")
             with os.scandir(fd) as entries:
                 for entry in entries:
                     visited += 1
-                    require(visited <= MAX_FILES and time.monotonic() < self.deadline)
+                    inventory_require(visited <= MAX_FILES, "entry-limit")
+                    inventory_require(time.monotonic() < self.deadline, "time-limit")
                     name = prefix + entry.name
-                    safe_name(name)
+                    try:
+                        safe_name(name)
+                    except ValueError:
+                        raise InventoryRejected("unsafe-name") from None
+                    diagnostic_name = name if len(name) <= 512 else None
                     info = entry.stat(follow_symlinks=False)
                     if stat.S_ISDIR(info.st_mode):
                         child = os.open(entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
@@ -194,16 +216,24 @@ class Tree:
                         finally:
                             os.close(child)
                     else:
-                        item = self.read(name, retain=False)
+                        inventory_require(not stat.S_ISLNK(info.st_mode), "symlink", diagnostic_name)
+                        inventory_require(stat.S_ISREG(info.st_mode), "non-regular-file", diagnostic_name)
+                        inventory_require(info.st_nlink == 1, "hardlink", diagnostic_name)
+                        inventory_require(info.st_size <= MAX_FILE, "file-size-limit", diagnostic_name)
+                        try:
+                            item = self.read(name, retain=False)
+                        except (OSError, ValueError):
+                            raise InventoryRejected("entry-read-rejected", diagnostic_name) from None
                         total += item["bytes"]
-                        require(total <= MAX_BYTES)
+                        inventory_require(total <= MAX_BYTES, "total-size-limit", diagnostic_name)
                         if re.search(r"\.so(?:\.|$)", entry.name):
                             header = item["header"]
-                            require(len(header) == 64 and header[:6] == b"\x7fELF\x02\x01"
+                            inventory_require(len(header) == 64 and header[:6] == b"\x7fELF\x02\x01"
                                     and int.from_bytes(header[16:18], "little") == 3
-                                    and int.from_bytes(header[18:20], "little") == 62)
+                                    and int.from_bytes(header[18:20], "little") == 62,
+                                    "native-header", diagnostic_name)
                             match = re.search(r"\.cpython-([0-9]+)-", entry.name)
-                            require(match is None or match[1] == "312")
+                            inventory_require(match is None or match[1] == "312", "python-abi", diagnostic_name)
                         del item["header"]
                         result[name] = item
         walk(self.fd, "", 0)
