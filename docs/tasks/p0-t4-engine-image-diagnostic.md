@@ -34,6 +34,22 @@ was produced from source `694394cfe631ab6d09cd5695087a70351f203fae` on
   image was retained. No GPU, model inference, ABI validation, attestation or
   confidential-runtime validation occurred.
 
+### Inventory Rejection Identified
+
+The [second recorded run](../../evidence/p0/2026-10-19-official-vllm-inventory-rejection/run.json),
+from source `4f97ef0b9116571620706c9080f40986c9624baa` on 2026-10-19,
+22:22:29 to 22:23:09 UTC, identifies the inventory rejection as `entry-limit`.
+The pinned image exceeds the inspector's 100,000-entry bound. This does not
+establish the complete count, total bytes or validity of entries beyond that
+bound. Root admission still rejects the hooks and alternate package root.
+
+The [unchanged output](../../evidence/p0/2026-10-19-official-vllm-inventory-rejection/output.log)
+retains `result:fail`, partial collection and confirmed cleanup. All 13 source
+expectations still match. Its payload SHA-256 is
+`c7e3be375e2220e56b373100242d9731523b7f0635889823ea00e88fd9a0ba25`.
+No admission limit was increased. A bounded metadata census and a separately
+reviewed image-specific budget are follow-up work, not implicit exceptions.
+
 ## Fixed Inputs And Identity
 
 The only supported image is the existing

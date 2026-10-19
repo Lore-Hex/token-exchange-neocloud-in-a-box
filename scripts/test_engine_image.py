@@ -505,6 +505,24 @@ class ImageTests(unittest.TestCase):
         self.assertEqual(sum(item["status"] == "absent" for item in sources), 1)
         self.assertTrue(all(item["matches_base"] for item in sources))
 
+    def test_recorded_entry_limit_failure_is_preserved(self):
+        directory = ROOT / "evidence/p0/2026-10-19-official-vllm-inventory-rejection"
+        hashes = {"run.json": "b0d2f1c6f02f85d58be9535f49dd806741f897d2f31d98118238493cb92e0c6a",
+                  "output.log": "67c3b93d733ffc8ef9769c32f8b63f08cc99bf2e8d02b443cb9d91abc9f50b64"}
+        for name, digest in hashes.items():
+            self.assertEqual(overlay.digest((directory / name).read_bytes()), digest)
+        run = overlay.load_json((directory / "run.json").read_bytes())
+        report = overlay.load_json((directory / "output.log").read_bytes())
+        diagnostic.validate_report(overlay, report["diagnostic"], self.contract)
+        self.assertEqual(run["git_sha"], "4f97ef0b9116571620706c9080f40986c9624baa")
+        self.assertEqual(report["provenance"]["git_sha"], run["git_sha"])
+        self.assertEqual(run["result"], report["result"])
+        self.assertEqual(run["result"], "fail")
+        self.assertFalse(run["hardware_validated"])
+        self.assertEqual(report["cleanup"], "confirmed")
+        self.assertEqual(report["diagnostic"]["inventory_failure"], {"reason": "entry-limit", "path": None})
+        self.assertEqual(overlay.MAX_FILES, 100000)
+
     def test_validator_toolchain_resolution_is_cache_only_and_exact(self):
         env = recorder.offline_environment(self.work / "control")
         info = {"GOVERSION": "go1.24.2", "GOHOSTOS": "darwin", "GOHOSTARCH": "arm64",
