@@ -652,6 +652,13 @@ smokes in tolerance, benchmarks committed, packs final.
 
 ### P3: Confidential pipeline on GCP (1×H100, TDX, small model)
 
+**2026-10-19 scope update:** Joseph requested a smaller Qwen first and complete
+project separation from TrustedRouter. [P3.T7](docs/operators/qwen-pilot.md) is a
+local real-model API-plumbing pilot that can run before cloud/GPU gates. It uses
+no fake engine and makes no confidential claim; see [D8](docs/decisions/0008-small-qwen-pilot.md).
+Subsequent cloud work must use a dedicated Hixtube project, never production
+`quill-cloud-proxy`. The confidentiality and listing gates below remain intact.
+
 GCP's confidential GPU VMs have one GPU (`a3-highgpu-1g`: 1×H100 80GB on
 TDX; Spot or flex-start; zones us-central1-a, us-east5-a, europe-west4-c). Our
 two models do not fit, so this phase proves **the pipeline**: our image, real
@@ -659,6 +666,12 @@ TDX quotes, real GPU CC evidence, `trcs`, `nib verify` and TR's verifier
 (P4). It uses a small pinned model chosen in T3.
 
 Gates: G-GCP-QUOTA (1× H100 Spot), G-NGC, G-RUN.
+
+- **T7. Local real-model pilot (run first).** Pinned Qwen3-0.6B Q8_0, CPU inference through
+  standard-TLS `trcs`, provider-check Tiers 1-4, API-key rejection, token usage,
+  streaming, upstream failure, process cleanup, committed-source evidence.
+  This is not a GPU, image measurement, attestation or billing test. It changes
+  neither the release verifier nor the production engine.
 
 - **T1. Guest image v0** (`image/`, mkosi).
   - Ubuntu 24.04 TDX guest kernel with configfs-tsm.

@@ -18,6 +18,9 @@ Our first provider is **Hixtube** (`hixtube`), using `hixtube.com`. This is
 the operator's identity, not a rename of the reusable Apache-2.0 toolkit.
 The [Hixtube launch checklist](docs/operators/hixtube.md) separates domain setup
 from an actually serving, independently verified confidential node.
+The first functional pilot uses [small Qwen](docs/operators/qwen-pilot.md) locally;
+its eventual cloud deployment is confined to the separate `hixtube-neocloud`
+project, not TrustedRouter production. See the [cloud preflight](docs/operators/hixtube-isolated-cloud.md).
 
 ## Status
 
@@ -30,6 +33,7 @@ Pre-alpha. **Nothing in this repository has run on confidential hardware yet.**
 | Model packs (pinned revisions and checksums) | source-audited drafts; not deployable confidential profiles ([model packs](models/README.md)) |
 | Guest services | implemented with release-deny behavior and tagged fake tests ([guest services](guest/README.md)) |
 | GPU-free end-to-end node | tested against fakes from a committed snapshot with merged, pinned trcs; final review and P1 CI acceptance pending ([evidence](evidence/p1/2026-10-19-combined-node-v4/run.json), [results](evidence/p1/2026-10-19-combined-node-v4/result.json)) |
+| Local real-model provider pilot | Qwen3-0.6B CPU inference through standard TLS: 17 conformance checks, auth, usage, upstream failure and cleanup pass; not public or confidential ([evidence](evidence/p3/2026-10-19-qwen-local-3/run.json)) |
 | Model bring-up and benchmarks, non-confidential | not started (P2) |
 | Confidential pipeline on a 1-GPU TDX VM | not started (P3) |
 | TrustedRouter generic verifier | not started (P4) |

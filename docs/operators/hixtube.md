@@ -8,10 +8,12 @@ using this brand or domain.
 |---|---|
 | Provider display name | Hixtube |
 | Provider slug | `hixtube` |
+| Dedicated GCP project | `hixtube-neocloud` (active, billing disabled; no serving node) |
 | Public site | `hixtube.com` |
 | First-node API base | `https://api.hixtube.com/v1` (planned, not live) |
-| First model | `deepseek/deepseek-v4.1-flash-1017` |
-| Native first-model ID | `deepseek-v4.1-flash-1017` |
+| First pilot | `qwen/qwen3-0.6b`, local real CPU inference, not listed |
+| First large production target | `deepseek/deepseek-v4.1-flash-1017` |
+| Native large-model ID | `deepseek-v4.1-flash-1017` |
 | Second model | `z-ai/glm-5.3`, on a separately validated node |
 | Current launch status | Not listed; no validated confidential inference node |
 
@@ -19,6 +21,24 @@ The API and site have different trust requirements. The site can serve public
 documentation and a catalog; it must not receive inference requests. The API
 must terminate TLS **inside the attested confidential VM**. A DNS record, ordinary
 web certificate, or successful health check is not evidence of that property.
+
+Joseph's 2026-10-19 update prioritizes a [small real Qwen pilot](qwen-pilot.md)
+before renting the large-model node. Hixtube must have its own cloud project,
+service accounts, credentials, network and resources. Sharing the Apache-2.0
+toolkit is fine; sharing TrustedRouter production infrastructure is not.
+
+The [source-bound real Qwen run](../../evidence/p3/2026-10-19-qwen-local-3/run.json)
+passed [17 provider checks](../../evidence/p3/2026-10-19-qwen-local-3/output.log),
+authenticated generation, token accounting, backend-failure propagation and
+cleanup. It was local CPU inference, not a public service or attestation proof.
+The [initial invalid recorder envelope](../../evidence/p3/2026-10-19-qwen-local-1/README.md)
+is retained as diagnostic history, not accepted evidence.
+The second run predates independent-review hardening of the recorder bootstrap;
+the third uses isolated Python, source-only helper loading and bootstrap matching.
+
+The [isolated-cloud preflight](hixtube-isolated-cloud.md) covers dedicated
+identities, networking, secrets, billing boundaries and a bounded CPU TDX
+experiment before the H100 test. It does not authorize a paid cloud run.
 
 ## Check the domain
 
