@@ -1,0 +1,152 @@
+Subject: [BLOCKED CANDIDATE] Local strict selection and unconditional staged-buffer ordering
+
+Modified by the neocloud-in-a-box project; see NOTICE and candidate.json.
+Apache-2.0; upstream copyrights retained. Not a runtime qualification.
+
+diff --git a/vllm/envs.py b/vllm/envs.py
+--- a/vllm/envs.py
++++ b/vllm/envs.py
+@@ -1910,9 +1910,9 @@
+     "VLLM_RAISE_ON_LOGIT_NANS": lambda: bool(
+         int(os.getenv("VLLM_RAISE_ON_LOGIT_NANS", "0"))
+     ),
+-    # Override NVIDIA Confidential Computing detection. Unset (default)
+-    # auto-detects via NVML; "1" forces it on, "0" forces it off. Gates the
+-    # Confidential Computing copy paths (see vllm.v1.conf_compute_utils).
++    # Candidate copy-path selection, not attestation. Only "1" is a supported
++    # override; unset requires qualified legacy NVML detection. Errors and
++    # unqualified states abort instead of enabling UVA. No runtime admission.
+     "VLLM_CONFIDENTIAL_COMPUTE": lambda: os.getenv("VLLM_CONFIDENTIAL_COMPUTE"),
+     # Timeout (in seconds) for MooncakeConnector in PD disaggregated setup.
+     "VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT": lambda: int(
+diff --git a/vllm/platforms/cuda.py b/vllm/platforms/cuda.py
+--- a/vllm/platforms/cuda.py
++++ b/vllm/platforms/cuda.py
+@@ -209,39 +209,35 @@
+ @with_nvml_context
+ def _nvml_confidential_compute_enabled() -> bool:
+     state = pynvml.nvmlSystemGetConfComputeState()
+-    # ccFeature != 0 means Confidential Computing is enabled (ON or devtools).
+-    return int(getattr(state, "ccFeature", 0)) != 0
++    # This legacy field can select a copy implementation, never attest a GPU.
++    # Zero cannot establish non-CC: multiGpuMode is not qualified here.
++    feature = state.ccFeature
++    if type(feature) is not int or feature != pynvml.NVML_CC_SYSTEM_FEATURE_ENABLED:
++        raise RuntimeError("Confidential copy-path selection is unqualified")
++    return True
+ 
+ 
+ @cache
+ def _detect_confidential_compute() -> bool:
+-    """Whether the GPU runs in NVIDIA Confidential Computing mode.
+-
+-    Overridable via ``VLLM_CONFIDENTIAL_COMPUTE=1/0``; detected once via NVML
+-    and cached. Returns False if CUDA is unavailable or NVML fails.
+-    """
++    """Select the copy path only; this is not hardware admission or attestation."""
+     forced = envs.VLLM_CONFIDENTIAL_COMPUTE
++    if forced == "1":
++        logger.info(
++            "Explicit confidential copy path selected; hardware is not attested"
++        )
++        return True
+     if forced is not None:
+-        enabled = forced == "1"
+-        logger.info(
+-            "NVIDIA Confidential Computing detection overridden by "
+-            "VLLM_CONFIDENTIAL_COMPUTE=%r: %s",
+-            forced,
+-            "enabled" if enabled else "disabled",
+-        )
+-        return enabled
+-    if not torch.cuda.is_available():
+-        return False
++        raise ValueError("Confidential copy-path override must be exactly 1 or unset")
+     try:
++        if not torch.cuda.is_available():
++            raise RuntimeError("CUDA unavailable")
+         enabled = _nvml_confidential_compute_enabled()
+-    except Exception as e:
+-        logger.info("NVIDIA Confidential Computing not detected: NVML failed: %r", e)
+-        return False
+-    logger.info(
+-        "NVIDIA Confidential Computing %s via NVML",
+-        "detected" if enabled else "not detected",
+-    )
+-    return enabled
++        if enabled is not True:
++            raise RuntimeError("Copy path unavailable")
++    except Exception:
++        raise RuntimeError("Confidential copy-path detection unavailable or unqualified") from None
++    logger.info("NVML selected the confidential copy path; hardware is not attested")
++    return True
+ 
+ 
+ @cache
+diff --git a/vllm/platforms/interface.py b/vllm/platforms/interface.py
+--- a/vllm/platforms/interface.py
++++ b/vllm/platforms/interface.py
+@@ -245,8 +245,7 @@
+ 
+     @classmethod
+     def is_confidential_compute(cls) -> bool:
+-        """Whether the device runs in a confidential-computing mode that makes
+-        host<->device copies host-synchronous and host mappings incoherent."""
++        """Whether to select CC-specific copies; not hardware attestation."""
+         return False
+ 
+     @classmethod
+diff --git a/vllm/v1/conf_compute_utils.py b/vllm/v1/conf_compute_utils.py
+--- a/vllm/v1/conf_compute_utils.py
++++ b/vllm/v1/conf_compute_utils.py
+@@ -25,7 +25,7 @@
+ 
+ @cache
+ def confidential_compute_enabled() -> bool:
+-    """Whether NVIDIA Confidential Computing is active on this platform."""
++    """Whether the CC copy path is selected; not hardware attestation."""
+     from vllm.platforms import current_platform
+ 
+     return current_platform.is_confidential_compute()
+@@ -74,8 +74,8 @@
+ 
+     ``src`` must already have the destination dtype: a converting copy would
+     run its cast kernel on the prep stream, unordered with the compute stream.
+-    A pageable ``src`` is not host-synchronous under Confidential Computing, so
+-    the compute stream is made to wait for the prep stream in that case.
++    Always order the compute stream after the upload, independent of pinning
++    or whether software selection corresponds to real CC hardware.
+     """
+     target = out.device if out is not None else torch.device(device)  # type: ignore[arg-type]
+     compute_stream = torch.cuda.current_stream(target)
+diff --git a/vllm/v1/worker/gpu/buffer_utils.py b/vllm/v1/worker/gpu/buffer_utils.py
+--- a/vllm/v1/worker/gpu/buffer_utils.py
++++ b/vllm/v1/worker/gpu/buffer_utils.py
+@@ -63,10 +63,9 @@
+ 
+     The device view of pinned host memory is not coherent under Confidential
+     Computing, so the pinned host buffer is mirrored into a device tensor on
+-    every ``uva()``. The H2D is issued on the idle prep stream: under
+-    Confidential Computing it is host-synchronous, so it has completed when
+-    ``uva()`` returns, and it only waits for its own transfer instead of the
+-    forward queued on the compute stream (see vllm.v1.conf_compute_utils). The
++    every ``uva()``. The H2D is issued on the idle prep stream, then the caller's
++    compute stream waits for it unconditionally (see vllm.v1.conf_compute_utils).
++    This also orders asynchronous copies when software selection is forced. The
+     device tensor is written by the prep stream and therefore allocated on it.
+     Rewriting it in place relies on the same pool invariant a UVA buffer does:
+     no GPU reader of the slot is still in flight when the slot is reused.
+@@ -88,8 +87,12 @@
+         from vllm.v1.conf_compute_utils import prep_stream
+ 
+         cpu, gpu = (self.cpu, self._gpu) if n is None else (self.cpu[:n], self._gpu[:n])
+-        with torch.cuda.stream(prep_stream(gpu.device)):
++        compute_stream = torch.cuda.current_stream(gpu.device)
++        prep = prep_stream(gpu.device)
++        with torch.cuda.stream(prep):
+             gpu.copy_(cpu, non_blocking=True)
++        compute_stream.wait_stream(prep)
++        gpu.record_stream(compute_stream)
+         return gpu
+ 
+ 

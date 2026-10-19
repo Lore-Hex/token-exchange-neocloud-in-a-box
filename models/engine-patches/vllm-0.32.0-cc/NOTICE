@@ -1,0 +1,20 @@
+vLLM confidential-copy candidate, Apache License 2.0
+Copyright contributors to the vLLM project.
+
+Base: vllm-project/vllm@5df63a7203cdb9328d824a27b682e77c7b9928be
+Upstream PR59981 author: Yubo Gao (NVIDIA).
+Original commits and Signed-off-by lines are preserved in upstream/*.patch.
+LICENSE is the unmodified upstream Apache-2.0 license at the pinned base.
+The upstream tree has no separate NOTICE file.
+
+Modified by the neocloud-in-a-box project, 2026-10-19:
+0001 rebases the original first commit onto v0.32.0, preserving lazy PIN_MEMORY,
+ZMQ listener imports/lifecycle, asynchronous fallback copies and 64-bit indexing.
+0002 is the original second commit, byte-for-byte, including author attribution.
+0003 changes selection to fail closed, sanitizes diagnostics, clarifies the lack
+of attestation, and unconditionally orders staged-buffer stream handoff.
+
+All base files retain upstream copyright/SPDX headers. The patches are marked
+modified and remain Apache-2.0. Upstream benchmark statements in original patch
+messages are external author claims, not measurements made by this repository.
+This candidate is BLOCKED, not a runtime profile or a qualified engine image.

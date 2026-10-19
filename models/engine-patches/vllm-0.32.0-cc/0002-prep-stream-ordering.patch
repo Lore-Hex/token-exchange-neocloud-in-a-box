@@ -1,0 +1,39 @@
+From c16c248aa2255dc2b13f732b00b90e44bb7311e4 Mon Sep 17 00:00:00 2001
+From: Yubo Gao <yubog@nvidia.com>
+Date: Thu, 8 Oct 2026 23:38:02 +0000
+Subject: [PATCH] Always order the compute stream after the prep stream in
+ staged_h2d
+
+Under Confidential Computing tensor.is_pinned() returns False even for
+pin_memory=True allocations, so it cannot decide whether the prep-stream
+upload was host-synchronous. Wait on the prep stream unconditionally; the
+event wait costs nothing measurable and is correct for both pinned and
+pageable sources.
+
+Measured on Gemma-4-31B-it, TP1, 100/100, B300, CC on: 76.0 / 288.7 /
+3301 tok/s at c=1/4/64, versus 76.9 / 296.5 / 3364 with CC off and
+64.2 / 236.7 / 2617 for the V1 runner under CC.
+
+Signed-off-by: Yubo Gao <yubog@nvidia.com>
+---
+ vllm/v1/conf_compute_utils.py | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/vllm/v1/conf_compute_utils.py b/vllm/v1/conf_compute_utils.py
+index 3de25811001d..71a335c18797 100644
+--- a/vllm/v1/conf_compute_utils.py
++++ b/vllm/v1/conf_compute_utils.py
+@@ -82,8 +82,11 @@ def staged_h2d(
+     prep = prep_stream(target)
+     with torch.cuda.stream(prep):
+         staged = src.to(device=target, non_blocking=True)
+-    if not src.is_pinned():
+-        compute_stream.wait_stream(prep)
++    # Under Confidential Computing ``is_pinned()`` reports False even for
++    # pin_memory=True allocations, so it cannot be used to decide whether the
++    # upload is host-synchronous. Always order the compute stream after the
++    # prep stream; the event wait is negligible and correct in both cases.
++    compute_stream.wait_stream(prep)
+     staged.record_stream(compute_stream)
+     if out is None:
+         return staged

@@ -1,0 +1,593 @@
+Subject: [BLOCKED CANDIDATE] Backport PR59981 commit 1 to v0.32.0
+
+Modified by the neocloud-in-a-box project; see NOTICE and candidate.json.
+Apache-2.0; upstream copyrights retained. Not a runtime qualification.
+
+diff --git a/vllm/envs.py b/vllm/envs.py
+--- a/vllm/envs.py
++++ b/vllm/envs.py
+@@ -258,6 +258,7 @@
+     VLLM_SSM_CONV_STATE_LAYOUT: Literal["SD", "DS"] | None = None
+     VLLM_COMPUTE_NANS_IN_LOGITS: bool = False
+     VLLM_RAISE_ON_LOGIT_NANS: bool = False
++    VLLM_CONFIDENTIAL_COMPUTE: str | None = None
+     VLLM_ROCM_QUICK_REDUCE_QUANTIZATION: Literal[
+         "FP", "INT8", "INT6", "INT4", "INT3", "NONE"
+     ] = "NONE"
+@@ -1909,6 +1910,10 @@
+     "VLLM_RAISE_ON_LOGIT_NANS": lambda: bool(
+         int(os.getenv("VLLM_RAISE_ON_LOGIT_NANS", "0"))
+     ),
++    # Override NVIDIA Confidential Computing detection. Unset (default)
++    # auto-detects via NVML; "1" forces it on, "0" forces it off. Gates the
++    # Confidential Computing copy paths (see vllm.v1.conf_compute_utils).
++    "VLLM_CONFIDENTIAL_COMPUTE": lambda: os.getenv("VLLM_CONFIDENTIAL_COMPUTE"),
+     # Timeout (in seconds) for MooncakeConnector in PD disaggregated setup.
+     "VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT": lambda: int(
+         os.getenv("VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT", "480")
+diff --git a/vllm/platforms/cuda.py b/vllm/platforms/cuda.py
+--- a/vllm/platforms/cuda.py
++++ b/vllm/platforms/cuda.py
+@@ -206,6 +206,44 @@
+     return wrapper
+ 
+ 
++@with_nvml_context
++def _nvml_confidential_compute_enabled() -> bool:
++    state = pynvml.nvmlSystemGetConfComputeState()
++    # ccFeature != 0 means Confidential Computing is enabled (ON or devtools).
++    return int(getattr(state, "ccFeature", 0)) != 0
++
++
++@cache
++def _detect_confidential_compute() -> bool:
++    """Whether the GPU runs in NVIDIA Confidential Computing mode.
++
++    Overridable via ``VLLM_CONFIDENTIAL_COMPUTE=1/0``; detected once via NVML
++    and cached. Returns False if CUDA is unavailable or NVML fails.
++    """
++    forced = envs.VLLM_CONFIDENTIAL_COMPUTE
++    if forced is not None:
++        enabled = forced == "1"
++        logger.info(
++            "NVIDIA Confidential Computing detection overridden by "
++            "VLLM_CONFIDENTIAL_COMPUTE=%r: %s",
++            forced,
++            "enabled" if enabled else "disabled",
++        )
++        return enabled
++    if not torch.cuda.is_available():
++        return False
++    try:
++        enabled = _nvml_confidential_compute_enabled()
++    except Exception as e:
++        logger.info("NVIDIA Confidential Computing not detected: NVML failed: %r", e)
++        return False
++    logger.info(
++        "NVIDIA Confidential Computing %s via NVML",
++        "detected" if enabled else "not detected",
++    )
++    return enabled
++
++
+ @cache
+ def _get_wsl_kernel_version() -> tuple[int, ...] | None:
+     """Return the WSL2 kernel version as a tuple, or None on parse failure.
+@@ -232,6 +270,10 @@
+     ray_noset_device_env_vars: list[str] = [
+         "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES",
+     ]
++
++    @classmethod
++    def is_confidential_compute(cls) -> bool:
++        return _detect_confidential_compute()
+ 
+     @classmethod
+     def import_kernels(cls) -> None:
+diff --git a/vllm/platforms/interface.py b/vllm/platforms/interface.py
+--- a/vllm/platforms/interface.py
++++ b/vllm/platforms/interface.py
+@@ -242,6 +242,12 @@
+             return False
+ 
+         return cumem_available
++
++    @classmethod
++    def is_confidential_compute(cls) -> bool:
++        """Whether the device runs in a confidential-computing mode that makes
++        host<->device copies host-synchronous and host mappings incoherent."""
++        return False
+ 
+     @classmethod
+     def get_pass_manager_cls(cls) -> str:
+diff --git a/vllm/utils/platform_utils.py b/vllm/utils/platform_utils.py
+--- a/vllm/utils/platform_utils.py
++++ b/vllm/utils/platform_utils.py
+@@ -50,11 +50,15 @@
+ @cache
+ def is_uva_available() -> bool:
+     """Check if Unified Virtual Addressing (UVA) is available."""
+-    # UVA requires pinned memory.
+     from vllm.platforms import current_platform
+ 
+-    # TODO: Add more requirements for UVA if needed.
+-    return is_pin_memory_available() or current_platform.is_cpu()
++    if current_platform.is_cpu():
++        return True
++    # UVA requires pinned memory. Under NVIDIA Confidential Computing the
++    # device-side view of pinned host memory is not coherent (the GPU reads a
++    # stale snapshot), so treat UVA as unavailable and fall back to explicit
++    # copies (see vllm.v1.conf_compute_utils).
++    return is_pin_memory_available() and not current_platform.is_confidential_compute()
+ 
+ 
+ @cache
+diff --git a/vllm/utils/torch_utils.py b/vllm/utils/torch_utils.py
+--- a/vllm/utils/torch_utils.py
++++ b/vllm/utils/torch_utils.py
+@@ -7,6 +7,7 @@
+ import sys
+ import threading
+ from collections.abc import Callable, Collection
++from functools import cache
+ from typing import TYPE_CHECKING, Any, TypeVar
+ 
+ import numpy as np
+@@ -82,6 +83,13 @@
+     if name == "PIN_MEMORY":
+         return is_pin_memory_available()
+     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
++
++
++@cache
++def _confidential_compute_enabled() -> bool:
++    from vllm.platforms import current_platform
++
++    return current_platform.is_confidential_compute()
+ 
+ 
+ def is_quantized_kv_cache(kv_cache_dtype: str) -> bool:
+@@ -737,6 +745,18 @@
+         )
+     assert t.is_cpu
+ 
++    # Under Confidential Computing a pinned H2D on the compute stream blocks
++    # the host on the in-flight forward; route it through the idle prep
++    # stream instead (see vllm.v1.conf_compute_utils).
++    if _confidential_compute_enabled():
++        from vllm.v1.conf_compute_utils import staged_h2d
++
++        if out is not None and out.is_cuda:
++            assert out.dtype == dtype
++            return staged_h2d(t.to(dtype), out=out)
++        if out is None and device is not None and torch.device(device).type == "cuda":
++            return staged_h2d(t if dtype is None else t.to(dtype), device=device)
++
+     if out is not None:
+         assert out.dtype == dtype
+         return out.copy_(t, non_blocking=True)
+diff --git a/vllm/v1/conf_compute_utils.py b/vllm/v1/conf_compute_utils.py
+new file mode 100644
+--- /dev/null
++++ b/vllm/v1/conf_compute_utils.py
+@@ -0,0 +1,90 @@
++# SPDX-License-Identifier: Apache-2.0
++# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
++"""Copy helpers for NVIDIA Confidential Computing.
++
++Under bounce-buffer Confidential Computing a host<->device
++``cudaMemcpyAsync`` is host-synchronous: the issuing thread blocks until the
++copy, and everything already queued on its stream, completes. An H2D issued
++on the compute stream therefore blocks the engine for the in-flight forward,
++and the per-step D2H readback blocks the thread that issues it.
++
++``staged_h2d`` issues uploads on an idle prep stream instead, so the host only
++pays the transfer itself. ``vllm.utils.torch_utils.async_tensor_h2d`` and the
++V2 model runner's buffer pools dispatch to it under Confidential Computing;
++outside Confidential Computing nothing here is used.
++"""
++
++from functools import cache
++
++import torch
++
++from vllm.logger import init_logger
++
++logger = init_logger(__name__)
++
++
++@cache
++def confidential_compute_enabled() -> bool:
++    """Whether NVIDIA Confidential Computing is active on this platform."""
++    from vllm.platforms import current_platform
++
++    return current_platform.is_confidential_compute()
++
++
++@cache
++def _prep_stream_for_index(device_index: int) -> torch.cuda.Stream:
++    logger.info_once(
++        "Using staged H2D input copies under Confidential Computing "
++        "(H2D on a dedicated prep stream + D2D on the compute stream) to "
++        "avoid blocking the scheduler on the in-flight forward."
++    )
++    return torch.cuda.Stream(device=torch.device(f"cuda:{device_index}"))
++
++
++def prep_stream(device: torch.device) -> torch.cuda.Stream:
++    """Return the per-device prep stream.
++
++    A single stream suffices: every pinned H2D on it is host-synchronous under
++    Confidential Computing, so the stream is drained by the time each copy
++    call returns.
++    """
++    idx = (
++        device.index
++        if device.index is not None
++        else torch.accelerator.current_device_index()
++    )
++    return _prep_stream_for_index(idx)
++
++
++def staged_h2d(
++    src: torch.Tensor,
++    *,
++    device: torch.device | str | None = None,
++    out: torch.Tensor | None = None,
++) -> torch.Tensor:
++    """Upload a host tensor without blocking on the compute stream.
++
++    The H2D is issued on the idle prep stream, so the host only waits for the
++    transfer itself. Without ``out`` the fresh device tensor is returned with
++    its lifetime tied to the compute stream: it was allocated on the prep
++    stream, and ``record_stream`` keeps the caching allocator from recycling it
++    before the consuming kernel has run. With ``out`` the upload lands in a
++    staging tensor and an asynchronous D2D on the compute stream moves it into
++    ``out``, so an in-flight reader of ``out`` is never overwritten.
++
++    ``src`` must already have the destination dtype: a converting copy would
++    run its cast kernel on the prep stream, unordered with the compute stream.
++    A pageable ``src`` is not host-synchronous under Confidential Computing, so
++    the compute stream is made to wait for the prep stream in that case.
++    """
++    target = out.device if out is not None else torch.device(device)  # type: ignore[arg-type]
++    compute_stream = torch.cuda.current_stream(target)
++    prep = prep_stream(target)
++    with torch.cuda.stream(prep):
++        staged = src.to(device=target, non_blocking=True)
++    if not src.is_pinned():
++        compute_stream.wait_stream(prep)
++    staged.record_stream(compute_stream)
++    if out is None:
++        return staged
++    return out.copy_(staged, non_blocking=True)
+diff --git a/vllm/v1/utils.py b/vllm/v1/utils.py
+--- a/vllm/v1/utils.py
++++ b/vllm/v1/utils.py
+@@ -32,6 +32,7 @@
+ from vllm.utils.network_utils import ZmqListener, get_open_zmq_ipc_path, get_tcp_uri
+ from vllm.utils.system_utils import decorate_logs, kill_process_tree, set_process_title
+ from vllm.utils.torch_utils import PIN_MEMORY
++from vllm.v1.conf_compute_utils import confidential_compute_enabled, staged_h2d
+ from vllm.v1.core.sched.output import SchedulerOutput
+ 
+ if TYPE_CHECKING:
+@@ -140,6 +141,10 @@
+         cpu, gpu = self.cpu, self.gpu
+         if n is not None:
+             cpu, gpu = cpu[:n], gpu[:n]
++        if gpu.is_cuda and confidential_compute_enabled():
++            # A pinned H2D on the compute stream would block the host on the
++            # in-flight forward; stage it through the prep stream instead.
++            return staged_h2d(cpu, out=gpu)
+         return gpu.copy_(cpu.pin_memory() if PIN_MEMORY else cpu, non_blocking=True)
+ 
+     def copy_to_cpu(self, n: int | None = None) -> torch.Tensor:
+diff --git a/vllm/v1/worker/gpu/async_utils.py b/vllm/v1/worker/gpu/async_utils.py
+--- a/vllm/v1/worker/gpu/async_utils.py
++++ b/vllm/v1/worker/gpu/async_utils.py
+@@ -10,6 +10,7 @@
+ 
+ import vllm.envs as envs
+ from vllm.model_executor.layers.fused_moe.all2all_utils import get_ep_all2all_manager
++from vllm.v1.conf_compute_utils import confidential_compute_enabled
+ from vllm.v1.outputs import (
+     AsyncModelRunnerOutput,
+     LogprobsTensors,
+@@ -130,47 +131,77 @@
+         self.sampler_output = sampler_output
+         self.num_sampled_tokens = num_sampled_tokens
+         self.pending_aux_output = pending_aux_output
++        self.check_ep_fault = check_ep_fault
++        self.main_stream = main_stream
++        self.copy_stream = copy_stream
+         # Blocking (sleep) event to avoid busy-polling the CUDA driver lock.
+         self.copy_event = torch.cuda.Event(blocking=True)
+         self._has_fault: torch.Tensor | None = None
+ 
++        # Under Confidential Computing the D2H copies are host-synchronous:
++        # issued here they would stall this thread on the in-flight
++        # forward+sample and delay the next step's launch. Defer them to
++        # get_output(), which runs on the executor's async-output thread and
++        # blocks until the copy completes anyway (see
++        # vllm.v1.conf_compute_utils).
++        self._defer_copy = confidential_compute_enabled()
++        if self._defer_copy:
++            self._src_ready_event = torch.cuda.Event(blocking=True)
++            self._src_ready_event.record(main_stream)
++            return
++
+         with stream(copy_stream, main_stream):
+             copy_stream.wait_stream(main_stream)
+-
+-            self.sampled_token_ids = async_copy_to_np(sampler_output.sampled_token_ids)
+-            self.logprobs_tensors: LogprobsTensors | None = None
+-            if sampler_output.logprobs_tensors is not None:
+-                self.logprobs_tensors = (
+-                    sampler_output.logprobs_tensors.to_cpu_nonblocking()
+-                )
+-            self.num_nans: np.ndarray | None = None
+-            if sampler_output.num_nans is not None:
+-                self.num_nans = async_copy_to_np(sampler_output.num_nans)
+-            self.num_sampled_tokens_np = async_copy_to_np(num_sampled_tokens)
+-            self.sampling_mask_tensors: SamplingMaskTensors | None = None
+-            if sampler_output.sampling_mask_tensors is not None:
+-                self.sampling_mask_tensors = (
+-                    sampler_output.sampling_mask_tensors.to_cpu_nonblocking()
+-                )
+-            self.prompt_logprobs_dict = {
+-                k: v.to_cpu_nonblocking() if v is not None else None
+-                for k, v in self.model_runner_output.prompt_logprobs_dict.items()
+-            }
+-            token_id_logprobs = self.model_runner_output.prompt_token_id_logprobs_dict
+-            self.prompt_token_id_logprobs_dict = {
+-                k: v.to("cpu", non_blocking=True) for k, v in token_id_logprobs.items()
+-            }
+-            if self.pending_aux_output is not None:
+-                self.pending_aux_output.enqueue_cpu_copy(
+-                    num_sampled=self.num_sampled_tokens_np,
+-                    num_rejected=async_copy_to_np(sampler_output.num_rejected),
+-                )
+-            if check_ep_fault:
+-                has_fault = get_ep_all2all_manager().query_fault()
+-                self._has_fault = has_fault.to("cpu", non_blocking=True)
+-            self.copy_event.record(copy_stream)
++            self._issue_copies()
++
++    def _issue_copies(self) -> None:
++        """Issue the D2H copies on the current stream and record copy_event.
++
++        The producing forward+sample must already be ordered before the
++        copies: stream-wait in __init__, or event-sync in get_output for the
++        deferred Confidential Computing path.
++        """
++        sampler_output = self.sampler_output
++        self.sampled_token_ids = async_copy_to_np(sampler_output.sampled_token_ids)
++        self.logprobs_tensors: LogprobsTensors | None = None
++        if sampler_output.logprobs_tensors is not None:
++            self.logprobs_tensors = sampler_output.logprobs_tensors.to_cpu_nonblocking()
++        self.num_nans: np.ndarray | None = None
++        if sampler_output.num_nans is not None:
++            self.num_nans = async_copy_to_np(sampler_output.num_nans)
++        self.num_sampled_tokens_np = async_copy_to_np(self.num_sampled_tokens)
++        self.sampling_mask_tensors: SamplingMaskTensors | None = None
++        if sampler_output.sampling_mask_tensors is not None:
++            self.sampling_mask_tensors = (
++                sampler_output.sampling_mask_tensors.to_cpu_nonblocking()
++            )
++        self.prompt_logprobs_dict = {
++            k: v.to_cpu_nonblocking() if v is not None else None
++            for k, v in self.model_runner_output.prompt_logprobs_dict.items()
++        }
++        token_id_logprobs = self.model_runner_output.prompt_token_id_logprobs_dict
++        self.prompt_token_id_logprobs_dict = {
++            k: v.to("cpu", non_blocking=True) for k, v in token_id_logprobs.items()
++        }
++        if self.pending_aux_output is not None:
++            self.pending_aux_output.enqueue_cpu_copy(
++                num_sampled=self.num_sampled_tokens_np,
++                num_rejected=async_copy_to_np(sampler_output.num_rejected),
++            )
++        if self.check_ep_fault:
++            has_fault = get_ep_all2all_manager().query_fault()
++            self._has_fault = has_fault.to("cpu", non_blocking=True)
++        self.copy_event.record(self.copy_stream)
+ 
+     def get_output(self) -> ModelRunnerOutput:
++        if self._defer_copy:
++            # Sleep until the forward+sample has materialized the source
++            # tensors (event-sync rather than stream-wait, so the
++            # host-synchronous copies only pay their own transfer time), then
++            # issue the copies from this thread on the copy stream.
++            self._src_ready_event.synchronize()
++            with stream(self.copy_stream, self.main_stream):
++                self._issue_copies()
+         self.copy_event.synchronize()
+ 
+         # NOTE(woosuk): The following code is to ensure compatibility with
+@@ -228,30 +259,47 @@
+     ):
+         self.model_runner_output = model_runner_output
+         self.pooler_output = pooler_output
++        self.finished_mask = finished_mask
++        self.main_stream = main_stream
++        self.copy_stream = copy_stream
+         # Blocking (sleep) event to avoid busy-polling the CUDA driver lock.
+         self.copy_event = torch.cuda.Event(blocking=True)
+ 
++        # Same deferral as AsyncOutput under Confidential Computing.
++        self._defer_copy = confidential_compute_enabled()
++        if self._defer_copy:
++            self._src_ready_event = torch.cuda.Event(blocking=True)
++            self._src_ready_event.record(main_stream)
++            return
++
+         with stream(copy_stream, main_stream):
+             copy_stream.wait_stream(main_stream)
+-            if isinstance(self.pooler_output, torch.Tensor) and all(finished_mask):
+-                self.pooler_output_cpu: PoolerOutput = self.pooler_output.to(
+-                    "cpu", non_blocking=True
+-                )
+-            else:
+-                outputs = (
+-                    self.pooler_output.unbind()
+-                    if isinstance(self.pooler_output, torch.Tensor)
+-                    else self.pooler_output
+-                )
+-                self.pooler_output_cpu = [
+-                    None
+-                    if output is None or not is_finished
+-                    else output.to("cpu", non_blocking=True)
+-                    for output, is_finished in zip(outputs, finished_mask, strict=True)
+-                ]
+-            self.copy_event.record(copy_stream)
++            self._issue_copies()
++
++    def _issue_copies(self) -> None:
++        if isinstance(self.pooler_output, torch.Tensor) and all(self.finished_mask):
++            self.pooler_output_cpu: PoolerOutput = self.pooler_output.to(
++                "cpu", non_blocking=True
++            )
++        else:
++            outputs = (
++                self.pooler_output.unbind()
++                if isinstance(self.pooler_output, torch.Tensor)
++                else self.pooler_output
++            )
++            self.pooler_output_cpu = [
++                None
++                if output is None or not is_finished
++                else output.to("cpu", non_blocking=True)
++                for output, is_finished in zip(outputs, self.finished_mask, strict=True)
++            ]
++        self.copy_event.record(self.copy_stream)
+ 
+     def get_output(self) -> ModelRunnerOutput:
++        if self._defer_copy:
++            self._src_ready_event.synchronize()
++            with stream(self.copy_stream, self.main_stream):
++                self._issue_copies()
+         if isinstance(self.pooler_output_cpu, torch.Tensor):
+             pooler_output = list(self.pooler_output_cpu.unbind(dim=0))
+         else:
+diff --git a/vllm/v1/worker/gpu/buffer_utils.py b/vllm/v1/worker/gpu/buffer_utils.py
+--- a/vllm/v1/worker/gpu/buffer_utils.py
++++ b/vllm/v1/worker/gpu/buffer_utils.py
+@@ -8,7 +8,7 @@
+ 
+ from vllm.logger import init_logger
+ from vllm.triton_utils import tl, triton
+-from vllm.utils.platform_utils import is_uva_available
++from vllm.utils.platform_utils import is_pin_memory_available, is_uva_available
+ from vllm.utils.torch_utils import (
+     async_tensor_h2d,
+     get_accelerator_view_from_cpu_tensor,
+@@ -56,6 +56,51 @@
+         if n is None:
+             return self._uva.copy_(self.cpu, non_blocking=True)
+         return self._uva[:n].copy_(self.cpu[:n], non_blocking=True)
++
++
++class StagedH2DBuffer:
++    """Explicit-copy fallback for NVIDIA Confidential Computing.
++
++    The device view of pinned host memory is not coherent under Confidential
++    Computing, so the pinned host buffer is mirrored into a device tensor on
++    every ``uva()``. The H2D is issued on the idle prep stream: under
++    Confidential Computing it is host-synchronous, so it has completed when
++    ``uva()`` returns, and it only waits for its own transfer instead of the
++    forward queued on the compute stream (see vllm.v1.conf_compute_utils). The
++    device tensor is written by the prep stream and therefore allocated on it.
++    Rewriting it in place relies on the same pool invariant a UVA buffer does:
++    no GPU reader of the slot is still in flight when the slot is reused.
++    """
++
++    def __init__(self, size: int | Sequence[int], dtype: torch.dtype):
++        from vllm.platforms import current_platform
++        from vllm.v1.conf_compute_utils import prep_stream
++
++        self.cpu = torch.zeros(size, dtype=dtype, device="cpu", pin_memory=True)
++        self.np = self.cpu.numpy()
++        device = torch.device(
++            current_platform.device_type, torch.accelerator.current_device_index()
++        )
++        with torch.inference_mode(False), torch.cuda.stream(prep_stream(device)):
++            self._gpu = torch.zeros(size, dtype=dtype, device=device)
++
++    def uva(self, n: int | None = None) -> torch.Tensor:
++        from vllm.v1.conf_compute_utils import prep_stream
++
++        cpu, gpu = (self.cpu, self._gpu) if n is None else (self.cpu[:n], self._gpu[:n])
++        with torch.cuda.stream(prep_stream(gpu.device)):
++            gpu.copy_(cpu, non_blocking=True)
++        return gpu
++
++
++def _pool_buffer_cls() -> type[UvaBuffer | StagedH2DBuffer | NonUvaBuffer]:
++    if is_uva_available():
++        return UvaBuffer
++    from vllm.v1.conf_compute_utils import confidential_compute_enabled
++
++    if confidential_compute_enabled() and is_pin_memory_available():
++        return StagedH2DBuffer
++    return NonUvaBuffer
+ 
+ 
+ class UvaBufferPool:
+@@ -77,7 +122,7 @@
+         self.max_concurrency = max_concurrency
+ 
+         # UVA buffers for concurrency
+-        self._buffer_cls = UvaBuffer if is_uva_available() else NonUvaBuffer
++        self._buffer_cls = _pool_buffer_cls()
+         self._uva_bufs = [self._buffer_cls(size, dtype) for _ in range(max_concurrency)]
+         # Current buffer index
+         self._curr = 0
+diff --git a/vllm/v1/worker/gpu/model_states/encoder_decoder.py b/vllm/v1/worker/gpu/model_states/encoder_decoder.py
+--- a/vllm/v1/worker/gpu/model_states/encoder_decoder.py
++++ b/vllm/v1/worker/gpu/model_states/encoder_decoder.py
+@@ -9,7 +9,7 @@
+ 
+ from vllm.config import VllmConfig
+ from vllm.config.compilation import CUDAGraphMode
+-from vllm.utils.torch_utils import PIN_MEMORY
++from vllm.utils.torch_utils import PIN_MEMORY, async_tensor_h2d
+ from vllm.v1.kv_cache_interface import CrossAttentionSpec, KVCacheConfig
+ from vllm.v1.worker.gpu.attn_utils import build_attn_metadata
+ from vllm.v1.worker.gpu.input_batch import InputBatch
+@@ -179,7 +179,7 @@
+             # is captured with the correct value for cross-attention.
+             encoder_seq_lens_np[:] = self.max_encoder_len
+ 
+-        self.encoder_seq_lens_gpu[:num_reqs].copy_(encoder_seq_lens, non_blocking=True)
++        async_tensor_h2d(encoder_seq_lens, out=self.encoder_seq_lens_gpu[:num_reqs])
+         self.encoder_seq_lens_gpu[num_reqs:].fill_(0)
+         encoder_seq_lens_gpu = self.encoder_seq_lens_gpu[:num_reqs]
+ 
+diff --git a/vllm/v1/worker/gpu/model_states/encoder_only.py b/vllm/v1/worker/gpu/model_states/encoder_only.py
+--- a/vllm/v1/worker/gpu/model_states/encoder_only.py
++++ b/vllm/v1/worker/gpu/model_states/encoder_only.py
+@@ -8,7 +8,11 @@
+ from vllm.config import VllmConfig, get_layers_from_vllm_config
+ from vllm.config.compilation import CUDAGraphMode
+ from vllm.model_executor.layers.attention import Attention
+-from vllm.utils.torch_utils import PIN_MEMORY, STR_DTYPE_TO_TORCH_DTYPE
++from vllm.utils.torch_utils import (
++    PIN_MEMORY,
++    STR_DTYPE_TO_TORCH_DTYPE,
++    async_tensor_h2d,
++)
+ from vllm.v1.attention.backend import (
+     AttentionCGSupport,
+     AttentionType,
+@@ -139,8 +143,8 @@
+                     request_token_type_ids[start : start + num_tokens]
+                 )
+             offset += num_tokens
+-        model_inputs["token_type_ids"] = token_type_ids_cpu.to(
+-            self.device, non_blocking=True
++        model_inputs["token_type_ids"] = async_tensor_h2d(
++            token_type_ids_cpu, device=self.device
+         )
+         return model_inputs
+ 
