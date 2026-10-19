@@ -4,6 +4,7 @@
 
 import argparse
 from contextlib import ExitStack, closing
+import datetime
 import hashlib
 import http.client
 import json
@@ -371,15 +372,19 @@ def run(inputs, summary, *, prepared=None):
             if prepared is not None:
                 stop(shim)
                 summary["stage"] = "persistent-service"
+                retirement = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
                 service = start([sys.executable, "-I", str(ROOT / "scripts/pilot/serve.py"),
                                  "--prepared", str(prepared), "--cert", str(cert), "--key", str(certkey),
                                  "--api-key-file", str(apikeyfile), "--hostname", "127.0.0.1",
                                  "--port", str(public), "--max-seconds", "300",
+                                 "--retirement-at", retirement,
                                  "--input-price", "0.000001", "--output-price", "0.000002"])
                 ready(service, public, "/healthz", tls)
                 status, catalog = request(public, "/v1/models", tls=tls, key=apikey)
                 require(status == 200 and json.loads(catalog).get("contract_version") == "2.0",
                         "service-catalog")
+                require(json.loads(catalog)["data"][0]["lifecycle"]["retirement_at"] == retirement,
+                        "service-retirement")
                 require(request(public, "/v1/chat/completions", tls=tls, key=apikey,
                                 body={**payload, "max_tokens": 257})[0] == 400, "service-output-limit")
                 summary["service_provider"] = check_provider(checker, public, pins["model_id"], cert, apikey, env,
@@ -391,7 +396,7 @@ def run(inputs, summary, *, prepared=None):
                 for port in (8000, 8001, public):
                     with socket.socket() as probe:
                         require(probe.connect_ex(("127.0.0.1", port)) != 0, "service-port-cleanup")
-                summary["service"] = {"catalog_v2": "pass", "output_limit": "pass",
+                summary["service"] = {"catalog_v2": "pass", "retirement_declared": "pass", "output_limit": "pass",
                                       "graceful_shutdown": "pass", "inflight_stream_drained": "pass",
                                       "listeners_closed": "pass"}
         require(all(process.poll() is not None for process in processes), "process-cleanup")

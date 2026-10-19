@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 import importlib.util
+import datetime
 import os
 from pathlib import Path
 import ssl
@@ -15,6 +16,67 @@ SPEC.loader.exec_module(service)
 
 
 class ServiceTests(unittest.TestCase):
+    def test_public_retirement_is_required_canonical_and_bounded(self):
+        now = datetime.datetime(2026, 10, 19, 12, tzinfo=datetime.timezone.utc).timestamp()
+        with patch.object(service.time, "time", return_value=now), \
+                patch.object(service.time, "monotonic", return_value=100):
+            self.assertIsNone(service.retirement_deadline(None, public=False))
+            for value in (None, "", "not-a-time", "2026-02-30T12:00:00Z", "2026-10-19T13:00:00+00:00",
+                          "2026-10-19T13:00:00.1Z", "2026-10-19T12:00:00Z",
+                          "2026-10-19T11:59:59Z", "2026-10-20T12:00:01Z"):
+                with self.subTest(value=value), self.assertRaises(service.pilot.PilotError):
+                    service.retirement_deadline(value, public=True)
+            self.assertEqual(service.retirement_deadline("2026-10-20T12:00:00Z", public=True),
+                             (now + 86400, 86500))
+            self.assertEqual(service.retirement_deadline("2026-10-19T13:00:00Z", public=True),
+                             (now + 3600, 3700))
+        with patch.object(service.time, "time", return_value=now + 7200):
+            with self.assertRaisesRegex(service.pilot.PilotError, "retirement-window"):
+                service.retirement_deadline("2026-10-19T13:00:00Z", public=True)
+
+    def test_retirement_drains_on_either_clock_without_extra_health_work(self):
+        child, health = Mock(), Mock()
+        for wall, monotonic in ((1000, 500), (999, 501), (1001, 499)):
+            with self.subTest(wall=wall, monotonic=monotonic), \
+                    patch.object(service.time, "time", return_value=wall), \
+                    patch.object(service.time, "monotonic", return_value=monotonic):
+                service.supervise([child], threading.Event(), max_seconds=60,
+                                  health_check=health, retirement=(1000, 500))
+        child.poll.assert_not_called()
+        health.assert_not_called()
+
+    def test_health_probe_crossing_retirement_is_normal_drain(self):
+        child = Mock()
+        child.poll.return_value = None
+        for raises in (False, True):
+            with self.subTest(raises=raises), patch.object(service.time, "time", return_value=999) as clock, \
+                    patch.object(service.time, "monotonic", return_value=499):
+                def check():
+                    clock.return_value = 1000
+                    if raises:
+                        raise OSError("probe ended at cutoff")
+                    return False
+                service.supervise([child], threading.Event(), max_seconds=60,
+                                  health_check=check, retirement=(1000, 500))
+
+    def test_public_missing_retirement_fails_before_inputs_or_child_start(self):
+        args = Mock(public=True, retirement_at=None)
+        with patch.object(service.pilot, "prepared_inputs") as prepared, \
+                patch.object(service.subprocess, "Popen") as spawn:
+            with self.assertRaisesRegex(service.pilot.PilotError, "public-retirement-required"):
+                service.serve(args, threading.Event())
+        prepared.assert_not_called()
+        spawn.assert_not_called()
+
+    def test_public_cannot_advertise_beyond_process_lifetime(self):
+        args = Mock(public=True, retirement_at="reviewed-cutoff", max_seconds=60)
+        with patch.object(service, "retirement_deadline", return_value=(2000, 2000)), \
+                patch.object(service.time, "monotonic", return_value=1000), \
+                patch.object(service.pilot, "prepared_inputs") as prepared:
+            with self.assertRaisesRegex(service.pilot.PilotError, "retirement-run-duration"):
+                service.serve(args, threading.Event())
+        prepared.assert_not_called()
+
     def test_public_fullchain_uses_system_root_and_verifies_hostname(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
