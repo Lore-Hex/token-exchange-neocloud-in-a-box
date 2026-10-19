@@ -120,10 +120,10 @@ ro config list --all --format=json |
 import json, sys
 c = json.load(sys.stdin)
 auth = c.get("auth", {})
-overrides = ("access_token_file", "credential_file_override", "impersonate_service_account",
-             "client_id", "client_secret", "login_config_file")
-blocked = any(auth.get(k) for k in overrides)
-blocked = blocked or str(auth.get("disable_credentials", "false")).lower() == "true"
+blocked = any(v not in (None, "") for k, v in auth.items() if k != "disable_credentials")
+disabled = auth.get("disable_credentials")
+canonical_false = disabled is None or disabled is False or (isinstance(disabled, str) and disabled in ("", "false"))
+blocked = blocked or not canonical_false
 blocked = blocked or any(c.get("proxy", {}).values()) or any(c.get("api_endpoint_overrides", {}).values())
 print("STOP: configured auth/proxy/endpoint override" if blocked else "Configuration override check passed")
 sys.exit(1 if blocked else 0)'
