@@ -1,0 +1,278 @@
+{
+  "bundle_sha256": "e037fbe30f389c9b99406cb4389ab4aea8e634b360c6b18c1f69cfcbb2c04f1f",
+  "candidate_status": "BLOCKED",
+  "deployable": false,
+  "files": [
+    {
+      "base_bytes": 118996,
+      "base_url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/envs.py",
+      "mode": "100755",
+      "path": "vllm/envs.py",
+      "sha256": [
+        "e963af06cf6c775fe285147e0d811ea5b4d679e5cbd6958980ec2a0d1da70694",
+        "f7860ddc01333050f93a0b971b5bd6346195972d516c6fe42b345271097dbdbd",
+        "f7860ddc01333050f93a0b971b5bd6346195972d516c6fe42b345271097dbdbd",
+        "24a8d97d97e1da68710b2c85d88ae045ca78c9594377680f80cbe53a77999240",
+        "24a8d97d97e1da68710b2c85d88ae045ca78c9594377680f80cbe53a77999240",
+        "24a8d97d97e1da68710b2c85d88ae045ca78c9594377680f80cbe53a77999240"
+      ]
+    },
+    {
+      "base_bytes": 39418,
+      "base_url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/platforms/cuda.py",
+      "mode": "100644",
+      "path": "vllm/platforms/cuda.py",
+      "sha256": [
+        "18ae1dfc34848afcade72821892db50fd3a2e3a57b48829521cc263e3f877caa",
+        "f8101c5da69a4a4a02e2cf0f712d2c9b9fead638ac8fb9eae999de58dad2d8da",
+        "f8101c5da69a4a4a02e2cf0f712d2c9b9fead638ac8fb9eae999de58dad2d8da",
+        "7b8c53159057cce5c981008b3ffa00343e4ea50bef15853ce173c30076183548",
+        "7b8c53159057cce5c981008b3ffa00343e4ea50bef15853ce173c30076183548",
+        "7b8c53159057cce5c981008b3ffa00343e4ea50bef15853ce173c30076183548"
+      ]
+    },
+    {
+      "base_bytes": 56524,
+      "base_url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/platforms/interface.py",
+      "mode": "100644",
+      "path": "vllm/platforms/interface.py",
+      "sha256": [
+        "637e120fcf2a45b02b81174b7ed4653364e9d16ff0063772f1fdfaf4f8dcd2b6",
+        "c22c37d71f8c7a27bfed0cc97953dc9d33187deb0ce4b44574749fe447000623",
+        "c22c37d71f8c7a27bfed0cc97953dc9d33187deb0ce4b44574749fe447000623",
+        "f6a6cccacc14cdec95e98186658a9957adcfbd42b969cb81beafc76ee3e32c0e",
+        "f6a6cccacc14cdec95e98186658a9957adcfbd42b969cb81beafc76ee3e32c0e",
+        "f6a6cccacc14cdec95e98186658a9957adcfbd42b969cb81beafc76ee3e32c0e"
+      ]
+    },
+    {
+      "base_bytes": 2234,
+      "base_url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/utils/platform_utils.py",
+      "mode": "100644",
+      "path": "vllm/utils/platform_utils.py",
+      "sha256": [
+        "9501968a99185c29094610e252d00569afae20e59313c8e2e197e07370500aef",
+        "2c2f6745897fe25450319e426d8938afb75144f9004bbcf8170605399768d231",
+        "2c2f6745897fe25450319e426d8938afb75144f9004bbcf8170605399768d231",
+        "2c2f6745897fe25450319e426d8938afb75144f9004bbcf8170605399768d231",
+        "2c2f6745897fe25450319e426d8938afb75144f9004bbcf8170605399768d231",
+        "2c2f6745897fe25450319e426d8938afb75144f9004bbcf8170605399768d231"
+      ]
+    },
+    {
+      "base_bytes": 39132,
+      "base_url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/utils/torch_utils.py",
+      "mode": "100644",
+      "path": "vllm/utils/torch_utils.py",
+      "sha256": [
+        "3518e60b59b657fda45bb8df09a05f2fcd78e94ae36a46d58953cd180351c00f",
+        "321211f52393ad37bcadc4f21e71156125529b45f50f20fbbca719ce8a5ddb2d",
+        "321211f52393ad37bcadc4f21e71156125529b45f50f20fbbca719ce8a5ddb2d",
+        "321211f52393ad37bcadc4f21e71156125529b45f50f20fbbca719ce8a5ddb2d",
+        "855adf407b3155b117ba3e1235b27ff05a873e13b0904749f6a7f6ca9d95bd68",
+        "855adf407b3155b117ba3e1235b27ff05a873e13b0904749f6a7f6ca9d95bd68"
+      ]
+    },
+    {
+      "base_bytes": 0,
+      "base_url": null,
+      "mode": "100644",
+      "path": "vllm/v1/conf_compute_utils.py",
+      "sha256": [
+        null,
+        "0078c8a2d8b52527c84aa28821327c404bfb6010b101c5ca26c7d623295d1fa5",
+        "9f7ed67cd48855a6d130a2063f2f54b63740ddf5391456425b847272dd1ddbb3",
+        "6b60d27291d3ca7f53b5686610bb39cdb6230f73532ae29088c9f6d934c6723a",
+        "6b60d27291d3ca7f53b5686610bb39cdb6230f73532ae29088c9f6d934c6723a",
+        "c0559cb41facf978d999578c36c1cd6849d154a26a36642b3895b0e60c8be7c4"
+      ]
+    },
+    {
+      "base_bytes": 31370,
+      "base_url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/utils.py",
+      "mode": "100644",
+      "path": "vllm/v1/utils.py",
+      "sha256": [
+        "f9f5b3f1d0c5483dc742cba066cf232dfde053970221a52627716d18420ab638",
+        "33c4db63ebd20aa16baa0a511e5d59f3bdaacbed51466f9f3e5fb2228651d6f4",
+        "33c4db63ebd20aa16baa0a511e5d59f3bdaacbed51466f9f3e5fb2228651d6f4",
+        "33c4db63ebd20aa16baa0a511e5d59f3bdaacbed51466f9f3e5fb2228651d6f4",
+        "33c4db63ebd20aa16baa0a511e5d59f3bdaacbed51466f9f3e5fb2228651d6f4",
+        "33c4db63ebd20aa16baa0a511e5d59f3bdaacbed51466f9f3e5fb2228651d6f4"
+      ]
+    },
+    {
+      "base_bytes": 11129,
+      "base_url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/worker/gpu/async_utils.py",
+      "mode": "100644",
+      "path": "vllm/v1/worker/gpu/async_utils.py",
+      "sha256": [
+        "1797a8abdb46bba9d30d0507d725796ec72ad836f6778a1ece4590fd74b911c9",
+        "433a64d9bed48f9ff240c1a70c56335093e7c1112f7d0117bfdd614732a6c49b",
+        "433a64d9bed48f9ff240c1a70c56335093e7c1112f7d0117bfdd614732a6c49b",
+        "433a64d9bed48f9ff240c1a70c56335093e7c1112f7d0117bfdd614732a6c49b",
+        "433a64d9bed48f9ff240c1a70c56335093e7c1112f7d0117bfdd614732a6c49b",
+        "433a64d9bed48f9ff240c1a70c56335093e7c1112f7d0117bfdd614732a6c49b"
+      ]
+    },
+    {
+      "base_bytes": 11981,
+      "base_url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/worker/gpu/buffer_utils.py",
+      "mode": "100644",
+      "path": "vllm/v1/worker/gpu/buffer_utils.py",
+      "sha256": [
+        "1f387c3557facb1cb48dc1bd52d7e488b5e9bd88eaffe64e808c42feab73a1db",
+        "fbceb63ab9989957b604a53f4bc80954d85abe62f9fbfb24ad7c17bb6a5aba22",
+        "fbceb63ab9989957b604a53f4bc80954d85abe62f9fbfb24ad7c17bb6a5aba22",
+        "bb2f7d97265e89752a199dcfe90a99187e0b2c8dd91710e6002d579ef024dbcc",
+        "bb2f7d97265e89752a199dcfe90a99187e0b2c8dd91710e6002d579ef024dbcc",
+        "bb2f7d97265e89752a199dcfe90a99187e0b2c8dd91710e6002d579ef024dbcc"
+      ]
+    },
+    {
+      "base_bytes": 7962,
+      "base_url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/worker/gpu/model_states/encoder_decoder.py",
+      "mode": "100644",
+      "path": "vllm/v1/worker/gpu/model_states/encoder_decoder.py",
+      "sha256": [
+        "61a0e2371a0b4804370dcad8a59f74965e6616f13f9a81d8431149450e199972",
+        "00b0189a750d9e0601c296967bfec67bbf2ba453d0e8bea72fed7fb6c17807ab",
+        "00b0189a750d9e0601c296967bfec67bbf2ba453d0e8bea72fed7fb6c17807ab",
+        "00b0189a750d9e0601c296967bfec67bbf2ba453d0e8bea72fed7fb6c17807ab",
+        "00b0189a750d9e0601c296967bfec67bbf2ba453d0e8bea72fed7fb6c17807ab",
+        "00b0189a750d9e0601c296967bfec67bbf2ba453d0e8bea72fed7fb6c17807ab"
+      ]
+    },
+    {
+      "base_bytes": 9900,
+      "base_url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/worker/gpu/model_states/encoder_only.py",
+      "mode": "100644",
+      "path": "vllm/v1/worker/gpu/model_states/encoder_only.py",
+      "sha256": [
+        "6b5755a31a0457fd7dc26a62e827df64d87c5b02476dabc0794c9aedd4996a3c",
+        "57928dc3a378ce37734bdc8359d47f88c3894012fe7f1f8c2be602de88f1b69f",
+        "57928dc3a378ce37734bdc8359d47f88c3894012fe7f1f8c2be602de88f1b69f",
+        "57928dc3a378ce37734bdc8359d47f88c3894012fe7f1f8c2be602de88f1b69f",
+        "57928dc3a378ce37734bdc8359d47f88c3894012fe7f1f8c2be602de88f1b69f",
+        "57928dc3a378ce37734bdc8359d47f88c3894012fe7f1f8c2be602de88f1b69f"
+      ]
+    },
+    {
+      "base_bytes": 43877,
+      "base_url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/distributed/device_communicators/cuda_communicator.py",
+      "git_blob": "1bc6182288ab9c556b231e21c41176a82373e3d8",
+      "mode": "100644",
+      "path": "vllm/distributed/device_communicators/cuda_communicator.py",
+      "sha256": [
+        "2f5368d6ca1856a7b2b49fc423cc4728483d0c9289f913a7bc7cbe0baa040ec0",
+        "2f5368d6ca1856a7b2b49fc423cc4728483d0c9289f913a7bc7cbe0baa040ec0",
+        "2f5368d6ca1856a7b2b49fc423cc4728483d0c9289f913a7bc7cbe0baa040ec0",
+        "2f5368d6ca1856a7b2b49fc423cc4728483d0c9289f913a7bc7cbe0baa040ec0",
+        "2f5368d6ca1856a7b2b49fc423cc4728483d0c9289f913a7bc7cbe0baa040ec0",
+        "98aa60f0c56d07fd0d32aae085c6f2a6becf3e2893e0198a4655e945ca1e103a"
+      ]
+    },
+    {
+      "base_bytes": 62742,
+      "base_url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/compilation/passes/fusion/allreduce_rms_fusion.py",
+      "git_blob": "59757deb26864b2cdec9ba74b0488bce7ef4102e",
+      "mode": "100644",
+      "path": "vllm/compilation/passes/fusion/allreduce_rms_fusion.py",
+      "sha256": [
+        "4f2ca81d7fa365d22c23194a768ab56a5c1380d62affaa4a706a5ce8f6b2d65d",
+        "4f2ca81d7fa365d22c23194a768ab56a5c1380d62affaa4a706a5ce8f6b2d65d",
+        "4f2ca81d7fa365d22c23194a768ab56a5c1380d62affaa4a706a5ce8f6b2d65d",
+        "4f2ca81d7fa365d22c23194a768ab56a5c1380d62affaa4a706a5ce8f6b2d65d",
+        "4f2ca81d7fa365d22c23194a768ab56a5c1380d62affaa4a706a5ce8f6b2d65d",
+        "4af57a9a39e4c7d9a5a2912ac4d2bdbf6d9d0a2ba3af4cc5659130e64be6911e"
+      ]
+    }
+  ],
+  "focused_tests": 35,
+  "git_sha": "bd336219a65d4e471f14866011be046b86cc6d76",
+  "hardware_validated": false,
+  "public_sources": [
+    {
+      "bytes": 118996,
+      "sha256": "e963af06cf6c775fe285147e0d811ea5b4d679e5cbd6958980ec2a0d1da70694",
+      "url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/envs.py"
+    },
+    {
+      "bytes": 39418,
+      "sha256": "18ae1dfc34848afcade72821892db50fd3a2e3a57b48829521cc263e3f877caa",
+      "url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/platforms/cuda.py"
+    },
+    {
+      "bytes": 56524,
+      "sha256": "637e120fcf2a45b02b81174b7ed4653364e9d16ff0063772f1fdfaf4f8dcd2b6",
+      "url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/platforms/interface.py"
+    },
+    {
+      "bytes": 2234,
+      "sha256": "9501968a99185c29094610e252d00569afae20e59313c8e2e197e07370500aef",
+      "url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/utils/platform_utils.py"
+    },
+    {
+      "bytes": 39132,
+      "sha256": "3518e60b59b657fda45bb8df09a05f2fcd78e94ae36a46d58953cd180351c00f",
+      "url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/utils/torch_utils.py"
+    },
+    {
+      "bytes": 31370,
+      "sha256": "f9f5b3f1d0c5483dc742cba066cf232dfde053970221a52627716d18420ab638",
+      "url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/utils.py"
+    },
+    {
+      "bytes": 11129,
+      "sha256": "1797a8abdb46bba9d30d0507d725796ec72ad836f6778a1ece4590fd74b911c9",
+      "url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/worker/gpu/async_utils.py"
+    },
+    {
+      "bytes": 11981,
+      "sha256": "1f387c3557facb1cb48dc1bd52d7e488b5e9bd88eaffe64e808c42feab73a1db",
+      "url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/worker/gpu/buffer_utils.py"
+    },
+    {
+      "bytes": 7962,
+      "sha256": "61a0e2371a0b4804370dcad8a59f74965e6616f13f9a81d8431149450e199972",
+      "url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/worker/gpu/model_states/encoder_decoder.py"
+    },
+    {
+      "bytes": 9900,
+      "sha256": "6b5755a31a0457fd7dc26a62e827df64d87c5b02476dabc0794c9aedd4996a3c",
+      "url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/worker/gpu/model_states/encoder_only.py"
+    },
+    {
+      "bytes": 43877,
+      "sha256": "2f5368d6ca1856a7b2b49fc423cc4728483d0c9289f913a7bc7cbe0baa040ec0",
+      "url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/distributed/device_communicators/cuda_communicator.py"
+    },
+    {
+      "bytes": 62742,
+      "sha256": "4f2ca81d7fa365d22c23194a768ab56a5c1380d62affaa4a706a5ce8f6b2d65d",
+      "url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/compilation/passes/fusion/allreduce_rms_fusion.py"
+    },
+    {
+      "bytes": 10679,
+      "sha256": "c8233a70004719017ff6a5826ca538c92ea6319a9c7c0090dc8fc2e603db25e7",
+      "url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/models/deepseek_v41/nvidia/ops/mhc.py"
+    },
+    {
+      "bytes": 11357,
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/LICENSE"
+    }
+  ],
+  "result": "pass",
+  "scope": "source-and-software-contracts-only",
+  "source_audits": [
+    {
+      "base_bytes": 10679,
+      "base_url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/models/deepseek_v41/nvidia/ops/mhc.py",
+      "git_blob": "edfdbd1ee40de764fb7235a41859fe616de111f9",
+      "mode": "100644",
+      "path": "vllm/models/deepseek_v41/nvidia/ops/mhc.py",
+      "sha256": "c8233a70004719017ff6a5826ca538c92ea6319a9c7c0090dc8fc2e603db25e7"
+    }
+  ]
+}

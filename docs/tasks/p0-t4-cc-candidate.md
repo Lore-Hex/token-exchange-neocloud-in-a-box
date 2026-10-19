@@ -248,6 +248,21 @@ control, and the unchanged four candidate patch stages. Input bundle SHA-256:
 No public-source fetch was requested; software-only/BLOCKED limitations remain.
 These earlier runs predate the fifth patch and do not prove its guards.
 
+The five-stage [collective-guard run](../../evidence/p0/2026-10-19T201457Z-vllm-cc-candidate/run.json)
+passed from `bd336219a65d4e471f14866011be046b86cc6d76`. Its
+[structured output](../../evidence/p0/2026-10-19T201457Z-vllm-cc-candidate/output.log)
+records 35 software contracts, all six per-file hash states, the unchanged mHC
+audit input, and fourteen public source comparisons totaling 457,301 bytes.
+Input bundle SHA-256:
+`e037fbe30f389c9b99406cb4389ab4aea8e634b360c6b18c1f69cfcbb2c04f1f`.
+The initial [sandboxed attempt](../../evidence/p0/2026-10-19T201401Z-vllm-cc-candidate/run.json)
+failed during DNS resolution after software tests passed; its fixed-error record
+is retained. The retry used the same committed source with public HTTPS reads
+permitted. Full local `make check` passed 142 Python tests and both Go race
+variants. Independent final-head review remains separate. These are source and
+fake-object software results only; BLOCKED/deployable-false/image-null and every
+hardware/runtime gate remain unchanged.
+
 ## Remaining Gates
 
 - This is not a blanket no-UVA guarantee. The fourth patch guards one generic
