@@ -80,6 +80,7 @@ def run(inputs, summary, env, home):
     summary["container"] = {"platform": "linux/amd64", "network": "none",
                             "read_only": True, "published": False}
     build_started, build_finished = False, False
+    runtime_started, runtime_finished = False, False
     try:
         env = {**env, "DOCKER_HOST": snapshot.local_docker_endpoint(env, home)}
         snapshot.require_buildkit(env)
@@ -104,7 +105,9 @@ def run(inputs, summary, env, home):
             pilot.require(re.fullmatch(r"sha256:[0-9a-f]{64}", identity), "container-identity")
             summary["container"]["image_id"] = identity
             summary["stage"] = "execute-container"
+            runtime_started = True
             result = snapshot.execute_process_group(runtime_command(identity, name), env=env, timeout=600)
+            runtime_finished = True
             pilot.require(len(result.stdout) <= 65536, "container-report-size")
             report = json.loads(result.stdout)
             pilot.require(isinstance(report, dict) and report.get("execution") == "real-cpu-model"
@@ -128,5 +131,7 @@ def run(inputs, summary, env, home):
             # Client death does not prove server-side BuildKit cancellation.
             # A later image could appear: fail closed even if current lists are empty.
             summary["container_cleanup"].update(result="fail", build_completion="unknown")
+        if runtime_started and not runtime_finished:
+            summary["container_cleanup"].update(result="fail", runtime_completion="unknown")
         if summary["container_cleanup"]["result"] != "pass":
             summary.update(result="fail", failure_code="container-cleanup-unresolved")

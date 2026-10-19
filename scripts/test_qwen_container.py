@@ -126,6 +126,8 @@ class QwenContainerTests(unittest.TestCase):
                 cleanup.assert_called_once()
                 self.assertEqual(summary["result"], "fail")
                 self.assertEqual(summary["failure_code"], "container-cleanup-unresolved")
+                if timeout:
+                    self.assertEqual(summary["container_cleanup"]["runtime_completion"], "unknown")
 
     def test_build_timeout_never_confirms_daemon_cleanup(self):
         with tempfile.TemporaryDirectory() as directory:
