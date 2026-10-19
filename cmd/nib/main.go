@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/config"
 	"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/evidence"
 )
 
@@ -18,6 +19,23 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 		fmt.Fprintln(out, "nib: Token Exchange Neocloud-in-a-Box (pre-alpha)")
 		fmt.Fprintln(out, "No node has been validated on confidential hardware. See PLAN.md.")
 		fmt.Fprintln(out, "Commands: evidence new <P0..P9> <slug>; evidence scrub --deny-file <path>")
+		fmt.Fprintln(out, "Usage: nib lint [repository-root]")
+		return 0
+	}
+	if args[0] == "lint" {
+		if len(args) > 2 {
+			fmt.Fprintln(errOut, "usage: nib lint [repository-root]")
+			return 2
+		}
+		root := "."
+		if len(args) == 2 {
+			root = args[1]
+		}
+		if err := config.ValidateRepository(root); err != nil {
+			fmt.Fprintln(errOut, err)
+			return 1
+		}
+		fmt.Fprintln(out, "Configuration validation passed; no hardware validation performed.")
 		return 0
 	}
 	if args[0] == "evidence" {

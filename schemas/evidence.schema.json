@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.neocloud.invalid/nib/evidence.schema.json",
+  "$comment": "SPDX-License-Identifier: Apache-2.0. This validates claims, not their truth. Only independent hardware verification can establish trust.",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "phase", "task", "git_sha", "command", "started_utc", "ended_utc", "host", "result", "execution", "hardware_validated"],
+  "properties": {
+    "schema": {"const": "nib.evidence/v1"},
+    "phase": {"type": "string", "pattern": "^P[0-9]$"},
+    "task": {"anyOf": [{"type": "null"}, {"type": "string", "pattern": "^T[1-9][0-9]*$"}]},
+    "git_sha": {"$ref": "common.schema.json#/$defs/revision"},
+    "command": {"$ref": "common.schema.json#/$defs/text"},
+    "started_utc": {"anyOf": [{"type": "null"}, {"$ref": "common.schema.json#/$defs/utc"}]},
+    "ended_utc": {"anyOf": [{"type": "null"}, {"$ref": "common.schema.json#/$defs/utc"}]},
+    "host": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/host"}]},
+    "result": {"enum": ["not_run", "pass", "fail"]},
+    "execution": {"enum": ["not_run", "software", "fake", "hardware"]},
+    "hardware_validated": {"type": "boolean"},
+    "notes": {"type": "string", "maxLength": 4096}
+  },
+  "$defs": {
+    "host": {
+      "type": "object", "additionalProperties": false,
+      "required": ["provider", "machine", "gpus", "driver", "cuda"],
+      "properties": {
+        "provider": {"$ref": "common.schema.json#/$defs/text"},
+        "machine": {"$ref": "common.schema.json#/$defs/text"},
+        "gpus": {"$ref": "common.schema.json#/$defs/text"},
+        "driver": {"anyOf": [{"type": "null"}, {"$ref": "common.schema.json#/$defs/version"}]},
+        "cuda": {"anyOf": [{"type": "null"}, {"type": "string", "pattern": "^[0-9]+[.][0-9]+([.][0-9]+)?$"}]}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"execution": {"const": "not_run"}}},
+      "then": {"properties": {
+        "result": {"const": "not_run"}, "task": {"type": "null"}, "host": {"type": "null"},
+        "started_utc": {"type": "null"}, "ended_utc": {"type": "null"}, "hardware_validated": {"const": false}
+      }},
+      "else": {"properties": {
+        "result": {"enum": ["pass", "fail"]}, "task": {"type": "string"}, "host": {"type": "object"},
+        "started_utc": {"type": "string"}, "ended_utc": {"type": "string"}
+      }}
+    },
+    {
+      "if": {"properties": {"execution": {"const": "hardware"}}},
+      "then": {"properties": {"host": {"properties": {"driver": {"type": "string"}, "cuda": {"type": "string"}}}}},
+      "else": {"properties": {"hardware_validated": {"const": false}}}
+    },
+    {"if": {"properties": {"result": {"const": "fail"}}}, "then": {"properties": {"hardware_validated": {"const": false}}}}
+  ]
+}

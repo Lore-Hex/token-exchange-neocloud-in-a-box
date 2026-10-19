@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.neocloud.invalid/nib/model-pack-confidential.schema.json",
+  "$comment": "SPDX-License-Identifier: Apache-2.0. Internal overlay: repository validation selects only engine profiles referenced by confidential releases before applying this schema. PLAN 3.1 and P5.T4; sourced VLLM_DISABLE_UVA setting in tinfoil-config.yml.",
+  "allOf": [
+    {"$ref": "model-pack-deployable.schema.json"}
+  ],
+  "if": {"$ref": "model-pack-deployable.schema.json#/allOf/2/if"},
+  "then": {"properties": {"engine_profiles": {"additionalProperties": {"$ref": "#/$defs/noUVA"}}}},
+  "$defs": {
+    "noUVA": {"properties": {"env": {"required": ["VLLM_DISABLE_UVA"], "properties": {"VLLM_DISABLE_UVA": {"const": "1"}}}}}
+  }
+}
