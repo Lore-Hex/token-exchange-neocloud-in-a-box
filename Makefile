@@ -1,11 +1,14 @@
 SHELL := /bin/bash
 .DELETE_ON_ERROR:
-.PHONY: check test test-e2e lint fmt-check staticcheck shellcheck yamllint schema-lint docs-check secrets secrets-positive-control build
+.PHONY: check test test-e2e test-evidence lint fmt-check staticcheck shellcheck yamllint schema-lint docs-check secrets secrets-positive-control build
 
-check: lint test secrets secrets-positive-control
+check: lint test test-evidence secrets secrets-positive-control
 
 test:
 	go test -race -count=1 ./...
+
+test-evidence: build
+	sh scripts/test-scrub-secrets.sh
 
 build:
 	go build -trimpath -o build/nib ./cmd/nib
