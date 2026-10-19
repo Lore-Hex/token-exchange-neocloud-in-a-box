@@ -1,0 +1,209 @@
+// SPDX-License-Identifier: Apache-2.0
+
+// Package pilotapi bounds the non-confidential Qwen integration pilot. It is
+// not part of a confidential release image or an attestation implementation.
+package pilotapi
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/json"
+	"errors"
+	"io"
+	"log"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"regexp"
+	"time"
+)
+
+const Model = "qwen/qwen3-0.6b"
+const MaxOutput = 256
+const ContextLength = 4096
+
+var pricePattern = regexp.MustCompile(`^(0|[1-9][0-9]{0,5})(\.[0-9]{1,6})?$`)
+
+// Catalog requires explicit prices; absent or malformed prices never become free.
+func Catalog(inputPrice, outputPrice string) ([]byte, error) {
+	if !pricePattern.MatchString(inputPrice) || !pricePattern.MatchString(outputPrice) {
+		return nil, errors.New("explicit decimal input and output prices required")
+	}
+	return json.Marshal(map[string]any{
+		"object": "list", "contract_version": "2.0",
+		"provider": map[string]any{
+			"id": "hixtube", "status_url": "https://api.hixtube.com/healthz",
+			"support_contact": "mailto:support@trustedrouter.com", "incident_contact": "mailto:support@trustedrouter.com",
+			"regions": []string{"US"}, "request_id_header": "X-Request-Id",
+			"error_contract": map[string]any{"rate_limit_status": 429, "overload_status": 503,
+				"retry_after_header": "Retry-After", "account_quota_error_codes": []string{}},
+		},
+		"data": []any{map[string]any{
+			"id": Model, "object": "model", "owned_by": "qwen", "name": "Qwen3 0.6B (Hixtube CPU pilot)",
+			"type": "chat", "context_length": ContextLength, "max_output_tokens": MaxOutput,
+			"endpoints": []string{"chat/completions"}, "input_modalities": []string{"text"}, "output_modalities": []string{"text"},
+			"capabilities": map[string]bool{"streaming": true, "tools": false, "structured_output": false, "reasoning": false, "prompt_caching": false},
+			"pricing": map[string]any{"currency": "USD", "unit": "per_1m_tokens", "input": inputPrice,
+				"output": outputPrice, "cached_input": nil, "cache_write": nil, "minimum_request": "0"},
+			"lifecycle": map[string]any{"status": "active", "deprecation_at": nil, "retirement_at": nil, "replacement_model_id": nil},
+			"reliability": map[string]any{"first_token_timeout_seconds": 30, "completion_timeout_seconds": 120,
+				"stream_idle_timeout_seconds": 30, "capacity_scope": "model"},
+		}},
+	})
+}
+
+type Handler struct {
+	key     [32]byte
+	catalog []byte
+	proxy   *httputil.ReverseProxy
+	slots   chan struct{}
+}
+
+// New fixes the backend to loopback. Neither requests nor environment variables
+// can supply an alternate destination for provider credentials or prompt bytes.
+func New(key, inputPrice, outputPrice string) (*Handler, error) {
+	if !regexp.MustCompile(`^[A-Za-z0-9_-]{32,256}$`).MatchString(key) {
+		return nil, errors.New("invalid pilot key")
+	}
+	catalog, err := Catalog(inputPrice, outputPrice)
+	if err != nil {
+		return nil, err
+	}
+	upstream, _ := url.Parse("http://127.0.0.1:8000")
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.DisableKeepAlives = true
+	transport.ResponseHeaderTimeout = 120 * time.Second
+	h := &Handler{key: sha256.Sum256([]byte("Bearer " + key)), catalog: catalog, slots: make(chan struct{}, 2)}
+	h.proxy = &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(upstream)
+			// Do not forward caller-selected credentials, forwarding headers or queries.
+			pr.Out.Header = http.Header{"Content-Type": {"application/json"}, "Authorization": {"Bearer " + key}}
+			pr.Out.URL.RawQuery = ""
+		}, Transport: transport, FlushInterval: -1, ErrorLog: log.New(io.Discard, "", 0),
+		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, _ error) {
+			writeError(w, 502, "upstream_unavailable")
+		},
+	}
+	return h, nil
+}
+
+func writeError(w http.ResponseWriter, status int, code string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"message": code, "type": code}})
+}
+
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if r.URL.RawQuery != "" || r.URL.RawPath != "" {
+		writeError(w, 400, "unsupported_url")
+		return
+	}
+	if r.Method == http.MethodGet && r.URL.Path == "/health" {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		r = r.Clone(ctx)
+		h.proxy.ServeHTTP(w, r)
+		return
+	}
+	provided := sha256.Sum256([]byte(r.Header.Get("Authorization")))
+	if len(r.Header.Values("Authorization")) != 1 || subtle.ConstantTimeCompare(provided[:], h.key[:]) != 1 {
+		writeError(w, 401, "invalid_api_key")
+		return
+	}
+	if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(h.catalog)
+		return
+	}
+	if r.Method != http.MethodPost || r.URL.Path != "/v1/chat/completions" {
+		writeError(w, 404, "unsupported_endpoint")
+		return
+	}
+	select {
+	case h.slots <- struct{}{}:
+		defer func() { <-h.slots }()
+	default:
+		w.Header().Set("Retry-After", "1")
+		writeError(w, 429, "capacity_exhausted")
+		return
+	}
+	controller := http.NewResponseController(w)
+	_ = controller.SetReadDeadline(time.Now().Add(30 * time.Second))
+	defer r.Body.Close()
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 65536))
+	_ = controller.SetReadDeadline(time.Time{})
+	if err != nil {
+		writeError(w, 413, "invalid_request_body")
+		return
+	}
+	body, err = BoundRequest(body)
+	if err != nil {
+		writeError(w, 400, "unsupported_pilot_request")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	defer cancel()
+	_ = controller.SetWriteDeadline(time.Now().Add(120 * time.Second))
+	defer func() { _ = controller.SetWriteDeadline(time.Time{}) }()
+	r = r.Clone(ctx)
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	r.ContentLength = int64(len(body))
+	r.GetBody = nil
+	h.proxy.ServeHTTP(w, r)
+}
+
+// BoundRequest serializes the validated object again so duplicate JSON keys
+// cannot mean different things to this guard and the downstream parser.
+func BoundRequest(body []byte) ([]byte, error) {
+	var value map[string]json.RawMessage
+	if json.Unmarshal(body, &value) != nil || value == nil {
+		return nil, errors.New("invalid JSON")
+	}
+	var model string
+	if json.Unmarshal(value["model"], &model) != nil || model != Model {
+		return nil, errors.New("unsupported model")
+	}
+	var messages []struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	if json.Unmarshal(value["messages"], &messages) != nil || len(messages) == 0 || len(messages) > 128 {
+		return nil, errors.New("text messages required")
+	}
+	for _, message := range messages {
+		if message.Role != "system" && message.Role != "user" && message.Role != "assistant" {
+			return nil, errors.New("unsupported role")
+		}
+	}
+	for _, field := range []string{"tools", "tool_choice", "response_format", "n_predict", "prompt", "input"} {
+		if _, ok := value[field]; ok {
+			return nil, errors.New("unsupported pilot feature")
+		}
+	}
+	if raw, ok := value["n"]; ok {
+		var n int
+		if json.Unmarshal(raw, &n) != nil || n != 1 {
+			return nil, errors.New("one completion required")
+		}
+	}
+	limit := MaxOutput
+	for _, field := range []string{"max_tokens", "max_completion_tokens"} {
+		if raw, ok := value[field]; ok {
+			var n int
+			if bytes.Equal(raw, []byte("null")) || json.Unmarshal(raw, &n) != nil || n < 1 || n > MaxOutput {
+				return nil, errors.New("invalid output limit")
+			}
+			if n < limit {
+				limit = n
+			}
+		}
+	}
+	value["max_tokens"], _ = json.Marshal(limit)
+	delete(value, "max_completion_tokens")
+	return json.Marshal(value)
+}

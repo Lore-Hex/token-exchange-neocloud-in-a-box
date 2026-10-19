@@ -97,10 +97,12 @@ def engine_command(binary, weights, model_id, port, keyfile):
             "--api-key-file", str(keyfile)]
 
 
-def shim_command(binary, port, upstream_port, cert, key):
-    return [str(binary), "shim", "--listen", "127.0.0.1:" + str(port),
+def shim_command(binary, port, upstream_port, cert, key, *, host="127.0.0.1"):
+    require(host in {"127.0.0.1", "0.0.0.0"}, "listen-host")
+    return [str(binary), "shim", "--listen", host + ":" + str(port),
             "--upstream", "http://127.0.0.1:" + str(upstream_port),
             "--tee", "none", "--evidence-source", "none", "--max-inflight", "2",
+            "--max-request-bytes", "65536",
             "--tls-cert", str(cert), "--tls-key", str(key)]
 
 
@@ -153,6 +155,16 @@ def provider_result(report, returncode):
                                          for value in checks.values()), "checker-shape")
     passed = returncode == 0 and all(checks.get(name) == "pass" for name in REQUIRED)
     return {"result": "pass" if passed else "fail", "checks": checks}
+
+
+def check_provider(checker, port, model, cert, api_key, env):
+    result = subprocess.run([str(checker),
+                             "--base-url", "https://127.0.0.1:" + str(port) + "/v1",
+                             "--model", model, "--tier", "4", "--json", "-"],
+                            env={**env, "SSL_CERT_FILE": str(cert), "TR_PROVIDER_API_KEY": api_key},
+                            capture_output=True, timeout=180)
+    require(len(result.stdout) <= 1 << 20, "checker-report-size")
+    return provider_result(json.loads(result.stdout), result.returncode)
 
 
 def prepare_native(inputs, work, env, pins, trcs, summary):
@@ -258,19 +270,36 @@ def run(inputs, summary, *, prepared=None):
                                     "usage": {name: usage[name] for name in
                                               ("prompt_tokens", "completion_tokens", "total_tokens")}}
             summary["stage"] = "provider-conformance"
-            result = subprocess.run([str(checker),
-                                     "--base-url", "https://127.0.0.1:" + str(public) + "/v1",
-                                     "--model", pins["model_id"], "--tier", "4", "--json", "-"],
-                                    env={**env, "SSL_CERT_FILE": str(cert), "TR_PROVIDER_API_KEY": apikey},
-                                    capture_output=True, timeout=180)
-            require(len(result.stdout) <= 1 << 20, "checker-report-size")
-            summary["provider"] = provider_result(json.loads(result.stdout), result.returncode)
+            summary["provider"] = check_provider(checker, public, pins["model_id"], cert, apikey, env)
             require(summary["provider"]["result"] == "pass", "provider-conformance")
             # Deliberately kill inference and ensure the front door does not return an empty 200.
             stop(server)
             require(request(public, "/v1/chat/completions", tls=tls, body=payload, key=apikey)[0] == 502,
                     "backend-failure")
             summary["backend_failure_rejected"] = True
+            if prepared is not None:
+                stop(shim)
+                summary["stage"] = "persistent-service"
+                service = start([sys.executable, "-I", str(ROOT / "scripts/pilot/serve.py"),
+                                 "--prepared", str(prepared), "--cert", str(cert), "--key", str(certkey),
+                                 "--api-key-file", str(apikeyfile), "--hostname", "127.0.0.1",
+                                 "--port", str(public), "--max-seconds", "300",
+                                 "--input-price", "0.000001", "--output-price", "0.000002"])
+                ready(service, public, "/healthz", tls)
+                status, catalog = request(public, "/v1/models", tls=tls, key=apikey)
+                require(status == 200 and json.loads(catalog).get("contract_version") == "2.0",
+                        "service-catalog")
+                require(request(public, "/v1/chat/completions", tls=tls, key=apikey,
+                                body={**payload, "max_tokens": 257})[0] == 400, "service-output-limit")
+                summary["service_provider"] = check_provider(checker, public, pins["model_id"], cert, apikey, env)
+                require(summary["service_provider"]["result"] == "pass", "service-conformance")
+                stop(service)
+                require(service.returncode == 0, "service-graceful-shutdown")
+                for port in (8000, 8001, public):
+                    with socket.socket() as probe:
+                        require(probe.connect_ex(("127.0.0.1", port)) != 0, "service-port-cleanup")
+                summary["service"] = {"catalog_v2": "pass", "output_limit": "pass",
+                                      "graceful_shutdown": "pass", "listeners_closed": "pass"}
         require(all(process.poll() is not None for process in processes), "process-cleanup")
         summary["cleanup"] = "processes-stopped"
     require(not work.exists(), "temporary-cleanup")

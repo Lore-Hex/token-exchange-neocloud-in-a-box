@@ -63,12 +63,16 @@ class QwenContainerTests(unittest.TestCase):
                     member.size = len(data)
                     archive.addfile(member, io.BytesIO(data))
                 target["archive_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
-            for name in ("pilot/run.py", "pilot/build-requirements.lock", "pilot/Dockerfile", "e2e/pins.json",
+            for name in ("pilot/run.py", "pilot/serve.py", "pilot/build-requirements.lock", "pilot/Dockerfile", "e2e/pins.json",
                          "e2e/snapshot.py", "e2e/exercise.py", "e2e/requirements.lock"):
                 path = source / "scripts" / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("committed fixture")
             (source / "scripts/pilot/pins.json").write_text(json.dumps(pins))
+            for name in ("go.mod", "go.sum", "cmd/nib-pilot-api/main.go", "internal/pilotapi/handler.go"):
+                path = source / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("committed fixture")
             (source / "secret.env").write_text("NEVER_IN_CONTEXT")
             (source / "scripts/pilot/__pycache__").mkdir()
             (source / "scripts/pilot/__pycache__/ignored.pyc").write_bytes(b"forged")
@@ -80,7 +84,7 @@ class QwenContainerTests(unittest.TestCase):
             self.assertEqual((context / "trcs/main.txt").read_bytes(), b"front")
             self.assertEqual((context / "inputs/model.gguf").read_bytes(), b"model")
             names = {path.relative_to(context).as_posix() for path in context.rglob("*") if path.is_file()}
-            self.assertEqual(len(names), 11)
+            self.assertEqual(len(names), 16)
             self.assertFalse(any("secret" in name or "credential" in name or "__pycache__" in name for name in names))
 
     def test_prepared_model_must_match_before_runtime(self):

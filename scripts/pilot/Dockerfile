@@ -56,6 +56,11 @@ COPY trcs/ /src/trcs/
 WORKDIR /src/trcs
 RUN --network=none go mod verify \
     && go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/trcs ./cmd/trcs
+COPY repo/go.mod repo/go.sum /src/nib/
+COPY repo/cmd/nib-pilot-api/ /src/nib/cmd/nib-pilot-api/
+COPY repo/internal/pilotapi/ /src/nib/internal/pilotapi/
+WORKDIR /src/nib
+RUN --network=none go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/nib-pilot-api ./cmd/nib-pilot-api
 
 FROM ${PYTHON_IMAGE} AS pilot
 ARG GO_IMAGE
