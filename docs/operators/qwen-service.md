@@ -5,12 +5,12 @@ release. Joseph requested public hosting and TrustedRouter integration on
 2026-10-19. The service implementation is being validated locally; no public
 endpoint, cloud deployment or customer billing has been verified yet.
 
-The [recorded Linux run](../../evidence/p3/2026-10-19-qwen-retirement-linux/run.json)
+The [recorded Linux run](../../evidence/p3/2026-10-19-qwen-retirement-race-linux/run.json)
 passed all 18 service conformance checks, including Catalog v2, auth, streaming
 and integer usage. It signals the entire service after the first real content
 delta and requires the final finish reason, usage and `[DONE]` before exit.
-[Results](../../evidence/p3/2026-10-19-qwen-retirement-linux/output.log) confirm
-closed listeners and removal of the temporary container/image. It ran offline
+[Results](../../evidence/p3/2026-10-19-qwen-retirement-race-linux/output.log) confirm
+closed listeners and removal of the temporary container and image tag. It ran offline
 on local Docker using real model weights, not on a cloud VM.
 The shutdown proof checks complete single-data-field UTF-8 LF/CRLF frames and
 requires finish, one usage chunk, then `[DONE]`. It rejects errors, truncation,
@@ -116,9 +116,19 @@ to reset the approved run duration.
 5. Activate the catalog parser only after its live fetch and inference canary
    pass. Until then leave the TR registration PR unmerged: a registered but
    unreachable mandatory provider can block the global price refresh.
+   Before activation, also arrange withdrawal of its mandatory refresh
+   registration before pilot expiry. A runtime route deadline prevents new
+   inference, but does not make a failed mandatory catalog fetch harmless.
 6. Use one approved, provider-pinned TR request to verify actual routing, integer
    usage, price calculation and settlement. Check streaming as well. Publish
    as a small CPU pilot with `zdr=false`, `confidential=false`, `e2ee=false`.
+
+DNS ownership and address teardown are launch gates too. Hixtube must own its
+serving zone or delegated child zone in the separate project. Do not leave an
+address record pointing to a released ephemeral IP: withdraw and verify DNS
+before releasing the address. A reserved address can prevent reassignment
+during withdrawal, but incurs its own charges and needs a bounded, approved
+cleanup plan. VM deletion alone is not completion of that plan.
 
 The pilot does not satisfy P2-P7's confidential hardware or large-model criteria.
 The 8xB200 work still requires hardware qualification, verified boot/model
