@@ -95,3 +95,5 @@ Nothing is uploaded, published or sent through TrustedRouter's gateway. Real
 prices, validated deployment claims and publication require later work and
 their human gates, including G-PUBLISH. Schema or checker success is not an
 authorization to list these drafts.
+
+See the [committed local proof and explicit incomplete work](../evidence/p1/2026-10-19-catalog-tier1/README.md).

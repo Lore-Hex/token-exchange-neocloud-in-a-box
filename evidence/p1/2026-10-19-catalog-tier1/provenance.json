@@ -1,0 +1,8 @@
+{
+  "catalog_sha256": "b4459e030669a3862a011a9662e74e8b4a48b3cee11493f3c37a6fbbbeb8cc2e",
+  "checker_contract_sha256": "973e380e5ab7e6303576dd7555c186244649befdc2da5c64017611abe9918769",
+  "checker_schema_sha256": "3069dbcc1ab9f34982ec092a674fc2b629bf90fe7cd51606b813f1d036cf261e",
+  "checker_version": "0.1.8",
+  "dependency_lock_sha256": "d780819a6a3fdb1641c5af8785bc421d3748f926e471eb0251cfab4e2dee7f2b",
+  "public_schema_sha256": "d4d06605dd62dd471955af41b1ac88dd51bf1927e1127d3b3526693fcd7b0f47"
+}

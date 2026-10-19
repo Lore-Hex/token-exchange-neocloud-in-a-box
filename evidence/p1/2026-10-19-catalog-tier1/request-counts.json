@@ -1,0 +1,9 @@
+{
+  "allowed_gets": {
+    "/catalog.v2.json": 1,
+    "/invalid-catalog.v2.json": 1,
+    "/v1/models": 2
+  },
+  "inference_requests": 0,
+  "violations": {}
+}
