@@ -99,6 +99,30 @@ class Tree:
         self.fd = fd
         self.deadline = time.monotonic() + 300
 
+    def check_startup_hooks(self):
+        # Check names only: hooks must not execute during isolated inspection or
+        # survive for a later ordinary Python startup. Reject packages too.
+        visited = 0
+        def scan(fd, cache=False):
+            nonlocal visited
+            with os.scandir(fd) as entries:
+                for entry in entries:
+                    visited += 1
+                    require(visited <= MAX_FILES and time.monotonic() < self.deadline)
+                    name = entry.name
+                    safe_name(name)
+                    require(name.split(".", 1)[0] not in ("sitecustomize", "usercustomize"))
+                    if not cache:
+                        require(not name.endswith((".pth", ".egg-link", ".egg-info"))
+                                and "__editable__" not in name)
+                        if name == "__pycache__":
+                            child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                            try:
+                                scan(child, cache=True)
+                            finally:
+                                os.close(child)
+        scan(self.fd)
+
     @contextmanager
     def parent(self, name):
         parts = safe_name(name)
@@ -213,6 +237,7 @@ def bytecode_for(name, module):
 def inspect(tree, contract, *, console=None):
     """Validate bytes/metadata. RECORD is integrity metadata, not a signature."""
     require(contract["base_image"] == BASE_IMAGE and contract["base_revision"] == BASE_REVISION)
+    tree.check_startup_hooks()
     inventory = tree.inventory()
     require("vllm.py" not in inventory and "vllm.pyc" not in inventory)
     distributions = {}
@@ -367,6 +392,7 @@ def installed_root():
         if not Path(root).exists():
             continue
         with directory(root) as fd:
+            Tree(fd).check_startup_hooks()
             with os.scandir(fd) as entries:
                 for entry in entries:
                     if entry.name.lower().startswith("vllm") and entry.name.endswith((".dist-info", ".egg-info")):

@@ -22,7 +22,7 @@ TEST = "scripts/test_engine_overlay.py"
 BOOTSTRAP = Path(__file__).read_bytes()
 MODULE_HASHES = {
     "overlay_candidate": "5d14105a8f6fa0e5239a6e71a2c79f7c1b07304ced2352accaec4a82aea6075d",
-    "overlay_inspector": "21f749d905b7b36da7b7f05ade06462311daa4770dbb481862f7b9f887446353",
+    "overlay_inspector": "1f42e2e90dbca12d5173b28daffb3be6964126a63f1d0690b719891ba73afcde",
 }
 
 

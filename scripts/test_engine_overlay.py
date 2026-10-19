@@ -2,11 +2,14 @@
 """Real filesystem functions with synthetic wheel trees; no upstream imports."""
 
 import base64
+from contextlib import contextmanager
 import csv
 import io
 import json
 import os
 from pathlib import Path
+import py_compile
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -222,6 +225,93 @@ class OverlayTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.inspect()
             (self.root / name).unlink()
+
+    @contextmanager
+    def startup_hook(self, root, name):
+        path = root / name
+        marker = self.work / "hook-executed"
+        source = (f"from pathlib import Path\nPath({str(marker)!r}).touch()\n"
+                  "raise RuntimeError('SYNTHETIC_PRIVATE_VALUE')\n")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if name.endswith("/"):
+            path.mkdir()
+        elif path.suffix in (".pyc", ".pyo"):
+            temporary = self.work / "compile-hook.py"
+            temporary.write_text(source)
+            try:
+                py_compile.compile(str(temporary), cfile=str(path), doraise=True)
+            finally:
+                temporary.unlink()
+        else:
+            path.write_text(source if path.suffix != ".pth" else
+                            f"import pathlib; pathlib.Path({str(marker)!r}).touch()\n")
+        try:
+            yield
+            self.assertFalse(marker.exists(), "startup hook must never execute")
+        finally:
+            top = root / name.split("/", 1)[0]
+            shutil.rmtree(top) if top.is_dir() else top.unlink()
+
+    @staticmethod
+    def startup_hook_forms():
+        return ["SYNTHETIC_PRIVATE_VALUE.pth"] + [
+            name + suffix for name in ("sitecustomize", "usercustomize") for suffix in (
+                ".py", ".pyc", ".pyo", ".cpython-312-x86_64-linux-gnu.so", "/",
+                "/__init__.py", "/__init__.pyc", "/__pycache__/__init__.cpython-312.pyc")
+        ] + [f"__pycache__/{name}.cpython-312{optimization}.pyc"
+             for name in ("sitecustomize", "usercustomize") for optimization in ("", ".opt-1")]
+
+    def test_selected_root_startup_hooks_rejected_without_execution(self):
+        before = self.inspect()
+        for name in self.startup_hook_forms():
+            with self.subTest(name=name), self.startup_hook(self.root, name):
+                with self.assertRaisesRegex(ValueError, "^offline overlay validation failed$"):
+                    self.inspect()
+        self.assertEqual(self.inspect(), before)
+
+    def test_all_discovered_roots_reject_startup_hooks_without_execution(self):
+        other = self.work / "other-site"
+        other.mkdir()
+        site_only = self.work / "site-only"
+        site_only.mkdir()
+        paths = {"purelib": str(self.root), "platlib": str(other), "scripts": str(self.work / "bin")}
+        with mock.patch.object(overlay.platform, "system", return_value="Linux"), \
+                mock.patch.object(overlay.platform, "machine", return_value="x86_64"), \
+                mock.patch.object(overlay.sys, "version_info", (3, 12)), \
+                mock.patch.object(overlay.sysconfig, "get_paths", return_value=paths), \
+                mock.patch.object(overlay.site, "getsitepackages", return_value=[str(self.root), str(site_only)]):
+            self.assertEqual(overlay.installed_root(), (str(self.root), paths["scripts"]))
+            for root in (self.root, other, site_only):
+                for name in self.startup_hook_forms():
+                    with self.subTest(root=root.name, name=name), self.startup_hook(root, name):
+                        with self.assertRaisesRegex(ValueError, "^offline overlay validation failed$"):
+                            overlay.installed_root()
+            self.assertEqual(overlay.installed_root(), (str(self.root), paths["scripts"]))
+
+    def test_startup_hook_scan_is_bounded_and_does_not_follow_cache_links(self):
+        other = self.work / "other-site"
+        other.mkdir()
+        (other / "ordinary.py").write_text("raise RuntimeError('must not execute')\n")
+        (other / "__pycache__").symlink_to(self.root, target_is_directory=True)
+        with overlay.directory(other) as fd, self.assertRaises(OSError):
+            overlay.Tree(fd).check_startup_hooks()
+        (other / "__pycache__").unlink()
+        with overlay.directory(other) as fd:
+            tree = overlay.Tree(fd)
+            tree.check_startup_hooks()
+            with mock.patch.object(overlay, "MAX_FILES", 0), self.assertRaises(ValueError):
+                tree.check_startup_hooks()
+            tree.deadline = 0
+            with self.assertRaises(ValueError):
+                tree.check_startup_hooks()
+
+    def test_hook_names_within_ordinary_packages_are_not_global_startup_hooks(self):
+        self.write("ordinary/sitecustomize.py", b"raise RuntimeError('must not execute')\n")
+        self.write("not_usercustomize.py", b"raise RuntimeError('must not execute')\n")
+        self.write("__pycache__/ordinary.cpython-312.pyc", b"not loaded\n")
+        result = self.inspect()
+        self.assertIn("ordinary/sitecustomize.py", result["files"])
+        self.assertIn("not_usercustomize.py", result["files"])
 
     def test_wrong_wheel_python_version_and_platform(self):
         for name, data in ((self.dist + "/WHEEL", b"Wheel-Version: 1.0\nRoot-Is-Purelib: false\nTag: cp311-cp311-linux_aarch64\n"),
