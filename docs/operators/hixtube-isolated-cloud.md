@@ -115,11 +115,24 @@ ro() {
     --billing-project=hixtube-neocloud --quiet --no-log-http "$@" </dev/null
 }
 ro version
-ro config list --all --format='yaml(auth,billing,api_endpoint_overrides,proxy)'
+ro config list --all --format=json |
+  python3 -I -c '
+import json, sys
+c = json.load(sys.stdin)
+auth = c.get("auth", {})
+overrides = ("access_token_file", "credential_file_override", "impersonate_service_account",
+             "client_id", "client_secret", "login_config_file")
+blocked = any(auth.get(k) for k in overrides)
+blocked = blocked or str(auth.get("disable_credentials", "false")).lower() == "true"
+blocked = blocked or any(c.get("proxy", {}).values()) or any(c.get("api_endpoint_overrides", {}).values())
+print("STOP: configured auth/proxy/endpoint override" if blocked else "Configuration override check passed")
+sys.exit(1 if blocked else 0)'
 ```
 
 The clean environment still reads the existing default config/credential store.
-Stop on unexplained impersonation, credential overrides, proxy or API endpoints.
+Stop on configured impersonation, credential overrides, proxy or API endpoints.
+Do not dump their values: auth and proxy sections can contain credentials. The
+isolated Python check above prints only a fixed pass/stop message.
 API-prompt suppression was checked in SDK **566.0.0** `core/properties.py` and
 `api_lib/{util/apis.py,compute/batch_helper.py}`; recheck on upgrade.
 [CLI flags](https://docs.cloud.google.com/sdk/gcloud/reference); `--quiet` alone is not a safety boundary.
