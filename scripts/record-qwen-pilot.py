@@ -15,7 +15,6 @@ from pathlib import Path
 import platform
 import pwd
 import re
-import signal
 import subprocess
 import tempfile
 import types
@@ -36,6 +35,7 @@ def load_source(name, path):
 snapshot, SNAPSHOT_SOURCE = load_source("pilot_snapshot", ROOT / "scripts/e2e/snapshot.py")
 controlled_env, git = snapshot.controlled_env, snapshot.git
 snapshot_commit, validate_snapshot = snapshot.snapshot_commit, snapshot.validate_snapshot
+execute_pilot = snapshot.execute_process_group
 
 
 def validate_bootstrap(source):
@@ -47,31 +47,6 @@ def validate_bootstrap(source):
 
 def now():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def execute_pilot(args, *, env, cwd, timeout=1800):
-    # Timeouts/interruption must also stop compiler and server grandchildren.
-    process = subprocess.Popen(args, env=env, cwd=cwd, start_new_session=True,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    try:
-        stdout, stderr = process.communicate(timeout=timeout)
-        return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
-    finally:
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            pass
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        process.wait(timeout=10)
-        process.stdout.close()
-        process.stderr.close()
 
 
 def validate_record(record, nib, work, env):

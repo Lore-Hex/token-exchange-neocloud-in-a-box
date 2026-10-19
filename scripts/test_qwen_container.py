@@ -3,10 +3,13 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
+import sys
 import tarfile
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -117,12 +120,52 @@ class QwenContainerTests(unittest.TestCase):
                         patch.object(container.snapshot, "require_buildkit"), \
                         patch.object(container, "build_context", return_value={"base_images": {
                             "platform": "linux/amd64", "go_image": "go", "python_image": "python"}}), \
-                        patch.object(container.subprocess, "run", side_effect=execute), \
+                        patch.object(container.snapshot, "execute_process_group", side_effect=execute), \
                         patch.object(container.e2e, "cleanup_resources", return_value={"result": "fail"}) as cleanup:
                     container.run(root, summary, {"PATH": "/bin"}, root)
                 cleanup.assert_called_once()
                 self.assertEqual(summary["result"], "fail")
                 self.assertEqual(summary["failure_code"], "container-cleanup-unresolved")
+
+    def test_build_timeout_never_confirms_daemon_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary = {"result": "fail"}
+            with patch.object(container.snapshot, "local_docker_endpoint", return_value="unix:///local/docker.sock"), \
+                    patch.object(container.snapshot, "require_buildkit"), \
+                    patch.object(container, "build_context", return_value={"base_images": {
+                        "platform": "linux/amd64", "go_image": "go", "python_image": "python"}}), \
+                    patch.object(container.snapshot, "execute_process_group",
+                                 side_effect=subprocess.TimeoutExpired(["docker", "build"], 1200)), \
+                    patch.object(container.e2e, "cleanup_resources", return_value={"result": "pass"}):
+                container.run(root, summary, {"PATH": "/bin"}, root)
+            self.assertEqual(summary["result"], "fail")
+            self.assertEqual(summary["container_cleanup"]["result"], "fail")
+            self.assertEqual(summary["container_cleanup"]["build_completion"], "unknown")
+
+    def test_timeout_kills_plugin_descendant_before_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            child_code = "import time,pathlib; time.sleep(2); pathlib.Path('late-image').write_text('orphan')"
+            parent_code = (
+                "import pathlib,signal,subprocess,sys,time\n"
+                "child=subprocess.Popen([sys.executable,'-c'," + repr(child_code) + "])\n"
+                "pathlib.Path('child-pid').write_text(str(child.pid))\n"
+                "def stop(signum, frame):\n"
+                "    child.wait()\n"
+                "    sys.exit(0)\n"
+                "signal.signal(signal.SIGTERM, stop)\n"
+                "time.sleep(60)\n"
+            )
+            with self.assertRaises(subprocess.TimeoutExpired):
+                container.snapshot.execute_process_group(
+                    [sys.executable, "-c", parent_code], env=container.snapshot.controlled_env(root / "env"),
+                    cwd=root, timeout=0.5, capture_output=False)
+            child = int((root / "child-pid").read_text())
+            with self.assertRaises(ProcessLookupError):
+                os.kill(child, 0)
+            time.sleep(2)
+            self.assertFalse((root / "late-image").exists())
 
     def test_cleanup_uses_isolated_environment(self):
         with patch.object(container.e2e.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, b"")) as run:

@@ -79,6 +79,7 @@ def run(inputs, summary, env, home):
     image = "nib-qwen-local:" + name.removeprefix("nib-qwen-")
     summary["container"] = {"platform": "linux/amd64", "network": "none",
                             "read_only": True, "published": False}
+    build_started, build_finished = False, False
     try:
         env = {**env, "DOCKER_HOST": snapshot.local_docker_endpoint(env, home)}
         snapshot.require_buildkit(env)
@@ -91,18 +92,19 @@ def run(inputs, summary, env, home):
             bases = summary["container_inputs"]["base_images"]
             summary["stage"] = "build-container"
             iid = work / "image-id"
-            subprocess.run(["docker", "build", "--platform", bases["platform"],
+            build_started = True
+            built = snapshot.execute_process_group(["docker", "build", "--platform", bases["platform"],
                             "--tag", image, "--iidfile", str(iid),
                             "--build-arg", "GO_IMAGE=" + bases["go_image"],
                             "--build-arg", "PYTHON_IMAGE=" + bases["python_image"], str(context)],
-                           env=env, check=True, stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, timeout=1200)
+                           env=env, capture_output=False, timeout=1200)
+            build_finished = True
+            built.check_returncode()
             identity = iid.read_text().strip()
             pilot.require(re.fullmatch(r"sha256:[0-9a-f]{64}", identity), "container-identity")
             summary["container"]["image_id"] = identity
             summary["stage"] = "execute-container"
-            result = subprocess.run(runtime_command(identity, name), env=env,
-                                    capture_output=True, timeout=600)
+            result = snapshot.execute_process_group(runtime_command(identity, name), env=env, timeout=600)
             pilot.require(len(result.stdout) <= 65536, "container-report-size")
             report = json.loads(result.stdout)
             pilot.require(isinstance(report, dict) and report.get("execution") == "real-cpu-model"
@@ -122,5 +124,9 @@ def run(inputs, summary, env, home):
         summary.update(result="fail", failure_code="container-execution-failed")
     finally:
         summary["container_cleanup"] = e2e.cleanup_resources(image, name, env=env)
+        if build_started and not build_finished:
+            # Client death does not prove server-side BuildKit cancellation.
+            # A later image could appear: fail closed even if current lists are empty.
+            summary["container_cleanup"].update(result="fail", build_completion="unknown")
         if summary["container_cleanup"]["result"] != "pass":
             summary.update(result="fail", failure_code="container-cleanup-unresolved")
