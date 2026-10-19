@@ -27,7 +27,13 @@ const testHash = "22222222222222222222222222222222222222222222222222222222222222
 
 type roundTrip func(*http.Request) (*http.Response, error)
 
-func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) {
+	res, err := f(r)
+	if res != nil && res.Request == nil {
+		res.Request = r
+	}
+	return res, err
+}
 func response(b string) *http.Response {
 	return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(b)), ContentLength: -1}
 }
@@ -72,6 +78,14 @@ func TestGenerateCompleteManifest(t *testing.T) {
 	}
 	if m.DownloadedBytes > 4096 {
 		t.Fatal("weight bytes downloaded")
+	}
+	encoded, err := json.Marshal(m)
+	var decoded struct {
+		Files      []File `json:"files"`
+		TotalBytes int64  `json:"total_bytes"`
+	}
+	if err != nil || json.Unmarshal(encoded, &decoded) != nil || len(decoded.Files) != 2 || decoded.TotalBytes != m.TotalBytes {
+		t.Fatal("manifest evidence is not structured JSON")
 	}
 	b, err := m.MarshalText()
 	if err != nil || config.ValidateFileManifest(b, m.TotalBytes) != nil {

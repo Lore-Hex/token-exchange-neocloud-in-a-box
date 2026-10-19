@@ -94,3 +94,26 @@ the public check API), so its maximum HF body budget is four times 64 MiB.
 Upstream text-source auditing has its own fixed request count and body caps.
 No weight downloads, credentials supplied by the operator, paid resources or
 publication are performed by either command.
+
+## Recorded Runs
+
+The successful [generation run](../evidence/p0/2026-10-19T014759Z-model-pack-generate/run.json)
+used committed generator `4fc3bef`. Its [output](../evidence/p0/2026-10-19T014759Z-model-pack-generate/output.log)
+records 83 DS1017 files / 510,311,045,295 bytes and 156 GLM files /
+755,663,689,302 bytes. The two HF fetches consumed 14,150,160 and 151,962
+metadata/non-LFS body bytes, respectively. All LFS objects were skipped.
+Both source-pinned registry manifest digests passed. The initial generation
+report serialized manifests as strings; the subsequent checker emits structured
+model/file records. Historical evidence is not rewritten.
+
+Two earlier failed runs remain recorded: the first had a sanitized generic
+request failure, and the second identified rejection of HF's encoded nested-file
+cache redirect. The corrected policy admits only the exact file's canonical
+encoded cache path at the same repository/revision/origin. Other redirects fail.
+Redirect response bodies are closed unread, so they cannot escape body accounting.
+
+Software tests exercise metadata/file limits, pagination limits/cycles and URL
+validation, exact all-file coverage, size overflow/mismatch, LFS and Git blob
+hashes, network/read failures, cancellation, redirect bodies, anonymous registry
+authentication, digest/media-type checks, local schema/file safety, draft
+non-deployability, CLI dispatch/redaction and exclusive evidence writes.

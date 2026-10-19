@@ -64,7 +64,7 @@ func auditSources(ctx context.Context, client *http.Client) ([]sourceProof, erro
 			}
 		case "T-UVA-patch":
 			if !strings.Contains(s, `+    "VLLM_DISABLE_UVA":`) {
-				return proofs, errors.New("Tinfoil UVA patch assumption changed")
+				return proofs, errors.New("tinfoil UVA patch assumption changed")
 			}
 		case "T-base":
 			if !strings.Contains(s, upstreamImage) || !strings.Contains(s, "db9527a46873454610df6dbedf79a36d6bf1a7f6") {
@@ -72,7 +72,7 @@ func auditSources(ctx context.Context, client *http.Client) ([]sourceProof, erro
 			}
 		case "T-release":
 			if !strings.Contains(s, tinfoilImage) {
-				return proofs, errors.New("Tinfoil release source pin changed")
+				return proofs, errors.New("tinfoil release source pin changed")
 			}
 		}
 		proofs = append(proofs, sourceProof{Key: source.key, URL: source.url, SHA256: fmt.Sprintf("%x", sha256.Sum256(b)), Bytes: len(b)})

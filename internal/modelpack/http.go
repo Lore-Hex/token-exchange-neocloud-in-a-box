@@ -47,31 +47,38 @@ func (t *transfer) get(ctx context.Context, u *url.URL, limit int64, headers htt
 	}
 	client := *t.r.client
 	client.Jar = nil
-	redirectRejected := false
-	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 5 || redirect == nil || !redirect(req.URL) || req.URL.User != nil || req.URL.Fragment != "" || req.URL.Scheme != "https" {
-			redirectRejected = true
-			return errors.New("modelpack: unsafe redirect")
+	// Handle redirects explicitly: net/http otherwise drains part of each
+	// redirect body outside our final-response budget. No redirect body is read.
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	var resp *http.Response
+	var err error
+	for hops := 0; ; hops++ {
+		req, requestErr := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+		if requestErr != nil {
+			return nil, nil, 0, errors.New("modelpack: cannot construct request")
 		}
-		return nil
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return nil, nil, 0, errors.New("modelpack: cannot construct request")
-	}
-	for k, values := range headers {
-		req.Header[k] = append([]string(nil), values...)
-	}
-	req.Header.Set("Accept-Encoding", "identity")
-	resp, err := client.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, nil, 0, ctx.Err()
+		for k, values := range headers {
+			req.Header[k] = append([]string(nil), values...)
 		}
-		if redirectRejected {
-			return nil, nil, 0, errors.New("modelpack: pinned redirect policy rejected response")
+		req.Header.Set("Accept-Encoding", "identity")
+		resp, err = client.Do(req)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, nil, 0, ctx.Err()
+			}
+			return nil, nil, 0, errors.New("modelpack: metadata request failed")
 		}
-		return nil, nil, 0, errors.New("modelpack: metadata request failed")
+		switch resp.StatusCode {
+		case 301, 302, 303, 307, 308:
+			v, locationErr := resp.Location()
+			resp.Body.Close()
+			if locationErr != nil || hops >= 4 || redirect == nil || !redirect(v) || v.User != nil || v.Fragment != "" || v.Scheme != "https" {
+				return nil, nil, 0, errors.New("modelpack: pinned redirect policy rejected response")
+			}
+			u = v
+			continue
+		}
+		break
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {

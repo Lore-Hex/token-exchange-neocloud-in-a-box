@@ -7,6 +7,7 @@ package modelpack
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -44,6 +45,13 @@ type Manifest struct {
 	Files           []File `json:"files"`
 	TotalBytes      int64  `json:"total_bytes"`
 	DownloadedBytes int64  `json:"downloaded_bytes"`
+}
+
+// MarshalJSON preserves structured evidence rather than letting encoding/json
+// select MarshalText and turn the whole manifest into a single quoted string.
+func (m Manifest) MarshalJSON() ([]byte, error) {
+	type document Manifest
+	return json.Marshal(document(m))
 }
 
 func (m Manifest) MarshalText() ([]byte, error) {
