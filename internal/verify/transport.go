@@ -100,14 +100,21 @@ func Fetch(ctx context.Context, endpoint string) (Observation, error) {
 func boundedResponseReader(conn io.Reader) (io.Reader, error) {
 	reader := bufio.NewReader(io.LimitReader(conn, (64<<10)+1))
 	var header []byte
+	lineLength := 0
 	for {
 		line, err := reader.ReadSlice('\n')
 		header = append(header, line...)
+		lineLength += len(line)
 		if len(header) > 64<<10 || (err != nil && err != bufio.ErrBufferFull) {
 			return nil, errors.New("invalid or oversized attestation headers")
 		}
-		if err == nil && (bytes.Equal(line, []byte("\r\n")) || bytes.Equal(line, []byte("\n"))) {
-			break
+		if err == nil {
+			// A final CRLF fragment after ErrBufferFull belongs to that long
+			// header line; it is not the empty line ending the header block.
+			if lineLength == len(line) && (bytes.Equal(line, []byte("\r\n")) || bytes.Equal(line, []byte("\n"))) {
+				break
+			}
+			lineLength = 0
 		}
 	}
 	return io.MultiReader(bytes.NewReader(header), reader, conn), nil

@@ -40,6 +40,20 @@ func TestFakeChecksNeverClaimHardwareConfidentiality(t *testing.T) {
 	}
 }
 
+func TestFakeCocoByteTransportStillRequiresFakePayload(t *testing.T) {
+	p := testPolicy(t)
+	o := fakeObservation(p)
+	o.Response.CPU.Source, o.Response.CPU.Provider = "coco-aa", "coco-aa"
+	r, err := Check(context.Background(), o, p)
+	if err != nil || r.Status != "fake_pass" || r.Confidential || r.CPUVerified || r.GPUVerified {
+		t.Fatalf("fake byte transport: %+v %v", r, err)
+	}
+	o.Response.CPU.Evidence = []byte(`{"quote":"provider-claimed-real-evidence"}`)
+	if _, err := Check(context.Background(), o, p); err == nil {
+		t.Fatal("fake transport accepted opaque non-fake evidence")
+	}
+}
+
 func TestAttestationMutations(t *testing.T) {
 	p := testPolicy(t)
 	mutations := map[string]func(*Observation){

@@ -8,14 +8,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
 	"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/config"
 )
 
 func readPolicyFile(path string) ([]byte, error) {
-	f, err := os.Open(path)
+	f, err := openPolicyFile(path)
 	if err != nil {
 		return nil, errors.New("cannot open policy file")
 	}

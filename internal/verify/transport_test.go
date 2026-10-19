@@ -148,6 +148,23 @@ func TestBoundedHeaderReaderPreservesBufferedBody(t *testing.T) {
 	if _, err := boundedResponseReader(strings.NewReader("HTTP/1.1 200 OK\r\nX-Test: " + strings.Repeat("x", 64<<10) + "\r\n\r\n")); err == nil {
 		t.Fatal("oversized HTTP headers accepted")
 	}
+	for _, suffix := range []string{"\r\n", "\n"} {
+		first := "X-Test: " + strings.Repeat("x", 4096-len("X-Test: ")) + suffix
+		second := "Y-Test: " + strings.Repeat("y", 64<<10) + "\r\n\r\n"
+		if _, err := boundedResponseReader(strings.NewReader("HTTP/1.1 200 OK\r\n" + first + second)); err == nil {
+			t.Fatal("fragment-aligned header terminator bypassed the header limit")
+		}
+		body := "body"
+		valid := "HTTP/1.1 200 OK\r\n" + first + "\r\n" + body
+		reader, err := boundedResponseReader(strings.NewReader(valid))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := io.ReadAll(reader)
+		if err != nil || string(got) != valid {
+			t.Fatal("valid long header lost body bytes")
+		}
+	}
 }
 
 func FuzzAttestationJSON(f *testing.F) {
