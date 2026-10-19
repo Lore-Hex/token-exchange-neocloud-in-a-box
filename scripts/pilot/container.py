@@ -75,7 +75,7 @@ def runtime_command(image, name):
             "--platform", "linux/amd64", image]
 
 
-def run(inputs, summary, env, home):
+def run(inputs, summary, env, home, *, export=None):
     name = "nib-qwen-" + uuid.uuid4().hex[:12]
     image = "nib-qwen-local:" + name.removeprefix("nib-qwen-")
     summary["container"] = {"platform": "linux/amd64", "network": "none",
@@ -123,9 +123,15 @@ def run(inputs, summary, env, home):
             summary["runtime"] = report
             summary["result"] = report["result"]
             summary["stage"] = "complete" if report["result"] == "pass" else "container-runtime-failed"
+            if export is not None and report["result"] == "pass":
+                summary["stage"] = "export-container"
+                export.save(identity, ROOT, context, summary["container_inputs"]["model"],
+                            snapshot.execute_process_group, env)
+                summary["stage"] = "complete"
     except pilot.PilotError as error:
         summary.update(result="fail", failure_code=str(error))
-    except (OSError, ValueError, TypeError, KeyError, pilot.tarfile.TarError, subprocess.SubprocessError):
+    except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError, EOFError,
+            pilot.tarfile.TarError, subprocess.SubprocessError):
         summary.update(result="fail", failure_code="container-execution-failed")
     finally:
         summary["container_cleanup"] = e2e.cleanup_resources(image, name, env=env)
@@ -135,5 +141,7 @@ def run(inputs, summary, env, home):
             summary["container_cleanup"].update(result="fail", build_completion="unknown")
         if runtime_started and not runtime_finished:
             summary["container_cleanup"].update(result="fail", runtime_completion="unknown")
+        if summary.get("export", {}).get("load_started") and not summary["export"].get("load_completed"):
+            summary["container_cleanup"].update(result="fail", load_completion="unknown")
         if summary["container_cleanup"]["result"] != "pass":
             summary.update(result="fail", failure_code="container-cleanup-unresolved")

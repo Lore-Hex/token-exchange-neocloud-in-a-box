@@ -1,0 +1,2 @@
+# Preserve the exact upstream bytes used by the pinned model-license digest.
+third_party/qwen3-0.6b/LICENSE -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

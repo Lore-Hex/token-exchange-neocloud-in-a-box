@@ -673,6 +673,18 @@ Gates: G-GCP-QUOTA (1× H100 Spot), G-NGC, G-RUN.
   This is not a GPU, image measurement, attestation or billing test. It changes
   neither the release verifier nor the production engine.
 
+- **T8. Private offline image artifact (ungated local preparation).** Optional
+  [image export](docs/operators/qwen-export.md) from T7's existing committed-source
+  Linux proof, using the exact tested image ID before cleanup. Bound save/load,
+  validate archive identity/layers, retain source/context/model/base pins and
+  original license/notice files, and publish a new owner-only bundle atomically
+  only after proof, load verification and cleanup pass. Negative tests cover
+  stale input, timeout, corruption, collision, symlink and cleanup failures.
+  This is not a public image, deploy driver, cloud run or confidential claim.
+  Implementation/unit validation is distinct from the pending real combined-head
+  Docker proof/export; no success evidence is fabricated. Public redistribution
+  and deployment remain separately gated.
+
 - **T1. Guest image v0** (`image/`, mkosi).
   - Ubuntu 24.04 TDX guest kernel with configfs-tsm.
   - NVIDIA open kernel driver from the R595 trusted-computing release (GCP's

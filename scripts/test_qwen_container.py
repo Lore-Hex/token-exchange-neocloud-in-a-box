@@ -86,6 +86,12 @@ class QwenContainerTests(unittest.TestCase):
             names = {path.relative_to(context).as_posix() for path in context.rglob("*") if path.is_file()}
             self.assertEqual(len(names), 16)
             self.assertFalse(any("secret" in name or "credential" in name or "__pycache__" in name for name in names))
+            (inputs / "model.gguf").write_bytes(b"stale")
+            stale = root / "stale-context"
+            stale.mkdir()
+            with patch.object(container, "ROOT", source), patch.object(container.e2e, "load_pins", return_value=bases), \
+                    self.assertRaises(container.pilot.PilotError):
+                container.build_context(inputs, stale)
 
     def test_prepared_model_must_match_before_runtime(self):
         with tempfile.TemporaryDirectory() as directory:
