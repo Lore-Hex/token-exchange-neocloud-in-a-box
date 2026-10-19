@@ -5,11 +5,11 @@ release. Joseph requested public hosting and TrustedRouter integration on
 2026-10-19. The service implementation is being validated locally; no public
 endpoint, cloud deployment or customer billing has been verified yet.
 
-The [recorded Linux run](../../evidence/p3/2026-10-19-qwen-service-linux-4/run.json)
+The [recorded Linux run](../../evidence/p3/2026-10-19-qwen-retirement-linux/run.json)
 passed all 18 service conformance checks, including Catalog v2, auth, streaming
 and integer usage. It signals the entire service after the first real content
 delta and requires the final finish reason, usage and `[DONE]` before exit.
-[Results](../../evidence/p3/2026-10-19-qwen-service-linux-4/output.log) confirm
+[Results](../../evidence/p3/2026-10-19-qwen-retirement-linux/output.log) confirm
 closed listeners and removal of the temporary container/image. It ran offline
 on local Docker using real model weights, not on a cloud VM.
 The shutdown proof checks complete single-data-field UTF-8 LF/CRLF frames and
@@ -77,6 +77,9 @@ API rejects new inference and the supervisor drains existing streams. A slow
 upload cannot enter inference after retirement; restarting with an expired
 cutoff fails. Wall-clock and monotonic checks prevent a clock change extending
 the run. Loopback-only local tests may omit this operator cutoff.
+The real Linux proof checks that the declared cutoff survives the full service
+path. Deterministic unit tests exercise the exact expiry boundary, slow uploads,
+invalid/expired restarts and clock changes; this is not a 24-hour cloud test.
 
 TrustedRouter's Hixtube parser must publish this cutoff using its existing
 runtime manifest deadline, not merely retain the descriptive lifecycle field.
