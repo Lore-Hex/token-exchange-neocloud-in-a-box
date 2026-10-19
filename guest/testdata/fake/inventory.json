@@ -1,0 +1,8 @@
+{
+  "schema": "nib.fake-inventory/v1",
+  "devices": [
+    {"id": "gpu0", "kind": "gpu", "mode": "fake-cc", "approved": true, "debug": false},
+    {"id": "gpu1", "kind": "gpu", "mode": "fake-cc", "approved": true, "debug": false},
+    {"id": "switch0", "kind": "switch", "mode": "fake-cc", "approved": true, "debug": false}
+  ]
+}
