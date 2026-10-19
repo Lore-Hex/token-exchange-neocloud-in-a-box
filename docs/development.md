@@ -42,8 +42,11 @@ wrapper. Operator-only code belongs under `cmd/nib` and `internal/`.
 
 ## Honest status
 
-P0 is repository preparation, not a confidential inference implementation.
-`make test-e2e` deliberately exits unsuccessfully until P1 supplies the fake
-engine, real shim integration and verification tests. A placeholder must never
-produce a green end-to-end result. Hardware work has its own gates and committed
-evidence requirements in [AGENTS.md](../AGENTS.md) and [PLAN.md](../PLAN.md).
+`make test-e2e` exercises the pinned TLS front door, fake engine/evidence and
+verification failure cases in an isolated container. The release verifier must
+reject that fake evidence. This software-only test is implemented and accepted
+in [PR #10](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/pull/10);
+it is not confidential hardware validation. The separate
+[real Qwen pilot](operators/qwen-pilot.md) tests standard-TLS inference locally.
+Hardware work has its own gates and committed evidence requirements in
+[AGENTS.md](../AGENTS.md) and [PLAN.md](../PLAN.md).
