@@ -2,9 +2,23 @@
 
 P3.T8 adds an optional local artifact to the existing committed-source
 [Qwen proof](qwen-pilot.md). It does not build a second image or run a second
-conformance suite. Export is implemented and covered by synthetic unit tests;
-the real Docker proof/export on the combined P3.T8/P3.T9 head is still pending.
-No exported artifact or successful Docker reload is claimed by this document.
+conformance suite. The [recorded combined P3.T8/P3.T9 run](../../evidence/p3/2026-10-19-qwen-image-export-4/run.json)
+passed on source `db3360e3d67c1938969d45078122b231da35cd4b`, including the
+retirement health-race fix. Its [results](../../evidence/p3/2026-10-19-qwen-image-export-4/output.log)
+record all 18 service checks, declared retirement, whole-service drain, archive
+validation, Docker reload and confirmed absence of the container, build tag and
+all four exported image/config/manifest IDs. This is one local Docker backend,
+not a clean-host, cross-version, cloud or confidential-compute validation.
+
+The private ignored bundle at `build/exports/qwen-image-export-4` contains a
+676,191,744-byte archive, SHA-256
+`f3b1bbaa89543debcb67a5978c58ce38f50c44698606269ca2e2d9b581e34e90`.
+It was not pushed or published. The earlier failed runs remain recorded:
+[initial format rejection](../../evidence/p3/2026-10-19-qwen-image-export-1/run.json),
+[OCI index diagnostic](../../evidence/p3/2026-10-19-qwen-image-export-2/run.json),
+and [legacy provenance correction](../../evidence/p3/2026-10-19-qwen-image-export-3/run.json).
+Each failed before Docker load and left no successful bundle. BuildKit metadata
+is preserved with its original digest, not stripped or substituted.
 
 ## Produce a bundle
 

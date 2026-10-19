@@ -681,9 +681,11 @@ Gates: G-GCP-QUOTA (1× H100 Spot), G-NGC, G-RUN.
   only after proof, load verification and cleanup pass. Negative tests cover
   stale input, timeout, corruption, collision, symlink and cleanup failures.
   This is not a public image, deploy driver, cloud run or confidential claim.
-  Implementation/unit validation is distinct from the pending real combined-head
-  Docker proof/export; no success evidence is fabricated. Public redistribution
-  and deployment remain separately gated.
+  The [combined-head local Docker proof/export](evidence/p3/2026-10-19-qwen-image-export-4/run.json)
+  passed, including T9 retirement and exact exported-ID absence after cleanup.
+  This proves one local backend, not clean-host/cloud portability. Earlier failed
+  format runs remain in evidence. Public redistribution and deployment remain
+  separately gated.
 
 - **T9. Finite public-pilot lifetime.** Public Qwen runs must declare one fixed
   UTC retirement within 24 hours, reject inference at that boundary (including
