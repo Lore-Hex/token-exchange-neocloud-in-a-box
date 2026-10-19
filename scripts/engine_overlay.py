@@ -252,18 +252,61 @@ def bytecode_for(name, module):
              and p.suffix == ".pyc"))
 
 
+def inspect_record(tree, inventory, dist, *, console=None):
+    """RECORD consistency only; neither import admission nor dependency validation."""
+    require("/" not in dist and dist.endswith(".dist-info"))
+    record_name = dist + "/RECORD"
+    console_info = None
+    if console is not None:
+        console_name, console_tree = console
+        require(console_name.endswith("/vllm") and not PurePosixPath(console_name).is_absolute())
+        console_info = console_tree.read("vllm", retain=False)
+        del console_info["header"]
+        entries = tree.read(dist + "/entry_points.txt").decode("utf-8")
+        require(entries.strip() == "[console_scripts]\nvllm = vllm.entrypoints.cli.main:main")
+    rows, seen = csv.reader(io.StringIO(tree.read(record_name).decode("utf-8")), strict=True), set()
+    for row in rows:
+        require(len(row) == 3 and len(seen) < MAX_FILES)
+        name, encoded, size = row
+        if console is not None and name == console[0]:
+            item = console_info
+        else:
+            safe_name(name)
+            require(name in inventory)
+            item = inventory[name]
+        require(name not in seen)
+        seen.add(name)
+        if name == record_name or name.endswith(".pyc"):
+            require(encoded == size == "")
+        else:
+            require(re.fullmatch(r"sha256=[A-Za-z0-9_-]{43}", encoded) and size == str(item["bytes"]))
+            require(encoded == "sha256=" + base64.urlsafe_b64encode(bytes.fromhex(item["sha256"])).decode().rstrip("="))
+    owned = {name for name in inventory if name.startswith(("vllm/", dist + "/"))}
+    require(seen == owned | ({console[0]} if console is not None else set()) and record_name in seen)
+    require(console is None or console[0] in seen)
+    return seen, console_info
+
+
 def inspect(tree, contract, *, console=None):
-    """Validate bytes/metadata. RECORD is integrity metadata, not a signature."""
+    """Admission gate; diagnostics must never substitute a partial check."""
     require(contract["base_image"] == BASE_IMAGE and contract["base_revision"] == BASE_REVISION)
     tree.check_startup_hooks()
-    tree.check_module_collisions(item["path"] for item in contract["files"])
     inventory = tree.inventory()
+    for name in inventory:
+        require(not name.endswith((".pth", ".egg-link", ".egg-info")) and ".egg-info/" not in name
+                and "__editable__" not in name)
+    return inspect_integrity(tree, contract, console=console, inventory=inventory)
+
+
+def inspect_integrity(tree, contract, *, console=None, inventory=None):
+    """Partial byte/metadata check only, NOT startup/root admission or ABI proof."""
+    require(contract["base_image"] == BASE_IMAGE and contract["base_revision"] == BASE_REVISION)
+    tree.check_module_collisions(item["path"] for item in contract["files"])
+    if inventory is None:
+        inventory = tree.inventory()
     require("vllm.py" not in inventory and "vllm.pyc" not in inventory)
     distributions = {}
     for name in inventory:
-        # Do not execute startup hooks, editable finders, or path extensions.
-        require(not name.endswith((".pth", ".egg-link", ".egg-info")) and ".egg-info/" not in name
-                and "__editable__" not in name)
         if name.endswith(".dist-info/METADATA") and name.count("/") == 1:
             meta = headers(tree.read(name))
             package = one(meta, "Name").lower().replace("_", "-").replace(".", "-")
@@ -304,36 +347,7 @@ def inspect(tree, contract, *, console=None):
     require(tags and len(tags) == len(set(tags))
             and all(re.fullmatch(r"cp38-abi3-(?:linux|manylinux1|manylinux2014|manylinux_2_[0-9]+)_x86_64", t)
                          for t in tags))
-    record_name = dist + "/RECORD"
-    console_info = None
-    if console is not None:
-        console_name, console_tree = console
-        require(console_name.endswith("/vllm") and not PurePosixPath(console_name).is_absolute())
-        console_info = console_tree.read("vllm", retain=False)
-        del console_info["header"]
-        entries = tree.read(dist + "/entry_points.txt").decode("utf-8")
-        require(entries.strip() == "[console_scripts]\nvllm = vllm.entrypoints.cli.main:main")
-    rows, seen = csv.reader(io.StringIO(tree.read(record_name).decode("utf-8")), strict=True), set()
-    for row in rows:
-        require(len(row) == 3 and len(seen) < MAX_FILES)
-        name, encoded, size = row
-        if console is not None and name == console[0]:
-            item = console_info  # Interpreter-derived scripts root, not a RECORD-selected path.
-        else:
-            safe_name(name)
-            require(name in inventory)
-            item = inventory[name]
-        require(name not in seen)
-        seen.add(name)
-        if name == record_name or name.endswith(".pyc"):
-            require(encoded == size == "")
-        else:
-            require(re.fullmatch(r"sha256=[A-Za-z0-9_-]{43}", encoded)
-                    and size == str(item["bytes"]))
-            require(encoded == "sha256=" + base64.urlsafe_b64encode(bytes.fromhex(item["sha256"])).decode().rstrip("="))
-    owned = {name for name in inventory if name.startswith(("vllm/", dist + "/"))}
-    require(seen == owned | ({console[0]} if console is not None else set()) and record_name in seen)
-    require(console is None or console[0] in seen)
+    seen, console_info = inspect_record(tree, inventory, dist, console=console)
     versions = []
     for node in ast.parse(tree.read("vllm/_version.py")).body:
         if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "__version__" for t in node.targets):

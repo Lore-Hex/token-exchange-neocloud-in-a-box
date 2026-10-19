@@ -127,7 +127,10 @@ and official config digest. All source links below use release revision
 - [Frontend arguments](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/entrypoints/launchers/cli_args.py) and [plugins](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/plugins/__init__.py): logging controls and empty plugin allowlist.
 
 The actual installed wheel, its full dependency inventory and startup hooks have
-**not been inspected**. This implementation does not promise the official image
+**not been qualified by committed diagnostic evidence**. The parent's preliminary
+read-only audit found hooks and a populated alternate package root; those remain
+rejected. The [read-only diagnostic](p0-t4-engine-image-diagnostic.md) records such
+observations without weakening admission. This implementation does not promise the official image
 will pass: unknown startup hooks/layouts must be separately inspected and reviewed,
 not exempted to make a run pass. Tests execute real filesystem functions against
 fake wheel trees with a deliberately non-importable engine and synthetic ELF
