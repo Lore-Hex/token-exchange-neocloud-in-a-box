@@ -1,11 +1,38 @@
 # Read-Only Engine Image Diagnostic
 
-**Implemented against fake layouts/lifecycles, not yet run by this recorder
-against the official image.** This is a P0.T4 software diagnostic. The candidate
+**Recorded against the official cached image: partial collection, rejected
+admission.** The [recorded run](../../evidence/p0/2026-10-19-official-vllm-image-diagnostic/run.json)
+is a failed P0.T4 software diagnostic, not qualification. The candidate
 remains `BLOCKED`, `deployable:false`, `image:null`. No engine import, patch
 application, model weights, image build/publication, GPU, ABI, confidentiality or
 hardware qualification is performed. The existing overlay admission rules remain
 fail-closed; diagnostics do not remove hooks or override package-root checks.
+
+## Recorded Run
+
+The [unchanged recorder output](../../evidence/p0/2026-10-19-official-vllm-image-diagnostic/output.log)
+was produced from source `694394cfe631ab6d09cd5695087a70351f203fae` on
+2026-10-19, 22:17:02 to 22:17:38 UTC. The recorder exited 1 and retained
+`result:fail`, `collection:partial`, `overlay_admission:rejected` and
+`cleanup:confirmed`. Its payload SHA-256 is
+`fa024d5cf969cdde5210d05f1c449d33684bff2a1cbd06994712edd4458a0226`.
+
+- The inspected environment reported Linux/amd64 and Python 3.12.3. Raw OCI
+  manifest/config linkage and local Docker metadata association passed the
+  checks described below; local layer/config storage was not independently
+  rehashed.
+- `root-0` has 42 entries and OS-distribution metadata. `root-1` has 516 entries,
+  vLLM 0.32.0 metadata and the two exact public hooks listed below. These entry
+  counts are not package counts or dependency qualification.
+- All 13 candidate base-source expectations match: 12 readable source files and
+  the expected absence of the new helper. No patch was applied.
+- Root admission and full filesystem inventory were rejected. RECORD, wheel
+  integrity and selected-root admission remain unavailable. The exact inventory
+  rejection cause is **not identified by this artifact**; further bounded
+  diagnosis is a separate task, not a reason to weaken acceptance.
+- The owned diagnostic container was removed and absence confirmed. The cached
+  image was retained. No GPU, model inference, ABI validation, attestation or
+  confidential-runtime validation occurred.
 
 ## Fixed Inputs And Identity
 
@@ -28,7 +55,7 @@ agree. Missing or inconsistent linkage fails before container creation.
 
 Docker `.Id` is recorded only as a daemon-reported identifier and compared for
 local container consistency. It is **not equated to the registry config digest**:
-the parent's preliminary inspection returned the manifest digest as `.Id`.
+the recorded Docker identifier is the manifest digest, not the config digest.
 This procedure trusts Docker's local metadata/content association, the host OS
 and Python interpreter. It does not rehash local layers/config storage, verify
 an image signature, establish ABI compatibility or attest the runtime.
@@ -127,7 +154,7 @@ An overlay rejection makes `run.json` fail even if diagnostic collection and
 cleanup complete successfully. Successful software checks still leave the
 candidate blocked and ABI/hardware validation false.
 
-The parent reported two public hooks in an uncommitted preliminary audit:
+The recorded diagnostic observed two exact public hooks:
 `distutils-precedence.pth` (`2638ce9e2500e572a5e0de7faed6661eb569d1b696fcba07b0dd223da5f5d224`)
 and `nvidia_cutlass_dsl_packages.pth` (`cc710b99ddb3d76361a70461461d274212a979d00c381d821fce5bb3ad9cf246`).
 Their text is included only after exact hash verification; unknown contents are
@@ -142,5 +169,7 @@ python3 -I -m unittest discover -s scripts -p 'test_engine*.py'
 ```
 
 Tests use real filesystem fixtures, resolver observations, fake Docker lifecycle
-responses and authoritative schema validation contracts. They never pull, build,
-start or modify an actual image. The PR28 acceptance regressions remain enabled.
+responses, the preserved diagnostic artifact and authoritative schema validation
+contracts. They never pull, build, start or modify an actual image. The artifact
+regression validates the recorded failure; it does not repeat the diagnostic.
+The PR28 acceptance regressions remain enabled.

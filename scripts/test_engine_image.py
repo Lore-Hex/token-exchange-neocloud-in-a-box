@@ -15,6 +15,7 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
+RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-image-diagnostic"
 
 
 def source(name, relative):
@@ -425,6 +426,10 @@ class ImageTests(unittest.TestCase):
         env = recorder.offline_environment(self.work / "control")
         binary, source_hash = recorder.build_validator(ROOT, revision, self.work, env)
         self.assertRegex(source_hash, r"^[0-9a-f]{64}$")
+        recorded = self.work / "recorded/evidence/p0/official-image"
+        recorded.mkdir(parents=True)
+        (recorded / "run.json").write_bytes((RECORDED / "run.json").read_bytes())
+        recorder.call([str(binary), "lint", str(self.work / "recorded")], env, timeout=20)
         for result in ("pass", "fail"):
             work = self.work / result
             work.mkdir()
@@ -439,6 +444,31 @@ class ImageTests(unittest.TestCase):
         with self.assertRaises(subprocess.CalledProcessError):
             recorder.publish_evidence(record, report, binary, rejected, rejected / "published", env)
         self.assertFalse((rejected / "published").exists())
+
+    def test_recorded_partial_diagnostic_preserves_failure_and_contract(self):
+        expected = {"run.json": "f541746a194270e0d2d312860b27fe8cec8fff5b8ffb341ae91bf5621b609e96",
+                    "output.log": "d7b4bced18c59da0da9b7d4ca0175062e1e34c95139832e99790458cf74cb0c9"}
+        for name, digest in expected.items():
+            self.assertEqual(overlay.digest((RECORDED / name).read_bytes()), digest)
+        run = overlay.load_json((RECORDED / "run.json").read_bytes())
+        report = overlay.load_json((RECORDED / "output.log").read_bytes())
+        diagnostic.validate_report(overlay, report["diagnostic"], self.contract)
+        self.assertEqual(run["git_sha"], "694394cfe631ab6d09cd5695087a70351f203fae")
+        self.assertEqual(report["provenance"]["git_sha"], run["git_sha"])
+        self.assertEqual(run["execution"], "software")
+        self.assertFalse(run["hardware_validated"])
+        self.assertEqual(run["result"], report["result"])
+        self.assertEqual(report["result"], "fail")
+        self.assertEqual(report["cleanup"], "confirmed")
+        self.assertEqual(report["diagnostic"]["collection"], "partial")
+        self.assertEqual(report["diagnostic"]["checks"]["filesystem_inventory"], "rejected")
+        self.assertEqual(report["diagnostic"]["checks"]["wheel_integrity"], "unavailable")
+        self.assertEqual(report["diagnostic"]["checks"]["record_integrity"], "unavailable")
+        self.assertEqual([root["entries"] for root in report["diagnostic"]["roots"]], [42, 516])
+        sources = report["diagnostic"]["source_files"]
+        self.assertEqual(sum(item["status"] == "read" for item in sources), 12)
+        self.assertEqual(sum(item["status"] == "absent" for item in sources), 1)
+        self.assertTrue(all(item["matches_base"] for item in sources))
 
     def test_validator_toolchain_resolution_is_cache_only_and_exact(self):
         env = recorder.offline_environment(self.work / "control")
