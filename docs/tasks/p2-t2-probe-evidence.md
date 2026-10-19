@@ -1,8 +1,9 @@
 # P2.T2: Read-only Inventory Recording
 
 This sidecar adds a source-bound recorder for the existing
-[hardware probe](../../host/probe.py). It changes neither that probe nor runtime
-admission. It does not bootstrap a host, install drivers, change GPU mode, stage
+[hardware probe](../../host/probe.py). The shared capture supervisor now also
+cleans nested command groups when its parent dies. Runtime admission is unchanged.
+It does not bootstrap a host, install drivers, change GPU mode, stage
 weights, run an engine, rent hardware or satisfy P2.T2's weight-integrity exit.
 
 **No real hardware run is included.** Tests use synthetic reports and temporary
@@ -32,6 +33,9 @@ refs and environment/configuration overrides are disabled. It never invokes
 `git status`, hooks or checkout filters. Uncommitted probe edits, ignored modules
 and bytecode cannot alter the selected input; commit intended changes first.
 The operator must independently know which commit is approved.
+Missing objects fail locally: `GIT_NO_LAZY_FETCH=1` disables on-demand fetching,
+and an empty `GIT_ALLOW_PROTOCOL` independently denies every transport, including
+configured remote helpers. See [Git's environment contract](https://git-scm.com/docs/git#_environment_variables).
 
 The exact committed probe is materialized in a private temporary directory and
 run directly as `python -I -B <snapshot>/probe.py`. A fixed launcher preserves
@@ -86,8 +90,10 @@ There is no success path into deployment or the release verifier.
 The reused helper caps combined child stdout/stderr/status at 64 KiB. Its outer
 deadline is 30 seconds with a bounded cleanup wait; the probe retains its own
 15-second NVIDIA-command deadline. Raw stderr is counted then discarded. The
-helper kills its command process group on success/failure. Nested NVIDIA query
-cleanup is owned by the existing probe. Neither timeout proves completion of
+helper kills its command process group on success/failure. Each supervisor also
+owns a private liveness pipe whose only writer remains in its calling process;
+parent exit or outer cancellation closes that pipe and kills the nested group.
+Neither timeout proves completion of
 kernel-blocked I/O or attests the absence of arbitrary host processes. A cleanup
 error fails the run; it never authorizes an engine launch.
 
@@ -113,7 +119,9 @@ bounded local Python child for exit-status/stderr behavior. They never read real
 failed inventory, timeouts, malformed/oversized reports, privacy fields, positive
 trust claims, script tampering including FIFO/symlink replacements, output
 no-overwrite, unsafe directories, Git replacements/ambient settings, bootstrap
-mismatch and cleanup failure after a valid report. The Go test generates synthetic pass/fail records in temporary
+mismatch, missing promisor objects (with a local-only positive transport control),
+outer cancellation of a nested command group, and cleanup failure after a valid
+report. The Go test generates synthetic pass/fail records in temporary
 directories and validates them with the existing authoritative evidence schema;
 it adds no alternate schema or remote Go dependency. Default `make check` discovers
 both test sets. Run the same `nib lint` on actual artifacts before accepting them

@@ -251,6 +251,43 @@ class ProbeEvidenceTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     recorder.sources(root)
 
+    def test_missing_promisor_blob_never_invokes_transport(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            recorder.git(root, "init", "--quiet")
+            for name, data in SOURCE.items():
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+            recorder.git(root, "add", ".")
+            recorder.git(root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                         "-c", "commit.gpgsign=false", "commit", "-qm", "fixture")
+            oid = recorder.git(root, "rev-parse", "HEAD:" + recorder.PROBE).decode().strip()
+            (root / ".git/objects" / oid[:2] / oid[2:]).unlink()
+            marker, helper = root / "transport-called", root / "transport.py"
+            helper.write_text("from pathlib import Path\nPath(" + repr(str(marker)) + ").touch()\n"
+                              "raise SystemExit(1)\n")
+            recorder.git(root, "config", "remote.origin.url", "ext::" + sys.executable + " " + str(helper))
+            recorder.git(root, "config", "remote.origin.promisor", "true")
+            recorder.git(root, "config", "remote.origin.partialclonefilter", "blob:none")
+            recorder.git(root, "config", "protocol.ext.allow", "always")
+            # Both independent guards prohibit transport, including older Git
+            # versions that ignore GIT_NO_LAZY_FETCH.
+            for ignored in (None, "GIT_NO_LAZY_FETCH"):
+                env = {key: value for key, value in recorder.GIT_ENV.items() if key != ignored}
+                with patch.object(recorder, "GIT_ENV", env), self.assertRaises(ValueError):
+                    recorder.sources(root)
+                self.assertFalse(marker.exists())
+                self.assertFalse((root / "evidence").exists())
+            # Local helper only: prove this fixture would attempt a lazy fetch
+            # without either guard. It never connects to a remote service.
+            env = {key: value for key, value in recorder.GIT_ENV.items()
+                   if key not in ("GIT_NO_LAZY_FETCH", "GIT_ALLOW_PROTOCOL")}
+            result = subprocess.run(["git", "-C", str(root), "cat-file", "-s", oid],
+                                    env=env, capture_output=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(marker.exists())
+
     def test_launcher_preserves_failed_child_report_and_discards_stderr(self):
         probe = recorder.load_probe(SOURCE[recorder.PROBE], ROOT / recorder.PROBE)
         with tempfile.TemporaryDirectory() as directory:
