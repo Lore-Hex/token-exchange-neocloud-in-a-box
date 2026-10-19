@@ -15,7 +15,7 @@ func TestHelp(t *testing.T) {
 		if code := run(args, &out, &errOut); code != 0 || !strings.Contains(out.String(), "pre-alpha") || errOut.Len() != 0 {
 			t.Fatalf("help failed: code=%d out=%q err=%q", code, out.String(), errOut.String())
 		}
-		for _, command := range []string{"nib verify ", "nib catalog "} {
+		for _, command := range []string{"nib verify ", "nib catalog ", "nib model check-remote ", "nib model check-local "} {
 			if !strings.Contains(out.String(), command) {
 				t.Fatalf("help omitted %q", command)
 			}
@@ -43,6 +43,10 @@ func TestModelDispatch(t *testing.T) {
 	out.Reset()
 	if code := run([]string{"model", "check-remote", "/missing/private-canary"}, &out, &errs); code != 1 || out.Len() != 0 || strings.Contains(errs.String(), "canary") {
 		t.Fatal("model failure dispatch or redaction failed")
+	}
+	errs.Reset()
+	if code := run([]string{"model", "check-local", "/missing/private-canary", "/missing/staged-canary"}, &out, &errs); code != 1 || out.Len() != 0 || strings.Contains(errs.String(), "canary") {
+		t.Fatal("local model failure dispatch or redaction failed")
 	}
 }
 

@@ -12,6 +12,10 @@ func TestManifestRules(t *testing.T) {
 	if err := ValidateFileManifest([]byte(valid), 3); err != nil {
 		t.Fatal(err)
 	}
+	files, err := ParseFileManifest([]byte(valid), 3)
+	if err != nil || len(files) != 2 || files[0].Bytes != 1 || files[1].Bytes != 2 || files[0].Path != "a.json" || files[1].Path != "b.json" || len(files[0].SHA256) != 64 {
+		t.Fatal("typed manifest differs from validator")
+	}
 	a := strings.Repeat("a", 64)
 	for name, data := range map[string]string{
 		"empty": "", "blank-line": valid + "\n", "bad-digest": "bad  3  a.json\n",
@@ -29,6 +33,9 @@ func TestManifestRules(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if err := ValidateFileManifest([]byte(data), 3); err == nil {
 				t.Fatal("invalid manifest accepted")
+			}
+			if files, err := ParseFileManifest([]byte(data), 3); err == nil || files != nil {
+				t.Fatal("invalid manifest returned partial entries")
 			}
 		})
 	}
