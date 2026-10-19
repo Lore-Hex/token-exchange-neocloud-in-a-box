@@ -44,6 +44,8 @@ def execute_pilot(args, *, env, cwd, timeout=1800):
         except ProcessLookupError:
             pass
         process.wait(timeout=10)
+        process.stdout.close()
+        process.stderr.close()
 
 
 def main():
@@ -61,16 +63,21 @@ def main():
             raise ValueError("commit source before recording")
         source = work / "source"
         revision, expected, archive_digest = snapshot_commit(ROOT, source, work / "control", env)
-        result = execute_pilot([sys.executable, str(source / "scripts/pilot/run.py"),
-                                "--inputs", str(args.inputs.resolve())], env=env, cwd=source)
-        if len(result.stdout) > 65536:
-            raise ValueError("oversized pilot report")
-        report = json.loads(result.stdout)
+        try:
+            result = execute_pilot([sys.executable, str(source / "scripts/pilot/run.py"),
+                                    "--inputs", str(args.inputs.resolve())], env=env, cwd=source)
+            if len(result.stdout) > 65536:
+                raise ValueError("oversized pilot report")
+            report = json.loads(result.stdout)
+            if (report.get("confidential") is not False or report.get("hardware_validated") is not False
+                    or report.get("execution") != "real-cpu-model"
+                    or report.get("result") not in {"pass", "fail"}
+                    or (report.get("result") == "pass") != (result.returncode == 0)):
+                raise ValueError("invalid pilot result")
+        except (OSError, ValueError, AttributeError, subprocess.SubprocessError):
+            report = {"result": "fail", "execution": "real-cpu-model", "confidential": False,
+                      "hardware_validated": False, "failure_code": "pilot-execution-or-report-failed"}
         validate_snapshot(source, expected)
-        if (report.get("confidential") is not False or report.get("hardware_validated") is not False
-                or report.get("execution") != "real-cpu-model"
-                or (report.get("result") == "pass") != (result.returncode == 0)):
-            raise ValueError("invalid pilot result")
         # Reuse the exclusive, traversal-resistant evidence scaffolder.
         nib = work / "nib"
         subprocess.run(["go", "build", "-trimpath", "-buildvcs=false", "-o", str(nib), "./cmd/nib"],
@@ -99,7 +106,7 @@ def main():
             stream.write(json.dumps(record, indent=2, sort_keys=True) + "\n")
         pending.replace(destination / "run.json")
         print(relative)
-        return result.returncode
+        return 0 if report["result"] == "pass" else 1
 
 
 if __name__ == "__main__":
