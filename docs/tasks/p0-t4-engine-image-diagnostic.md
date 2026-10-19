@@ -48,8 +48,8 @@ retains `result:fail`, partial collection and confirmed cleanup. All 13 source
 expectations still match. Its payload SHA-256 is
 `c7e3be375e2220e56b373100242d9731523b7f0635889823ea00e88fd9a0ba25`.
 No admission limit was increased. The separate metadata-only census below now
-records the selected root's counts and logical sizes. An image-specific admission
-budget still requires a separate reviewed change, not an implicit exception.
+records the selected root's counts and logical sizes. The diagnostic-only entry
+allowance described below uses that evidence without changing generic admission.
 
 ## Metadata-Only Census
 
@@ -137,7 +137,54 @@ order is unspecified. A complete traversal reports `collection:pass` only for
 counting. In **both** cases, `overlay_admission:not-evaluated`, `result:fail`
 and recorder exit 1 are intentional: counting can never grant admission.
 Candidate status remains `BLOCKED`; deployment, ABI and hardware validation are
-false. The recorded counts above do not authorize a revised inventory budget.
+false. Counting alone does not grant an entry allowance or admission.
+
+## Image-Specific Inventory Budget
+
+**Implemented and tested with synthetic filesystems; the changed integrity
+diagnostic has not run against the image.** The default `Tree.inventory()` limit
+remains `MAX_FILES = 100000`. Ordinary wheel inspection, overlay application,
+startup-hook scans and other existing uses retain that limit. No CLI/environment
+budget override is available.
+
+Only the source-bound integrity diagnostic can request the fixed **225,000-entry**
+policy in [the inspector](../../scripts/engine_overlay.py). It requires this exact
+tuple, not a floating tag, unknown image or new config:
+
+- Image: `vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9`.
+- Raw config: `bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d`.
+- Committed [census output](../../evidence/p0/2026-10-19-official-vllm-metadata-census/output.log):
+  SHA-256 `006235bf2a5ce571a307efc942b33978f4ef79ab4be91d88db1824470e8f0fd0`.
+
+The recorder reads the census from the same committed Git snapshot as its other
+inputs, verifies the exact hash before preparing the payload, and includes it in
+the source-bundle digest. The mode/policy are bound into the payload contract and
+the child reports the applied policy. Raw OCI/config verification and local
+manifest/platform/DiffID association still precede container execution. A missing
+or modified census, mismatched identity or changed ceiling fails closed.
+The internal inventory helper is not independently an image-origin verifier.
+
+**Budget rationale:** the measured 204,969 entries plus 20,031 entries of finite
+headroom gives 225,000, approximately 9.8% above the observed count. This is a
+conservative diagnostic allowance for that immutable image, not an allowance for
+future package additions. The measured 19,176,556,448 logical bytes and largest
+file of 541,607,888 bytes are below the unchanged 32 GiB total and 4 GiB/file
+limits. Depth 15 is below the unchanged depth-32 limit. All bytes are still
+hashed and all existing native-header, Python-ABI, hardlink, symlink and
+non-regular-file checks still execute; the census did not validate contents.
+
+The unchanged container cap is 1 GiB memory/swap total, 2 CPUs and 32 PIDs. The
+inventory retains its 300-second per-tree deadline; the outer attached-process
+supervisor remains bounded at 600 seconds. Neither memory nor completion within
+those limits is proven by entry/byte counts. OOM, timeout or any other rejection
+remains a failed run; no automatic retry or relaxed fallback is added.
+
+This policy cannot bypass root/startup admission and is not forwarded into
+ordinary `inspect()` or `apply_overlay()`. The observed hooks and alternate root
+still reject; wheel/RECORD/native integrity are still unproven until a subsequent
+reviewed run completes those checks. That run must preserve any new exact failure
+as evidence. Image normalization/building and runtime activation remain separate,
+blocked work; this task makes no ABI, GPU or confidentiality claim.
 
 ## Fixed Inputs And Identity
 
@@ -226,8 +273,9 @@ directory remains private; payload files are readable by the container UID.
 
 Limits: 2 CPUs, 1 GiB memory/swap total, 32 PIDs, 600 seconds for the attached
 diagnostic, 30 seconds per management call, 2 MiB stdout and 64 KiB stderr.
-Existing filesystem limits remain 100,000 entries, 32 GiB total, 4 GiB/file and
-300 seconds per tree. Root observations allow four roots, 4,096 entries/root,
+Generic filesystem limits remain 100,000 entries, 32 GiB total, 4 GiB/file and
+300 seconds per tree. Only the exact image-specific diagnostic policy above can
+use 225,000 entries; it changes none of the other limits. Root observations allow four roots, 4,096 entries/root,
 2,048 distribution records/root and 64 hooks/root. Hook reads stop at 16 KiB.
 No successful completion is inferred from partial/oversized output.
 
@@ -292,3 +340,7 @@ execute the image or relax the original inspector.
 The recorded census regression checks the unchanged artifact hashes, child
 contract, source/payload references, exact totals, intentional qualification
 failure and schema validity without repeating the image run.
+Entry-policy tests exercise exact 100,000/100,001 and 225,000/225,001 boundaries
+with lazy synthetic directory entries, plus real filesystem tests for preserved
+byte/time/depth/link/native gates, rejected unknown identities and unchanged
+startup/root admission. No changed-image diagnostic has been executed by tests.

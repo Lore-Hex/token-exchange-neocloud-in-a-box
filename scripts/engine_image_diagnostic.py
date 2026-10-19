@@ -280,8 +280,14 @@ def collect(overlay, contract):
                 tree = overlay.Tree(fd)
                 report["source_files"] = source_observations(overlay, tree, contract)
                 report["checks"]["filesystem_inventory"] = "rejected"
+                policy = contract.get("diagnostic_inventory_policy")
+                if policy is not None:
+                    overlay.require(policy == overlay.DIAGNOSTIC_INVENTORY_POLICY
+                                    and contract["base_image"] == policy["base_image"]
+                                    and contract["official_config"]["sha256"] == policy["config_sha256"])
+                    report["inventory_policy"] = policy
                 try:
-                    inventory = tree.inventory()
+                    inventory = tree.inventory(diagnostic_policy=policy)
                 except overlay.InventoryRejected as failure:
                     report["inventory_failure"] = {"reason": failure.reason, "path": failure.path}
                     raise
@@ -313,7 +319,7 @@ def validate_report(overlay, report, contract):
     if mode == "metadata-census":
         validate_census(overlay, report)
         return
-    overlay.require(set(report) - {"inventory_failure"} == {"schema", "collection", "platform", "python", "candidate_status", "deployable",
+    overlay.require(set(report) - {"inventory_failure", "inventory_policy"} == {"schema", "collection", "platform", "python", "candidate_status", "deployable",
         "abi_validated", "hardware_validated", "roots", "source_files", "checks", "overlay_admission"})
     overlay.require(report["schema"] == "nib.engine-image-diagnostic/v1" and report["collection"] in {"pass", "partial"}
         and report["platform"] == "linux/amd64" and re.fullmatch(r"3\.12\.[0-9]{1,3}", report["python"])
@@ -321,6 +327,13 @@ def validate_report(overlay, report, contract):
         and report["abi_validated"] is False and report["hardware_validated"] is False)
     overlay.require(set(report["checks"]) == {"root_admission", "wheel_integrity", "record_integrity", "selected_root_admission", "filesystem_inventory"}
                     and all(value in STATUS for value in report["checks"].values()))
+    if "inventory_policy" in report:
+        policy = report["inventory_policy"]
+        overlay.require(policy == contract.get("diagnostic_inventory_policy") == overlay.DIAGNOSTIC_INVENTORY_POLICY
+                        and contract["base_image"] == policy["base_image"]
+                        and contract["official_config"]["sha256"] == policy["config_sha256"])
+    if contract.get("diagnostic_inventory_policy") is not None and report["checks"]["filesystem_inventory"] == "pass":
+        overlay.require("inventory_policy" in report)
     if "inventory_failure" in report:
         failure = report["inventory_failure"]
         overlay.require(isinstance(failure, dict) and set(failure) == {"reason", "path"}

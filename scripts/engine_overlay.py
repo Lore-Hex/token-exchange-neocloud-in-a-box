@@ -33,6 +33,15 @@ MAX_BYTES = 32 << 30
 MAX_FILE = 4 << 30
 MAX_SMALL = 2 << 20
 MAX_CONTEXT = 8 << 20
+# Diagnostic-only allowance, not generic inspection/application admission.
+# Census: evidence/p0/2026-10-19-official-vllm-metadata-census/output.log.
+# 204969 entries + 20031 headroom (9.77%); all non-entry limits stay unchanged.
+DIAGNOSTIC_INVENTORY_POLICY = {
+    "base_image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d",
+    "census_output_sha256": "006235bf2a5ce571a307efc942b33978f4ef79ab4be91d88db1824470e8f0fd0",
+    "entry_limit": 225000,
+}
 INVENTORY_REASONS = frozenset({"depth-limit", "entry-limit", "time-limit", "unsafe-name",
     "symlink", "non-regular-file", "hardlink", "file-size-limit", "total-size-limit",
     "native-header", "python-abi", "entry-read-rejected"})
@@ -192,7 +201,11 @@ class Tree:
                 return bytes(data) if retain else {"sha256": h.hexdigest(), "bytes": size,
                                                    "mode": stat.S_IMODE(before.st_mode), "header": header}
 
-    def inventory(self):
+    def inventory(self, *, diagnostic_policy=None):
+        entry_limit = MAX_FILES
+        if diagnostic_policy is not None:
+            require(diagnostic_policy == DIAGNOSTIC_INVENTORY_POLICY)
+            entry_limit = DIAGNOSTIC_INVENTORY_POLICY["entry_limit"]
         result, total, visited = {}, 0, 0
         def walk(fd, prefix, depth):
             nonlocal total, visited
@@ -200,7 +213,7 @@ class Tree:
             with os.scandir(fd) as entries:
                 for entry in entries:
                     visited += 1
-                    inventory_require(visited <= MAX_FILES, "entry-limit")
+                    inventory_require(visited <= entry_limit, "entry-limit")
                     inventory_require(time.monotonic() < self.deadline, "time-limit")
                     name = prefix + entry.name
                     try:
