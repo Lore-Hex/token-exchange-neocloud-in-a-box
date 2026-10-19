@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package modelpack verifies pinned public model metadata and staged local bytes
-// without downloading weight objects. It is operator tooling, not guest code.
+// Package modelpack verifies pinned public model metadata and local bytes.
+// Weight staging is separate and requires explicit download limits. This is
+// operator tooling, not guest code or a confidential runtime admission gate.
 package modelpack
 
 import (
@@ -114,18 +115,22 @@ func readRegular(root *os.Root, name string, limit int64) ([]byte, error) {
 	if err != nil || !i.Mode().IsRegular() || i.Size() > limit {
 		return nil, errors.New("modelpack: local file missing, unsafe or too large")
 	}
-	f, err := root.Open(name)
+	f, err := openLocalWeight(root, name)
 	if err != nil {
 		return nil, errors.New("modelpack: cannot read local file")
 	}
 	defer f.Close()
-	i, err = f.Stat()
-	if err != nil || !i.Mode().IsRegular() {
+	opened, err := f.Stat()
+	if err != nil || !sameLocalFile(i, opened) {
 		return nil, errors.New("modelpack: local file is not regular")
 	}
 	b, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil || int64(len(b)) > limit {
 		return nil, errors.New("modelpack: local file read failed or exceeded limit")
+	}
+	after, err := f.Stat()
+	if err != nil || !sameLocalFile(opened, after) || int64(len(b)) != opened.Size() {
+		return nil, errors.New("modelpack: local metadata changed while reading")
 	}
 	return b, nil
 }
@@ -160,10 +165,13 @@ func checkRemote(ctx context.Context, packPath string, r *remote) error {
 
 // Run implements the model subcommand with sanitized errors and output.
 func Run(ctx context.Context, args []string, out, errOut io.Writer) int {
-	const usage = "usage: nib model check-remote <pack.yaml-or-directory> | check-local <pack.yaml-or-directory> <staged-directory>"
+	const usage = "usage: nib model check-remote <pack> | check-local <pack> <staged-directory> | stage [--download --max-bytes N --timeout D] <pack> [staged-directory]"
 	if len(args) == 1 && (args[0] == "help" || args[0] == "--help") {
 		fmt.Fprintln(out, usage)
 		return 0
+	}
+	if len(args) > 0 && args[0] == "stage" {
+		return runStage(ctx, args[1:], out, errOut)
 	}
 	if len(args) == 3 && args[0] == "check-local" {
 		proof, err := CheckLocal(ctx, args[1], args[2])
