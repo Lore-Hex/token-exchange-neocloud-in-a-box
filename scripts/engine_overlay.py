@@ -335,6 +335,80 @@ def bytecode_for(name, module):
              and p.suffix == ".pyc"))
 
 
+def record_owned(inventory, dist):
+    return {name for name in inventory if name.startswith(("vllm/", dist + "/"))}
+
+
+def entrypoints_match(data):
+    return data.decode("utf-8").strip() == "[console_scripts]\nvllm = vllm.entrypoints.cli.main:main"
+
+
+def record_digest_checks(encoded, size, item):
+    return {"record-hash-format": bool(re.fullmatch(r"sha256=[A-Za-z0-9_-]{43}", encoded)),
+            "record-size": size == str(item["bytes"]),
+            "record-hash": encoded == "sha256=" + base64.urlsafe_b64encode(bytes.fromhex(item["sha256"])).decode().rstrip("=")}
+
+
+def record_field_checks(name, encoded, size, item, record_name):
+    """Existing strict policy, shared with diagnostic observations, not PyPA conformance."""
+    if name == record_name or name.endswith(".pyc"):
+        return {"record-blank-fields": encoded == size == ""}
+    return record_digest_checks(encoded, size, item)
+
+
+def distribution_metadata(data, directory_name):
+    meta = headers(data)
+    package = one(meta, "Name").lower().replace("_", "-").replace(".", "-")
+    require(re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", package))
+    version = one(meta, "Version")
+    require(re.fullmatch(r"[0-9][a-zA-Z0-9.!+_-]*", version))
+    dist_name, dist_version = directory_name.removesuffix(".dist-info").rsplit("-", 1)
+    require(dist_name.lower().replace("_", "-").replace(".", "-") == package and dist_version == version)
+    return package, version, meta
+
+
+def dependency_matches(package, actual, expected):
+    return actual == expected or (package in ("torch", "torchaudio", "torchvision") and actual == expected + "+cu130")
+
+
+def requirement_pin(dependency):
+    match = re.match(r"([A-Za-z0-9_.-]+)(?:\[[A-Za-z0-9_,.-]+\])?\s*(.*)", dependency)
+    require(match is not None)
+    return match[1].lower().replace("_", "-").replace(".", "-"), match[2].split(";", 1)[0].replace(" ", "").strip("()")
+
+
+def engine_metadata_checks(version, meta):
+    python = meta.get_all("Requires-Python", [])
+    return {"engine-version": version in ("0.32.0", "0.32.0+cu130"),
+            "requires-python": len(python) == 1 and sorted(python[0].replace(" ", "").split(",")) == ["<3.15", ">=3.11"]}
+
+
+def wheel_metadata_checks(wheel):
+    tags = wheel.get_all("Tag", [])
+    return {"wheel-version": wheel.get_all("Wheel-Version", []) == ["1.0"],
+            "wheel-purelib": wheel.get_all("Root-Is-Purelib", []) == ["false"],
+            "wheel-tags": bool(tags) and len(tags) == len(set(tags))
+                and all(re.fullmatch(r"cp38-abi3-(?:linux|manylinux1|manylinux2014|manylinux_2_[0-9]+)_x86_64", t) for t in tags)}
+
+
+def generated_versions(data):
+    versions = []
+    for node in ast.parse(data).body:
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "__version__" for t in node.targets):
+            versions.append(ast.literal_eval(node.value))
+    return versions
+
+
+def candidate_file_matches(name, expected, inventory, seen):
+    if expected is None:
+        return name not in inventory and not any(bytecode_for(p, name) for p in inventory)
+    return name in seen and name in inventory and inventory[name]["sha256"] == expected
+
+
+def engine_layout_matches(inventory):
+    return "vllm.py" not in inventory and "vllm.pyc" not in inventory
+
+
 def inspect_record(tree, inventory, dist, *, console=None):
     """RECORD consistency only; neither import admission nor dependency validation."""
     require("/" not in dist and dist.endswith(".dist-info"))
@@ -345,8 +419,7 @@ def inspect_record(tree, inventory, dist, *, console=None):
         require(console_name.endswith("/vllm") and not PurePosixPath(console_name).is_absolute())
         console_info = console_tree.read("vllm", retain=False)
         del console_info["header"]
-        entries = tree.read(dist + "/entry_points.txt").decode("utf-8")
-        require(entries.strip() == "[console_scripts]\nvllm = vllm.entrypoints.cli.main:main")
+        require(entrypoints_match(tree.read(dist + "/entry_points.txt")))
     rows, seen = csv.reader(io.StringIO(tree.read(record_name).decode("utf-8")), strict=True), set()
     for row in rows:
         require(len(row) == 3 and len(seen) < MAX_FILES)
@@ -359,12 +432,8 @@ def inspect_record(tree, inventory, dist, *, console=None):
             item = inventory[name]
         require(name not in seen)
         seen.add(name)
-        if name == record_name or name.endswith(".pyc"):
-            require(encoded == size == "")
-        else:
-            require(re.fullmatch(r"sha256=[A-Za-z0-9_-]{43}", encoded) and size == str(item["bytes"]))
-            require(encoded == "sha256=" + base64.urlsafe_b64encode(bytes.fromhex(item["sha256"])).decode().rstrip("="))
-    owned = {name for name in inventory if name.startswith(("vllm/", dist + "/"))}
+        require(all(record_field_checks(name, encoded, size, item, record_name).values()))
+    owned = record_owned(inventory, dist)
     require(seen == owned | ({console[0]} if console is not None else set()) and record_name in seen)
     require(console is None or console[0] in seen)
     return seen, console_info
@@ -387,23 +456,16 @@ def inspect_integrity(tree, contract, *, console=None, inventory=None):
     tree.check_module_collisions(item["path"] for item in contract["files"])
     if inventory is None:
         inventory = tree.inventory()
-    require("vllm.py" not in inventory and "vllm.pyc" not in inventory)
+    require(engine_layout_matches(inventory))
     distributions = {}
     for name in inventory:
         if name.endswith(".dist-info/METADATA") and name.count("/") == 1:
-            meta = headers(tree.read(name))
-            package = one(meta, "Name").lower().replace("_", "-").replace(".", "-")
-            require(re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", package) and package not in distributions)
-            version = one(meta, "Version")
-            require(re.fullmatch(r"[0-9][a-zA-Z0-9.!+_-]*", version))
-            directory_name = name.split("/", 1)[0].removesuffix(".dist-info")
-            dist_name, dist_version = directory_name.rsplit("-", 1)
-            require(dist_name.lower().replace("_", "-").replace(".", "-") == package and dist_version == version)
+            package, version, meta = distribution_metadata(tree.read(name), name.split("/", 1)[0])
+            require(package not in distributions)
             distributions[package] = (name.rsplit("/", 1)[0], version, meta)
     require("vllm" in distributions)
     dist, version, meta = distributions["vllm"]
-    require(version in ("0.32.0", "0.32.0+cu130")
-            and sorted(one(meta, "Requires-Python").replace(" ", "").split(",")) == ["<3.15", ">=3.11"])
+    require(all(engine_metadata_checks(version, meta).values()))
     for name in inventory:
         if name.endswith(".dist-info/direct_url.json"):
             direct = load_json(tree.read(name))
@@ -411,37 +473,21 @@ def inspect_integrity(tree, contract, *, console=None, inventory=None):
     for package, expected in contract["dependency_pins"].items():
         require(package in distributions)
         actual = distributions[package][1]
-        require(actual == expected or (package in ("torch", "torchaudio", "torchvision")
-                                      and actual == expected + "+cu130"))
+        require(dependency_matches(package, actual, expected))
     declared = {}
     for dependency in meta.get_all("Requires-Dist", []):
-        match = re.match(r"([A-Za-z0-9_.-]+)(?:\[[A-Za-z0-9_,.-]+\])?\s*(.*)", dependency)
-        require(match is not None)
-        package = match[1].lower().replace("_", "-").replace(".", "-")
+        package, constraint = requirement_pin(dependency)
         if package in contract["dependency_pins"]:
             require(package not in declared)
-            constraint = match[2].split(";", 1)[0].replace(" ", "").strip("()")
             require(constraint == "==" + contract["dependency_pins"][package])
             declared[package] = constraint
     require(set(declared) == set(contract["dependency_pins"]) - {"nvidia-nccl-cu13"})
     wheel = headers(tree.read(dist + "/WHEEL"))
-    require(one(wheel, "Wheel-Version") == "1.0" and one(wheel, "Root-Is-Purelib") == "false")
-    tags = wheel.get_all("Tag", [])
-    require(tags and len(tags) == len(set(tags))
-            and all(re.fullmatch(r"cp38-abi3-(?:linux|manylinux1|manylinux2014|manylinux_2_[0-9]+)_x86_64", t)
-                         for t in tags))
+    require(all(wheel_metadata_checks(wheel).values()))
     seen, console_info = inspect_record(tree, inventory, dist, console=console)
-    versions = []
-    for node in ast.parse(tree.read("vllm/_version.py")).body:
-        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "__version__" for t in node.targets):
-            versions.append(ast.literal_eval(node.value))
-    require(versions == [version])
+    require(generated_versions(tree.read("vllm/_version.py")) == [version])
     for item in contract["files"]:
-        name, expected = item["path"], item["sha256"][0]
-        if expected is None:
-            require(name not in inventory and not any(bytecode_for(p, name) for p in inventory))
-        else:
-            require(name in seen and inventory[name]["sha256"] == expected)
+        require(candidate_file_matches(item["path"], item["sha256"][0], inventory, seen))
     return {"files": inventory, "console": console_info}
 
 

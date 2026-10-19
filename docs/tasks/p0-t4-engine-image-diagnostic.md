@@ -240,6 +240,12 @@ native checks, overlay admission, root/startup gates or historical evidence.
 All four assets are required for a complete classified inventory; missing or
 changed assets fail closed. Even complete classification never grants admission.
 
+The next [bounded RECORD/wheel metadata diagnostic](p0-t4-engine-record-diagnostic.md)
+is implemented and tested against synthetic files, not yet run against the image.
+It reports multiple fixed rejection classes and bounded accounting/metadata
+observations without changing admission. Bytecode-related rejection is a
+source-backed hypothesis only until a reviewed run records the actual causes.
+
 ## Fixed Inputs And Identity
 
 The only supported image is the existing
