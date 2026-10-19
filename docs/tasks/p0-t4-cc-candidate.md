@@ -119,6 +119,19 @@ headers or raw tool/exception output. A failed verification run is retained.
 Preflight/bootstrap failures occur before evidence creation and cannot claim
 success. `nib lint` remains the authoritative evidence-schema check.
 
+## Recorded Result
+
+The [committed-source run](../../evidence/p0/2026-10-19T190821Z-vllm-cc-candidate/run.json)
+passed from `9403b662a6e6da103e3e3d5bf64dace3f95600b9`. Its
+[structured output](../../evidence/p0/2026-10-19T190821Z-vllm-cc-candidate/output.log)
+records 20 focused software tests, exact hashes at all patch stages, and eleven
+public source comparisons totaling 340,003 response bytes. Input bundle SHA-256:
+`bd02bc8d1c6b7a54d7d6e0313b91de52a51b78f8f2e2fdfc915bddab394e0e94`.
+The existing `nib lint` accepted the evidence record. Candidate status remains
+BLOCKED, `deployable:false`, `hardware_validated:false`. This is not a GPU or
+full-model run. Full repository checks and independent final-head review are
+separate requirements; this source preparation does not satisfy hardware gates.
+
 ## Remaining Gates
 
 - This is not a blanket no-UVA guarantee. The release's generic
