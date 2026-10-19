@@ -1,0 +1,17 @@
+{
+  "git_sha": "15aa087817b4716f732196cb514c44cb5af13b79",
+  "hardware_validated": false,
+  "pins": {
+    "go_image": "docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61",
+    "platform": "linux/amd64",
+    "python_image": "docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2",
+    "schema": "nib.e2e-pins/v1",
+    "trcs": {
+      "archive_sha256": "e1beeffa430048e823b60c8ec6e7cdc34851053d2af04e57d882c0a76af31bf3",
+      "binary_sha256": "9669c0358f8cc7951bd8da3f85c59994d2f87288f744cca7d54c5532ced0110c",
+      "commit": "8a87d9765ceabe76bbfa5e56a72c91da6d8290d5"
+    }
+  },
+  "scope": "full-fake-node",
+  "source_sha256": "f8950780631cb93781f92849dfa20f7be6b2520219d0bf9d863159e566b751c1"
+}

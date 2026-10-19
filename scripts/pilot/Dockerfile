@@ -56,6 +56,11 @@ COPY trcs/ /src/trcs/
 WORKDIR /src/trcs
 RUN --network=none go mod verify \
     && go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/trcs ./cmd/trcs
+COPY repo/go.mod repo/go.sum /src/nib/
+COPY repo/cmd/nib-pilot-api/ /src/nib/cmd/nib-pilot-api/
+COPY repo/internal/pilotapi/ /src/nib/internal/pilotapi/
+WORKDIR /src/nib
+RUN --network=none go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/nib-pilot-api ./cmd/nib-pilot-api
 
 FROM ${PYTHON_IMAGE} AS pilot
 ARG GO_IMAGE
@@ -89,7 +94,8 @@ USER 65532:65532
 RUN --network=none ./bin/llama-server --version \
     && openssl version \
     && trustedrouter-provider-check --help >/dev/null \
-    && python -I -c 'import httpx,jsonschema,ssl'
-# The host must enforce --network=none and --read-only with private writable /tmp.
-# No VOLUME or EXPOSE; credentials, host mounts and published ports are not inputs.
+    && python -I -c 'import httpx,jsonschema,ssl; assert ssl.create_default_context().get_ca_certs()'
+# The proof runner enforces --network=none and --read-only with private /tmp.
+# Persistent service deployment is a separate, explicitly configured operation;
+# see docs/operators/qwen-service.md. The default always runs the local proof.
 ENTRYPOINT ["python", "-I", "scripts/pilot/run.py", "--prepared", "/opt/nib-pilot"]

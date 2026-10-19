@@ -19,13 +19,19 @@ using this brand or domain.
 
 The API and site have different trust requirements. The site can serve public
 documentation and a catalog; it must not receive inference requests. The API
-must terminate TLS **inside the attested confidential VM**. A DNS record, ordinary
+of a confidential release must terminate TLS **inside the attested confidential VM**. A DNS record, ordinary
 web certificate, or successful health check is not evidence of that property.
 
 Joseph's 2026-10-19 update prioritizes a [small real Qwen pilot](qwen-pilot.md)
 before renting the large-model node. Hixtube must have its own cloud project,
 service accounts, credentials, network and resources. Sharing the Apache-2.0
 toolkit is fine; sharing TrustedRouter production infrastructure is not.
+
+Joseph subsequently requested making this pilot public and integrating it with
+TR. The [persistent service and activation order](qwen-service.md) cover that
+standard-TLS milestone separately from the confidential launch below. Public
+hosting and the scoped TR integration are authorized; exact paid run and price
+approvals remain pending. No public inference or billed TR request is claimed.
 
 The [source-bound real Qwen run](../../evidence/p3/2026-10-19-qwen-local-3/run.json)
 passed [17 provider checks](../../evidence/p3/2026-10-19-qwen-local-3/output.log),

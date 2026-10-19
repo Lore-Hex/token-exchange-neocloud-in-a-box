@@ -18,7 +18,7 @@ curl --fail --location --max-time 120 \
   https://codeload.github.com/ggml-org/llama.cpp/tar.gz/620d2225cc436ab0b001e3200e590e3b286ef9ab \
   --output /tmp/hixtube-pilot-inputs/llama.tar.gz
 curl --fail --location --max-time 120 \
-  https://codeload.github.com/Lore-Hex/trustedrouter-confidential-stack/tar.gz/c02fd478484f93732ba880d2d8e93aa8c5d90dbe \
+  https://codeload.github.com/Lore-Hex/trustedrouter-confidential-stack/tar.gz/8a87d9765ceabe76bbfa5e56a72c91da6d8290d5 \
   --output /tmp/hixtube-pilot-inputs/trcs.tar.gz
 ```
 
@@ -40,8 +40,12 @@ snapshot and saves `run.json` and sanitized `output.log` under `evidence/p3/`.
 Isolated Python mode is required; helpers are loaded from source bytes, not
 ignored bytecode, and the bootstrap source must match the committed snapshot.
 A successful report requires all 17 applicable provider checks, real generation,
-authentication checks, upstream-failure propagation and cleanup. The separate
-public catalog declaration is not tested; it needs approved prices and listing.
+authentication checks, upstream-failure propagation and cleanup. The Linux path
+also checks the persistent service's Catalog v2 using explicitly synthetic test
+prices; these are not approved public route prices. It signals shutdown after
+the first real content delta and requires the final finish reason, usage and
+`[DONE]` before exit. The native development path does not run this persistent
+service or catalog check.
 The test intentionally stops both listeners when it finishes. It does not leave
 an unaudited development server exposed, even on the local network.
 
@@ -106,3 +110,10 @@ dedicated Hixtube project is unavailable. CPU confidential testing, GPU
 confidential testing and commercial readiness are distinct milestones.
 See the [isolated-cloud preflight](hixtube-isolated-cloud.md) for the dedicated
 project and dated, explicitly estimated C3/H100 costs.
+
+The persistent service requires the shutdown fix reviewed in
+[trcs PR #6](https://github.com/Lore-Hex/trustedrouter-confidential-stack/pull/6).
+Its source revision, archive hash and Linux binary hash are pinned together in
+`scripts/e2e/pins.json`. The binary pin was built offline with the exact pinned
+Go image and the same build flags as the proof image. See the
+[service runbook](qwen-service.md) for runtime limits and activation order.
