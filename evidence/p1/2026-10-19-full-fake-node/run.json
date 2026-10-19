@@ -1,0 +1,20 @@
+{
+  "command": "python3 scripts/e2e/prove.py --output evidence/p1/2026-10-19-full-fake-node",
+  "ended_utc": "2026-10-19T04:02:48.714090Z",
+  "execution": "fake",
+  "git_sha": "25b8268dda016ec3451ed65c01242b93db84ca3e",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none used",
+    "machine": "Darwin 24.6.0 arm64",
+    "provider": "local"
+  },
+  "notes": "Runs make test-e2e with merged, hash-pinned trcs. Local Docker only: runtime network none, no devices, mounts, published ports or API secrets. Explicit fake CPU/GPU evidence; no confidential or hardware claim. Success requires verified container/image absence. Build cache is retained. CI acceptance is separate.",
+  "phase": "P1",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-19T04:01:50.717728Z",
+  "task": "T3"
+}

@@ -2,10 +2,22 @@
 
 ## Status and dependencies
 
-Work in progress, not full P1.T3 acceptance. This branch preserves PR7 guest
-history and merges PR9 verifier and PR8 catalog history; it does not copy
-unmerged implementation files. No hardware, production service, API keys,
-deployment, resource creation, image publication or confidentiality claim.
+Full local software-only integration passed with the merged trcs pin. Final
+independent review and PR CI remain separate gates; this is not yet P1 CI
+acceptance. This branch preserves PR7 guest history and merges PR9 verifier
+and PR8 catalog history; it does not copy unmerged implementation files. No
+hardware, production service, API keys, deployment, paid resources, image
+publication or confidentiality claim.
+
+Committed-run [metadata](../../evidence/p1/2026-10-19-full-fake-node/run.json),
+[inputs](../../evidence/p1/2026-10-19-full-fake-node/inputs.json),
+[results](../../evidence/p1/2026-10-19-full-fake-node/result.json) and
+[scrubbed operational output](../../evidence/p1/2026-10-19-full-fake-node/output.log)
+record source `25b8268dda016ec3451ed65c01242b93db84ca3e`. All 18 provider
+checks passed, all 14 mutations were rejected, the fake verifier passed and
+release verifier failed. Admission, privacy, weight gate and both resource
+absence checks passed. The output is bounded status/build output, not request
+or response content.
 
 The bounded prerequisite command is:
 
@@ -113,6 +125,15 @@ read. These are test-only collector controls, not production trcs fake flags.
 - [Admission source](https://github.com/Lore-Hex/trustedrouter-confidential-stack/tree/b4f07bb38af19991c20a16502fddd3b51f04d68f):
   `--max-inflight`, 429 and `Retry-After` behavior. These upstream PR revisions
   are inspection references, not substitutes for the merged-main runtime pin.
+- [Final merged trcs source](https://github.com/Lore-Hex/trustedrouter-confidential-stack/tree/c02fd478484f93732ba880d2d8e93aa8c5d90dbe)
+  contains all five upstream P1.T2 PRs. Its codeload tarball SHA-256 is
+  `df3fbc8886f6751ff62f6e028e60799a3c1ea9e59b7e8d63b7319b482fb03a80`.
+  Two clean linux/amd64 builds using the pinned Go image, `CGO_ENABLED=0`,
+  `GOTOOLCHAIN=local`, `GOFLAGS=-mod=readonly`, build network disabled and
+  `go build -a -trimpath -buildvcs=false -ldflags='-s -w' ./cmd/trcs` produced
+  SHA-256 `e6fe6b412cfb974b35eb6e442141d3ff8ffd4adf0a702917979a1d6ba4267e4f`.
+  The committed full Dockerfile independently rebuilt and checked that same
+  binary hash. The pin-build outputs were local files, not published images.
 - [Docker network-none](https://docs.docker.com/engine/network/drivers/none/)
   and [Docker run reference](https://docs.docker.com/reference/cli/docker/container/run/),
   inspected with local Docker 29.4.0.
@@ -129,6 +150,8 @@ go vet -tags nibfake ./...
 ./build/staticcheck -tags nibfake ./...
 python3 scripts/e2e/run.py --engine-only
 ```
+
+### Earlier bounded runs
 
 The first container attempt failed on an HTTP connection lifecycle mistake in
 the Python harness, and the first catalog attempt rejected an incorrect

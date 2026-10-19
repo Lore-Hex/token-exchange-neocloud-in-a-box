@@ -23,7 +23,7 @@ Pre-alpha. **Nothing in this repository has run on confidential hardware yet.**
 | Plan, sizing, phase definitions | written ([PLAN.md](PLAN.md)) |
 | CLI skeleton and repository checks | implemented; no serving runtime ([development](docs/development.md)) |
 | Model packs (pinned revisions and checksums) | not started (P0) |
-| GPU-free end-to-end node in CI | not started (P1) |
+| GPU-free end-to-end node | tested against fakes locally with merged, pinned trcs; full CI configured, P1 CI acceptance pending ([evidence](evidence/p1/2026-10-19-full-fake-node/run.json), [results](evidence/p1/2026-10-19-full-fake-node/result.json)) |
 | Model bring-up and benchmarks, non-confidential | not started (P2) |
 | Confidential pipeline on a 1-GPU TDX VM | not started (P3) |
 | TrustedRouter generic verifier | not started (P4) |
@@ -31,6 +31,13 @@ Pre-alpha. **Nothing in this repository has run on confidential hardware yet.**
 
 This table only says "validated" for things with committed evidence from real
 hardware.
+
+The P1 container run passes provider-check Tier 4, tagged fake verification,
+fourteen rejecting mutation checks, admission, privacy and weight-gate tests.
+The release verifier rejects the fake evidence. Runtime has no external
+network, API secrets or GPU access; container and image removal are verified.
+This is software integration evidence, not confidential inference or hardware
+validation. See the [P1.T3 task record](docs/tasks/p1-t3-container-e2e.md).
 
 ## Start contributing
 
