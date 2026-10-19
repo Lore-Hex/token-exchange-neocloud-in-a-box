@@ -141,9 +141,10 @@ false. Counting alone does not grant an entry allowance or admission.
 
 ## Image-Specific Inventory Budget
 
-**Implemented and tested with synthetic filesystems; the changed integrity
-diagnostic has not run against the image.** The default `Tree.inventory()` limit
-remains `MAX_FILES = 100000`. Ordinary wheel inspection, overlay application,
+**Recorded against the cached official image: partial inventory, native-header
+rejection and confirmed cleanup.** The bounded failure is preserved below.
+The default `Tree.inventory()` limit remains `MAX_FILES = 100000`.
+Ordinary wheel inspection, overlay application,
 startup-hook scans and other existing uses retain that limit. No CLI/environment
 budget override is available.
 
@@ -169,9 +170,10 @@ headroom gives 225,000, approximately 9.8% above the observed count. This is a
 conservative diagnostic allowance for that immutable image, not an allowance for
 future package additions. The measured 19,176,556,448 logical bytes and largest
 file of 541,607,888 bytes are below the unchanged 32 GiB total and 4 GiB/file
-limits. Depth 15 is below the unchanged depth-32 limit. All bytes are still
-hashed and all existing native-header, Python-ABI, hardlink, symlink and
-non-regular-file checks still execute; the census did not validate contents.
+limits. Depth 15 is below the unchanged depth-32 limit. Inventory still hashes
+each file it processes and applies the existing native-header, Python-ABI,
+hardlink, symlink and non-regular-file checks; the census did not validate
+contents. A rejected inventory does not establish that every file was processed.
 
 The unchanged container cap is 1 GiB memory/swap total, 2 CPUs and 32 PIDs. The
 inventory retains its 300-second per-tree deadline; the outer attached-process
@@ -182,9 +184,45 @@ remains a failed run; no automatic retry or relaxed fallback is added.
 This policy cannot bypass root/startup admission and is not forwarded into
 ordinary `inspect()` or `apply_overlay()`. The observed hooks and alternate root
 still reject; wheel/RECORD/native integrity are still unproven until a subsequent
-reviewed run completes those checks. That run must preserve any new exact failure
-as evidence. Image normalization/building and runtime activation remain separate,
+reviewed run completes those checks. The recorded attempt below preserves the
+next exact failure. Image normalization/building and runtime activation remain separate,
 blocked work; this task makes no ABI, GPU or confidentiality claim.
+
+### Recorded Native-Header Rejection
+
+The [bounded integrity run](../../evidence/p0/2026-10-19-official-vllm-bounded-integrity/run.json)
+from source `472f998df3d128d5dd5f1ad4b26cb628e7042fc8` ran on 2026-10-19,
+22:49:35 to 22:50:38 UTC, and exited 1. The
+[unchanged output](../../evidence/p0/2026-10-19-official-vllm-bounded-integrity/output.log)
+records the exact 225,000-entry image/config/census policy and payload SHA-256
+`16752cb9ce4d1e1adba509ff25e9bb789b08e158444823b340e302495694599c`.
+
+The inventory failed its existing `native-header` check at
+`nvidia_cutlass_dsl/cu12/lib/stubs/aarch64-unknown-linux-gnu/libcute_dsl_runtime.so`.
+This is the reported relative path and fixed rejection class, not proof of the
+file's purpose, actual runtime use or safety to ignore. No native-file exception
+was added and no image content was changed.
+
+External source context only: NVIDIA CUTLASS at
+[`098de2a652cf8f00fd70b2df54051c7eccbb855a`](https://github.com/NVIDIA/cutlass/blob/098de2a652cf8f00fd70b2df54051c7eccbb855a/python/CuTeDSL/cutlass/cute/export/aot_config.py#L27-L33)
+documents `stubs/<triple>/` beneath the library directory as a link-time fallback
+for AOT cross-compilation, while an empty target uses the native-host library
+directory. This explains an upstream convention, not the installed asset's bytes,
+provenance or loader behavior, and grants no native-header exemption. The source
+file is NVIDIA-proprietary; no implementation code was copied.
+
+- Collection remains `partial`; filesystem inventory and root admission are
+  `rejected`. RECORD integrity, wheel integrity and selected-root admission are
+  `unavailable`. The run does not establish a complete integrity inventory.
+- All 13 patched-source expectations still match, including the expected absent
+  helper. This is narrower than whole-wheel or native-code validation.
+- `result:fail`, `overlay_admission:rejected` and `cleanup:confirmed` are retained.
+  The owned container was removed; the cached image was retained. Raw OCI linkage
+  and local Docker metadata association passed, not independent local layer
+  rehashing or attestation.
+- Candidate status stays `BLOCKED`, with no deployable image, ABI/GPU/hardware or
+  confidential-runtime qualification. SDK stub usage, native admission and the
+  existing hook/root blockers require separate source-backed investigation.
 
 ## Fixed Inputs And Identity
 
@@ -344,3 +382,6 @@ Entry-policy tests exercise exact 100,000/100,001 and 225,000/225,001 boundaries
 with lazy synthetic directory entries, plus real filesystem tests for preserved
 byte/time/depth/link/native gates, rejected unknown identities and unchanged
 startup/root admission. No changed-image diagnostic has been executed by tests.
+The bounded-integrity artifact regression preserves both raw hashes, validates
+the report and authoritative evidence schema, and asserts the exact native-header
+rejection and unavailable integrity checks without repeating the image run.

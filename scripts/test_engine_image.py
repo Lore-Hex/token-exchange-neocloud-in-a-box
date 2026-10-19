@@ -18,6 +18,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-image-diagnostic"
 CENSUS_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-metadata-census"
+BOUNDED_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-bounded-integrity"
 
 
 def source(name, relative):
@@ -782,7 +783,7 @@ class ImageTests(unittest.TestCase):
         env = recorder.offline_environment(self.work / "control")
         binary, source_hash = recorder.build_validator(ROOT, revision, self.work, env)
         self.assertRegex(source_hash, r"^[0-9a-f]{64}$")
-        for index, source_directory in enumerate((RECORDED, CENSUS_RECORDED)):
+        for index, source_directory in enumerate((RECORDED, CENSUS_RECORDED, BOUNDED_RECORDED)):
             recorded = self.work / "recorded/evidence/p0" / ("official-image-" + str(index))
             recorded.mkdir(parents=True)
             (recorded / "run.json").write_bytes(recorder.prep.read_source(source_directory / "run.json"))
@@ -886,6 +887,45 @@ class ImageTests(unittest.TestCase):
         self.assertEqual(child["max_depth"], 15)
         self.assertFalse(child["content_read"])
         self.assertFalse(child["link_targets_read"])
+        self.assertEqual(overlay.MAX_FILES, 100000)
+
+    def test_recorded_bounded_inventory_preserves_native_rejection(self):
+        hashes = {"run.json": "8ba3b4732f3684611c695ce6b5446447a2de4471a83e55bc899603d7e05af07e",
+                  "output.log": "1ca430527afa8fb98a77637cff0efff4fab0f0cfe51720812b13ccbfca480fb7"}
+        files = {}
+        for name, digest in hashes.items():
+            data = recorder.prep.read_source(BOUNDED_RECORDED / name)
+            self.assertLessEqual(len(data), 65536)
+            self.assertEqual(overlay.digest(data), digest)
+            files[name] = overlay.load_json(data)
+        run, report = files["run.json"], files["output.log"]
+        child, provenance = report["diagnostic"], report["provenance"]
+        contract = {**self.contract, "diagnostic_inventory_policy": overlay.DIAGNOSTIC_INVENTORY_POLICY}
+        diagnostic.validate_report(overlay, child, contract)
+        self.assertEqual(run["git_sha"], "472f998df3d128d5dd5f1ad4b26cb628e7042fc8")
+        self.assertEqual(provenance["git_sha"], run["git_sha"])
+        self.assertEqual(provenance["payload_sha256"], "16752cb9ce4d1e1adba509ff25e9bb789b08e158444823b340e302495694599c")
+        self.assertEqual(provenance["source_bundle_sha256"], "50d5389784b20235719081608fecd0faa85530ad533ec391598327dd98a30982")
+        self.assertEqual(provenance["diagnostic_mode"], "integrity")
+        self.assertEqual(run["execution"], "software")
+        self.assertFalse(run["hardware_validated"])
+        self.assertEqual(run["result"], report["result"])
+        self.assertEqual(report["result"], "fail")
+        self.assertEqual(report["cleanup"], "confirmed")
+        self.assertEqual(report["stage"], "overlay-rejected")
+        self.assertEqual(child["collection"], "partial")
+        self.assertEqual(child["overlay_admission"], "rejected")
+        self.assertEqual(child["inventory_policy"], overlay.DIAGNOSTIC_INVENTORY_POLICY)
+        self.assertEqual(child["inventory_policy"]["entry_limit"], 225000)
+        self.assertEqual(child["inventory_failure"], {"reason": "native-header",
+            "path": "nvidia_cutlass_dsl/cu12/lib/stubs/aarch64-unknown-linux-gnu/libcute_dsl_runtime.so"})
+        self.assertEqual(child["checks"], dict(root_admission="rejected", filesystem_inventory="rejected",
+            record_integrity="unavailable", wheel_integrity="unavailable", selected_root_admission="unavailable"))
+        self.assertEqual(len(child["source_files"]), 13)
+        self.assertTrue(all(item["matches_base"] for item in child["source_files"]))
+        for item in (child, report):
+            self.assertEqual(item["candidate_status"], "BLOCKED")
+            self.assertTrue(all(item[key] is False for key in ("deployable", "abi_validated", "hardware_validated")))
         self.assertEqual(overlay.MAX_FILES, 100000)
 
     def test_validator_toolchain_resolution_is_cache_only_and_exact(self):
