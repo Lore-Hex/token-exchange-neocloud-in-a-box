@@ -1,0 +1,40 @@
+{
+  "base_image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+  "base_revision": "5df63a7203cdb9328d824a27b682e77c7b9928be",
+  "official_config": {
+    "sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d",
+    "bytes": 45008,
+    "platform": "linux/amd64",
+    "cuda_env": "13.0.2",
+    "python_build_argument": "3.12",
+    "nccl_build_argument": "2.30.7",
+    "source": "https://registry-1.docker.io/v2/vllm/vllm-openai/blobs/sha256:bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d"
+  },
+  "dependency_pins": {
+    "apache-tvm-ffi": "0.1.11",
+    "flashinfer-python": "0.7.0.post1",
+    "humming-kernels": "0.1.17",
+    "numba": "0.65.0",
+    "nvidia-cutlass-dsl": "4.8.0",
+    "nvidia-nccl-cu13": "2.30.7",
+    "nvtx": "0.2.15",
+    "pynvvideocodec": "2.0.4",
+    "quack-kernels": "0.6.5",
+    "tilelang": "0.1.12",
+    "tokenspeed-mla": "0.2.15",
+    "torch": "2.13.0",
+    "torchaudio": "2.11.0",
+    "torchvision": "0.28.0"
+  },
+  "upstream_files": {
+    "docker/Dockerfile": "c62823feb562a4c3ab3050276c44c848b9354b11a21c077d29df114a07c7d911",
+    "requirements/cuda.txt": "b168c9beb5bbb28e4900558bd65a87000bf142b087aeca852308addc0e745dbe",
+    "pyproject.toml": "eaa19cba70f13234be4acdc1eeb2126b937c6f0892fd1af29863db5a62bee95b",
+    "vllm/engine/arg_utils.py": "c10281277fd9a90dc8b22670db4f1af53708c5caa2aefee7aa861fa579329219",
+    "vllm/config/offload.py": "1dbcc23fedee34e09fe275b5889c43d77bbbafed7b36d097a620fb3e905c7aab",
+    "vllm/config/compilation.py": "d8a8086166e3f344b75d98d8350a77592f7b6c145319b3a9f0b9c8cb36bc39cb",
+    "vllm/entrypoints/launchers/cli_args.py": "76221e2c10a0c5cffb7820a25c176a436777eb2008737cc5b1effaa014ebad28",
+    "vllm/config/cache.py": "d37db21e7a6a1b477a580b54d90011d8708c4e7f6e3903221432d9a39830559b",
+    "vllm/plugins/__init__.py": "06942d64e526c2c7407265e1903d625c4d2118d8d7fc39c616b1cc6aa6fc2c8f"
+  }
+}

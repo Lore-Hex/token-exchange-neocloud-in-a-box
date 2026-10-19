@@ -205,8 +205,9 @@ def metadata(bundle):
     return manifest, local
 
 
-def verify(bundle):
+def verify_stages(bundle):
     manifest, local = metadata(bundle)
+    stages = []
     with tempfile.TemporaryDirectory(prefix="nib-cc-check-") as directory:
         root = Path(directory)
         for item in manifest["files"]:
@@ -226,10 +227,15 @@ def verify(bundle):
                 if (sha256(data) != item["sha256"][stage]
                         or stat.S_IMODE(path.stat().st_mode) != int(item["mode"], 8) & 0o777):
                     raise ValueError("patched file differs")
-        result = {path: read_regular(root / path) for path in PATHS}
-    for data in result.values():
-        ast.parse(data)  # Syntax only: never import the upstream package.
-    return result
+            result = {path: read_regular(root / path) for path in PATHS}
+            for data in result.values():
+                ast.parse(data)  # Syntax only: never import the upstream package.
+            stages.append(result)
+    return stages
+
+
+def verify(bundle):
+    return verify_stages(bundle)[-1]
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
