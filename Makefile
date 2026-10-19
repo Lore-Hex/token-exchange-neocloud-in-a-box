@@ -33,6 +33,7 @@ docs-check:
 secrets:
 	@go -C tools build -o ../build/gitleaks github.com/zricethezav/gitleaks/v8
 	./build/gitleaks dir --redact --no-banner --exit-code 1 .
+	./build/gitleaks git --redact --no-banner --exit-code 1 --log-opts=--all .
 
 secrets-positive-control: secrets
 	bash scripts/test-secret-scan.sh

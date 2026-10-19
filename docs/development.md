@@ -24,17 +24,20 @@ and do not publish artifacts, deploy, provision hardware or consume inference
 credits. The first run downloads development tools.
 
 `make check` runs formatting, vet, staticcheck, shellcheck, yamllint, local
-Markdown link and heading checks, race-enabled Go tests, gitleaks, and a secret
+Markdown link and heading checks, race-enabled Go tests, gitleaks on both the
+working tree and full fetched Git history, and a secret
 scanner positive control. Remote documentation URLs are citations, not an
 availability check; verify their contents when using a vendor setting.
 
 The secret-scanner positive control creates a nonfunctional token in a temporary
 directory, requires the scanner's explicit leak exit code, deletes the fixture,
-and requires the cleaned directory to pass. It never prints the token.
+and requires the cleaned directory to pass. A separate temporary Git repository
+proves a token removed in a later commit is still detected in history. Neither
+test prints the token.
 
 Go code running in the confidential guest belongs under `guest/`. The dependency
 test enumerates its complete import graph for Linux, including tests and the
-`nibfake` build tag, and rejects third-party packages even through an internal
+`nibfake` build tag and both cgo modes, and rejects third-party packages even through an internal
 wrapper. Operator-only code belongs under `cmd/nib` and `internal/`.
 
 ## Honest status

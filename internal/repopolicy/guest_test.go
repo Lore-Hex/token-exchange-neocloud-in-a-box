@@ -41,21 +41,23 @@ func TestGuestDependenciesAreStandardLibraryOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tags := range []string{"", "nibfake"} {
-		cmd := exec.Command("go", "list", "-deps", "-test", "-json", "-tags", tags, "./guest/...")
-		cmd.Dir = root
-		cmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0")
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-		data, err := cmd.Output()
-		if err != nil {
-			t.Fatalf("go list failed: %v: %s", err, stderr.String())
-		}
-		if len(data) == 0 {
-			t.Fatal("guest boundary missing; refusing a vacuous dependency check")
-		}
-		if err := rejectExternalPackages(data, module); err != nil {
-			t.Fatal(err)
+	for _, cgo := range []string{"0", "1"} {
+		for _, tags := range []string{"", "nibfake"} {
+			cmd := exec.Command("go", "list", "-deps", "-test", "-json", "-tags", tags, "./guest/...")
+			cmd.Dir = root
+			cmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED="+cgo)
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+			data, err := cmd.Output()
+			if err != nil {
+				t.Fatalf("go list failed: %v: %s", err, stderr.String())
+			}
+			if len(data) == 0 {
+				t.Fatal("guest boundary missing; refusing a vacuous dependency check")
+			}
+			if err := rejectExternalPackages(data, module); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 }
