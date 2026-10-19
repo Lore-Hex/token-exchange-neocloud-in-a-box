@@ -286,8 +286,16 @@ def collect(overlay, contract):
                                     and contract["base_image"] == policy["base_image"]
                                     and contract["official_config"]["sha256"] == policy["config_sha256"])
                     report["inventory_policy"] = policy
+                nonhost = contract.get("diagnostic_nonhost_policy")
+                classified = None
+                if nonhost is not None:
+                    overlay.require(nonhost == overlay.CUTLASS_STUB_POLICY and policy == overlay.DIAGNOSTIC_INVENTORY_POLICY
+                                    and contract["base_image"] == nonhost["base_image"]
+                                    and contract["official_config"]["sha256"] == nonhost["config_sha256"])
+                    report["nonhost_policy"] = nonhost
+                    classified = report["classified_nonhost_assets"] = []
                 try:
-                    inventory = tree.inventory(diagnostic_policy=policy)
+                    inventory = tree.inventory(diagnostic_policy=policy, nonhost_policy=nonhost, classified=classified)
                 except overlay.InventoryRejected as failure:
                     report["inventory_failure"] = {"reason": failure.reason, "path": failure.path}
                     raise
@@ -306,7 +314,8 @@ def collect(overlay, contract):
             report["collection"] = "partial"
     if any(item["status"] == "rejected" for item in report["source_files"]):
         report["collection"] = "partial"
-    if report["collection"] == "pass" and all(value == "pass" for value in report["checks"].values()):
+    if (contract.get("diagnostic_nonhost_policy") is None and report["collection"] == "pass"
+            and all(value == "pass" for value in report["checks"].values())):
         report["overlay_admission"] = "accepted"
     validate_report(overlay, report, contract)
     return report
@@ -319,7 +328,7 @@ def validate_report(overlay, report, contract):
     if mode == "metadata-census":
         validate_census(overlay, report)
         return
-    overlay.require(set(report) - {"inventory_failure", "inventory_policy"} == {"schema", "collection", "platform", "python", "candidate_status", "deployable",
+    overlay.require(set(report) - {"inventory_failure", "inventory_policy", "nonhost_policy", "classified_nonhost_assets"} == {"schema", "collection", "platform", "python", "candidate_status", "deployable",
         "abi_validated", "hardware_validated", "roots", "source_files", "checks", "overlay_admission"})
     overlay.require(report["schema"] == "nib.engine-image-diagnostic/v1" and report["collection"] in {"pass", "partial"}
         and report["platform"] == "linux/amd64" and re.fullmatch(r"3\.12\.[0-9]{1,3}", report["python"])
@@ -334,6 +343,26 @@ def validate_report(overlay, report, contract):
                         and contract["official_config"]["sha256"] == policy["config_sha256"])
     if contract.get("diagnostic_inventory_policy") is not None and report["checks"]["filesystem_inventory"] == "pass":
         overlay.require("inventory_policy" in report)
+    if "nonhost_policy" in report or "classified_nonhost_assets" in report:
+        policy = report["nonhost_policy"]
+        overlay.require(policy == contract.get("diagnostic_nonhost_policy") == overlay.CUTLASS_STUB_POLICY
+                        and report.get("inventory_policy") == overlay.DIAGNOSTIC_INVENTORY_POLICY
+                        and contract["base_image"] == policy["base_image"]
+                        and contract["official_config"]["sha256"] == policy["config_sha256"])
+        rows = report["classified_nonhost_assets"]
+        overlay.require(type(rows) is list and len(rows) <= 4)
+        seen = []
+        for row in rows:
+            overlay.require(row == {"path": row["path"], "sha256": policy["sha256"], "bytes": policy["bytes"],
+                                    "classification": "published-cutlass-aot-crosscompile-stub"}
+                            and row["path"] in policy["paths"] and row["path"] not in seen)
+            seen.append(row["path"])
+        overlay.require(seen == sorted(seen) and report["checks"]["selected_root_admission"] != "pass"
+                        and report["checks"]["filesystem_inventory"] in {"pass", "rejected"})
+        if report["checks"]["filesystem_inventory"] == "pass":
+            overlay.require(seen == policy["paths"])
+    if contract.get("diagnostic_nonhost_policy") is not None and report["checks"]["filesystem_inventory"] == "pass":
+        overlay.require("nonhost_policy" in report)
     if "inventory_failure" in report:
         failure = report["inventory_failure"]
         overlay.require(isinstance(failure, dict) and set(failure) == {"reason", "path"}
@@ -343,7 +372,11 @@ def validate_report(overlay, report, contract):
         if failure["path"] is not None:
             overlay.require(isinstance(failure["path"], str) and 0 < len(failure["path"]) <= 512)
             overlay.safe_name(failure["path"])
-    accepted = report["collection"] == "pass" and all(value == "pass" for value in report["checks"].values())
+        if failure["reason"] in {"nonhost-asset-mismatch", "nonhost-asset-missing"}:
+            overlay.require("nonhost_policy" in report and failure["path"] in overlay.CUTLASS_STUB_POLICY["paths"]
+                            and all(row["path"] != failure["path"] for row in report["classified_nonhost_assets"]))
+    accepted = (contract.get("diagnostic_nonhost_policy") is None and report["collection"] == "pass"
+                and all(value == "pass" for value in report["checks"].values()))
     overlay.require(report["overlay_admission"] == ("accepted" if accepted else "rejected"))
     overlay.require(isinstance(report["roots"], list) and len(report["roots"]) <= 4)
     for index, root in enumerate(report["roots"]):
