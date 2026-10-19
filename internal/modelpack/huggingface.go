@@ -145,8 +145,12 @@ func (r *remote) generate(ctx context.Context, repo, rev string) (*Manifest, err
 		} else {
 			u, _ := url.Parse(r.base + "/" + repo + "/resolve/" + rev + "/" + e.Path)
 			cachePath := "/api/resolve-cache/models/" + repo + "/" + rev + "/" + e.Path
+			// HF also encodes the entire nested filename as one cache-path
+			// component. Accept only that canonical encoding of this exact file.
+			cacheEncoded := "/api/resolve-cache/models/" + repo + "/" + rev + "/" + url.PathEscape(e.Path)
 			allow := func(v *url.URL) bool {
-				return v.Host == u.Host && v.RawPath == "" && (v.Path == u.Path || v.Path == cachePath)
+				return v.Host == u.Host && ((v.Path == u.Path && v.EscapedPath() == u.EscapedPath()) ||
+					(v.Path == cachePath && (v.EscapedPath() == cachePath || v.EscapedPath() == cacheEncoded)))
 			}
 			b, _, _, err := t.get(ctx, u, *e.Size, nil, allow)
 			if err != nil {

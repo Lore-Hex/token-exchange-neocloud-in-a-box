@@ -1,0 +1,20 @@
+{
+  "command": "go run ./models/packcheck generate",
+  "ended_utc": "2026-10-19T01:45:53.042294Z",
+  "execution": "software",
+  "git_sha": "16910114337ff86a7620cb3eddc2c1db83a5e469",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "darwin/arm64",
+    "provider": "local"
+  },
+  "notes": "Public metadata only. LFS hashes are remote assertions, not downloaded weight verification. Empty verity roots remain non-deployable. No credentials supplied; registry tokens are anonymous public pull tokens kept in memory.",
+  "phase": "P0",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-19T01:45:50.91961Z",
+  "task": "T4"
+}
