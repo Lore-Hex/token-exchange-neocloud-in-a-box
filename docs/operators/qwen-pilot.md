@@ -43,6 +43,11 @@ public catalog declaration is not tested; it needs approved prices and listing.
 The test intentionally stops both listeners when it finishes. It does not leave
 an unaudited development server exposed, even on the local network.
 
+[The 2026-10-19 recorded run](../../evidence/p3/2026-10-19-qwen-local-2/run.json)
+passed these checks using real Qwen weights. Its
+[sanitized results](../../evidence/p3/2026-10-19-qwen-local-2/output.log) include
+24 prompt tokens and 2 completion tokens for the synthetic known-answer test.
+
 Cloud deployment is a separate operation with an exact project, approved budget,
 expiry, teardown and evidence. Do not substitute `quill-cloud-proxy` when the
 dedicated Hixtube project is unavailable. CPU confidential testing, GPU

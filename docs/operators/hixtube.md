@@ -27,10 +27,12 @@ before renting the large-model node. Hixtube must have its own cloud project,
 service accounts, credentials, network and resources. Sharing the Apache-2.0
 toolkit is fine; sharing TrustedRouter production infrastructure is not.
 
-The [initial recorder output](../../evidence/p3/2026-10-19-qwen-local-1/README.md)
-captured passing local inference checks but had an invalid metadata envelope.
-It is retained as a draft, not accepted evidence; a new schema-valid run is
-required. No public service or confidential attestation is claimed.
+The [schema-valid real Qwen run](../../evidence/p3/2026-10-19-qwen-local-2/run.json)
+passed [17 provider checks](../../evidence/p3/2026-10-19-qwen-local-2/output.log),
+authenticated generation, token accounting, backend-failure propagation and
+cleanup. It was local CPU inference, not a public service or attestation proof.
+The [initial invalid recorder envelope](../../evidence/p3/2026-10-19-qwen-local-1/README.md)
+is retained as diagnostic history, not accepted evidence.
 
 ## Check the domain
 
