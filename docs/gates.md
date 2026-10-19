@@ -11,7 +11,7 @@ that request only.
 | Gate | What | Start | Notes |
 |---|---|---|---|
 | G-HW-RENT | Rent (or buy) an HGX 8×B200 server with TDX enabled in the BIOS and NVIDIA multi-GPU CC allowed | **now** | Questionnaire and candidates in PLAN.md §3.4. Lead time is weeks. |
-| G-NVIDIA-LICENSE | NVIDIA Enterprise license for commercial confidential computing (covers the attestation SDK, NRAS, RIM, OCSP) | **now** | Development and PoC use is free; production is not. No public price. |
+| G-NVIDIA-LICENSE | Confirm commercial CC entitlement and applicable vendor/service terms | **now** | Free development is not authorization to offer/distribute a service. SDK source licensing is separate; see [hardware licensing](hardware.md#licenses-and-action-gates). No quote obtained. |
 | G-GCP-PROJECT | Create a lab project on our existing billing account; enable the compute, cloudquotas and storage APIs; grant the agent's service account roles scoped to that project only | **now** | Never use `quill-cloud-proxy` (production) for experiments. |
 | G-GCP-QUOTA | GPU quota in the lab project: 8× B200 (`a4-highgpu-8g`, Spot or flex-start) in a region with capacity; 1× H100 Spot in us-central1, us-east5 or europe-west4 (the zones with TDX + GPU confidential VMs) | **now** | Quota requests can take days. |
 | G-INTEL-PCS | Intel PCS API subscription key for the PCCS on bare-metal hosts | **now** | Free registration on Intel's trusted-services portal. |
@@ -23,7 +23,20 @@ that request only.
 | G-PRICE | Set route prices on TR | per route | Proposals in PLAN.md P6 and P7. |
 | G-DNS | Create DNS names for node endpoints and the catalog | per name | Domain is an open question in PLAN.md §11. |
 
-## Requests
+## Software coordination
+
+On 2026-10-19 Joseph authorized continued software work and merging. Source-backed
+factual corrections include B300's documented CC SKU capacity and all-file model
+totals. Task branches may be pushed and PRs prepared. Self-merge is authorized
+only after CI is green and independent review of the final head is clean,
+with findings resolved.
+
+This authorization does not grant any resource, spending, production, release,
+DNS, settings or third-party-contact gate. It does not change phase dependencies.
+In particular, P1 still requires merged P0.T1-T3.
+
+## Requests and owner-reported status
 
 | Date (UTC) | Gate | Request (PR link) | Cost estimate | Status |
 |---|---|---|---|---|
+| 2026-10-19 | G-HW-RENT | Joseph reports existing HydraHost email concerning eight B200 GPUs; [P0.T2 hardware questionnaire](hardware.md#procurement-and-questionnaire), [PR #2](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/pull/2) | Not quoted | Outreach performed by Joseph; hardware, terms and qualification pending. No rental, spending or further contact approved. |

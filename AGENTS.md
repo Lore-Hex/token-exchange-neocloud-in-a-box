@@ -16,10 +16,16 @@ PLAN.md disagree, stop and ask.
    PR title `[P<phase>.T<task>] <summary>`.
 4. A PR body has three sections: **What changed**, **How it was verified**
    (exact commands and `evidence/` paths), **Not done / follow-ups**.
-5. Never merge your own PR. It merges after CI is green and review is clean.
+5. Joseph's 2026-10-19 authorization permits self-merge only after CI is green
+   and an independent review of the final head is clean, with every finding
+   resolved. Do not treat self-review as independent review.
 6. When a task in PLAN.md turns out to be wrong (a vendor doc says otherwise, a
    version does not exist, a step cannot work), do not improvise around it.
-   Write what you found, with sources, in the PR and stop.
+   Keep source-backed factual corrections within the implementation request,
+   including B300 capacity and complete model-manifest totals. Record the old
+   claim, corrected value, primary source and validation limits in the PR/docs.
+   Unknown deployment settings still block the affected implementation; never
+   invent flags, pins or hardware success to finish documentation.
 
 ## Your knowledge is out of date
 
@@ -47,9 +53,11 @@ evidence/p<phase>/<YYYY-MM-DD>-<slug>/
   ...           # result files (benchmark JSON, attestation bundles, checker reports)
 ```
 
-- Never write a number in a doc, PR or README that is not backed by such an
-  artifact. Estimates are allowed only when labelled **estimate** with their
-  arithmetic shown.
+- Our measured results require such an artifact. External published facts must
+  cite their primary source and revision/date and be identified as external,
+  not our measurements. Estimates require the label **estimate**, inputs and
+  arithmetic. Documented, implemented, tested against fakes and hardware-validated
+  are different states; preserve those distinctions in every result.
 - A failed run is evidence too. Commit it, say it failed, and say why if known.
 - The README status table says **validated on <hardware>** only with evidence
   from that hardware. "Implemented", "tested against fakes" and "validated"
@@ -78,6 +86,12 @@ Approval is per action. An approval for one run does not carry to the next.
 Tear down rented resources when a run ends unless the approval says to keep
 them, and record the teardown in the run's evidence.
 
+The permission to continue software work, push task branches, prepare PRs and
+conditionally self-merge is not approval to spend, mutate production, publish
+releases/images/packages, change settings or contact third parties. Joseph
+reports having contacted HydraHost about eight B200 GPUs; hardware is pending.
+Do not send additional contact or treat that outreach as rental/run approval.
+
 ## Secrets and data
 
 - Never commit secrets, tokens, private keys, kubeconfigs, SSH keys, production
@@ -85,9 +99,10 @@ them, and record the teardown in the run's evidence.
   variables documented in `.env.example`.
 - `make check` runs a secret scanner. Keep it green; never add allow-list
   entries for real secrets.
-- Never log prompts, completions, request or response bodies, headers or query
-  strings — in any build, including debug builds and error paths. Benchmarks
-  use synthetic prompts only.
+- Never log prompts, completions, request or response bodies, headers, query
+  strings or user-controlled URL paths — in any build, including debug/error
+  paths. Use fixed route classes, not raw paths or request-derived metric labels.
+  Benchmarks use synthetic prompts only.
 
 ## Security-critical code
 
@@ -102,6 +117,13 @@ security-critical: `image/`, `guest/`, and the attestation path.
   inference engine binds to 127.0.0.1.
 - Debug images (serial console, SSH, extra tools) must produce different
   measurements and must never appear in a release's accepted measurements.
+- Release rootfs and weight mounts must not use dm-verity `check_at_most_once`
+  or `ignore_corruption`; post-mount tampering must fail closed.
+- Production verification must explicitly enable Intel collateral, CRL, debug
+  and non-migratable checks and verify vendor GPU cryptography for all expected
+  devices. An envelope nonce is not GPU verification. Without a real appraiser,
+  return fail/partial, never confidential success. Fake positive verification
+  belongs only in `nibfake` builds; no runtime bypass or unsafe verifier injection.
 - Pin everything that ends up in a measured image or model pack: base-image
   digests; kernel, driver, CUDA and engine versions; model revisions (Hugging
   Face commit SHA) and per-file SHA-256. No `latest`, no floating tags.
