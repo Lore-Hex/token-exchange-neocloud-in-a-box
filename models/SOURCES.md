@@ -47,6 +47,16 @@ or select the patched image as redistributable, without establishing those right
 A future CC profile needs independently licensed upstream patches or permission.
 The plain-only profiles are unchanged.
 
+**Security freshness blocker:** the selected vLLM 0.31.0 is a reference candidate,
+not a security-current deployment recommendation. Upstream
+[v0.32.0 release notes](https://github.com/vllm-project/vllm/releases/tag/v0.32.0)
+(published 2026-10-18) list fixes for GHSA-4hhp-h66f-j5j7 (chat-template resource
+exhaustion), GHSA-q97c-p368-75c4 and GHSA-frvg-qw88-hww9. A security upgrade and
+review are required before deployment beyond isolated, plain P2 testing with
+synthetic inputs only; do not expose this candidate to users or untrusted traffic.
+Keep existing pins until a matching recipe and immutable image have been verified.
+The testing exception is not security validation or authorization to spend money.
+
 Request/output logging and Uvicorn access logging are explicitly disabled using
 the pinned Python frontend flags. This is configuration, not a proven zero-data
 retention or error-path audit of the full engine. No confidential deployment is
