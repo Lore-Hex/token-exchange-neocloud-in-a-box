@@ -60,7 +60,7 @@ func (r *remote) generate(ctx context.Context, repo, rev string) (*Manifest, err
 	identityURL, _ := url.Parse(r.base + "/api/models/" + repo + "/revision/" + rev)
 	b, _, _, err := t.get(ctx, identityURL, maxResponse, nil, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("HF identity: %w", err)
 	}
 	var identity struct {
 		ID       string `json:"id"`
@@ -92,7 +92,7 @@ func (r *remote) generate(ctx context.Context, repo, rev string) (*Manifest, err
 		seenPages[next.String()] = true
 		b, headers, _, err := t.get(ctx, next, maxResponse, nil, nil)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("HF tree: %w", err)
 		}
 		var batch []treeFile
 		if json.Unmarshal(b, &batch) != nil || batch == nil {
@@ -150,7 +150,7 @@ func (r *remote) generate(ctx context.Context, repo, rev string) (*Manifest, err
 			}
 			b, _, _, err := t.get(ctx, u, *e.Size, nil, allow)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("HF non-LFS content: %w", err)
 			}
 			if int64(len(b)) != *e.Size {
 				return nil, errors.New("modelpack: non-LFS size mismatch")

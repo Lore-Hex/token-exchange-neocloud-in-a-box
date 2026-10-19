@@ -47,8 +47,10 @@ func (t *transfer) get(ctx context.Context, u *url.URL, limit int64, headers htt
 	}
 	client := *t.r.client
 	client.Jar = nil
+	redirectRejected := false
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 5 || redirect == nil || !redirect(req.URL) || req.URL.User != nil || req.URL.Fragment != "" || req.URL.Scheme != "https" {
+			redirectRejected = true
 			return errors.New("modelpack: unsafe redirect")
 		}
 		return nil
@@ -65,6 +67,9 @@ func (t *transfer) get(ctx context.Context, u *url.URL, limit int64, headers htt
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, nil, 0, ctx.Err()
+		}
+		if redirectRejected {
+			return nil, nil, 0, errors.New("modelpack: pinned redirect policy rejected response")
 		}
 		return nil, nil, 0, errors.New("modelpack: metadata request failed")
 	}
