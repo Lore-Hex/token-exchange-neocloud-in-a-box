@@ -1,9 +1,10 @@
 # Public Qwen pilot service
 
-This is the first small **standard-TLS** Hixtube service, not a confidential
-release. Joseph requested public hosting and TrustedRouter integration on
-2026-10-19. The service implementation is being validated locally; no public
-endpoint, cloud deployment or customer billing has been verified yet.
+This is a small provider-neutral **standard-TLS** service, not a confidential
+release. Configure your own identity and endpoint, then follow the
+[TrustedRouter operator guide](trustedrouter.md) for onboarding. TrustedRouter
+owns accounting, billing and payments; the node returns engine usage. No public
+endpoint, cloud deployment or customer billing has been verified by this repo.
 
 The [recorded Linux run](../../evidence/p3/2026-10-19-qwen-retirement-race-linux/run.json)
 passed all 18 service conformance checks, including Catalog v2, auth, streaming
@@ -24,7 +25,8 @@ regression checks both successful validation and wrong-hostname rejection.
 - Model: `qwen/qwen3-0.6b`, pinned Q8_0 weights from the [local pilot](qwen-pilot.md).
 - Context: 4,096 tokens. Maximum generated tokens: 256. Text chat only.
 - Public `GET /v1/models`: Catalog v2, including explicit operator-supplied
-  decimal prices per million tokens. Missing or malformed prices stop startup.
+  identity, contacts, regions and decimal prices per million tokens. Missing or
+  malformed configuration stops startup; it never falls back to another provider.
 - Authenticated `POST /v1/chat/completions`: one completion, streaming and
   non-streaming, original engine token usage. No tools, images or JSON grammar.
 - `GET /healthz`: checks the local API and model; not an attestation claim.
@@ -50,15 +52,20 @@ deployment must explicitly select the persistent service:
 ```sh
 python -I /opt/nib-pilot/scripts/pilot/serve.py \
   --prepared /opt/nib-pilot \
-  --cert /run/hixtube/tls-chain.pem \
-  --key /run/hixtube/tls-key.pem \
-  --api-key-file /run/hixtube/api-key \
-  --hostname api.hixtube.com --port 8443 --public \
+  --cert /run/nib/tls-chain.pem \
+  --key /run/nib/tls-key.pem \
+  --api-key-file /run/nib/api-key \
+  --provider-config /run/nib/provider.json \
+  --hostname "$PROVIDER_HOSTNAME" --port 8443 --public \
   --input-price "$APPROVED_INPUT_USD_PER_MTOK" \
   --output-price "$APPROVED_OUTPUT_USD_PER_MTOK" \
   --retirement-at "$APPROVED_RETIREMENT_UTC" \
   --max-seconds 86400
 ```
+
+Use [examples/provider.json](../../examples/provider.json) as the field template;
+replace all sample values before public use. `PROVIDER_HOSTNAME` is your exact
+public TLS name. The config contains public metadata only, never API/TLS keys.
 
 This is a process invocation, **not a complete cloud deployment recipe**. Use a
 reviewed image digest, never a floating tag. Mount only private configuration,
@@ -81,7 +88,7 @@ The real Linux proof checks that the declared cutoff survives the full service
 path. Deterministic unit tests exercise the exact expiry boundary, slow uploads,
 invalid/expired restarts and clock changes; this is not a 24-hour cloud test.
 
-TrustedRouter's Hixtube parser must publish this cutoff using its existing
+TrustedRouter's catalog integration must publish this cutoff using its existing
 runtime manifest deadline, not merely retain the descriptive lifecycle field.
 A successful refresh must not reset it to the ordinary stale-catalog window.
 Withdraw the route and DNS before the VM's deletion deadline, allowing at least
@@ -103,7 +110,7 @@ to reset the approved run duration.
 1. Approve the separate-project billing/API setup, exact CPU run budget and route
    prices. Resolve a pinned host image, inventory quota/network/IAM, and review
    the bounded deployment and cleanup commands. No GPU is required for this pilot.
-2. Deploy in `hixtube-neocloud`, without any TrustedRouter runtime identity,
+2. Deploy in an isolated operator-owned project, without any TrustedRouter runtime identity,
    private network connection or secret store. Generate a dedicated revocable
    inference key and trusted certificate. Keep keys out of Git and logs.
 3. Verify the candidate directly before publishing DNS. Then verify the public
@@ -123,7 +130,7 @@ to reset the approved run duration.
    usage, price calculation and settlement. Check streaming as well. Publish
    as a small CPU pilot with `zdr=false`, `confidential=false`, `e2ee=false`.
 
-DNS ownership and address teardown are launch gates too. Hixtube must own its
+DNS ownership and address teardown are launch gates too. The operator must own its
 serving zone or delegated child zone in the separate project. Do not leave an
 address record pointing to a released ephemeral IP: withdraw and verify DNS
 before releasing the address. A reserved address can prevent reassignment

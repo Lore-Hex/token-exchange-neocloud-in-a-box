@@ -14,15 +14,28 @@ and [GLM-5.3](https://huggingface.co/zai-org/GLM-5.3) on HGX 8×B200 servers.
 **Read [PLAN.md](PLAN.md)** for sizing, the order of work and the phases.
 Agents working in this repo read [AGENTS.md](AGENTS.md) first.
 
-Our first provider is **Hixtube** (`hixtube`), using `hixtube.com`. This is
-the operator's identity, not a rename of the reusable Apache-2.0 toolkit.
-The [Hixtube launch checklist](docs/operators/hixtube.md) separates domain setup
-from an actually serving, independently verified confidential node.
-The first functional pilot uses [small Qwen](docs/operators/qwen-pilot.md) locally;
-its eventual cloud deployment is confined to the separate `hixtube-neocloud`
-project, not TrustedRouter production. See the [cloud preflight](docs/operators/hixtube-isolated-cloud.md).
-The [persistent pilot runbook](docs/operators/qwen-service.md) tracks public
-hosting and TR integration separately from confidential hardware validation.
+## Serve Models, Not a Billing System
+
+This is a provider-neutral toolkit. Bring your own hardware, model and endpoint;
+sell inference through TrustedRouter. Keep your operator identity, credentials
+and deployment configuration outside this repository.
+
+| This toolkit / your node | TrustedRouter |
+|---|---|
+| Serve inference behind an authenticated API | Authenticate customers and enforce their credit limits |
+| Publish models, capabilities and agreed prices | Discover routes and apply customer pricing |
+| Return actual engine token usage, including the final streaming usage chunk | Keep the accounting ledger and bill customers |
+| Maintain health, capacity and verified attestation | Handle customer payments and provider payouts under the onboarding agreement |
+
+No local customer accounts, balances, invoices, payment processor or settlement
+database. Basic health and content-free lifecycle logs are enough to operate the
+pilot; usage travels in API responses, not a second billing ledger.
+
+Start with the [TrustedRouter operator guide](docs/operators/trustedrouter.md).
+The [small Qwen pilot](docs/operators/qwen-pilot.md) exercises real inference
+locally, and the [service runbook](docs/operators/qwen-service.md) describes its
+endpoint configuration. Marketplace activation and payout terms are separate
+onboarding steps; running the toolkit does not automatically list a provider.
 
 ## Status
 

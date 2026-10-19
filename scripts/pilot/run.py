@@ -372,10 +372,19 @@ def run(inputs, summary, *, prepared=None):
             if prepared is not None:
                 stop(shim)
                 summary["stage"] = "persistent-service"
+                # Explicit synthetic metadata for this loopback-only proof, never
+                # a default for serve.py or a declaration about a real operator.
+                provider_config = work / "provider.json"
+                provider = {"id": "pilot", "status_url": "https://example.invalid/healthz",
+                            "support_contact": "mailto:support@example.invalid",
+                            "incident_contact": "mailto:incident@example.invalid",
+                            "regions": ["local-test-only"]}
+                provider_config.write_text(json.dumps(provider))
                 retirement = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
                 service = start([sys.executable, "-I", str(ROOT / "scripts/pilot/serve.py"),
                                  "--prepared", str(prepared), "--cert", str(cert), "--key", str(certkey),
                                  "--api-key-file", str(apikeyfile), "--hostname", "127.0.0.1",
+                                 "--provider-config", str(provider_config),
                                  "--port", str(public), "--max-seconds", "300",
                                  "--retirement-at", retirement,
                                  "--input-price", "0.000001", "--output-price", "0.000002"])
@@ -383,6 +392,8 @@ def run(inputs, summary, *, prepared=None):
                 status, catalog = request(public, "/v1/models", tls=tls, key=apikey)
                 require(status == 200 and json.loads(catalog).get("contract_version") == "2.0",
                         "service-catalog")
+                require(all(json.loads(catalog)["provider"].get(name) == value
+                            for name, value in provider.items()), "service-provider-config")
                 require(json.loads(catalog)["data"][0]["lifecycle"]["retirement_at"] == retirement,
                         "service-retirement")
                 require(request(public, "/v1/chat/completions", tls=tls, key=apikey,

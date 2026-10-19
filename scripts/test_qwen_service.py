@@ -1,14 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 import importlib.util
 import datetime
+import json
 import os
 from pathlib import Path
 import ssl
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
 from unittest.mock import Mock, patch
+from types import SimpleNamespace
 
 SPEC = importlib.util.spec_from_file_location("qwen_service", Path(__file__).parent / "pilot/serve.py")
 service = importlib.util.module_from_spec(SPEC)
@@ -16,6 +19,74 @@ SPEC.loader.exec_module(service)
 
 
 class ServiceTests(unittest.TestCase):
+    def test_cli_requires_provider_config_in_local_and_public_modes(self):
+        for mode in ([], ["--public"]):
+            args = ["serve.py", "--cert", "cert", "--key", "key", "--api-key-file", "api-key",
+                    "--hostname", "api.example.invalid", "--input-price", "0.10", "--output-price", "0.20", *mode]
+            with patch.object(sys, "argv", args), patch.object(service, "serve") as serve, \
+                    patch.object(sys, "stderr") as stderr:
+                with self.assertRaises(SystemExit) as error:
+                    service.main()
+                self.assertEqual(error.exception.code, 2)
+                self.assertIn("--provider-config", "".join(call.args[0] for call in stderr.write.call_args_list))
+                serve.assert_not_called()
+
+    def test_missing_provider_fails_before_inputs_or_child_start(self):
+        for public in (False, True):
+            args = Mock(public=public, provider_config=None, retirement_at="fixed-cutoff", max_seconds=3600)
+            with patch.object(service, "retirement_deadline", return_value=(2000, 2000)), \
+                    patch.object(service.time, "monotonic", return_value=1000), \
+                    patch.object(service.pilot, "prepared_inputs") as prepared, \
+                    patch.object(service.subprocess, "Popen") as spawn:
+                with self.assertRaisesRegex(service.pilot.PilotError, "provider-config-required"):
+                    service.serve(args, threading.Event())
+                prepared.assert_not_called()
+                spawn.assert_not_called()
+
+    def test_service_passes_private_metadata_snapshot_and_public_flag(self):
+        provider = (service.ROOT / "examples/provider.json").read_bytes()
+        digest = json.loads((service.ROOT / "scripts/e2e/pins.json").read_text())["trcs"]["binary_sha256"]
+        for public in (False, True):
+            with self.subTest(public=public), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                for name, data in (("cert", b"mock-cert"), ("key", b"mock-key"), ("api-key", b"x" * 32),
+                                   ("provider.json", provider)):
+                    (root / name).write_bytes(data)
+                    (root / name).chmod(0o600)
+                args = SimpleNamespace(public=public, provider_config=root / "provider.json", retirement_at="fixed-cutoff",
+                                       max_seconds=3600, hostname="api.example.invalid", port=8443, prepared=root,
+                                       cert=root / "cert", key=root / "key", api_key_file=root / "api-key",
+                                       input_price="0.10", output_price="0.20")
+                commands = []
+
+                def spawn(command, **kwargs):
+                    commands.append(command)
+                    if len(commands) == 1:
+                        args.provider_config.write_bytes(b"changed-after-snapshot")
+                    if "--provider-config" in command:
+                        path = Path(command[command.index("--provider-config") + 1])
+                        self.assertNotEqual(path, args.provider_config)
+                        self.assertEqual(path.read_bytes(), provider)
+                        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                        self.assertEqual("--public" in command, public)
+                        self.assertEqual(command[command.index("--retirement-at") + 1], "fixed-cutoff")
+                    self.assertNotIn("PROVIDER_CONFIG", kwargs["env"])
+                    return Mock(returncode=0)
+
+                with patch.object(service, "retirement_deadline", return_value=(2000, 2000)), \
+                        patch.object(service.time, "monotonic", return_value=1000), \
+                        patch.object(service.pilot, "prepared_inputs", return_value=(root / "engine", root / "front", root / "weights", None)), \
+                        patch.object(service.pilot, "file_digest", return_value=digest), \
+                        patch.object(service.ssl, "SSLContext"), patch.object(service, "tls_client_context"), \
+                        patch.object(service.subprocess, "Popen", side_effect=spawn), \
+                        patch.object(service, "wait_ready"), patch.object(service, "supervise"), \
+                        patch.object(service.pilot, "stop", return_value=True), patch("builtins.print"):
+                    service.serve(args, threading.Event())
+                self.assertEqual(len(commands), 3)
+                self.assertEqual(sum("--provider-config" in command for command in commands), 1)
+                self.assertEqual(commands[-1][commands[-1].index("--listen") + 1],
+                                 ("0.0.0.0" if public else "127.0.0.1") + ":8443")
+
     def test_public_retirement_is_required_canonical_and_bounded(self):
         now = datetime.datetime(2026, 10, 19, 12, tzinfo=datetime.timezone.utc).timestamp()
         with patch.object(service.time, "time", return_value=now), \

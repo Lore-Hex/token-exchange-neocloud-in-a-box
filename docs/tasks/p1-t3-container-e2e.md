@@ -14,7 +14,7 @@ The integration branch includes reviewed PR9 head
 `e1f40fab454c8463aad08c2f2a1ebf368a905004`, preserving their history rather
 than copying files. PR10 remains draft and depends on both PRs merging after
 their own CI/review gates. Only the expected README status conflict required
-resolution: Hixtube identity, source-audited model drafts, guest services and
+resolution: provider configuration, source-audited model drafts, guest services and
 the tested P1 status are all retained. Both `verify` and `catalog` dispatch
 regressions and the domain checker are included. No DNS mutation or live
 domain-check run was performed as part of this integration.

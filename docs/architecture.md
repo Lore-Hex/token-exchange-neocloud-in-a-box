@@ -11,6 +11,24 @@ for later phases, not claims that the current skeleton enforces them. See the
 
 ## Node and trust boundaries
 
+### Commercial boundary
+
+The node is an inference supplier, not a retail billing platform. TrustedRouter
+owns customer authentication, credit enforcement, accounting, billing, payments
+and provider payouts under the onboarding agreement. The node accepts the
+dedicated inference credential, advertises its catalog and agreed rates, and
+returns the engine's actual token usage in ordinary and streaming responses.
+Never estimate usage from character counts or equate aggregate logs with an
+invoice. TrustedRouter performs settlement; this repo has no customer ledger,
+payment SDK, account database or payment webhook.
+
+Keep operator identities, contracts, bank details, secrets and cloud resources
+outside this source repo. Runtime provider metadata is configuration, not a
+hardcoded identity or attestation result. See the
+[operator guide](operators/trustedrouter.md) for the handoff and minimal telemetry.
+
+### Confidential boundary
+
 One physical server, one Intel TDX trust domain (TD), one model pack. The
 preferred profile assigns eight B200 GPUs to that TD. DeepSeek may have two
 TP4 replicas inside it; GLM uses TP8. Replicas are neither separate tenants nor

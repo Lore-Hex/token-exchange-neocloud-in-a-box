@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"io"
 	"log"
@@ -17,21 +18,42 @@ import (
 	"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/pilotapi"
 )
 
-func run() int {
+func configuredHandler(arguments []string) (*pilotapi.Handler, error) {
 	flags := flag.NewFlagSet("nib-pilot-api", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	keyFile := flags.String("api-key-file", "", "private key file")
+	providerFile := flags.String("provider-config", "", "required operator metadata JSON file")
 	inputPrice := flags.String("input-price", "", "USD per million input tokens")
 	outputPrice := flags.String("output-price", "", "USD per million output tokens")
 	retirement := flags.String("retirement-at", "", "fixed UTC retirement for a public pilot")
-	if flags.Parse(os.Args[1:]) != nil || flags.NArg() != 0 {
-		return 1
+	public := flags.Bool("public", false, "require public operator metadata and retirement (listener stays loopback)")
+	if err := flags.Parse(arguments); err != nil {
+		return nil, err
+	}
+	if flags.NArg() != 0 {
+		return nil, errors.New("unexpected arguments")
+	}
+	provider, err := pilotapi.LoadProviderConfig(*providerFile)
+	if err != nil {
+		return nil, err
+	}
+	if *public {
+		if err := provider.ValidatePublic(); err != nil {
+			return nil, err
+		}
+		if *retirement == "" {
+			return nil, errors.New("public retirement required")
+		}
 	}
 	key, err := os.ReadFile(*keyFile)
 	if err != nil {
-		return 1
+		return nil, err
 	}
-	handler, err := pilotapi.New(strings.TrimSuffix(string(key), "\n"), *inputPrice, *outputPrice, *retirement)
+	return pilotapi.New(provider, strings.TrimSuffix(string(key), "\n"), *inputPrice, *outputPrice, *retirement)
+}
+
+func run() int {
+	handler, err := configuredHandler(os.Args[1:])
 	if err != nil {
 		return 1
 	}

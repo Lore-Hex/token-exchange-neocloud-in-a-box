@@ -27,7 +27,10 @@ const ContextLength = 4096
 var pricePattern = regexp.MustCompile(`^(0|[1-9][0-9]{0,5})(\.[0-9]{1,6})?$`)
 
 // Catalog requires explicit prices; absent or malformed prices never become free.
-func Catalog(inputPrice, outputPrice string, retirement time.Time) ([]byte, error) {
+func Catalog(provider ProviderConfig, inputPrice, outputPrice string, retirement time.Time) ([]byte, error) {
+	if err := provider.Validate(); err != nil {
+		return nil, err
+	}
 	if !pricePattern.MatchString(inputPrice) || !pricePattern.MatchString(outputPrice) {
 		return nil, errors.New("explicit decimal input and output prices required")
 	}
@@ -38,14 +41,14 @@ func Catalog(inputPrice, outputPrice string, retirement time.Time) ([]byte, erro
 	return json.Marshal(map[string]any{
 		"object": "list", "contract_version": "2.0",
 		"provider": map[string]any{
-			"id": "hixtube", "status_url": "https://api.hixtube.com/healthz",
-			"support_contact": "mailto:support@trustedrouter.com", "incident_contact": "mailto:support@trustedrouter.com",
-			"regions": []string{"US"}, "request_id_header": "X-Request-Id",
+			"id": provider.ID, "status_url": provider.StatusURL,
+			"support_contact": provider.SupportContact, "incident_contact": provider.IncidentContact,
+			"regions": provider.Regions, "request_id_header": "X-Request-Id",
 			"error_contract": map[string]any{"rate_limit_status": 429, "overload_status": 503,
 				"retry_after_header": "Retry-After", "account_quota_error_codes": []string{}},
 		},
 		"data": []any{map[string]any{
-			"id": Model, "object": "model", "owned_by": "qwen", "name": "Qwen3 0.6B (Hixtube CPU pilot)",
+			"id": Model, "object": "model", "owned_by": "qwen", "name": "Qwen3 0.6B (CPU pilot)",
 			"type": "chat", "context_length": ContextLength, "max_output_tokens": MaxOutput,
 			"endpoints": []string{"chat/completions"}, "input_modalities": []string{"text"}, "output_modalities": []string{"text"},
 			"capabilities": map[string]bool{"streaming": true, "tools": false, "structured_output": false, "reasoning": false, "prompt_caching": false},
@@ -69,7 +72,7 @@ type Handler struct {
 
 // New fixes the backend to loopback. Neither requests nor environment variables
 // can supply an alternate destination for provider credentials or prompt bytes.
-func New(key, inputPrice, outputPrice, retirementAt string) (*Handler, error) {
+func New(provider ProviderConfig, key, inputPrice, outputPrice, retirementAt string) (*Handler, error) {
 	if !regexp.MustCompile(`^[A-Za-z0-9_-]{32,256}$`).MatchString(key) {
 		return nil, errors.New("invalid pilot key")
 	}
@@ -77,7 +80,7 @@ func New(key, inputPrice, outputPrice, retirementAt string) (*Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	catalog, err := Catalog(inputPrice, outputPrice, retirement)
+	catalog, err := Catalog(provider, inputPrice, outputPrice, retirement)
 	if err != nil {
 		return nil, err
 	}

@@ -2,8 +2,8 @@
 
 Status: accepted for the local pilot on 2026-10-19. Cloud deployment remains gated.
 
-Joseph requested a smaller Qwen first, with Hixtube in a completely separate
-project from TrustedRouter. This adds P3.T7, prioritized before the GPU-dependent tasks; it
+Joseph requested a smaller Qwen first, in an operator-owned project separate
+from TrustedRouter. This adds P3.T7, prioritized before the GPU-dependent tasks; it
 does not waive the confidential verification requirements or cloud gates.
 
 ## Decision
@@ -13,7 +13,7 @@ official Qwen Q8_0 weights and a source-pinned llama.cpp CPU server. This is an
 **API-plumbing pilot**, not a quality benchmark, commercial route, or confidential
 node. There is no fake engine or attestation in this run: `tee=none` is explicit.
 No production TrustedRouter code, credentials, data, resources, or requests are
-needed. The next cloud test must use a dedicated Hixtube project.
+needed. Any cloud test must use an isolated operator-owned project.
 
 Primary sources checked 2026-10-19:
 
