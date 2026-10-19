@@ -397,17 +397,24 @@ class ImageTests(unittest.TestCase):
                    "GOPROXY": "https://example.invalid", "GOSUMDB": "SYNTHETIC_PRIVATE_VALUE",
                    "CGO_ENABLED": "1", "GOOS": "SYNTHETIC_PRIVATE_VALUE", "PATH": "SYNTHETIC_PRIVATE_VALUE",
                    "HTTP_PROXY": "SYNTHETIC_PRIVATE_VALUE", "GOCACHE": str(self.work / "existing-cache"),
-                   "GOMODCACHE": str(self.work / "existing-modules")}
+                   "GOMODCACHE": str(self.work / "existing-modules"), "TEST_TELEMETRY_DIR": "SYNTHETIC_PRIVATE_VALUE",
+                   "GO_TELEMETRY_CHILD": "1", "GO_TELEMETRY_CHILD_UPLOAD": "1"}
         with mock.patch.dict(os.environ, ambient, clear=True):
             env = recorder.offline_environment(control)
         for key, value in {"GOTOOLCHAIN": "go1.27.2", "GOENV": "off", "GOWORK": "off",
                            "GOFLAGS": "-mod=readonly", "CGO_ENABLED": "0", "GOPROXY": "off", "GOSUMDB": "off",
+                           "TEST_TELEMETRY_DIR": str(control / "telemetry"), "GO_TELEMETRY_CHILD": "2",
                            "PATH": recorder.checker.tool_env()["PATH"], "HOME": str(control / "home"),
                            "GOCACHE": ambient["GOCACHE"], "GOMODCACHE": ambient["GOMODCACHE"]}.items():
             self.assertEqual(env[key], value)
         self.assertNotIn("GOOS", env)
         self.assertNotIn("HTTP_PROXY", env)
+        self.assertNotIn("GO_TELEMETRY_CHILD_UPLOAD", env)
         self.assertNotIn("SYNTHETIC_PRIVATE_VALUE", json.dumps(env))
+        self.assertEqual((control / "telemetry/mode").read_bytes(), b"off\n")
+        self.assertEqual((control / "telemetry").stat().st_mode & 0o777, 0o700)
+        self.assertEqual((control / "telemetry/mode").stat().st_mode & 0o777, 0o600)
+        control = self.work / "default-control"
         with mock.patch.dict(os.environ, {}, clear=True):
             defaults = recorder.offline_environment(control)
         self.assertEqual(defaults["GOCACHE"], str(control / "go-cache"))
@@ -454,6 +461,8 @@ class ImageTests(unittest.TestCase):
             self.assertEqual(local["GOTOOLCHAIN"], "local")
             self.assertEqual(local["GOPROXY"], "off")
             self.assertEqual(local["GOSUMDB"], "off")
+            self.assertEqual(local["TEST_TELEMETRY_DIR"], env["TEST_TELEMETRY_DIR"])
+            self.assertEqual(local["GO_TELEMETRY_CHILD"], "2")
         self.assertEqual(env["GOTOOLCHAIN"], "go1.27.2")
         with mock.patch.object(recorder, "call", side_effect=[overlay.json_bytes(info), b"go version go1.24.2 darwin/arm64\n"]):
             with self.assertRaises(ValueError):
@@ -477,6 +486,7 @@ class ImageTests(unittest.TestCase):
         binary.write_text("#!/bin/sh\nset -eu\n"
             'test "$GOTOOLCHAIN" = local\ntest "$GOENV" = off\ntest "$GOWORK" = off\n'
             'test "$GOPROXY" = off\ntest "$GOSUMDB" = off\n'
+            'test "$GO_TELEMETRY_CHILD" = 2\nIFS= read -r mode < "$TEST_TELEMETRY_DIR/mode"\ntest "$mode" = off\n'
             'test -z "${GOPATH+x}${GOMODCACHE+x}${GOCACHE+x}"\n'
             'test "$1" = env\ntest "$2" = -json\n'
             "printf '%s\\n' '" + json.dumps(info) + "'\n")
@@ -491,6 +501,53 @@ class ImageTests(unittest.TestCase):
         self.assertEqual(qualified["GOCACHE"], info["GOCACHE"])
         self.assertEqual(qualified["HOME"], env["HOME"])
         self.assertEqual(qualified["GOTOOLCHAIN"], "go1.27.2")
+
+    def test_real_go_ignores_account_telemetry_and_preserves_default_cache_discovery(self):
+        env = recorder.offline_environment(self.work / "control")
+        _, baseline = recorder.validator_toolchain(env)
+        account = self.work / "account"
+        config = account / ("Library/Application Support" if sys.platform == "darwin" else ".config")
+        mode = config / "go/telemetry/mode"
+        mode.parent.mkdir(parents=True)
+        mode.write_bytes(b"on 2000-01-01\n")
+        modules = account / "go/pkg/mod"
+        cache = account / ("Library/Caches/go-build" if sys.platform == "darwin" else ".cache/go-build")
+        for link, target in ((modules, baseline["GOMODCACHE"]), (cache, baseline["GOCACHE"])):
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to(target, target_is_directory=True)
+
+        def account_snapshot():
+            result = {}
+            for path in account.rglob("*"):
+                info = path.lstat()
+                content = os.readlink(path) if path.is_symlink() else path.read_bytes() if path.is_file() else None
+                result[path.relative_to(account).as_posix()] = (info.st_mode, info.st_mtime_ns, content)
+            return result
+
+        before = account_snapshot()
+        # Real discovery/version calls; only the account identity is synthetic.
+        # Both cache environment keys are absent, as on hosted CI.
+        with mock.patch.object(recorder.pwd, "getpwuid", return_value=types.SimpleNamespace(pw_dir=str(account))), \
+                mock.patch.dict(os.environ, {"PATH": os.environ["PATH"]}, clear=True):
+            selected, qualified = recorder.validator_toolchain(env)
+        self.assertEqual(qualified["GOMODCACHE"], str(modules))
+        self.assertEqual(qualified["GOCACHE"], str(cache))
+        self.assertEqual(qualified["GO_TELEMETRY_CHILD"], "2")
+        recorder.call([selected, "version"], qualified, timeout=10, limit=4096)
+        telemetry = Path(env["TEST_TELEMETRY_DIR"])
+        self.assertEqual({path.name for path in telemetry.iterdir()}, {"mode"})
+        self.assertEqual((telemetry / "mode").read_bytes(), b"off\n")
+        self.assertEqual(account_snapshot(), before)
+
+        # Positive counter control, confined to our temporary directory. Keep
+        # CHILD=2 so even this telemetry-on control cannot fork or upload.
+        positive = self.work / "positive-telemetry"
+        recorder.prep.publish(positive, {"mode": b"on 2000-01-01\n"})
+        control = {**qualified, "GOTOOLCHAIN": "local", "HOME": str(account),
+                   "TEST_TELEMETRY_DIR": str(positive), "GO_TELEMETRY_CHILD": "2"}
+        recorder.call([selected, "version"], control, timeout=10, limit=4096)
+        self.assertTrue(list((positive / "local").glob("*.count")))
+        self.assertEqual(account_snapshot(), before)
 
 
 if __name__ == "__main__":

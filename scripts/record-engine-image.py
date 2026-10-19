@@ -282,6 +282,11 @@ def offline_environment(control):
     env = snapshot.controlled_env(control)
     env.update(checker.tool_env(), GOPROXY="off", GOSUMDB="off", GOTOOLCHAIN=GO_TOOLCHAIN)
     env["HOME"] = str(control / "home")
+    # Go 1.24.2/1.27.2 cmd/internal/telemetry and x/telemetry/start.go:
+    # isolate counters and suppress detached sidecars before even `go env`.
+    telemetry = control / "telemetry"
+    prep.publish(telemetry, {"mode": b"off\n"})
+    env.update(TEST_TELEMETRY_DIR=str(telemetry), GO_TELEMETRY_CHILD="2")
     for key in ("GOCACHE", "GOMODCACHE"):
         if key in os.environ:
             env[key] = os.environ[key]
@@ -294,8 +299,8 @@ def validator_toolchain(env):
     selected = shutil.which("go", path=os.environ.get("PATH", os.defpath))
     overlay.require(selected is not None and Path(selected).is_absolute())
     local = {**env, "GOTOOLCHAIN": "local", "HOME": pwd.getpwuid(os.getuid()).pw_dir}
-    # Discover normal host caches when no cache was explicitly supplied. Do not
-    # let the private GOPATH/HOME accidentally select empty temporary caches.
+    # Discover host caches, while retaining the private, disabled telemetry
+    # controls. Private GOPATH/HOME would select empty temporary caches here.
     local.pop("GOPATH", None)
     for key in ("GOCACHE", "GOMODCACHE"):
         if key not in os.environ:

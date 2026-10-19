@@ -69,6 +69,18 @@ CI's setup-go installation outside the fixed Git/Docker tool path. Sanitized
 locations; explicit `GOCACHE` and `GOMODCACHE` take precedence. Only already
 cached tools/modules can be used. Other ambient Go/Docker/Git settings, proxy
 variables and credentials are not forwarded to tool children.
+Before **every** Go invocation, including discovery and version qualification,
+the environment redirects `TEST_TELEMETRY_DIR` to a private directory with an
+`off` mode file and sets `GO_TELEMETRY_CHILD=2`. This disables counter writes and
+detached sidecar startup without changing the account's telemetry settings.
+The controls are backed by the inspected Go 1.24.2 and pinned 1.27.2 sources:
+the [counter shim](https://github.com/golang/go/blob/go1.27.2/src/cmd/internal/telemetry/counter/counter.go),
+[telemetry shim](https://github.com/golang/go/blob/go1.27.2/src/cmd/internal/telemetry/telemetry.go)
+and [sidecar selector](https://github.com/golang/go/blob/go1.27.2/src/cmd/vendor/golang.org/x/telemetry/start.go).
+They must be rechecked on toolchain upgrades. `GOPROXY=off` and `GOSUMDB=off`
+alone do not disable Go telemetry. Tests use actual Go with a temporary
+telemetry-on account and a confined counter-positive control; sidecars/uploads
+remain disabled in both cases.
 Only local Docker endpoint discovery reads the user's selected context.
 
 The container is created stopped and inspected before start. It uses `runc`,
