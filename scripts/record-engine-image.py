@@ -28,11 +28,12 @@ PROBE = "scripts/engine-image-probe.py"
 DIAGNOSTIC = "scripts/engine_image_diagnostic.py"
 SNAPSHOT = "scripts/e2e/snapshot.py"
 TEST = "scripts/test_engine_image.py"
+CENSUS = "evidence/p0/2026-10-19-official-vllm-metadata-census/output.log"
 MAX_REPORT = 2 << 20
 GO_TOOLCHAIN = "go1.27.2"
-PREPARER_SHA = "f82c4166a01e6a3cf1e1e5b4c639792bdb73b1f657f8a7383c2224c3fcbc630b"
+PREPARER_SHA = "29a85545d773e19485958ac31a6fbff604345336b8b9a3b36b50d21dcda4504f"
 SNAPSHOT_SHA = "b7f5753ecacde3cda2bf5fdc673b6f2af239875f2a9468e34a5219a797b78b3a"
-DIAGNOSTIC_SHA = "b8ed130702e9d946417d2f4d8bcd597e8fc0ab218c67c35629dcaa5f7f7e3aaa"
+DIAGNOSTIC_SHA = "fb13e974d9b4448addfc5d8d726a012e0d71c1d24ce64d9ae20c4161114d6bcf"
 CANCELLED = False
 
 
@@ -97,7 +98,7 @@ overlay, checker = prep.inspector, prep.checker
 
 def inputs(root=ROOT):
     revision, bundle, extra = prep.inputs(root)
-    for name in (SCRIPT, PROBE, DIAGNOSTIC, SNAPSHOT, TEST):
+    for name in (SCRIPT, PROBE, DIAGNOSTIC, SNAPSHOT, TEST, CENSUS):
         entry = checker.git(root, "ls-tree", revision, "--", name).decode().split()
         overlay.require(len(entry) == 4 and entry[:2] == ["100644", "blob"] and entry[3] == name)
         overlay.require(int(checker.git(root, "cat-file", "-s", entry[2])) <= checker.LIMIT)
@@ -113,6 +114,12 @@ def payload_files(revision, bundle, extra, *, mode="integrity"):
     contract = overlay.load_json(prepared["payload/contract.json"])
     overlay.require(mode in {"integrity", "metadata-census"})
     contract["diagnostic_mode"] = mode
+    if mode == "integrity":
+        policy = overlay.DIAGNOSTIC_INVENTORY_POLICY
+        overlay.require(contract["base_image"] == policy["base_image"]
+                        and contract["official_config"]["sha256"] == policy["config_sha256"]
+                        and overlay.digest(extra[CENSUS]) == policy["census_output_sha256"])
+        contract["diagnostic_inventory_policy"] = dict(policy)
     files = {"engine_overlay.py": extra[prep.INSPECTOR], "engine_image_diagnostic.py": extra[DIAGNOSTIC],
              "probe.py": extra[PROBE]}
     contract["payload_sources"] = {name: overlay.digest(data) for name, data in files.items()}

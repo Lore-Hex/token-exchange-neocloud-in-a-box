@@ -7,6 +7,7 @@ import copy
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
@@ -17,6 +18,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-image-diagnostic"
 CENSUS_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-metadata-census"
+BOUNDED_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-bounded-integrity"
 
 
 def source(name, relative):
@@ -341,6 +343,114 @@ class ImageTests(unittest.TestCase):
         with overlay.directory(self.root) as fd:
             self.assertEqual(overlay.Tree(fd).inventory(), before)
 
+    def test_image_entry_policy_is_exact_and_not_generic_admission(self):
+        policy = overlay.DIAGNOSTIC_INVENTORY_POLICY
+        self.assertEqual(overlay.MAX_FILES, 100000)
+        self.assertEqual(policy["entry_limit"], 225000)
+        self.assertEqual(policy["base_image"], self.contract["base_image"])
+        self.assertEqual(policy["config_sha256"], self.contract["official_config"]["sha256"])
+        self.assertEqual(overlay.digest(recorder.prep.read_source(ROOT / recorder.CENSUS)), policy["census_output_sha256"])
+        with overlay.directory(self.root) as fd, mock.patch.object(overlay, "MAX_FILES", 2):
+            tree = overlay.Tree(fd)
+            with self.assertRaises(overlay.InventoryRejected):
+                tree.inventory()
+            self.assertGreater(len(tree.inventory(diagnostic_policy=policy)), 2)
+            with self.assertRaises(ValueError):
+                overlay.inspect(tree, {**self.contract, "diagnostic_inventory_policy": policy})
+            for key, value in (("base_image", "unknown"), ("config_sha256", "0" * 64),
+                               ("census_output_sha256", "0" * 64), ("entry_limit", 225001), ("extra", True)):
+                with self.subTest(key=key), self.assertRaises(ValueError):
+                    tree.inventory(diagnostic_policy={**policy, key: value})
+
+    def test_image_entry_policy_enforces_exact_finite_boundaries(self):
+        # Lazy synthetic directory entries avoid creating 225001 fixture files;
+        # the real inventory loop, including its <= boundary, still executes.
+        info = types.SimpleNamespace(st_mode=stat.S_IFREG, st_nlink=1, st_size=0)
+        def metadata(*, follow_symlinks):
+            self.assertFalse(follow_symlinks)
+            return info
+        def zero_file(name, *, retain):
+            self.assertFalse(retain)
+            return {"bytes": 0, "mode": 0o600, "sha256": "0" * 64, "header": b""}
+        for policy, ceiling in ((None, 100000), (overlay.DIAGNOSTIC_INVENTORY_POLICY, 225000)):
+            for count in (ceiling, ceiling + 1):
+                @contextmanager
+                def entries(fd):
+                    yield (types.SimpleNamespace(name="f" + str(index), stat=metadata) for index in range(count))
+                with self.subTest(ceiling=ceiling, count=count), overlay.directory(self.root) as fd, \
+                        mock.patch.object(os, "scandir", entries):
+                    tree = overlay.Tree(fd)
+                    tree.read = zero_file
+                    if count == ceiling:
+                        self.assertEqual(len(tree.inventory(diagnostic_policy=policy)), ceiling)
+                    else:
+                        with self.assertRaises(overlay.InventoryRejected) as failure:
+                            tree.inventory(diagnostic_policy=policy)
+                        self.assertEqual(failure.exception.reason, "entry-limit")
+
+    def test_image_entry_policy_retains_other_inventory_gates(self):
+        policy = overlay.DIAGNOSTIC_INVENTORY_POLICY
+        for key, reason in (("MAX_BYTES", "total-size-limit"), ("MAX_FILE", "file-size-limit")):
+            with self.subTest(key=key), overlay.directory(self.root) as fd, \
+                    mock.patch.object(overlay, key, 1), self.assertRaises(overlay.InventoryRejected) as failure:
+                overlay.Tree(fd).inventory(diagnostic_policy=policy)
+            self.assertEqual(failure.exception.reason, reason)
+        with overlay.directory(self.root) as fd:
+            tree = overlay.Tree(fd)
+            tree.deadline = 0
+            with self.assertRaises(overlay.InventoryRejected) as failure:
+                tree.inventory(diagnostic_policy=policy)
+            self.assertEqual(failure.exception.reason, "time-limit")
+        path = self.root / "unrelated.so"
+        for kind, reason in (("symlink", "symlink"), ("fifo", "non-regular-file"),
+                             ("hardlink", "hardlink"), ("native", "native-header")):
+            if kind == "symlink":
+                path.symlink_to("missing")
+            elif kind == "fifo":
+                os.mkfifo(path)
+            elif kind == "hardlink":
+                os.link(self.root / "vllm/_version.py", path)
+            else:
+                path.write_bytes(b"not ELF")
+            try:
+                with self.subTest(kind=kind), overlay.directory(self.root) as fd, \
+                        self.assertRaises(overlay.InventoryRejected) as failure:
+                    overlay.Tree(fd).inventory(diagnostic_policy=policy)
+                self.assertEqual(failure.exception.reason, reason)
+            finally:
+                path.unlink()
+        path = self.root
+        for _ in range(33):
+            path = path / "nested"
+            path.mkdir()
+        with overlay.directory(self.root) as fd, self.assertRaises(overlay.InventoryRejected) as failure:
+            overlay.Tree(fd).inventory(diagnostic_policy=policy)
+        self.assertEqual(failure.exception.reason, "depth-limit")
+
+    def test_image_entry_policy_cannot_bypass_hooks_roots_or_report_binding(self):
+        policy = overlay.DIAGNOSTIC_INVENTORY_POLICY
+        self.contract["diagnostic_inventory_policy"] = dict(policy)
+        self.fixture.write("unknown.pth", b"raise AssertionError('never execute')\n")
+        other = self.work / "other"
+        other.mkdir()
+        (other / "os-package.py").write_bytes(b"never imported")
+        report = self.collect([other])
+        self.assertEqual(report["inventory_policy"], policy)
+        self.assertEqual(report["checks"]["filesystem_inventory"], "pass")
+        self.assertEqual(report["checks"]["wheel_integrity"], "pass")
+        self.assertEqual(report["checks"]["root_admission"], "rejected")
+        self.assertEqual(report["checks"]["selected_root_admission"], "rejected")
+        self.assertEqual(report["overlay_admission"], "rejected")
+        for broken in ({key: value for key, value in report.items() if key != "inventory_policy"},
+                       {**report, "inventory_policy": {**policy, "entry_limit": 225001}}):
+            with self.assertRaises(ValueError):
+                diagnostic.validate_report(overlay, broken, self.contract)
+        for key, value in (("base_image", "unknown"), ("official_config", {"sha256": "0" * 64})):
+            with self.subTest(key=key), mock.patch.dict(self.contract, {key: value}):
+                report = self.collect([other])
+                self.assertEqual(report["checks"]["filesystem_inventory"], "rejected")
+                self.assertNotIn("inventory_policy", report)
+
     def test_hooks_and_populated_roots_remain_rejected_but_integrity_observable(self):
         self.fixture.write("distutils-precedence.pth", b"import forbidden_SENSITIVE_VALUE\n")
         other = self.work / "other"
@@ -584,7 +694,7 @@ class ImageTests(unittest.TestCase):
         repo.mkdir()
         extra = {name: (ROOT / name).read_bytes() for name in (
             recorder.prep.SCRIPT, recorder.prep.INSPECTOR, recorder.prep.PINS, recorder.prep.TEST,
-            recorder.SCRIPT, recorder.PROBE, recorder.DIAGNOSTIC, recorder.SNAPSHOT, recorder.TEST)}
+            recorder.SCRIPT, recorder.PROBE, recorder.DIAGNOSTIC, recorder.SNAPSHOT, recorder.TEST, recorder.CENSUS)}
         for name, data in {**self.fixture.bundle, **extra}.items():
             path = repo / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -603,6 +713,18 @@ class ImageTests(unittest.TestCase):
             self.assertEqual(overlay.load_json(files["contract.json"]), contract)
             self.assertEqual(files["engine_image_diagnostic.py"], extra[recorder.DIAGNOSTIC])
             self.assertEqual(contract["payload_sources"]["engine_image_diagnostic.py"], recorder.DIAGNOSTIC_SHA)
+            if mode == "integrity":
+                self.assertEqual(contract["diagnostic_inventory_policy"], overlay.DIAGNOSTIC_INVENTORY_POLICY)
+            else:
+                self.assertNotIn("diagnostic_inventory_policy", contract)
+        revision, bundle, captured = result
+        for replacement in (b"{}\n", b"forged census"):
+            with self.assertRaises(ValueError):
+                recorder.payload_files(revision, bundle, {**captured, recorder.CENSUS: replacement})
+        pins = overlay.load_json(captured[recorder.prep.PINS])
+        pins["official_config"]["sha256"] = "0" * 64
+        with self.assertRaises(ValueError):
+            recorder.payload_files(revision, bundle, {**captured, recorder.prep.PINS: overlay.json_bytes(pins)})
         (repo / recorder.PROBE).write_bytes(b"uncommitted source must not be used")
         (repo / "scripts/ignored.pyc").write_bytes(b"ignored bytecode must not execute")
         self.assertEqual(recorder.inputs(repo), result)
@@ -614,10 +736,11 @@ class ImageTests(unittest.TestCase):
         os.mkfifo(fifo)
         with self.assertRaises(ValueError):
             recorder.bootstrap_read(fifo)
-        completed = subprocess.run([sys.executable, "-I", "-S", str(ROOT / recorder.SCRIPT),
-                                    "--image", "SYNTHETIC_PRIVATE_VALUE"], capture_output=True, timeout=5)
-        self.assertEqual(completed.returncode, 1)
-        self.assertNotIn(b"SYNTHETIC_PRIVATE_VALUE", completed.stdout + completed.stderr)
+        for option in ("--image", "--entry-limit"):
+            completed = subprocess.run([sys.executable, "-I", "-S", str(ROOT / recorder.SCRIPT),
+                                        option, "SYNTHETIC_PRIVATE_VALUE"], capture_output=True, timeout=5)
+            self.assertEqual(completed.returncode, 1)
+            self.assertNotIn(b"SYNTHETIC_PRIVATE_VALUE", completed.stdout + completed.stderr)
 
     def test_repeat_cancellation_allows_bounded_cleanup(self):
         with mock.patch.object(recorder, "CANCELLED", False):
@@ -660,7 +783,7 @@ class ImageTests(unittest.TestCase):
         env = recorder.offline_environment(self.work / "control")
         binary, source_hash = recorder.build_validator(ROOT, revision, self.work, env)
         self.assertRegex(source_hash, r"^[0-9a-f]{64}$")
-        for index, source_directory in enumerate((RECORDED, CENSUS_RECORDED)):
+        for index, source_directory in enumerate((RECORDED, CENSUS_RECORDED, BOUNDED_RECORDED)):
             recorded = self.work / "recorded/evidence/p0" / ("official-image-" + str(index))
             recorded.mkdir(parents=True)
             (recorded / "run.json").write_bytes(recorder.prep.read_source(source_directory / "run.json"))
@@ -764,6 +887,45 @@ class ImageTests(unittest.TestCase):
         self.assertEqual(child["max_depth"], 15)
         self.assertFalse(child["content_read"])
         self.assertFalse(child["link_targets_read"])
+        self.assertEqual(overlay.MAX_FILES, 100000)
+
+    def test_recorded_bounded_inventory_preserves_native_rejection(self):
+        hashes = {"run.json": "8ba3b4732f3684611c695ce6b5446447a2de4471a83e55bc899603d7e05af07e",
+                  "output.log": "1ca430527afa8fb98a77637cff0efff4fab0f0cfe51720812b13ccbfca480fb7"}
+        files = {}
+        for name, digest in hashes.items():
+            data = recorder.prep.read_source(BOUNDED_RECORDED / name)
+            self.assertLessEqual(len(data), 65536)
+            self.assertEqual(overlay.digest(data), digest)
+            files[name] = overlay.load_json(data)
+        run, report = files["run.json"], files["output.log"]
+        child, provenance = report["diagnostic"], report["provenance"]
+        contract = {**self.contract, "diagnostic_inventory_policy": overlay.DIAGNOSTIC_INVENTORY_POLICY}
+        diagnostic.validate_report(overlay, child, contract)
+        self.assertEqual(run["git_sha"], "472f998df3d128d5dd5f1ad4b26cb628e7042fc8")
+        self.assertEqual(provenance["git_sha"], run["git_sha"])
+        self.assertEqual(provenance["payload_sha256"], "16752cb9ce4d1e1adba509ff25e9bb789b08e158444823b340e302495694599c")
+        self.assertEqual(provenance["source_bundle_sha256"], "50d5389784b20235719081608fecd0faa85530ad533ec391598327dd98a30982")
+        self.assertEqual(provenance["diagnostic_mode"], "integrity")
+        self.assertEqual(run["execution"], "software")
+        self.assertFalse(run["hardware_validated"])
+        self.assertEqual(run["result"], report["result"])
+        self.assertEqual(report["result"], "fail")
+        self.assertEqual(report["cleanup"], "confirmed")
+        self.assertEqual(report["stage"], "overlay-rejected")
+        self.assertEqual(child["collection"], "partial")
+        self.assertEqual(child["overlay_admission"], "rejected")
+        self.assertEqual(child["inventory_policy"], overlay.DIAGNOSTIC_INVENTORY_POLICY)
+        self.assertEqual(child["inventory_policy"]["entry_limit"], 225000)
+        self.assertEqual(child["inventory_failure"], {"reason": "native-header",
+            "path": "nvidia_cutlass_dsl/cu12/lib/stubs/aarch64-unknown-linux-gnu/libcute_dsl_runtime.so"})
+        self.assertEqual(child["checks"], dict(root_admission="rejected", filesystem_inventory="rejected",
+            record_integrity="unavailable", wheel_integrity="unavailable", selected_root_admission="unavailable"))
+        self.assertEqual(len(child["source_files"]), 13)
+        self.assertTrue(all(item["matches_base"] for item in child["source_files"]))
+        for item in (child, report):
+            self.assertEqual(item["candidate_status"], "BLOCKED")
+            self.assertTrue(all(item[key] is False for key in ("deployable", "abi_validated", "hardware_validated")))
         self.assertEqual(overlay.MAX_FILES, 100000)
 
     def test_validator_toolchain_resolution_is_cache_only_and_exact(self):

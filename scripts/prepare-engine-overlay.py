@@ -22,7 +22,7 @@ TEST = "scripts/test_engine_overlay.py"
 SOURCE_LIMIT = 2 << 20
 MODULE_HASHES = {
     "overlay_candidate": "a295d3ec5ccda0794e3d830570d1d78c1b562e3cdb49ceb42aef37e6b25fd266",
-    "overlay_inspector": "7d3f3dcacc94bd0086505fabe124b45fb0cbe3b9f00957e540328c9162e98bd6",
+    "overlay_inspector": "6d04b894367e95ecc1f2965fc7ae81a999a5d784dcc0422ff126fa756a3a50fd",
 }
 
 
