@@ -137,6 +137,9 @@ remains gated and needs that audit; this task exports privately only.
   describe the same single image.
 - Docker's [BuildKit attestation storage](https://docs.docker.com/build/metadata/attestations/attestation-storage/):
   unknown/unknown metadata descriptors, target manifest bindings and in-toto payloads.
+- BuildKit [image writer](https://github.com/moby/buildkit/blob/master/exporter/containerimage/writer.go),
+  `attestationsConfig`: legacy provenance config DiffIDs equal the attestation
+  payload digests. The exporter requires that equality, not an empty rootfs.
 - [Linux rename](https://man7.org/linux/man-pages/man2/rename.2.html):
   `renameat2(RENAME_NOREPLACE)`. macOS uses local `renameatx_np(2)` with
   `RENAME_EXCL` from the SDK's `sys/stdio.h`; there is no replacing-rename fallback.

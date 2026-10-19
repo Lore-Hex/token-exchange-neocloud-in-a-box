@@ -110,6 +110,7 @@ def inspect_archive(stream, identity):
                     "OCI attestation target/platform")
             value = descriptor_json(descriptor)
             require("manifests" not in value, "OCI attestation cannot be an index")
+            require(0 < len(value["layers"]) <= 16, "OCI attestation layers")
             config = descriptor_json(value["config"])
             if "artifactType" in value:
                 require(value["artifactType"] == "application/vnd.docker.attestation.manifest.v1+json"
@@ -118,10 +119,12 @@ def inspect_archive(stream, identity):
                         and value["config"]["mediaType"] == "application/vnd.oci.empty.v1+json"
                         and config == {}, "OCI artifact attestation")
             else:
+                # BuildKit writer.go: attestationsConfig uses the in-toto
+                # payload digests as DiffIDs, despite these not being tar layers.
                 require(config.get("os") == config.get("architecture") == "unknown"
-                        and config.get("rootfs") == {"type": "layers", "diff_ids": []},
+                        and config.get("rootfs") == {"type": "layers", "diff_ids": [
+                            layer["digest"] for layer in value["layers"]]},
                         "OCI attestation must not be runnable")
-            require(0 < len(value["layers"]) <= 16, "OCI attestation layers")
             for layer in value["layers"]:
                 require(layer["mediaType"] == "application/vnd.in-toto+json", "OCI attestation media type")
                 statement = descriptor_json(layer)

@@ -78,9 +78,14 @@ def attested_fixture(*, artifact=False, mutation=None):
                  "subject": [{"name": "fixture", "digest": {"sha256": target_id[7:]}}]}
     if mutation == "subject":
         statement["subject"][0]["digest"]["sha256"] = "0" * 64
+    payload = blob(statement, "application/vnd.in-toto+json")
+    if not artifact:
+        config["rootfs"]["diff_ids"] = [payload["digest"]]
+    if mutation == "diffid":
+        config["rootfs"] = {"type": "layers", "diff_ids": ["sha256:" + "0" * 64]}
     metadata = {"schemaVersion": 2,
                 "config": blob(config, "application/vnd.oci.empty.v1+json" if artifact else "application/vnd.oci.image.config.v1+json"),
-                "layers": [blob(statement, "application/vnd.in-toto+json")]}
+                "layers": [payload]}
     if artifact:
         metadata.update(artifactType="application/vnd.docker.attestation.manifest.v1+json", subject=target)
     descriptor = blob(metadata, "application/vnd.oci.image.manifest.v1+json")
@@ -111,7 +116,7 @@ class ArchiveTests(unittest.TestCase):
 
     def test_buildkit_metadata_cannot_smuggle_images_tags_or_another_subject(self):
         for artifact in (False, True):
-            for mutation in ("runnable", "target", "subject", "platform", "tag", "extra-image"):
+            for mutation in ("runnable", "target", "subject", "platform", "tag", "extra-image", "diffid"):
                 files, identity = attested_fixture(artifact=artifact, mutation=mutation)
                 with self.subTest(artifact=artifact, mutation=mutation), self.assertRaises(ValueError):
                     export.validate_archive(io.BytesIO(packed(files)), identity)
