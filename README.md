@@ -21,6 +21,7 @@ Pre-alpha. **Nothing in this repository has run on confidential hardware yet.**
 | Component | State |
 |---|---|
 | Plan, sizing, phase definitions | written ([PLAN.md](PLAN.md)) |
+| CLI skeleton and repository checks | implemented; no serving runtime ([development](docs/development.md)) |
 | Model packs (pinned revisions and checksums) | not started (P0) |
 | GPU-free end-to-end node in CI | not started (P1) |
 | Model bring-up and benchmarks, non-confidential | not started (P2) |
@@ -30,6 +31,19 @@ Pre-alpha. **Nothing in this repository has run on confidential hardware yet.**
 
 This table only says "validated" for things with committed evidence from real
 hardware.
+
+## Start contributing
+
+```sh
+make check
+make build
+./build/nib --help
+```
+
+See [development instructions](docs/development.md) for prerequisites. This is
+not yet a deployable node; hardware validation and independent attestation are
+required before any confidential route can be listed on
+[NY Token Exchange](https://nytokenexchange.com).
 
 ## Related projects
 
