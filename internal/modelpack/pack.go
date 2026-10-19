@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package modelpack verifies pinned public model metadata without downloading
-// weight objects. It is operator tooling, not guest or attestation code.
+// Package modelpack verifies pinned public model metadata and staged local bytes
+// without downloading weight objects. It is operator tooling, not guest code.
 package modelpack
 
 import (
@@ -160,9 +160,20 @@ func checkRemote(ctx context.Context, packPath string, r *remote) error {
 
 // Run implements the model subcommand with sanitized errors and output.
 func Run(ctx context.Context, args []string, out, errOut io.Writer) int {
-	const usage = "usage: nib model check-remote <pack.yaml-or-directory>"
+	const usage = "usage: nib model check-remote <pack.yaml-or-directory> | check-local <pack.yaml-or-directory> <staged-directory>"
 	if len(args) == 1 && (args[0] == "help" || args[0] == "--help") {
 		fmt.Fprintln(out, usage)
+		return 0
+	}
+	if len(args) == 3 && args[0] == "check-local" {
+		proof, err := CheckLocal(ctx, args[1], args[2])
+		if err != nil {
+			fmt.Fprintln(errOut, err)
+			return 1
+		}
+		if _, err := fmt.Fprintf(out, "Local model bytes match: %d files, %d bytes; no immutable snapshot, deployment or hardware validation.\n", proof.Files, proof.VerifiedBytes); err != nil {
+			return 1
+		}
 		return 0
 	}
 	if len(args) != 2 || args[0] != "check-remote" {
