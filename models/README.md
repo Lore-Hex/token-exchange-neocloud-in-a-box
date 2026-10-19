@@ -27,8 +27,9 @@ Linux/macOS nonblocking, no-follow file opens prevent a leaf FIFO/link swap
 from turning verification into a blocking read or following that link.
 
 No downloads, writes, engine launch, cloud resources or credentials are involved.
-Ctrl-C interrupts between file reads; a blocked local filesystem read is subject
-to the operating system's I/O behavior. Only counts and sanitized errors are
+Ctrl-C stops the CLI process. Library context cancellation is checked between
+reads; a blocked local filesystem read is subject to the operating system's
+I/O behavior. Only counts and sanitized errors are
 printed, never model content or caller-provided paths.
 
 **This is an offline integrity check, not a secure snapshot.** Stop all writers
