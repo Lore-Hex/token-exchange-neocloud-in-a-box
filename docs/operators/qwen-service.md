@@ -63,6 +63,11 @@ python -I /opt/nib-pilot/scripts/pilot/serve.py \
   --max-seconds 86400
 ```
 
+The API key is mandatory and must be 64-256 URL-safe characters. Generate it
+from at least 32 random bytes using the
+[key setup instructions](trustedrouter.md#dedicated-long-api-key). Short keys
+fail startup; billing being handled by TrustedRouter does not bypass node auth.
+
 Use [examples/provider.json](../../examples/provider.json) as the field template;
 replace all sample values before public use. `PROVIDER_HOSTNAME` is your exact
 public TLS name. The config contains public metadata only, never API/TLS keys.

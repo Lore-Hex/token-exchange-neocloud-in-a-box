@@ -46,6 +46,36 @@ node to TrustedRouter's internal networks, databases, secret stores or payment
 accounts. Public ingress is TLS only; keep the engine and API guard on loopback.
 Keep private keys owner-readable only and arrange rotation with TrustedRouter.
 
+### Dedicated Long API Key
+
+Inference still requires a bearer key even though TrustedRouter handles billing.
+Generate **32 cryptographically random bytes as 64 hexadecimal characters**
+(256 bits of entropy). The service accepts 64-256 ASCII letters, digits, `_` or
+`-`, with one optional trailing newline in the key file. Length validation
+cannot prove randomness: never use a memorable password, repeated characters
+or a key copied from an example.
+
+In a private deployment directory outside Git, create a new key file with
+OpenSSL. This subshell uses owner-only permissions and refuses to overwrite an
+existing file. The key is not printed or placed in command-line arguments:
+
+```sh
+(
+  umask 077
+  set -C
+  openssl rand -hex 32 > ./trustedrouter-inference.key
+)
+```
+
+Check that the command succeeded before mounting that file as `--api-key-file`.
+Keep the parent directory private too. Hand the key to TrustedRouter through the
+agreed secure channel, never email/chat, and use it only for this provider's
+inference. Catalog/health remain public; inference rejects absent, wrong or
+duplicate credentials. Keys are compared in constant time and never logged.
+Rotation replaces the key file and restarts the service in coordination with
+TrustedRouter; the running process snapshots its key at startup. Existing keys
+shorter than 64 characters must be replaced before upgrading.
+
 ## 2. Check the API
 
 The pilot exposes:
