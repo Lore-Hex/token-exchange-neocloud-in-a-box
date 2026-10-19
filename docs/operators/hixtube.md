@@ -47,6 +47,10 @@ revision, timestamps and exact sanitized DNS report. It never overwrites an
 existing run. Use a new slug for a subsequent check. The checker is reusable
 for any operator; its tests do not depend on Hixtube's DNS.
 
+The [2026-10-19 recorded check](../../evidence/p1/2026-10-19-hixtube-dns/run.json)
+failed: [both names had no address](../../evidence/p1/2026-10-19-hixtube-dns/output.log).
+This is a DNS setup blocker, not an inference outage or attestation failure.
+
 ## Connect the real endpoint
 
 1. Finish the P1 fake-node checks and merge their independently reviewed
