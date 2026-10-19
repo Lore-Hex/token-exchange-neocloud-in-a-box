@@ -94,7 +94,7 @@ USER 65532:65532
 RUN --network=none ./bin/llama-server --version \
     && openssl version \
     && trustedrouter-provider-check --help >/dev/null \
-    && python -I -c 'import httpx,jsonschema,ssl'
+    && python -I -c 'import httpx,jsonschema,ssl; assert ssl.create_default_context().get_ca_certs()'
 # The proof runner enforces --network=none and --read-only with private /tmp.
 # Persistent service deployment is a separate, explicitly configured operation;
 # see docs/operators/qwen-service.md. The default always runs the local proof.

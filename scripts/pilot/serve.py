@@ -50,6 +50,14 @@ def validate_api_key(value):
                   "api-key-format")
 
 
+def tls_client_context(cert):
+    # A public fullchain normally omits its root. Keep the system roots while
+    # also trusting the operator's certificate for offline self-signed tests.
+    context = ssl.create_default_context()
+    context.load_verify_locations(cafile=str(cert))
+    return context
+
+
 def tls_health(port, hostname, context):
     # Verify the public certificate name while connecting only over loopback.
     with socket.create_connection(("127.0.0.1", port), timeout=2) as raw:
@@ -118,7 +126,7 @@ def serve(args, shutdown):
         # Reject broken/mismatched keypairs before starting either process.
         certificate = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         certificate.load_cert_chain(cert, key)
-        trust = ssl.create_default_context(cafile=str(cert))
+        trust = tls_client_context(cert)
         env = pilot.controlled_env(work / "control")
         with ExitStack() as stack:
             def start(command, *, serving=False):

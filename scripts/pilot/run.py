@@ -181,10 +181,14 @@ def shutdown_during_stream(service, port, tls, api_key, model):
                            {"Authorization": "Bearer " + api_key, "Content-Type": "application/json"})
         response = connection.getresponse()
         require(response.status == 200, "shutdown-stream-status")
+        require(response.getheader("Content-Type", "").split(";", 1)[0].strip().lower()
+                == "text/event-stream", "shutdown-stream-content-type")
         signaled, done, used, finished, size = False, False, False, False, 0
         while line := response.readline(65537):
             size += len(line)
             require(size <= 1 << 20 and len(line) <= 65536, "shutdown-stream-size")
+            require(not line.startswith(b"event:") or line[6:].strip() in {b"", b"message"},
+                    "shutdown-stream-event")
             if not line.startswith(b"data: "):
                 continue
             raw = line[6:].strip()
@@ -192,19 +196,34 @@ def shutdown_during_stream(service, port, tls, api_key, model):
                 done = True
                 break
             event = json.loads(raw)
-            if event.get("usage"):
+            require(isinstance(event, dict) and "error" not in event, "shutdown-stream-error")
+            if event.get("usage") is not None:
                 usage = event["usage"]
-                require(all(type(usage.get(name)) is int and usage[name] > 0
+                require(isinstance(usage, dict) and all(type(usage.get(name)) is int and usage[name] > 0
                             for name in ("prompt_tokens", "completion_tokens", "total_tokens")), "shutdown-usage")
                 require(usage["total_tokens"] == usage["prompt_tokens"] + usage["completion_tokens"], "shutdown-usage-sum")
                 used = True
-            for choice in event.get("choices", []):
-                if choice.get("finish_reason"):
-                    finished = True
-                if not signaled and choice.get("delta", {}).get("content"):
-                    require(not finished and service.poll() is None, "shutdown-started-too-late")
+            choices = event.get("choices", [])
+            require(isinstance(choices, list) and len(choices) <= 1, "shutdown-stream-choices")
+            for choice in choices:
+                require(isinstance(choice, dict) and type(choice.get("index")) is int
+                        and choice["index"] == 0,
+                        "shutdown-stream-choice")
+                delta = choice.get("delta", {})
+                require(isinstance(delta, dict) and (delta.get("content") is None
+                        or isinstance(delta["content"], str)), "shutdown-stream-delta")
+                if delta.get("content"):
+                    require(not finished, "shutdown-content-after-finish")
+                if not signaled and delta.get("content"):
+                    require(not finished and choice.get("finish_reason") is None
+                            and service.poll() is None, "shutdown-started-too-late")
                     service.terminate()
                     signaled = True
+                if choice.get("finish_reason") is not None:
+                    require(not finished and isinstance(choice["finish_reason"], str)
+                            and choice["finish_reason"] in {"stop", "length"},
+                            "shutdown-finish-reason")
+                    finished = True
         require(signaled and done and used and finished, "shutdown-stream-incomplete")
     require(stop(service, timeout=140) and service.returncode == 0, "service-graceful-shutdown")
 

@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 import hashlib
 import importlib.util
+import io
+import json
 import py_compile
 import os
 from pathlib import Path
@@ -9,7 +11,7 @@ import tempfile
 import subprocess
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 SPEC = importlib.util.spec_from_file_location("qwen_pilot", Path(__file__).parent / "pilot/run.py")
 pilot = importlib.util.module_from_spec(SPEC)
@@ -20,6 +22,59 @@ RECORDER_SPEC.loader.exec_module(recorder)
 
 
 class QwenPilotTests(unittest.TestCase):
+    def shutdown_stream(self, events, *, content_type="text/event-stream"):
+        wire = b"".join((item if isinstance(item, bytes) else
+                         b"data: " + json.dumps(item).encode() + b"\n\n") for item in events)
+        response = Mock(status=200)
+        response.readline.side_effect = io.BytesIO(wire).readline
+        response.getheader.return_value = content_type
+        connection = Mock()
+        connection.getresponse.return_value = response
+        child = Mock(returncode=0)
+        child.poll.return_value = None
+        with patch.object(pilot.http.client, "HTTPSConnection", return_value=connection):
+            pilot.shutdown_during_stream(child, 8443, None, "synthetic-key", "synthetic-model")
+        child.terminate.assert_called()
+        child.wait.assert_called_once_with(timeout=140)
+        connection.close.assert_called_once()
+
+    def stream_events(self, reason="stop"):
+        return [{"choices": [{"index": 0, "delta": {"content": "synthetic"}}]},
+                {"choices": [{"index": 0, "delta": {}, "finish_reason": reason}]},
+                {"choices": [], "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3}},
+                b"data: [DONE]\n\n"]
+
+    def test_shutdown_proof_requires_successful_complete_stream(self):
+        for reason in ("stop", "length"):
+            self.shutdown_stream(self.stream_events(reason))
+        for reason in ("error", "content_filter", "tool_calls", "", 0, False, [], {}):
+            with self.subTest(reason=reason), self.assertRaises(pilot.PilotError):
+                self.shutdown_stream(self.stream_events(reason))
+
+    def test_shutdown_proof_rejects_errors_and_malformed_events(self):
+        for event in ({"error": {"message": "synthetic failure"}}, {"error": None},
+                      b"event: error\n", [], {"choices": {}}, {"choices": [None]},
+                      {"choices": [{"index": 0, "delta": "bad"}]},
+                      {"usage": []}, {"usage": {"prompt_tokens": True}},
+                      {"usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 4}}):
+            with self.subTest(event=event), self.assertRaises(pilot.PilotError):
+                events = self.stream_events()
+                events.insert(1, event)
+                self.shutdown_stream(events)
+        with self.assertRaises(pilot.PilotError):
+            self.shutdown_stream(self.stream_events(), content_type="application/json")
+
+    def test_shutdown_proof_rejects_missing_terminal_evidence(self):
+        for index in range(4):
+            with self.subTest(index=index), self.assertRaises(pilot.PilotError):
+                events = self.stream_events()
+                del events[index]
+                self.shutdown_stream(events)
+        events = self.stream_events()
+        events.insert(2, events[0])
+        with self.assertRaisesRegex(pilot.PilotError, "shutdown-content-after-finish"):
+            self.shutdown_stream(events)
+
     def test_hash_verified_private_copy(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -2,6 +2,8 @@
 import importlib.util
 import os
 from pathlib import Path
+import ssl
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -13,6 +15,70 @@ SPEC.loader.exec_module(service)
 
 
 class ServiceTests(unittest.TestCase):
+    def test_public_fullchain_uses_system_root_and_verifies_hostname(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def openssl(*args):
+                subprocess.run(["openssl", *args], cwd=root, check=True,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+            openssl("req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256",
+                    "-nodes", "-keyout", "root.key", "-out", "root.pem", "-days", "1",
+                    "-subj", "/CN=Test Root", "-addext", "basicConstraints=critical,CA:TRUE",
+                    "-addext", "keyUsage=critical,keyCertSign,cRLSign")
+            for name, issuer, ca in (("intermediate", "root", True), ("leaf", "intermediate", False)):
+                openssl("req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256",
+                        "-nodes", "-keyout", name + ".key", "-out", name + ".csr",
+                        "-subj", "/CN=" + name)
+                extensions = ("basicConstraints=critical,CA:TRUE,pathlen:0\n"
+                              "keyUsage=critical,keyCertSign,cRLSign\n" if ca else
+                              "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\n"
+                              "extendedKeyUsage=serverAuth\nsubjectAltName=DNS:api.example.test\n")
+                (root / "extensions").write_text(extensions + "subjectKeyIdentifier=hash\n"
+                                                "authorityKeyIdentifier=keyid:always\n")
+                openssl("x509", "-req", "-in", name + ".csr", "-CA", issuer + ".pem",
+                        "-CAkey", issuer + ".key", "-CAcreateserial", "-out", name + ".pem",
+                        "-days", "1", "-extfile", "extensions")
+            fullchain = root / "fullchain.pem"
+            fullchain.write_bytes((root / "leaf.pem").read_bytes() + (root / "intermediate.pem").read_bytes())
+            server = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            server.load_cert_chain(fullchain, root / "leaf.key")
+            (root / "empty").mkdir()
+            with patch.dict(os.environ, {"SSL_CERT_FILE": str(root / "root.pem"),
+                                         "SSL_CERT_DIR": str(root / "empty")}):
+                client = service.tls_client_context(fullchain)
+            self.assertTrue(client.check_hostname)
+            self.assertEqual(client.verify_mode, ssl.CERT_REQUIRED)
+            self.assertIn(ssl.PEM_cert_to_DER_cert((root / "root.pem").read_text()),
+                          client.get_ca_certs(binary_form=True))
+            self.handshake(client, server, "api.example.test")
+            with self.assertRaises(ssl.SSLCertVerificationError):
+                self.handshake(client, server, "wrong.example.test")
+            # Reproduce the pinned Python 3.12 image's fullchain-only failure,
+            # including on newer Python releases that default to partial chains.
+            fullchain_only = ssl.create_default_context(cafile=str(fullchain))
+            fullchain_only.verify_flags &= ~getattr(ssl, "VERIFY_X509_PARTIAL_CHAIN", 0)
+            with self.assertRaises(ssl.SSLCertVerificationError):
+                self.handshake(fullchain_only, server, "api.example.test")
+
+    def handshake(self, client, server, hostname):
+        incoming, outgoing = ssl.MemoryBIO(), ssl.MemoryBIO()
+        peer_in, peer_out = ssl.MemoryBIO(), ssl.MemoryBIO()
+        connection = client.wrap_bio(incoming, outgoing, server_side=False, server_hostname=hostname)
+        peer = server.wrap_bio(peer_in, peer_out, server_side=True)
+        for _ in range(10):
+            try:
+                connection.do_handshake()
+                return
+            except ssl.SSLWantReadError:
+                pass
+            peer_in.write(outgoing.read())
+            try:
+                peer.do_handshake()
+            except ssl.SSLWantReadError:
+                pass
+            incoming.write(peer_out.read())
+        self.fail("TLS handshake did not complete")
+
     def test_shutdown_waits_and_reports_forced_or_failed_exit(self):
         child = Mock(returncode=0)
         with patch.object(service.pilot, "stop", return_value=True) as stop:
