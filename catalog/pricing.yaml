@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: Apache-2.0
+# SYNTHETIC LOCAL TEST FIXTURE. These are arbitrary parser test values,
+# NOT commercial rates, an offer, a live service, or a publication approval.
+# The referenced packs are unvalidated drafts, not confidential deployments.
+schema: nib.catalog-pricing/v1
+purpose: synthetic-local-test
+models:
+  - pack: models/deepseek-v4.1-flash-1017/1/pack.yaml
+    profile: b200x8-gcp-plain
+    max_output_tokens: 16
+    pricing:
+      currency: USD
+      unit: per_1m_tokens
+      input: "0.000001"
+      output: "0.000002"
+      cached_input: null
+      cache_write: null
+      minimum_request: "0"
+  - pack: models/glm-5.3/1/pack.yaml
+    profile: b200x8-gcp-plain
+    max_output_tokens: 16
+    pricing:
+      currency: USD
+      unit: per_1m_tokens
+      input: "0.000003"
+      output: "0.000004"
+      cached_input: null
+      cache_write: null
+      minimum_request: "0"
