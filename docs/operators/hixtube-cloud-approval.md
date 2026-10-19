@@ -25,6 +25,7 @@ automatic role grants; these side effects are part of this setup request and
 must be inventoried before any workload. No billable allocation is proposed;
 attaching billing nevertheless enables future charges and is not a spending cap.
 Do not promise zero liability for assets not yet inventoried.
+[Default network and firewall behavior](https://docs.cloud.google.com/vpc/docs/vpc#default-network).
 
 Use an explicitly approved, already authenticated account; no login/config switch
 or production quota consumer. Keep identifiers and raw outputs private. These
