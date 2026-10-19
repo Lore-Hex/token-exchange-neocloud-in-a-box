@@ -69,15 +69,21 @@ func (s *fakeSession) fakeHandler(fail func()) http.Handler {
 	// Bound concurrent handlers; the fixture server is not a load-test engine.
 	slots := make(chan struct{}, 8)
 	var failed atomic.Bool
-	check := func(w http.ResponseWriter) bool {
+	healthy := func() bool {
 		if !failed.Load() && s.checkGates() == nil {
 			return true
 		}
 		failed.Store(true)
+		fail()
+		return false
+	}
+	check := func(w http.ResponseWriter) bool {
+		if healthy() {
+			return true
+		}
 		w.Header().Set("Retry-After", "1")
 		w.WriteHeader(http.StatusServiceUnavailable)
 		io.WriteString(w, `{"error":"simulation gate unavailable"}`)
-		fail()
 		return false
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -113,9 +119,21 @@ func (s *fakeSession) fakeHandler(fail func()) http.Handler {
 				return
 			}
 			var request struct {
-				Model         string `json:"model"`
-				Stream        bool   `json:"stream"`
-				StreamOptions struct {
+				Model               string   `json:"model"`
+				Stream              bool     `json:"stream"`
+				MaxTokens           *int     `json:"max_tokens"`
+				MaxCompletionTokens *int     `json:"max_completion_tokens"`
+				Temperature         *float64 `json:"temperature"`
+				TopP                *float64 `json:"top_p"`
+				TopK                *int     `json:"top_k"`
+				Thinking            struct {
+					Type string `json:"type"`
+				} `json:"thinking"`
+				Reasoning struct {
+					Effort string `json:"effort"`
+				} `json:"reasoning"`
+				ReasoningEffort string `json:"reasoning_effort"`
+				StreamOptions   struct {
 					IncludeUsage bool `json:"include_usage"`
 				} `json:"stream_options"`
 				Messages []struct {
@@ -123,7 +141,19 @@ func (s *fakeSession) fakeHandler(fail func()) http.Handler {
 					Content string `json:"content"`
 				} `json:"messages"`
 			}
-			if strictJSON(b, &request) != nil || request.Model != "nibfake-model" || len(request.Messages) == 0 || len(request.Messages) > 32 {
+			if strictJSON(b, &request) != nil || (request.Model != "nibfake-model" && request.Model != "nibfake-unavailable") || len(request.Messages) == 0 || len(request.Messages) > 32 {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			for _, cap := range []*int{request.MaxTokens, request.MaxCompletionTokens} {
+				if cap != nil && (*cap < 1 || *cap > 65536) {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+			}
+			if request.Temperature != nil && (*request.Temperature < 0 || *request.Temperature > 2) ||
+				request.TopP != nil && (*request.TopP < 0 || *request.TopP > 1) ||
+				request.TopK != nil && (*request.TopK < 0 || *request.TopK > 65536) {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
@@ -137,10 +167,35 @@ func (s *fakeSession) fakeHandler(fail func()) http.Handler {
 			if !check(w) {
 				return
 			}
+			if request.Model == "nibfake-unavailable" {
+				w.Header().Set("Retry-After", "7")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				io.WriteString(w, `{"error":{"type":"server_error","message":"synthetic capacity unavailable","code":"nibfake_capacity"}}`)
+				return
+			}
 			if request.Stream {
 				w.Header().Set("Content-Type", "text/event-stream")
-				io.WriteString(w, "data: {\"id\":\"nibfake\",\"object\":\"chat.completion.chunk\",\"model\":\"nibfake-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"SYNTHETIC\"},\"finish_reason\":null}]}\n\n")
-				http.NewResponseController(w).Flush()
+				w.Header().Set("Cache-Control", "no-store")
+				for i, delta := range []string{"P", "O", "N", "G"} {
+					if i > 0 {
+						timer := time.NewTimer(30 * time.Millisecond)
+						select {
+						case <-r.Context().Done():
+							timer.Stop()
+							return
+						case <-timer.C:
+						}
+					}
+					// Never continue a committed stream after a gate failure, and
+					// never append a misleading JSON error or success terminator.
+					if r.Context().Err() != nil || !healthy() {
+						return
+					}
+					_, err := fmt.Fprintf(w, "data: {\"id\":\"nibfake\",\"object\":\"chat.completion.chunk\",\"model\":\"nibfake-model\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":%q},\"finish_reason\":null}]}\n\n", delta)
+					if err != nil || http.NewResponseController(w).Flush() != nil {
+						return
+					}
+				}
 				io.WriteString(w, "data: {\"id\":\"nibfake\",\"object\":\"chat.completion.chunk\",\"model\":\"nibfake-model\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
 				if request.StreamOptions.IncludeUsage {
 					io.WriteString(w, "data: {\"id\":\"nibfake\",\"object\":\"chat.completion.chunk\",\"model\":\"nibfake-model\",\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\n")
@@ -151,7 +206,7 @@ func (s *fakeSession) fakeHandler(fail func()) http.Handler {
 			json.NewEncoder(w).Encode(map[string]any{
 				"id": "nibfake", "object": "chat.completion", "model": "nibfake-model",
 				"usage":   map[string]int{"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
-				"choices": []any{map[string]any{"index": 0, "message": map[string]string{"role": "assistant", "content": "SYNTHETIC"}, "finish_reason": "stop"}},
+				"choices": []any{map[string]any{"index": 0, "message": map[string]string{"role": "assistant", "content": "PONG"}, "finish_reason": "stop"}},
 			})
 		default:
 			w.WriteHeader(http.StatusNotFound)

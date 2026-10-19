@@ -37,3 +37,5 @@ jobs:
         run: make check
       - name: Build operator CLI
         run: make build
+      - name: Bounded E2E prerequisites (full trcs pin pending)
+        run: python3 scripts/e2e/run.py --engine-only

@@ -47,5 +47,4 @@ secrets-positive-control: secrets
 	bash scripts/test-secret-scan.sh
 
 test-e2e:
-	@printf '%s\n' 'P1 is not implemented: no GPU-free end-to-end node exists yet.' >&2
-	@exit 1
+	python3 scripts/e2e/run.py

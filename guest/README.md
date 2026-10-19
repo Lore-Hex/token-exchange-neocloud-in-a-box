@@ -54,12 +54,19 @@ synthetic requests. Change the fixture's port if occupied; only literal
 `GET /health` identifies simulation and says `hardware_validated: false`.
 `GET /v1/models` advertises `nibfake-model`. `POST /v1/chat/completions` accepts
 that model, string messages with system/user/assistant roles, and optional
-`stream` and `stream_options.include_usage`. Output is always `SYNTHETIC`,
-including SSE chunks and `[DONE]`; usage is the fixed synthetic 1+1=2, not a
+`stream`, `stream_options.include_usage`, bounded `max_tokens`,
+`max_completion_tokens`, `temperature`, `top_p`, `top_k`, `thinking`, `reasoning`
+and `reasoning_effort`. Output is always `PONG`, independent of input. Streaming
+uses four flushed deltas spaced 30 ms apart, followed by `[DONE]`; usage is the fixed synthetic 1+1=2, not a
 tokenizer measurement. Every response carries `X-Nib-Simulation: nibfake`.
+The unadvertised `nibfake-unavailable` model is an explicit error fixture: it
+returns 503 with `Retry-After: 7` before any SSE bytes, including for streaming
+requests. It is compiled out with the rest of the fake engine in release builds.
 Unknown fields/routes, malformed or oversized requests and excess concurrency
-are rejected. This is a small fixture engine, not provider-check Tier 4 coverage
-or the completed P1.T3 harness.
+are rejected. The optional fields are tolerated for the provider-check 0.1.8
+Tier 3/4 contract, not implemented sampling or reasoning controls. Gate loss or
+cancellation stops a stream without a success terminator. This is a small
+fixture engine, not a real model or a performance benchmark.
 
 ## Fixture contract
 
