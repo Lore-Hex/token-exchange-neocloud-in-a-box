@@ -61,37 +61,56 @@ func CheckLocal(ctx context.Context, packPath, directory string) (*LocalProof, e
 	if err != nil || !os.SameFile(i, opened) {
 		return nil, errors.New("modelpack: staged directory changed")
 	}
-	want := make(map[string]config.ManifestFile, len(files))
-	dirs := map[string]bool{".": true}
+	if err := verifyLocalSet(ctx, root, files); err != nil {
+		return nil, err
+	}
+	return localProof(p, manifest, len(files)), nil
+}
+
+func localProof(p *Pack, manifest []byte, count int) *LocalProof {
+	return &LocalProof{Repository: p.Repository, Revision: p.Revision, ManifestSHA256: fmt.Sprintf("%x", sha256.Sum256(manifest)), Files: count, VerifiedBytes: p.TotalBytes}
+}
+
+func localFileSet(files []config.ManifestFile) (map[string]config.ManifestFile, map[string]bool) {
+	want, dirs := make(map[string]config.ManifestFile, len(files)), map[string]bool{".": true}
 	for _, f := range files {
 		want[f.Path] = f
 		for d := path.Dir(f.Path); d != "."; d = path.Dir(d) {
 			dirs[d] = true
 		}
 	}
+	return want, dirs
+}
+
+func verifyLocalSet(ctx context.Context, root *os.Root, files []config.ManifestFile) error {
+	want, dirs := localFileSet(files)
 	initial, err := localInventory(ctx, root, want, dirs)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	buf := make([]byte, 256<<10)
 	for _, f := range files {
 		if err := verifyLocalFile(ctx, root, f, initial[f.Path], buf); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	final, err := localInventory(ctx, root, want, dirs)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	for name, before := range initial {
 		if !sameLocalFile(before, final[name]) {
-			return nil, errors.New("modelpack: staged files changed during verification")
+			return errors.New("modelpack: staged files changed during verification")
 		}
 	}
-	return &LocalProof{Repository: p.Repository, Revision: p.Revision, ManifestSHA256: fmt.Sprintf("%x", sha256.Sum256(manifest)), Files: len(files), VerifiedBytes: p.TotalBytes}, nil
+	return nil
 }
 
 func localInventory(ctx context.Context, root *os.Root, want map[string]config.ManifestFile, dirs map[string]bool) (map[string]os.FileInfo, error) {
+	return inventoryLocal(ctx, root, want, dirs, true)
+}
+
+func inventoryLocal(ctx context.Context, root *os.Root, want map[string]config.ManifestFile, dirs map[string]bool, complete bool) (map[string]os.FileInfo, error) {
 	seen := make(map[string]os.FileInfo, len(want))
 	seenDirs := map[string]bool{".": true}
 	pending := []string{"."}
@@ -139,7 +158,7 @@ func localInventory(ctx context.Context, root *os.Root, want map[string]config.M
 			return nil, err
 		}
 	}
-	if len(seen) != len(want) {
+	if complete && len(seen) != len(want) {
 		return nil, errors.New("modelpack: staged files missing")
 	}
 	return seen, nil
