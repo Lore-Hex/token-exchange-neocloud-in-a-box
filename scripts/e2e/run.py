@@ -93,6 +93,37 @@ def runtime_command(image, name):
             "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777", "--platform", "linux/amd64", image]
 
 
+def cleanup_resources(image, name):
+    resources = {
+        "container": (name, ["docker", "rm", "-f", name],
+                      ["docker", "container", "ls", "--all", "--quiet", "--filter", "name=^/" + re.escape(name) + "$"]),
+        "image": (image, ["docker", "image", "rm", image],
+                  ["docker", "image", "ls", "--all", "--quiet", "--filter", "reference=" + image]),
+    }
+    report = {}
+    # Attempt both removals even if one times out or Docker cannot be reached.
+    for kind, (resource, remove, _) in resources.items():
+        item = report[kind] = {"resource": resource}
+        try:
+            result = subprocess.run(remove, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+            item["removal"] = {"status": "exited", "exit_code": result.returncode}
+        except subprocess.TimeoutExpired:
+            item["removal"] = {"status": "timeout"}
+        except (OSError, subprocess.SubprocessError):
+            item["removal"] = {"status": "error"}
+    # A removal error may mean --rm already removed the container. Only a
+    # successful, empty listing proves absence; daemon errors never do.
+    for kind, (_, _, query) in resources.items():
+        try:
+            result = subprocess.run(query, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=10)
+            report[kind]["absence"] = ("unknown" if result.returncode != 0 else
+                                       "present" if result.stdout.strip() else "confirmed")
+        except (OSError, subprocess.SubprocessError):
+            report[kind]["absence"] = "unknown"
+    report["result"] = "pass" if all(report[kind]["absence"] == "confirmed" for kind in resources) else "fail"
+    return report
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--engine-only", action="store_true", help="bounded prerequisite check, not full P1.T3")
@@ -102,6 +133,10 @@ def main():
     image, name = "nib-e2e-local:" + run_id, "nib-e2e-" + run_id
     result_dir = ROOT / "build/e2e" / run_id
     result_dir.mkdir(parents=True)
+    summary = {"execution": "fake", "hardware_validated": False, "confidential": False,
+               "scope": "engine-only" if args.engine_only else "full-fake-node",
+               "result": "fail", "failed_check": "host-run-failed"}
+    exit_code = 1
     try:
         with tempfile.TemporaryDirectory(prefix="nib-e2e-context-") as tmp:
             context = Path(tmp)
@@ -119,14 +154,24 @@ def main():
         # The fixture runner emits one bounded summary, never process/body logs.
         if len(result.stdout) > 1 << 20:
             raise ValueError("oversized E2E result")
-        summary = json.loads(result.stdout)
+        runtime_summary = json.loads(result.stdout)
+        if not isinstance(runtime_summary, dict):
+            raise ValueError("invalid E2E summary")
+        summary = runtime_summary
+        exit_code = 0 if result.returncode == 0 and summary.get("result") == "pass" else 1
+        if exit_code:
+            summary["result"] = "fail"
+    finally:
+        summary["cleanup"] = cleanup_resources(image, name)
+        if summary["cleanup"]["result"] != "pass":
+            summary["result"] = "fail"
+            summary["failed_check"] = "cleanup-unresolved"
+            exit_code = 1
+        # Never publish success before resource absence has been verified.
         (result_dir / "result.json").write_text(json.dumps(summary, indent=2) + "\n")
         print(json.dumps(summary, sort_keys=True))
         print("Software-only test artifacts:", result_dir)
-        return result.returncode
-    finally:
-        subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
-        subprocess.run(["docker", "image", "rm", image], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
+    return exit_code
 
 
 if __name__ == "__main__":

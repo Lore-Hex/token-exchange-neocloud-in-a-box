@@ -50,7 +50,12 @@ hardening are integrated by merging parent head `a4ed474`.
   fixture's loopback TLS socket for checker trust. This is not authentication
   of a real endpoint. `nib verify` separately fetches and appraises its own
   same-connection transcript.
-- A unique container and local image are removed in `finally`. Raw process
+- Cleanup independently attempts removal of the unique container and local
+  image, then verifies their absence with successful Docker listings. Removal
+  errors/timeouts do not skip the other resource. Already-absent resources are
+  clean success; remaining resources or failed verification force a failed run
+  and are identified in the saved `cleanup` report. Success is printed only
+  after this verification. Docker build cache is not purged. Raw process
   logs stay private in anonymous runtime files and are checked for a synthetic
   canary. Only bounded status/ID summaries and build-input hashes are saved
   under ignored `build/e2e/<run-id>/`; no inference bodies or private keys.
@@ -145,3 +150,14 @@ this catches a missing definition or skipped loop even in engine-only CI.
 The repeat container run `build/e2e/b968fe228874/result.json` and full
 `make check` both passed. The upstream upload-read deadline/oversize fix changes
 neither the fixture requests nor the pending final-pin requirement.
+
+The cleanup review fix adds fault-injection coverage for removal exit 1,
+removal timeouts, already-absent resources, failed absence queries, and
+resources still present after a successful removal command. Both removal
+attempts and both absence checks run independently; unresolved cleanup makes
+the saved result and process exit status fail. All sixteen Python harness
+tests and full `make check` passed. Engine-only run
+`build/e2e/ab0eece1c59b/result.json` passed all eighteen provider checks, the
+negative catalog, privacy and weight-gate checks, and confirmed absence of
+both its container and image. Pins are unchanged; this is not full-node P1
+acceptance or hardware evidence.
