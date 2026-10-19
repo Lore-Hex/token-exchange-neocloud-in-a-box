@@ -9,6 +9,24 @@ and PR8 catalog history; it does not copy unmerged implementation files. No
 hardware, production service, API keys, deployment, paid resources, image
 publication or confidentiality claim.
 
+The current [v3 proof](../../evidence/p1/2026-10-19-committed-snapshot-node-v3/run.json)
+ran the full committed harness from snapshot source
+`fa821420f6e874871438d86e22cc8eee70924a81`. Its
+[snapshot binding](../../evidence/p1/2026-10-19-committed-snapshot-node-v3/snapshot.json)
+and [actual inputs](../../evidence/p1/2026-10-19-committed-snapshot-node-v3/inputs.json)
+agree on build-context SHA-256
+`894b67c2ab7a086e22920a942c7f3c7eab1d6548ea93f7ffabc5eafb567cadae`.
+All 18 provider checks passed, all 14 mutations were rejected, the fake
+verifier passed and release verifier failed. Admission, privacy and weight
+gate passed. The [result](../../evidence/p1/2026-10-19-committed-snapshot-node-v3/result.json)
+confirms absence of both `nib-e2e-524963258b17` and
+`nib-e2e-local:524963258b17`; private snapshot/toolchain caches were removed on
+exit. Docker build cache is retained. Full `make check` and all 23 Python
+tests passed, including the Make shell-bypass positive control, poisoned
+environment/ignored Go hook/Git replacement faults, source digest mismatch,
+bounded FIFO artifact reads, and missing-BuildKit rejection. The old proof
+and failed hardening attempts below remain unchanged as history.
+
 Historical pre-hardening [metadata](../../evidence/p1/2026-10-19-full-fake-node/run.json),
 [inputs](../../evidence/p1/2026-10-19-full-fake-node/inputs.json),
 [results](../../evidence/p1/2026-10-19-full-fake-node/result.json) and
@@ -23,7 +41,7 @@ That first recorder relied on a clean working-tree preflight and inherited
 child environments. Review demonstrated a `MAKEFLAGS` shell override could
 forge a pass, and a FIFO result file could block reading. Preserve the run as
 history, not the final source-bound proof. The replacement recorder is tested
-against both reproductions; a fresh committed-snapshot run is required below.
+against both reproductions; v3 above is the fresh committed-snapshot proof.
 
 The bounded prerequisite command is:
 
