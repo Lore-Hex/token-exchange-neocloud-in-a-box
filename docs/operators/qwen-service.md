@@ -5,6 +5,14 @@ release. Joseph requested public hosting and TrustedRouter integration on
 2026-10-19. The service implementation is being validated locally; no public
 endpoint, cloud deployment or customer billing has been verified yet.
 
+The [recorded Linux run](../../evidence/p3/2026-10-19-qwen-service-linux-2/run.json)
+passed all 18 service conformance checks, including Catalog v2, auth, streaming
+and integer usage. It signals the entire service after the first real content
+delta and requires the final finish reason, usage and `[DONE]` before exit.
+[Results](../../evidence/p3/2026-10-19-qwen-service-linux-2/output.log) confirm
+closed listeners and removal of the temporary container/image. It ran offline
+on local Docker using real model weights, not on a cloud VM.
+
 ## Service contract
 
 - Model: `qwen/qwen3-0.6b`, pinned Q8_0 weights from the [local pilot](qwen-pilot.md).
