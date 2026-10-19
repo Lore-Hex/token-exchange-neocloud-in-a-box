@@ -6,6 +6,7 @@ check: lint test test-evidence secrets secrets-positive-control
 
 test:
 	go test -race -count=1 ./...
+	go test -race -tags nibfake -count=1 ./...
 
 test-evidence: build
 	sh scripts/test-scrub-secrets.sh
