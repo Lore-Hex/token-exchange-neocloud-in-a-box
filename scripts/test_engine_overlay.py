@@ -4,6 +4,7 @@
 import base64
 from contextlib import contextmanager
 import csv
+import importlib.machinery as machinery
 import io
 import json
 import os
@@ -185,6 +186,62 @@ class OverlayTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.inspect()
             (self.root / name).unlink()
+
+    def test_all_patch_targets_reject_import_collisions_before_writes(self):
+        before = self.inspect()
+        native = (self.root / "vllm/_C.abi3.so").read_bytes()
+        for item in self.contract["files"]:
+            stem = item["path"][:-3]
+            for suffix in ("/", "/__init__.py", "/__init__.pyc", "/__init__.abi3.so",
+                           ".so", ".abi3.so", ".cpython-312-x86_64-linux-gnu.so", ".pyd", ".pyw"):
+                with self.subTest(module=item["path"], suffix=suffix):
+                    name = stem + suffix
+                    top = self.root / (stem if suffix.startswith("/") else name)
+                    if suffix == "/":
+                        top.mkdir()
+                    else:
+                        self.write(name, native if suffix.endswith(".so") else
+                                   b"raise RuntimeError('SHADOW MUST NOT EXECUTE')\n")
+                    try:
+                        self.refresh_record()  # The collision has valid RECORD metadata.
+                        with self.assertRaisesRegex(ValueError, "^offline overlay validation failed$"):
+                            self.inspect()
+                        with overlay.directory(self.root) as fd, \
+                                mock.patch.object(overlay.Tree, "write") as write, \
+                                mock.patch.object(overlay.Tree, "unlink") as unlink:
+                            with self.assertRaisesRegex(ValueError, "^offline overlay validation failed$"):
+                                overlay.apply_overlay(overlay.Tree(fd), self.contract, self.stages, before)
+                            write.assert_not_called()
+                            unlink.assert_not_called()
+                    finally:
+                        shutil.rmtree(top) if top.is_dir() else top.unlink()
+                        self.refresh_record()
+        self.assertEqual(self.inspect(), before)
+
+    def test_python_resolver_would_select_package_native_and_new_helper_shadows(self):
+        loaders = ((machinery.ExtensionFileLoader, machinery.EXTENSION_SUFFIXES),
+                   (machinery.SourceFileLoader, machinery.SOURCE_SUFFIXES),
+                   (machinery.SourcelessFileLoader, machinery.BYTECODE_SUFFIXES))
+        for name in ("vllm/utils/torch_utils/__init__.py", "vllm/utils/torch_utils.abi3.so",
+                     "vllm/v1/conf_compute_utils/__init__.py"):
+            with self.subTest(shadow=name):
+                package = name.endswith("/__init__.py")
+                module = Path(name).parent if package else Path(name).with_suffix("").with_suffix("")
+                self.write(name, (self.root / "vllm/_C.abi3.so").read_bytes() if not package else
+                           b"raise RuntimeError('SHADOW MUST NOT EXECUTE')\n")
+                try:
+                    self.refresh_record()
+                    finder = machinery.FileFinder(str(self.root / module.parent), *loaders)
+                    spec = finder.find_spec(module.name)  # Resolution only; never load/execute.
+                    self.assertEqual(spec.origin, str(self.root / name))
+                    with self.assertRaises(ValueError):
+                        self.inspect()
+                finally:
+                    if package:
+                        shutil.rmtree(self.root / module)
+                    else:
+                        (self.root / name).unlink()
+                    self.refresh_record()
 
     def test_changed_module_bytecode_removed_unrelated_bytecode_retained(self):
         names = ["vllm/envs.pyc", "vllm/__pycache__/envs.cpython-312.pyc",
@@ -395,6 +452,52 @@ class OverlayTests(unittest.TestCase):
         with mock.patch.object(overlay.platform, "system", return_value="not-Linux"), self.assertRaises(ValueError):
             overlay.installed_root()
 
+    def test_populated_alternate_roots_rejected_regardless_of_import_order(self):
+        other = self.work / "other-site"
+        other.mkdir()
+        paths = {"purelib": str(self.root), "platlib": str(other), "scripts": str(self.work / "bin")}
+        with mock.patch.object(overlay.platform, "system", return_value="Linux"), \
+                mock.patch.object(overlay.platform, "machine", return_value="x86_64"), \
+                mock.patch.object(overlay.sys, "version_info", (3, 12)), \
+                mock.patch.object(overlay.sysconfig, "get_paths", return_value=paths):
+            for roots in ([str(other), str(self.root)], [str(self.root), str(other)]):
+                with mock.patch.object(overlay.site, "getsitepackages", return_value=roots):
+                    self.assertEqual(overlay.installed_root(), (str(self.root), paths["scripts"]))
+                    for name in ("torch-2.12.0.dist-info/METADATA", "torch/__init__.py", "torch.pyc",
+                                 "ordinary.txt", "empty-directory/"):
+                        with self.subTest(roots=roots, name=name):
+                            path = other / name
+                            path.parent.mkdir(parents=True, exist_ok=True)
+                            if name.endswith("/"):
+                                path.mkdir()
+                            else:
+                                path.write_bytes(b"Name: torch\nVersion: 2.12.0\n")
+                            try:
+                                with self.assertRaisesRegex(ValueError, "^offline overlay validation failed$"):
+                                    overlay.installed_root()
+                            finally:
+                                top = other / name.split("/", 1)[0]
+                                shutil.rmtree(top) if top.is_dir() else top.unlink()
+                    self.assertEqual(overlay.installed_root(), (str(self.root), paths["scripts"]))
+
+    def test_alternate_torch_resolver_positive_control_is_rejected(self):
+        self.write("torch/__init__.py", b"raise RuntimeError('PINNED TORCH MUST NOT EXECUTE')\n")
+        other = self.work / "other-site"
+        (other / "torch").mkdir(parents=True)
+        (other / "torch/__init__.py").write_bytes(b"raise RuntimeError('SHADOW MUST NOT EXECUTE')\n")
+        (other / "torch-2.12.0.dist-info").mkdir()
+        (other / "torch-2.12.0.dist-info/METADATA").write_bytes(b"Name: torch\nVersion: 2.12.0\n")
+        finder = machinery.FileFinder(str(other), (machinery.SourceFileLoader, machinery.SOURCE_SUFFIXES))
+        self.assertEqual(finder.find_spec("torch").origin, str(other / "torch/__init__.py"))
+        paths = {"purelib": str(self.root), "platlib": str(other), "scripts": str(self.work / "bin")}
+        with mock.patch.object(overlay.platform, "system", return_value="Linux"), \
+                mock.patch.object(overlay.platform, "machine", return_value="x86_64"), \
+                mock.patch.object(overlay.sys, "version_info", (3, 12)), \
+                mock.patch.object(overlay.sysconfig, "get_paths", return_value=paths), \
+                mock.patch.object(overlay.site, "getsitepackages", return_value=[str(other), str(self.root)]), \
+                self.assertRaisesRegex(ValueError, "^offline overlay validation failed$"):
+            overlay.installed_root()
+
     def test_real_git_source_binding_ignores_untracked_and_rejects_bootstrap_change(self):
         repo = self.work / "repo"
         repo.mkdir()
@@ -439,6 +542,73 @@ class OverlayTests(unittest.TestCase):
         path.write_text("raise RuntimeError('SYNTHETIC_PRIVATE_VALUE')\n")
         with self.assertRaisesRegex(ValueError, "offline helper source differs"):
             prep.source_module("overlay_inspector", path)
+
+    def test_source_reader_bounded_regular_only_and_no_ancestor_links(self):
+        path = self.work / "source.py"
+        path.write_bytes(b"pass\n")
+        self.assertEqual(prep.read_source(path), b"pass\n")
+        with mock.patch.object(prep, "SOURCE_LIMIT", 5):
+            self.assertEqual(prep.read_source(path), b"pass\n")
+        with mock.patch.object(prep, "SOURCE_LIMIT", 4), \
+                self.assertRaisesRegex(ValueError, "^bounded regular source required$"):
+            prep.read_source(path)
+        alias = self.work / "alias"
+        alias.symlink_to(self.work, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "^bounded regular source required$"):
+            prep.read_source(alias / path.name)
+        with self.assertRaisesRegex(ValueError, "^bounded regular source required$"):
+            prep.read_source(Path(os.devnull))
+        linked = self.work / "linked.py"
+        os.link(path, linked)
+        with self.assertRaisesRegex(ValueError, "^bounded regular source required$"):
+            prep.read_source(path)
+
+    def test_helpers_reject_fifo_special_links_and_oversize_before_compilation(self):
+        for helper in ("check-engine-candidate.py", "engine_overlay.py"):
+            for kind in ("fifo", "directory", "symlink", "hardlink", "oversize"):
+                with self.subTest(helper=helper, kind=kind):
+                    scripts = self.work / (helper + "-" + kind) / "scripts"
+                    scripts.mkdir(parents=True)
+                    for name in ("prepare-engine-overlay.py", "check-engine-candidate.py", "engine_overlay.py"):
+                        (scripts / name).write_bytes((ROOT / "scripts" / name).read_bytes())
+                    target = scripts / helper
+                    target.unlink()
+                    if kind == "fifo":
+                        os.mkfifo(target)
+                    elif kind == "directory":
+                        target.mkdir()
+                    elif kind == "symlink":
+                        target.symlink_to(ROOT / "scripts" / helper)
+                    elif kind == "hardlink":
+                        original = scripts / "SYNTHETIC_PRIVATE_VALUE.py"
+                        original.write_bytes((ROOT / "scripts" / helper).read_bytes())
+                        os.link(original, target)
+                    else:
+                        with target.open("wb") as stream:
+                            stream.truncate(prep.SOURCE_LIMIT + 1)
+                    result = subprocess.run([sys.executable, "-I", "-S", str(scripts / "prepare-engine-overlay.py"),
+                                             "--help"], capture_output=True, timeout=3)
+                    self.assertEqual(result.returncode, 1)
+                    self.assertEqual(result.stdout, b"")
+                    self.assertEqual(result.stderr, b"Offline helper validation failed.\n")
+
+    def test_self_bootstrap_rereads_are_bounded_in_preparer_and_candidate(self):
+        fifo = self.work / "SYNTHETIC_PRIVATE_VALUE.py"
+        os.mkfifo(fifo)
+        # The interpreter's initial trusted script load is out of scope. Execute
+        # known source bytes with a FIFO __file__ to test each internal reread.
+        program = ("import pathlib, sys\n"
+                   "data = pathlib.Path(sys.argv[1]).read_bytes()\n"
+                   "namespace = {'__name__': '__main__', '__file__': sys.argv[2]}\n"
+                   "exec(compile(data, '<bootstrap-fixture>', 'exec'), namespace)\n")
+        for script, diagnostic in ((prep.SCRIPT, b"Offline helper validation failed.\n"),
+                                   ("scripts/check-engine-candidate.py", b"Bounded regular candidate source required.\n")):
+            with self.subTest(script=script):
+                result = subprocess.run([sys.executable, "-I", "-S", "-c", program, str(ROOT / script), str(fifo)],
+                                        capture_output=True, timeout=3)
+                self.assertEqual(result.returncode, 1)
+                self.assertEqual(result.stdout, b"")
+                self.assertEqual(result.stderr, diagnostic)
 
     def test_explicit_interpreter_derived_console_record_only(self):
         scripts = self.work / "bin"

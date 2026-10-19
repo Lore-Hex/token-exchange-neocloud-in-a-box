@@ -50,7 +50,6 @@ GIT_BLOBS = {
     "vllm/models/deepseek_v41/nvidia/ops/mhc.py": "edfdbd1ee40de764fb7235a41859fe616de111f9",
 }
 LIMIT = 2 << 20
-BOOTSTRAP = Path(__file__).read_bytes()
 
 
 def sha256(data):
@@ -68,17 +67,25 @@ def read_regular(path, limit=LIMIT):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, "rb") as stream:
         before = os.fstat(stream.fileno())
-        if not stat.S_ISREG(before.st_mode) or before.st_size > limit:
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > limit:
             raise ValueError("bounded regular input required")
         data = stream.read(limit + 1)
         after = os.fstat(stream.fileno())
         def identity(value):
-            return (value.st_dev, value.st_ino, value.st_mode, value.st_size,
+            return (value.st_dev, value.st_ino, value.st_mode, value.st_nlink, value.st_size,
                     value.st_mtime_ns, value.st_ctime_ns)
-        if (len(data) > limit or identity(before) != identity(after)
+        if (len(data) != before.st_size or len(data) > limit or identity(before) != identity(after)
                 or identity(after) != identity(path.lstat())):
             raise ValueError("input changed or exceeded limit")
         return data
+
+
+try:
+    BOOTSTRAP = read_regular(Path(__file__))
+except (OSError, ValueError):
+    if __name__ == "__main__":
+        sys.exit("Bounded regular candidate source required.")
+    raise ValueError("bounded regular candidate source required") from None
 
 
 def tool_env():

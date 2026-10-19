@@ -19,8 +19,12 @@ python3 -I -m unittest discover -s scripts -p 'test_engine*.py'
 On Linux, select an appropriate absolute private parent instead of the macOS
 example. Preparation reads raw committed Git blobs, not working/ignored files,
 Git replacements, checkout filters, remote objects or Python bytecode. The two
-local helper sources are hash-checked before direct compilation and checked
-against the same commit. The preparer itself is the trusted local bootstrap.
+local helper sources are bounded to 2 MiB, opened nonblocking without following
+links, checked as unchanged single-link regular files, then hash-checked before
+direct compilation and checked against the same commit. FIFOs, devices,
+directories, hard links, symlinks and oversized sources fail with fixed messages.
+The preparer and candidate checker's own source rereads are also bounded; the
+interpreter's initial script load remains the trusted local bootstrap.
 Changing it or a helper requires a commit; do not run concurrently with writers.
 The candidate checker's existing application logic supplies all five verified
 stages; no second patch engine or package installer is introduced.
@@ -44,7 +48,11 @@ it. It does not inherit the upstream serving entrypoint.
 
 The prepared inspector requires Python `-I -S`, Linux/x86_64 and Python 3.12. It
 derives installation roots and the console-script directory from the interpreter,
-not guessed `site-packages` paths. It rejects ambiguous roots, shadow packages,
+not guessed `site-packages` paths. Every other discovered package root must be
+absent or completely empty, even if it contains only an empty directory or a
+non-imported file. This conservatively rejects dependency/import precedence
+ambiguity instead of checking a partial inventory across roots.
+It rejects ambiguous roots, shadow packages,
 symlinks, hard links, special files, editable installations and startup `.pth`
 hooks. Filename-only startup checks cover both the selected wheel root and every
 other existing package root returned by `sysconfig`/`site.getsitepackages()`.
@@ -62,7 +70,12 @@ may omit hashes. The sole supported outside-root entry is `vllm` in the
 interpreter-derived scripts directory, with the pinned console entrypoint. No
 other RECORD traversal is followed. Wheel metadata, generated version, platform,
 Python constraint and the twelve candidate base sources must agree; the new
-helper and its bytecode must be absent. Unsupported layouts fail closed.
+helper and its bytecode must be absent. Every patched module also rejects
+same-name package directories, native modules and other sibling suffixes before
+any write, even with consistent RECORD metadata. Existing source modules may
+have legacy/cache bytecode only because application removes it before patching;
+the new helper has no such exception. Collision checks repeat after each stage.
+Unsupported layouts fail closed.
 
 The dependency check covers the exact pins from the pinned CUDA requirements,
 plus the image's declared NCCL build override. It **does not validate every

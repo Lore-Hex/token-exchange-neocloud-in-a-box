@@ -123,6 +123,24 @@ class Tree:
                                 os.close(child)
         scan(self.fd)
 
+    def check_module_collisions(self, modules):
+        # A matching RECORD does not prevent a package/native sibling from
+        # taking precedence over the patched .py file in Python's resolver.
+        visited = 0
+        for name in modules:
+            module = PurePosixPath(name)
+            require(module.suffix == ".py" and module.name != "__init__.py")
+            with self.parent(name) as (parent, leaf):
+                with os.scandir(parent) as entries:
+                    for entry in entries:
+                        visited += 1
+                        require(visited <= MAX_FILES and time.monotonic() < self.deadline)
+                        if entry.name == module.stem or entry.name.startswith(module.stem + "."):
+                            # Existing source bytecode is deleted before patching;
+                            # the newly introduced helper must have none at all.
+                            require(entry.name in (leaf, leaf + "c", leaf + "o")
+                                    and entry.is_file(follow_symlinks=False))
+
     @contextmanager
     def parent(self, name):
         parts = safe_name(name)
@@ -238,6 +256,7 @@ def inspect(tree, contract, *, console=None):
     """Validate bytes/metadata. RECORD is integrity metadata, not a signature."""
     require(contract["base_image"] == BASE_IMAGE and contract["base_revision"] == BASE_REVISION)
     tree.check_startup_hooks()
+    tree.check_module_collisions(item["path"] for item in contract["files"])
     inventory = tree.inventory()
     require("vllm.py" not in inventory and "vllm.pyc" not in inventory)
     distributions = {}
@@ -348,6 +367,7 @@ def apply_overlay(tree, contract, stages, before, *, console=None):
             require(digest(data) == item["sha256"][index])
             tree.write(name, data, mode)
             expected[name] = {"sha256": digest(data), "bytes": len(data), "mode": mode}
+        tree.check_module_collisions(item["path"] for item in contract["files"])
         require(tree.inventory() == expected)
     if console is not None:
         actual = console[1].read("vllm", retain=False)
@@ -403,7 +423,7 @@ def installed_root():
         if Path(root).exists():
             with directory(root) as fd:
                 with os.scandir(fd) as entries:
-                    require(not any(e.name in ("vllm", "vllm.py", "vllm.pyc") for e in entries))
+                    require(next(entries, None) is None)
     return found[0], paths["scripts"]
 
 

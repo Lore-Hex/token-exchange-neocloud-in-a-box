@@ -14,22 +14,58 @@ from pathlib import Path
 import stat
 import types
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).absolute().parent.parent
 SCRIPT = "scripts/prepare-engine-overlay.py"
 INSPECTOR = "scripts/engine_overlay.py"
 PINS = "scripts/engine-overlay-pins.json"
 TEST = "scripts/test_engine_overlay.py"
-BOOTSTRAP = Path(__file__).read_bytes()
+SOURCE_LIMIT = 2 << 20
 MODULE_HASHES = {
-    "overlay_candidate": "5d14105a8f6fa0e5239a6e71a2c79f7c1b07304ced2352accaec4a82aea6075d",
-    "overlay_inspector": "1f42e2e90dbca12d5173b28daffb3be6964126a63f1d0690b719891ba73afcde",
+    "overlay_candidate": "a295d3ec5ccda0794e3d830570d1d78c1b562e3cdb49ceb42aef37e6b25fd266",
+    "overlay_inspector": "ef8d754ca917bca79021630c2f17435c56367f20365d8d2db93748dfa90b13df",
 }
+
+
+def read_source(path):
+    """Read bounded regular source, without following links or opening devices."""
+    def identity(info):
+        return (info.st_dev, info.st_ino, info.st_mode, info.st_nlink, info.st_size,
+                info.st_mtime_ns, info.st_ctime_ns)
+
+    parent = None
+    try:
+        path = Path(path)
+        if not path.is_absolute() or ".." in path.parts:
+            raise ValueError
+        parent = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+        for part in path.parts[1:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+            os.close(parent)
+            parent = child
+        before = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > SOURCE_LIMIT:
+            raise ValueError
+        fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        with os.fdopen(fd, "rb") as stream:
+            if identity(before) != identity(os.fstat(stream.fileno())):
+                raise ValueError
+            data = stream.read(SOURCE_LIMIT + 1)
+            if (len(data) != before.st_size or len(data) > SOURCE_LIMIT
+                    or identity(before) != identity(os.fstat(stream.fileno()))
+                    or identity(before) != identity(os.stat(path.name, dir_fd=parent, follow_symlinks=False))):
+                raise ValueError
+            return data
+    except (OSError, ValueError):
+        raise ValueError("bounded regular source required") from None
+    finally:
+        if parent is not None:
+            os.close(parent)
 
 
 def source_module(name, path):
     module = types.ModuleType(name)
     module.__file__ = str(path)
-    data = path.read_bytes()
+    data = read_source(path)
     if hashlib.sha256(data).hexdigest() != MODULE_HASHES[name]:
         raise ValueError("offline helper source differs")
     exec(compile(data, str(path), "exec"), module.__dict__)
@@ -37,6 +73,7 @@ def source_module(name, path):
 
 
 try:
+    BOOTSTRAP = read_source(Path(__file__).absolute())
     checker, CHECKER_SOURCE = source_module("overlay_candidate", ROOT / "scripts/check-engine-candidate.py")
     inspector, INSPECTOR_SOURCE = source_module("overlay_inspector", ROOT / INSPECTOR)
 except Exception:
