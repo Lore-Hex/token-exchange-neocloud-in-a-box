@@ -56,6 +56,7 @@ python -I /opt/nib-pilot/scripts/pilot/serve.py \
   --hostname api.hixtube.com --port 8443 --public \
   --input-price "$APPROVED_INPUT_USD_PER_MTOK" \
   --output-price "$APPROVED_OUTPUT_USD_PER_MTOK" \
+  --retirement-at "$APPROVED_RETIREMENT_UTC" \
   --max-seconds 86400
 ```
 
@@ -69,6 +70,22 @@ no-new-privileges, bounded tmpfs, 4 CPUs, 3 GiB memory and a PID limit.
 The certificate must validate for the exact public name. Local test certificates
 are not public deployment certificates. Never disable TLS verification. Forward
 only public port 443 to the container's TLS port; do not expose 8000 or 8001.
+
+Public mode requires a fixed `--retirement-at` (`YYYY-MM-DDTHH:MM:SSZ`, within
+24 hours). The catalog declares that same retirement time. At the cutoff, the
+API rejects new inference and the supervisor drains existing streams. A slow
+upload cannot enter inference after retirement; restarting with an expired
+cutoff fails. Wall-clock and monotonic checks prevent a clock change extending
+the run. Loopback-only local tests may omit this operator cutoff.
+
+TrustedRouter's Hixtube parser must publish this cutoff using its existing
+runtime manifest deadline, not merely retain the descriptive lifecycle field.
+A successful refresh must not reset it to the ordinary stale-catalog window.
+Withdraw the route and DNS before the VM's deletion deadline, allowing at least
+15 minutes for DNS propagation and bounded process drain. Verify withdrawal;
+TTL is not proof that every client cache has expired. A hard VM deadline still
+takes precedence over collecting evidence or a stuck drain. Automatic deletion
+does not remove DNS records, firewall rules or other project resources.
 
 The supervisor stops accepting traffic and drains the TLS front door before
 stopping the API and engine. Each serving process has a bounded shutdown budget;

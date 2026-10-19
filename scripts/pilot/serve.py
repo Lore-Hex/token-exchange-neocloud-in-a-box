@@ -4,6 +4,7 @@
 
 import argparse
 from contextlib import ExitStack
+import datetime
 import http.client
 import json
 import os
@@ -83,10 +84,30 @@ def wait_ready(process, check, shutdown, *, timeout=90):
     pilot.require(shutdown.is_set(), "readiness-timeout")
 
 
-def supervise(processes, shutdown, *, max_seconds, health_check):
+def retirement_deadline(value, *, public):
+    """Public runs have an absolute, advertised cutoff that restarts cannot extend."""
+    if value is None:
+        pilot.require(not public, "public-retirement-required")
+        return None
+    pilot.require(re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", value) is not None,
+                  "retirement-format")
+    try:
+        cutoff = datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc).timestamp()
+    except ValueError:
+        raise pilot.PilotError("retirement-format") from None
+    # Count setup time and retain a monotonic bound if the wall clock rolls back.
+    started = time.monotonic()
+    remaining = cutoff - time.time()
+    pilot.require(0 < remaining <= 86400, "retirement-window")
+    return cutoff, started + remaining
+
+
+def supervise(processes, shutdown, *, max_seconds, health_check, retirement=None):
     deadline = time.monotonic() + max_seconds
     next_health = time.monotonic()
     while not shutdown.is_set():
+        if retirement is not None and (time.time() >= retirement[0] or time.monotonic() >= retirement[1]):
+            return  # Normal retirement drains the existing streams via ExitStack.
         pilot.require(all(process.poll() is None for process in processes), "service-exited")
         pilot.require(time.monotonic() < deadline, "run-duration-exceeded")
         if time.monotonic() >= next_health:
@@ -107,6 +128,9 @@ def stop_serving(process):
 
 
 def serve(args, shutdown):
+    retirement = retirement_deadline(args.retirement_at, public=args.public)
+    if args.public:
+        pilot.require(retirement[1] - time.monotonic() <= args.max_seconds, "retirement-run-duration")
     pilot.require(re.fullmatch(r"[a-z0-9]+(?:[.-][a-z0-9]+)*", args.hostname) is not None,
                   "tls-hostname")
     pilot.require(1024 <= args.port <= 65535 and args.port not in {8000, 8001}, "listen-port")
@@ -139,8 +163,11 @@ def serve(args, shutdown):
             wait_ready(server, lambda: pilot.request(8000, "/health")[0] == 200, shutdown)
             if shutdown.is_set():
                 return
-            api = start([str(args.prepared / "bin/nib-pilot-api"), "--api-key-file", str(api_key),
-                         "--input-price", args.input_price, "--output-price", args.output_price], serving=True)
+            command = [str(args.prepared / "bin/nib-pilot-api"), "--api-key-file", str(api_key),
+                       "--input-price", args.input_price, "--output-price", args.output_price]
+            if args.retirement_at is not None:
+                command.extend(["--retirement-at", args.retirement_at])
+            api = start(command, serving=True)
             wait_ready(api, lambda: pilot.request(8001, "/health")[0] == 200, shutdown)
             if shutdown.is_set():
                 return
@@ -153,7 +180,8 @@ def serve(args, shutdown):
             print(json.dumps({"event": "ready", "confidential": False,
                               "model": pins["model_id"], "context_length": 4096,
                               "max_inflight": 2}), flush=True)
-            supervise([server, api, shim], shutdown, max_seconds=args.max_seconds, health_check=check)
+            supervise([server, api, shim], shutdown, max_seconds=args.max_seconds,
+                      health_check=check, retirement=retirement)
 
 
 def main():
@@ -167,6 +195,7 @@ def main():
     parser.add_argument("--output-price", required=True, help="Approved USD per million output tokens")
     parser.add_argument("--port", type=int, default=8443)
     parser.add_argument("--public", action="store_true", help="Bind standard TLS to all IPv4 interfaces")
+    parser.add_argument("--retirement-at", help="Required for public mode: fixed YYYY-MM-DDTHH:MM:SSZ cutoff within 24h")
     parser.add_argument("--max-seconds", type=int, default=86400,
                         help="Bound this pilot run; cloud resource lifetime is separately enforced")
     args = parser.parse_args()

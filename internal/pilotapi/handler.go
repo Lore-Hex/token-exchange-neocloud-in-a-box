@@ -27,9 +27,13 @@ const ContextLength = 4096
 var pricePattern = regexp.MustCompile(`^(0|[1-9][0-9]{0,5})(\.[0-9]{1,6})?$`)
 
 // Catalog requires explicit prices; absent or malformed prices never become free.
-func Catalog(inputPrice, outputPrice string) ([]byte, error) {
+func Catalog(inputPrice, outputPrice string, retirement time.Time) ([]byte, error) {
 	if !pricePattern.MatchString(inputPrice) || !pricePattern.MatchString(outputPrice) {
 		return nil, errors.New("explicit decimal input and output prices required")
+	}
+	var retirementAt any
+	if !retirement.IsZero() {
+		retirementAt = retirement.UTC().Format(time.RFC3339)
 	}
 	return json.Marshal(map[string]any{
 		"object": "list", "contract_version": "2.0",
@@ -47,7 +51,7 @@ func Catalog(inputPrice, outputPrice string) ([]byte, error) {
 			"capabilities": map[string]bool{"streaming": true, "tools": false, "structured_output": false, "reasoning": false, "prompt_caching": false},
 			"pricing": map[string]any{"currency": "USD", "unit": "per_1m_tokens", "input": inputPrice,
 				"output": outputPrice, "cached_input": nil, "cache_write": nil, "minimum_request": "0"},
-			"lifecycle": map[string]any{"status": "active", "deprecation_at": nil, "retirement_at": nil, "replacement_model_id": nil},
+			"lifecycle": map[string]any{"status": "active", "deprecation_at": nil, "retirement_at": retirementAt, "replacement_model_id": nil},
 			"reliability": map[string]any{"first_token_timeout_seconds": 30, "completion_timeout_seconds": 120,
 				"stream_idle_timeout_seconds": 30, "capacity_scope": "model"},
 		}},
@@ -55,19 +59,25 @@ func Catalog(inputPrice, outputPrice string) ([]byte, error) {
 }
 
 type Handler struct {
-	key     [32]byte
-	catalog []byte
-	proxy   *httputil.ReverseProxy
-	slots   chan struct{}
+	key        [32]byte
+	catalog    []byte
+	proxy      *httputil.ReverseProxy
+	slots      chan struct{}
+	retirement time.Time
+	now        func() time.Time
 }
 
 // New fixes the backend to loopback. Neither requests nor environment variables
 // can supply an alternate destination for provider credentials or prompt bytes.
-func New(key, inputPrice, outputPrice string) (*Handler, error) {
+func New(key, inputPrice, outputPrice, retirementAt string) (*Handler, error) {
 	if !regexp.MustCompile(`^[A-Za-z0-9_-]{32,256}$`).MatchString(key) {
 		return nil, errors.New("invalid pilot key")
 	}
-	catalog, err := Catalog(inputPrice, outputPrice)
+	retirement, err := parseRetirement(retirementAt, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	catalog, err := Catalog(inputPrice, outputPrice, retirement)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +86,8 @@ func New(key, inputPrice, outputPrice string) (*Handler, error) {
 	transport.Proxy = nil
 	transport.DisableKeepAlives = true
 	transport.ResponseHeaderTimeout = 120 * time.Second
-	h := &Handler{key: sha256.Sum256([]byte("Bearer " + key)), catalog: catalog, slots: make(chan struct{}, 2)}
+	h := &Handler{key: sha256.Sum256([]byte("Bearer " + key)), catalog: catalog, slots: make(chan struct{}, 2),
+		retirement: retirement, now: time.Now}
 	h.proxy = &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(upstream)
@@ -91,6 +102,23 @@ func New(key, inputPrice, outputPrice string) (*Handler, error) {
 	return h, nil
 }
 
+func parseRetirement(value string, now time.Time) (time.Time, error) {
+	if value == "" { // Loopback-only local proofs do not need an operator cutoff.
+		return time.Time{}, nil
+	}
+	cutoff, err := time.Parse(time.RFC3339, value)
+	if err != nil || cutoff.UTC().Format(time.RFC3339) != value || !cutoff.After(now) || cutoff.Sub(now) > 24*time.Hour {
+		return time.Time{}, errors.New("retirement must be a future UTC second within 24 hours")
+	}
+	// Preserve a monotonic deadline so a wall-clock rollback cannot extend a run.
+	return now.Add(cutoff.Sub(now)), nil
+}
+
+func (h *Handler) expired() bool {
+	now := h.now()
+	return !h.retirement.IsZero() && (!now.Before(h.retirement) || !now.UTC().Before(h.retirement.UTC()))
+}
+
 func writeError(w http.ResponseWriter, status int, code string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -101,6 +129,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	if r.URL.RawQuery != "" || r.URL.RawPath != "" {
 		writeError(w, 400, "unsupported_url")
+		return
+	}
+	if h.expired() {
+		writeError(w, 503, "pilot_retired")
 		return
 	}
 	if r.Method == http.MethodGet && r.URL.Path == "/health" {
@@ -145,6 +177,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, err = BoundRequest(body)
 	if err != nil {
 		writeError(w, 400, "unsupported_pilot_request")
+		return
+	}
+	// A slow upload must not enter inference after the advertised cutoff.
+	if h.expired() {
+		writeError(w, 503, "pilot_retired")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)

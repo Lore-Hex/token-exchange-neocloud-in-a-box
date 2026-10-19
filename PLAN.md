@@ -673,6 +673,12 @@ Gates: G-GCP-QUOTA (1× H100 Spot), G-NGC, G-RUN.
   This is not a GPU, image measurement, attestation or billing test. It changes
   neither the release verifier nor the production engine.
 
+- **T9. Finite public-pilot lifetime.** Public Qwen runs must declare one fixed
+  UTC retirement within 24 hours, reject inference at that boundary (including
+  slow uploads), drain admitted work and refuse expired restarts. Carry the
+  cutoff into the TR runtime catalog deadline. Unit tests and local proofs are
+  not evidence of cloud deletion or DNS withdrawal; those remain launch gates.
+
 - **T1. Guest image v0** (`image/`, mkosi).
   - Ubuntu 24.04 TDX guest kernel with configfs-tsm.
   - NVIDIA open kernel driver from the R595 trusted-computing release (GCP's

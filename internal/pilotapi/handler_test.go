@@ -21,7 +21,7 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestCatalogExactPricesAndSchema(t *testing.T) {
-	data, err := Catalog("0.10", "0.20")
+	data, err := Catalog("0.10", "0.20", time.Time{})
 	if err != nil || catalog.Validate(data) != nil {
 		t.Fatalf("invalid catalog: %v", err)
 	}
@@ -31,12 +31,88 @@ func TestCatalogExactPricesAndSchema(t *testing.T) {
 		}
 	}
 	for _, bad := range []string{"", "NaN", "-1", "1e2", "01", "0.1\n", "1000000"} {
-		if _, err := Catalog(bad, "0.10"); err == nil {
+		if _, err := Catalog(bad, "0.10", time.Time{}); err == nil {
 			t.Fatal("invalid input price accepted")
 		}
-		if _, err := Catalog("0.10", bad); err == nil {
+		if _, err := Catalog("0.10", bad, time.Time{}); err == nil {
 			t.Fatal("invalid output price accepted")
 		}
+	}
+}
+
+func TestRetirementValidationAndCatalog(t *testing.T) {
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	for _, value := range []string{"bad", "2026-10-19T12:00:00Z", "2026-10-19T11:59:59Z",
+		"2026-10-20T12:00:01Z", "2026-10-19T13:00:00+00:00", "2026-10-19T13:00:00.1Z"} {
+		if _, err := parseRetirement(value, now); err == nil {
+			t.Fatalf("accepted invalid cutoff %q", value)
+		}
+	}
+	cutoff, err := parseRetirement("2026-10-20T12:00:00Z", now)
+	if err != nil || cutoff.Sub(now) != 24*time.Hour {
+		t.Fatal("exact 24h cutoff rejected")
+	}
+	data, err := Catalog("0.10", "0.20", cutoff)
+	if err != nil || catalog.Validate(data) != nil || !strings.Contains(string(data), `"retirement_at":"2026-10-20T12:00:00Z"`) {
+		t.Fatalf("retirement missing from valid catalog: %s", data)
+	}
+	if _, err := New(testKey, "0.1", "0.1", "not-a-time"); err == nil {
+		t.Fatal("invalid operator cutoff accepted")
+	}
+}
+
+type onRead struct {
+	io.Reader
+	once func()
+}
+
+func (r *onRead) Read(p []byte) (int, error) {
+	if r.once != nil {
+		r.once()
+		r.once = nil
+	}
+	return r.Reader.Read(p)
+}
+
+func TestRetirementRejectsAdmissionAndSlowUpload(t *testing.T) {
+	cutoff := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	h, err := New(testKey, "0.1", "0.1", cutoff.Format(time.RFC3339))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.proxy.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("retired request reached inference")
+		return nil, nil
+	})
+	for _, delta := range []time.Duration{0, time.Second} {
+		h.now = func() time.Time { return cutoff.Add(delta) }
+		for _, path := range []string{"/health", "/v1/models", "/v1/chat/completions"} {
+			method := "GET"
+			if path == "/v1/chat/completions" {
+				method = "POST"
+			}
+			r := httptest.NewRequest(method, path, strings.NewReader(requestBody))
+			r.Header.Set("Authorization", "Bearer "+testKey)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != 503 || !strings.Contains(w.Body.String(), "pilot_retired") {
+				t.Fatalf("%s admitted at/after cutoff", path)
+			}
+		}
+	}
+	h.now = func() time.Time { return cutoff.Add(-time.Second) }
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/v1/models", nil))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), cutoff.Format(time.RFC3339)) {
+		t.Fatal("pre-cutoff catalog did not disclose expiry")
+	}
+	r := httptest.NewRequest("POST", "/v1/chat/completions", &onRead{Reader: strings.NewReader(requestBody),
+		once: func() { h.now = func() time.Time { return cutoff } }})
+	r.Header.Set("Authorization", "Bearer "+testKey)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 503 || len(h.slots) != 0 {
+		t.Fatal("slow upload crossed retirement or leaked capacity")
 	}
 }
 
@@ -105,7 +181,7 @@ func TestRequestOptionsCannotEnableNativeFeatures(t *testing.T) {
 }
 
 func TestAuthenticationPathsAndStreamingUsage(t *testing.T) {
-	h, err := New(testKey, "0.1", "0.1")
+	h, err := New(testKey, "0.1", "0.1", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +235,7 @@ func TestAuthenticationPathsAndStreamingUsage(t *testing.T) {
 }
 
 func TestOverloadAndDuplicateAuthentication(t *testing.T) {
-	h, _ := New(testKey, "0.1", "0.1")
+	h, _ := New(testKey, "0.1", "0.1", "")
 	h.slots <- struct{}{}
 	h.slots <- struct{}{}
 	r := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(requestBody))

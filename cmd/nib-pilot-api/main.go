@@ -23,6 +23,7 @@ func run() int {
 	keyFile := flags.String("api-key-file", "", "private key file")
 	inputPrice := flags.String("input-price", "", "USD per million input tokens")
 	outputPrice := flags.String("output-price", "", "USD per million output tokens")
+	retirement := flags.String("retirement-at", "", "fixed UTC retirement for a public pilot")
 	if flags.Parse(os.Args[1:]) != nil || flags.NArg() != 0 {
 		return 1
 	}
@@ -30,7 +31,7 @@ func run() int {
 	if err != nil {
 		return 1
 	}
-	handler, err := pilotapi.New(strings.TrimSuffix(string(key), "\n"), *inputPrice, *outputPrice)
+	handler, err := pilotapi.New(strings.TrimSuffix(string(key), "\n"), *inputPrice, *outputPrice, *retirement)
 	if err != nil {
 		return 1
 	}
