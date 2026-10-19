@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.neocloud.invalid/nib/catalog-pricing.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "purpose", "models"],
+  "properties": {
+    "schema": {"const": "nib.catalog-pricing/v1"},
+    "purpose": {"const": "synthetic-local-test"},
+    "models": {
+      "type": "array", "minItems": 1, "maxItems": 128,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["pack", "profile", "max_output_tokens", "pricing"],
+        "properties": {
+          "pack": {"type": "string", "pattern": "^models/[a-z0-9._-]+/[a-zA-Z0-9._-]+/pack\\.yaml$"},
+          "profile": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+          "max_output_tokens": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+          "pricing": {"$ref": "https://trustedrouter.com/providers/marketplace/catalog.v2.schema.json#/$defs/model/properties/pricing"}
+        }
+      }
+    }
+  }
+}

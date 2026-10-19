@@ -1,0 +1,27 @@
+name: Local catalog
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  catalog-tier1:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
+        with:
+          go-version-file: go.mod
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff  # v6
+      - name: Catalog tests
+        run: |
+          go test -race -count=1 ./internal/catalog ./cmd/nib-catalog
+          uv run --project catalog/checker --frozen python -m unittest discover -s catalog/checker
+          uv run --project tools --frozen yamllint --strict catalog/pricing.yaml
+      - name: Local Tier 1 and rejecting-catalog control
+        run: uv run --project catalog/checker --frozen python catalog/checker/prove.py
