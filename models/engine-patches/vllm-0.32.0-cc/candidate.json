@@ -40,6 +40,10 @@
     {
       "path": "0004-reject-confidential-host-mapping.patch",
       "sha256": "69e12f6e65a7fca6fa368febe3658f36d8773edc3ce9f6ce45da15af04df2ceb"
+    },
+    {
+      "path": "0005-confidential-collective-guards.patch",
+      "sha256": "cf88a2267743e386614e2397b0a05b117dcdd0c83bebf2f3096900f11152c9aa"
     }
   ],
   "files": [
@@ -52,6 +56,7 @@
         "e963af06cf6c775fe285147e0d811ea5b4d679e5cbd6958980ec2a0d1da70694",
         "f7860ddc01333050f93a0b971b5bd6346195972d516c6fe42b345271097dbdbd",
         "f7860ddc01333050f93a0b971b5bd6346195972d516c6fe42b345271097dbdbd",
+        "24a8d97d97e1da68710b2c85d88ae045ca78c9594377680f80cbe53a77999240",
         "24a8d97d97e1da68710b2c85d88ae045ca78c9594377680f80cbe53a77999240",
         "24a8d97d97e1da68710b2c85d88ae045ca78c9594377680f80cbe53a77999240"
       ]
@@ -66,6 +71,7 @@
         "f8101c5da69a4a4a02e2cf0f712d2c9b9fead638ac8fb9eae999de58dad2d8da",
         "f8101c5da69a4a4a02e2cf0f712d2c9b9fead638ac8fb9eae999de58dad2d8da",
         "7b8c53159057cce5c981008b3ffa00343e4ea50bef15853ce173c30076183548",
+        "7b8c53159057cce5c981008b3ffa00343e4ea50bef15853ce173c30076183548",
         "7b8c53159057cce5c981008b3ffa00343e4ea50bef15853ce173c30076183548"
       ]
     },
@@ -79,6 +85,7 @@
         "c22c37d71f8c7a27bfed0cc97953dc9d33187deb0ce4b44574749fe447000623",
         "c22c37d71f8c7a27bfed0cc97953dc9d33187deb0ce4b44574749fe447000623",
         "f6a6cccacc14cdec95e98186658a9957adcfbd42b969cb81beafc76ee3e32c0e",
+        "f6a6cccacc14cdec95e98186658a9957adcfbd42b969cb81beafc76ee3e32c0e",
         "f6a6cccacc14cdec95e98186658a9957adcfbd42b969cb81beafc76ee3e32c0e"
       ]
     },
@@ -89,6 +96,7 @@
       "base_bytes": 2234,
       "sha256": [
         "9501968a99185c29094610e252d00569afae20e59313c8e2e197e07370500aef",
+        "2c2f6745897fe25450319e426d8938afb75144f9004bbcf8170605399768d231",
         "2c2f6745897fe25450319e426d8938afb75144f9004bbcf8170605399768d231",
         "2c2f6745897fe25450319e426d8938afb75144f9004bbcf8170605399768d231",
         "2c2f6745897fe25450319e426d8938afb75144f9004bbcf8170605399768d231",
@@ -105,6 +113,7 @@
         "321211f52393ad37bcadc4f21e71156125529b45f50f20fbbca719ce8a5ddb2d",
         "321211f52393ad37bcadc4f21e71156125529b45f50f20fbbca719ce8a5ddb2d",
         "321211f52393ad37bcadc4f21e71156125529b45f50f20fbbca719ce8a5ddb2d",
+        "855adf407b3155b117ba3e1235b27ff05a873e13b0904749f6a7f6ca9d95bd68",
         "855adf407b3155b117ba3e1235b27ff05a873e13b0904749f6a7f6ca9d95bd68"
       ]
     },
@@ -118,7 +127,8 @@
         "0078c8a2d8b52527c84aa28821327c404bfb6010b101c5ca26c7d623295d1fa5",
         "9f7ed67cd48855a6d130a2063f2f54b63740ddf5391456425b847272dd1ddbb3",
         "6b60d27291d3ca7f53b5686610bb39cdb6230f73532ae29088c9f6d934c6723a",
-        "6b60d27291d3ca7f53b5686610bb39cdb6230f73532ae29088c9f6d934c6723a"
+        "6b60d27291d3ca7f53b5686610bb39cdb6230f73532ae29088c9f6d934c6723a",
+        "c0559cb41facf978d999578c36c1cd6849d154a26a36642b3895b0e60c8be7c4"
       ]
     },
     {
@@ -128,6 +138,7 @@
       "base_bytes": 31370,
       "sha256": [
         "f9f5b3f1d0c5483dc742cba066cf232dfde053970221a52627716d18420ab638",
+        "33c4db63ebd20aa16baa0a511e5d59f3bdaacbed51466f9f3e5fb2228651d6f4",
         "33c4db63ebd20aa16baa0a511e5d59f3bdaacbed51466f9f3e5fb2228651d6f4",
         "33c4db63ebd20aa16baa0a511e5d59f3bdaacbed51466f9f3e5fb2228651d6f4",
         "33c4db63ebd20aa16baa0a511e5d59f3bdaacbed51466f9f3e5fb2228651d6f4",
@@ -144,6 +155,7 @@
         "433a64d9bed48f9ff240c1a70c56335093e7c1112f7d0117bfdd614732a6c49b",
         "433a64d9bed48f9ff240c1a70c56335093e7c1112f7d0117bfdd614732a6c49b",
         "433a64d9bed48f9ff240c1a70c56335093e7c1112f7d0117bfdd614732a6c49b",
+        "433a64d9bed48f9ff240c1a70c56335093e7c1112f7d0117bfdd614732a6c49b",
         "433a64d9bed48f9ff240c1a70c56335093e7c1112f7d0117bfdd614732a6c49b"
       ]
     },
@@ -157,6 +169,7 @@
         "fbceb63ab9989957b604a53f4bc80954d85abe62f9fbfb24ad7c17bb6a5aba22",
         "fbceb63ab9989957b604a53f4bc80954d85abe62f9fbfb24ad7c17bb6a5aba22",
         "bb2f7d97265e89752a199dcfe90a99187e0b2c8dd91710e6002d579ef024dbcc",
+        "bb2f7d97265e89752a199dcfe90a99187e0b2c8dd91710e6002d579ef024dbcc",
         "bb2f7d97265e89752a199dcfe90a99187e0b2c8dd91710e6002d579ef024dbcc"
       ]
     },
@@ -167,6 +180,7 @@
       "base_bytes": 7962,
       "sha256": [
         "61a0e2371a0b4804370dcad8a59f74965e6616f13f9a81d8431149450e199972",
+        "00b0189a750d9e0601c296967bfec67bbf2ba453d0e8bea72fed7fb6c17807ab",
         "00b0189a750d9e0601c296967bfec67bbf2ba453d0e8bea72fed7fb6c17807ab",
         "00b0189a750d9e0601c296967bfec67bbf2ba453d0e8bea72fed7fb6c17807ab",
         "00b0189a750d9e0601c296967bfec67bbf2ba453d0e8bea72fed7fb6c17807ab",
@@ -183,9 +197,50 @@
         "57928dc3a378ce37734bdc8359d47f88c3894012fe7f1f8c2be602de88f1b69f",
         "57928dc3a378ce37734bdc8359d47f88c3894012fe7f1f8c2be602de88f1b69f",
         "57928dc3a378ce37734bdc8359d47f88c3894012fe7f1f8c2be602de88f1b69f",
+        "57928dc3a378ce37734bdc8359d47f88c3894012fe7f1f8c2be602de88f1b69f",
         "57928dc3a378ce37734bdc8359d47f88c3894012fe7f1f8c2be602de88f1b69f"
+      ]
+    },
+    {
+      "path": "vllm/distributed/device_communicators/cuda_communicator.py",
+      "mode": "100644",
+      "base_url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/distributed/device_communicators/cuda_communicator.py",
+      "base_bytes": 43877,
+      "git_blob": "1bc6182288ab9c556b231e21c41176a82373e3d8",
+      "sha256": [
+        "2f5368d6ca1856a7b2b49fc423cc4728483d0c9289f913a7bc7cbe0baa040ec0",
+        "2f5368d6ca1856a7b2b49fc423cc4728483d0c9289f913a7bc7cbe0baa040ec0",
+        "2f5368d6ca1856a7b2b49fc423cc4728483d0c9289f913a7bc7cbe0baa040ec0",
+        "2f5368d6ca1856a7b2b49fc423cc4728483d0c9289f913a7bc7cbe0baa040ec0",
+        "2f5368d6ca1856a7b2b49fc423cc4728483d0c9289f913a7bc7cbe0baa040ec0",
+        "98aa60f0c56d07fd0d32aae085c6f2a6becf3e2893e0198a4655e945ca1e103a"
+      ]
+    },
+    {
+      "path": "vllm/compilation/passes/fusion/allreduce_rms_fusion.py",
+      "mode": "100644",
+      "base_url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/compilation/passes/fusion/allreduce_rms_fusion.py",
+      "base_bytes": 62742,
+      "git_blob": "59757deb26864b2cdec9ba74b0488bce7ef4102e",
+      "sha256": [
+        "4f2ca81d7fa365d22c23194a768ab56a5c1380d62affaa4a706a5ce8f6b2d65d",
+        "4f2ca81d7fa365d22c23194a768ab56a5c1380d62affaa4a706a5ce8f6b2d65d",
+        "4f2ca81d7fa365d22c23194a768ab56a5c1380d62affaa4a706a5ce8f6b2d65d",
+        "4f2ca81d7fa365d22c23194a768ab56a5c1380d62affaa4a706a5ce8f6b2d65d",
+        "4f2ca81d7fa365d22c23194a768ab56a5c1380d62affaa4a706a5ce8f6b2d65d",
+        "4af57a9a39e4c7d9a5a2912ac4d2bdbf6d9d0a2ba3af4cc5659130e64be6911e"
       ]
     }
   ],
-  "license_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  "license_sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+  "source_audits": [
+    {
+      "path": "vllm/models/deepseek_v41/nvidia/ops/mhc.py",
+      "mode": "100644",
+      "base_url": "https://raw.githubusercontent.com/vllm-project/vllm/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/models/deepseek_v41/nvidia/ops/mhc.py",
+      "base_bytes": 10679,
+      "git_blob": "edfdbd1ee40de764fb7235a41859fe616de111f9",
+      "sha256": "c8233a70004719017ff6a5826ca538c92ea6319a9c7c0090dc8fc2e603db25e7"
+    }
+  ]
 }

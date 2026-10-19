@@ -52,6 +52,14 @@ def functions(source, names, environment, imports=None):
     return namespace
 
 
+def constructor(source, name, environment, imports):
+    """Keep the real constructor and super() cell, with no other class methods."""
+    node = definition(source, name)
+    node.body = [n for n in node.body if getattr(n, "name", None) == "__init__"]
+    isolated = ast.unparse(ast.Module(body=[node], type_ignores=[]))
+    return functions(isolated, [name], environment, imports)[name]
+
+
 class CopyTrace:
     def __init__(self):
         self.events = []
@@ -119,14 +127,17 @@ class CandidateTest(unittest.TestCase):
         self.assertIs(self.manifest["deployable"], False)
         self.assertIsNone(self.manifest["image"])
         self.assertEqual(self.local[CHECKER.PATCHES[1]], self.local["upstream/" + CHECKER.COMMITS[1] + ".patch"])
-        self.assertEqual(len(CHECKER.PATCHES), 4)
+        self.assertEqual(len(CHECKER.PATCHES), 5)
         for item in self.manifest["files"]:
-            self.assertEqual(len(item["sha256"]), 5)
+            self.assertEqual(len(item["sha256"]), 6)
             self.assertEqual(item["sha256"][3] != item["sha256"][4],
                              item["path"] == "vllm/utils/torch_utils.py")
+            self.assertEqual(item["sha256"][4] != item["sha256"][5], item["path"] in (
+                "vllm/v1/conf_compute_utils.py", "vllm/distributed/device_communicators/cuda_communicator.py",
+                "vllm/compilation/passes/fusion/allreduce_rms_fusion.py"))
 
     def test_tampered_sources_patches_and_policy_are_rejected(self):
-        for name in ("base/vllm/envs.py", *CHECKER.PATCHES, "LICENSE"):
+        for name in ("base/vllm/envs.py", *CHECKER.PATCHES, "LICENSE", "audit/" + CHECKER.AUDITS[0]):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 changed = dict(BUNDLE)
                 changed[CHECKER.DIRECTORY + "/" + name] += b"\nchanged\n"
@@ -152,6 +163,27 @@ class CandidateTest(unittest.TestCase):
         changed[CHECKER.DIRECTORY + "/ignored.py"] = b"raise Exception()"
         with self.assertRaises(ValueError):
             CHECKER.verify(changed)
+
+    def test_new_source_git_blob_ids_are_enforced_even_after_sha256_resigning(self):
+        for name in CHECKER.GIT_BLOBS:
+            for alter_bytes in (False, True):
+                changed = dict(BUNDLE)
+                manifest = copy.deepcopy(self.manifest)
+                audit = name in CHECKER.AUDITS
+                item = next(item for item in manifest["source_audits" if audit else "files"] if item["path"] == name)
+                if alter_bytes:
+                    path = CHECKER.DIRECTORY + ("/audit/" if audit else "/base/") + name
+                    changed[path] += b"\n# tampered\n"
+                    item["base_bytes"] = len(changed[path])
+                    if audit:
+                        item["sha256"] = CHECKER.sha256(changed[path])
+                    else:
+                        item["sha256"][0] = CHECKER.sha256(changed[path])
+                else:
+                    item["git_blob"] = "0" * 40
+                changed[CHECKER.DIRECTORY + "/candidate.json"] = json.dumps(manifest).encode()
+                with self.subTest(name=name, alter_bytes=alter_bytes), self.assertRaisesRegex(ValueError, "pinned Git blob differs"):
+                    CHECKER.metadata(changed)
 
     def test_release_torch_semantics_preserved_outside_added_branch(self):
         path = "vllm/utils/torch_utils.py"
@@ -189,6 +221,209 @@ class CandidateTest(unittest.TestCase):
         method.body = [n for n in method.body if not (isinstance(n, ast.If)
                        and ast.unparse(n.test) == "gpu.is_cuda and confidential_compute_enabled()")]
         self.assertEqual(ast.dump(before), ast.dump(after))
+
+    def test_collective_release_semantics_preserved_outside_entry_guards(self):
+        for path, name in (("vllm/distributed/device_communicators/cuda_communicator.py", "CudaCommunicator"),
+                           ("vllm/compilation/passes/fusion/allreduce_rms_fusion.py", "AllReduceFusionPass")):
+            before = ast.parse(self.local["base/" + path])
+            after = ast.parse(self.files[path])
+            cls = next(n for n in after.body if getattr(n, "name", None) == name)
+            init = next(n for n in cls.body if getattr(n, "name", None) == "__init__")
+            self.assertIsInstance(init.body[0], ast.ImportFrom)
+            self.assertEqual(init.body[0].module, "vllm.v1.conf_compute_utils")
+            self.assertEqual(ast.unparse(init.body[1].test), "confidential_collectives_selected()")
+            init.body = init.body[2:]
+            self.assertEqual(ast.dump(before), ast.dump(after))
+
+    def collective_selector(self, platform):
+        return functions(self.files["vllm/v1/conf_compute_utils.py"], ["confidential_collectives_selected"], {},
+            {"vllm.platforms": types.SimpleNamespace(current_platform=platform)})["confidential_collectives_selected"]
+
+    def communicator_fixture(self, detector=lambda: True):
+        calls = []
+        class Base:
+            def __init__(self, cpu_group, device, device_group, unique_name, global_ranks,
+                         global_world_size, use_all2all):
+                calls.append("base")
+                self.cpu_group, self.device, self.device_group = cpu_group, device, device_group
+                self.world_size, self.use_all2all = global_world_size or 4, use_all2all
+        def backend(name):
+            def create(**kwargs):
+                calls.append(name)
+                return types.SimpleNamespace(disabled=False)
+            return create
+        flags = ("VLLM_ALLREDUCE_USE_SYMM_MEM", "VLLM_ALLREDUCE_USE_FLASHINFER",
+                 "VLLM_ALLREDUCE_USE_FLASHINFER_PCIE_IPC", "VLLM_USE_NCCL_SYMM_MEM")
+        env = types.SimpleNamespace(**dict.fromkeys(flags, False), VLLM_BATCH_INVARIANT=False)
+        config = types.SimpleNamespace(parallel_config=types.SimpleNamespace(disable_custom_all_reduce=True),
+                                       use_cumem_cudagraph_pool=False)
+        state = types.SimpleNamespace(_ENABLE_CUSTOM_ALL_REDUCE=False)
+        platform = types.SimpleNamespace(is_confidential_compute=detector, is_cuda=lambda: True, is_rocm=lambda: False)
+        imports = {"vllm.distributed.parallel_state": state,
+                   "vllm.v1.conf_compute_utils": types.SimpleNamespace(
+                       confidential_collectives_selected=self.collective_selector(platform))}
+        for module, cls in (("custom_all_reduce", "CustomAllreduce"), ("flashinfer_all_reduce", "FlashInferAllReduce"),
+                            ("flashinfer_pcie_ipc_all_reduce", "FlashInferPcieIpcAllReduce"),
+                            ("pynccl", "PyNcclCommunicator"), ("quick_all_reduce", "QuickAllReduce"),
+                            ("symm_mem", "SymmMemCommunicator")):
+            imports["vllm.distributed.device_communicators." + module] = types.SimpleNamespace(**{cls: backend(cls)})
+        cls = constructor(self.files["vllm/distributed/device_communicators/cuda_communicator.py"],
+            "CudaCommunicator", {"DeviceCommunicatorBase": Base, "current_platform": platform, "envs": env,
+                "get_current_vllm_config_or_none": lambda: config,
+                "rocm_aiter_ops": types.SimpleNamespace(is_custom_all_reduce_enabled=lambda: False),
+                "is_symmetric_memory_enabled": lambda: env.VLLM_USE_NCCL_SYMM_MEM,
+                "register_nccl_symmetric_ops": lambda comm: calls.append("register_nccl_symmetric_ops"),
+                "AiterCustomAllreduce": backend("AiterCustomAllreduce")}, imports)
+        cls._log_all_reduce_backend_selection = lambda self: calls.append("log")
+        return types.SimpleNamespace(cls=cls, calls=calls, env=env, config=config, state=state, flags=flags)
+
+    def instantiate_communicator(self, fixture, name="tp:0", world_size=4):
+        return fixture.cls("cpu", device="cuda:0", device_group="device", unique_name=name,
+                           global_world_size=world_size)
+
+    def test_cc_all_off_constructs_only_ordinary_communicator_and_disables_fused_mhc(self):
+        fixture = self.communicator_fixture()
+        comm = self.instantiate_communicator(fixture)
+        self.assertEqual(fixture.calls, ["base", "PyNcclCommunicator", "log"])
+        for field in ("ca_comm", "symm_mem_comm", "fi_ar_comm", "fi_pcie_ipc_ar_comm", "qr_comm", "aiter_ar_comm"):
+            self.assertIsNone(getattr(comm, field))
+        config = types.SimpleNamespace(parallel_config=types.SimpleNamespace(tensor_parallel_size=4,
+            enable_expert_parallel=False), model_config=types.SimpleNamespace(hf_config=types.SimpleNamespace(
+                hidden_size=5120, hc_mult=4)))
+        predicate = functions(self.local["audit/" + CHECKER.AUDITS[0]], ["supports_mhc_all_reduce"],
+            {"cast": lambda name, value: value,
+             "get_tp_group": lambda: types.SimpleNamespace(device_communicator=comm)})["supports_mhc_all_reduce"]
+        self.assertFalse(predicate(config))
+        comm.ca_comm = types.SimpleNamespace(mnnvl_lamport_ag_multicast_ptr=object())
+        self.assertTrue(predicate(config))  # Real predicate positive control, no kernel execution.
+
+    def test_cc_each_conflicting_control_rejects_before_all_construction(self):
+        for control in ("disable_custom_all_reduce", "_ENABLE_CUSTOM_ALL_REDUCE", *self.communicator_fixture().flags):
+            for name, world in (("tp:0", 4), ("dp:0", 4), ("tp:0", 1)):
+                fixture = self.communicator_fixture()
+                fixture.env.VLLM_BATCH_INVARIANT = True  # Masked flags must still reject.
+                if control == "disable_custom_all_reduce":
+                    fixture.config.parallel_config.disable_custom_all_reduce = False
+                elif control == "_ENABLE_CUSTOM_ALL_REDUCE":
+                    fixture.state._ENABLE_CUSTOM_ALL_REDUCE = True
+                else:
+                    setattr(fixture.env, control, True)
+                with self.subTest(control=control, group=name, world=world), self.assertRaises(RuntimeError) as caught:
+                    self.instantiate_communicator(fixture, name, world)
+                self.assertEqual(str(caught.exception), "CC collective controls conflict with required policy")
+                self.assertEqual(fixture.calls, [])
+
+    def test_cc_malformed_controls_and_missing_config_are_sanitized_before_construction(self):
+        secret = "synthetic-collective-secret\nforged"
+        for control in ("disable_custom_all_reduce", "_ENABLE_CUSTOM_ALL_REDUCE", *self.communicator_fixture().flags):
+            for value in (None, 0, 1, "0", secret):
+                fixture = self.communicator_fixture()
+                owner = (fixture.config.parallel_config if control == "disable_custom_all_reduce" else
+                         fixture.state if control == "_ENABLE_CUSTOM_ALL_REDUCE" else fixture.env)
+                setattr(owner, control, value)
+                with self.subTest(control=control, value=value), self.assertRaises(RuntimeError) as caught:
+                    self.instantiate_communicator(fixture)
+                self.assertEqual(str(caught.exception), "CC collective controls unavailable or malformed")
+                self.assertEqual(fixture.calls, [])
+        fixture = self.communicator_fixture()
+        fixture.cls.__init__.__globals__["get_current_vllm_config_or_none"] = lambda: None
+        with self.assertRaisesRegex(RuntimeError, "^CC collective controls unavailable or malformed$"):
+            self.instantiate_communicator(fixture)
+        self.assertEqual(fixture.calls, [])
+
+    def test_cc_real_env_reader_failures_do_not_leak_values(self):
+        secret = "synthetic-env-secret\nforged"
+        tree = ast.parse(self.files["vllm/envs.py"])
+        table = next(n.value for n in tree.body if isinstance(n, ast.AnnAssign)
+                     and ast.unparse(n.target) == "environment_variables")
+        getters = {key.value: value for key, value in zip(table.keys, table.values)}
+        for flag in self.communicator_fixture().flags:
+            fixture = self.communicator_fixture()
+            getter = eval(compile(ast.Expression(getters[flag]), "reviewed-env-reader", "eval"),
+                          {"os": types.SimpleNamespace(getenv=lambda *args: secret)})
+            class Env:
+                def __getattr__(self, name):
+                    return getter() if name == flag else getattr(fixture.env, name)
+            fixture.cls.__init__.__globals__["envs"] = Env()
+            try:
+                self.instantiate_communicator(fixture)
+            except RuntimeError:
+                self.assertNotIn(secret, traceback.format_exc())
+            else:
+                self.fail("malformed environment accepted")
+            self.assertEqual(fixture.calls, [])
+
+    def test_non_cc_communicator_preserves_enabled_backend_setup(self):
+        fixture = self.communicator_fixture(lambda: False)
+        fixture.config.parallel_config.disable_custom_all_reduce = False
+        fixture.state._ENABLE_CUSTOM_ALL_REDUCE = True
+        for flag in fixture.flags:
+            setattr(fixture.env, flag, True)
+        comm = self.instantiate_communicator(fixture)
+        self.assertEqual(fixture.calls, ["base", "PyNcclCommunicator", "register_nccl_symmetric_ops",
+            "SymmMemCommunicator", "FlashInferAllReduce", "FlashInferPcieIpcAllReduce", "CustomAllreduce", "log"])
+        self.assertIsNotNone(comm.ca_comm)
+
+    def fusion_fixture(self, detector=lambda: True):
+        calls = []
+        class Base:
+            def __init__(self, config):
+                calls.append("base")
+                self.model_dtype = "float16"
+        def operation(name):
+            def call(*args, **kwargs):
+                calls.append(name)
+                return object()
+            return call
+        platform = types.SimpleNamespace(is_confidential_compute=detector)
+        config = types.SimpleNamespace(model_config=object(), scheduler_config=types.SimpleNamespace(max_num_batched_tokens=16),
+            compilation_config=types.SimpleNamespace(pass_config=types.SimpleNamespace(
+                fuse_allreduce_rms=True, flashinfer_max_size=lambda size: 32768)))
+        cls = constructor(self.files["vllm/compilation/passes/fusion/allreduce_rms_fusion.py"],
+            "AllReduceFusionPass", {"VllmPatternMatcherPass": Base,
+                "get_tensor_model_parallel_world_size": lambda: 4, "get_tensor_model_parallel_rank": lambda: 0,
+                "PatternMatcherPass": operation("matcher"), "_fused_ar_workspace_hidden_dim": lambda c: 5120,
+                "get_tp_group": lambda: types.SimpleNamespace(cpu_group="cpu"), "flashinfer_comm": object(),
+                "torch": types.SimpleNamespace(tensor=lambda *a, **kw: types.SimpleNamespace(element_size=lambda: 2)),
+                "logger": types.SimpleNamespace(debug_once=operation("log")),
+                "get_fi_ar_workspace": operation("workspace"), "get_fi_ar_quant_workspace": operation("quant_workspace"),
+                "FlashInferFusedAllReduceParams": operation("params")},
+            {"vllm.v1.conf_compute_utils": types.SimpleNamespace(
+                confidential_collectives_selected=self.collective_selector(platform))})
+        cls.register_patterns = lambda self: calls.append("register")
+        cls.dump_patterns = lambda *args: calls.append("dump")
+        return types.SimpleNamespace(cls=cls, config=config, calls=calls)
+
+    def test_cc_fusion_constructor_blocks_explicit_true_before_workspace_or_registration(self):
+        for requested in (True, False, None):
+            fixture = self.fusion_fixture()
+            fixture.config.compilation_config.pass_config.fuse_allreduce_rms = requested
+            with self.subTest(requested=requested), self.assertRaises(RuntimeError) as caught:
+                fixture.cls(fixture.config)
+            self.assertEqual(str(caught.exception), "AllReduce fusion construction is disabled by the CC candidate")
+            self.assertEqual(fixture.calls, [])
+
+    def test_non_cc_fusion_preserves_workspace_and_pattern_setup(self):
+        fixture = self.fusion_fixture(lambda: False)
+        fixture.cls(fixture.config)
+        self.assertEqual(fixture.calls, ["base", "matcher", "log", "workspace", "quant_workspace", "params", "register", "dump"])
+
+    def test_collective_detection_failures_and_nonbooleans_reject_both_constructors(self):
+        secret = "synthetic-collective-detection-secret"
+        def failure():
+            raise RuntimeError(secret)
+        detectors = [failure] + [lambda value=value: value for value in (None, 0, 1, "false", object())]
+        for detector in detectors:
+            for fusion in (False, True):
+                fixture = self.fusion_fixture(detector) if fusion else self.communicator_fixture(detector)
+                try:
+                    fixture.cls(fixture.config) if fusion else self.instantiate_communicator(fixture)
+                except RuntimeError as error:
+                    self.assertEqual(str(error), "CC collective selection unavailable or malformed")
+                    self.assertNotIn(secret, traceback.format_exc())
+                else:
+                    self.fail("unqualified collective selection accepted")
+                self.assertEqual(fixture.calls, [])
 
     def test_release_buffer_and_async_numpy_copy_semantics_preserved(self):
         path = "vllm/v1/worker/gpu/buffer_utils.py"
@@ -406,6 +641,8 @@ class CandidateTest(unittest.TestCase):
         records = []
         expected = {item["base_url"]: self.local["base/" + item["path"]]
                     for item in self.manifest["files"] if item["base_url"]}
+        expected.update({item["base_url"]: self.local["audit/" + item["path"]]
+                         for item in self.manifest["source_audits"]})
         expected["https://raw.githubusercontent.com/vllm-project/vllm/" + CHECKER.BASE + "/LICENSE"] = self.local["LICENSE"]
         def response(request, timeout):
             self.assertGreater(timeout, 0)
@@ -420,7 +657,7 @@ class CandidateTest(unittest.TestCase):
         with patch.dict(os.environ, {"HTTPS_PROXY": "https://synthetic-secret.invalid", "HF_TOKEN": "synthetic-secret"}), \
                 patch.object(CHECKER.urllib.request, "build_opener", return_value=opener) as builder:
             proofs = CHECKER.fetch_sources(BUNDLE)
-        self.assertEqual(len(proofs), 11)
+        self.assertEqual(len(proofs), 14)
         self.assertEqual(set(records), set(expected))
         self.assertEqual(builder.call_args.args[0].proxies, {})
 

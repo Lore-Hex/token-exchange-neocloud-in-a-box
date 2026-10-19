@@ -35,17 +35,33 @@ BASE = "5df63a7203cdb9328d824a27b682e77c7b9928be"
 PARENT = "ce49174247fd84c322f293a31cbe1d0460aaa7fe"
 COMMITS = ("c8309e4215fefe376a190ad68c872f832418d9f2", "c16c248aa2255dc2b13f732b00b90e44bb7311e4")
 PATCHES = ("0001-v2-copy-backport.patch", "0002-prep-stream-ordering.patch",
-           "0003-fail-closed-and-buffer-ordering.patch", "0004-reject-confidential-host-mapping.patch")
+           "0003-fail-closed-and-buffer-ordering.patch", "0004-reject-confidential-host-mapping.patch",
+           "0005-confidential-collective-guards.patch")
 PATHS = ("vllm/envs.py", "vllm/platforms/cuda.py", "vllm/platforms/interface.py",
          "vllm/utils/platform_utils.py", "vllm/utils/torch_utils.py", "vllm/v1/conf_compute_utils.py",
          "vllm/v1/utils.py", "vllm/v1/worker/gpu/async_utils.py", "vllm/v1/worker/gpu/buffer_utils.py",
-         "vllm/v1/worker/gpu/model_states/encoder_decoder.py", "vllm/v1/worker/gpu/model_states/encoder_only.py")
+         "vllm/v1/worker/gpu/model_states/encoder_decoder.py", "vllm/v1/worker/gpu/model_states/encoder_only.py",
+         "vllm/distributed/device_communicators/cuda_communicator.py",
+         "vllm/compilation/passes/fusion/allreduce_rms_fusion.py")
+AUDITS = ("vllm/models/deepseek_v41/nvidia/ops/mhc.py",)
+GIT_BLOBS = {
+    "vllm/distributed/device_communicators/cuda_communicator.py": "1bc6182288ab9c556b231e21c41176a82373e3d8",
+    "vllm/compilation/passes/fusion/allreduce_rms_fusion.py": "59757deb26864b2cdec9ba74b0488bce7ef4102e",
+    "vllm/models/deepseek_v41/nvidia/ops/mhc.py": "edfdbd1ee40de764fb7235a41859fe616de111f9",
+}
 LIMIT = 2 << 20
 BOOTSTRAP = Path(__file__).read_bytes()
 
 
 def sha256(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def verify_git_blob(item, data):
+    expected = GIT_BLOBS[item["path"]]
+    actual = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+    if item.get("git_blob") != expected or actual != expected:
+        raise ValueError("pinned Git blob differs")
 
 
 def read_regular(path, limit=LIMIT):
@@ -172,6 +188,18 @@ def metadata(bundle):
         if (item["base_url"] != url or len(local[name]) != item["base_bytes"]
                 or sha256(local[name]) != hashes[0]):
             raise ValueError("pinned base differs")
+        if item["path"] in GIT_BLOBS:
+            verify_git_blob(item, local[name])
+    if tuple(item["path"] for item in manifest["source_audits"]) != AUDITS:
+        raise ValueError("source audit set differs")
+    for item in manifest["source_audits"]:
+        name = "audit/" + item["path"]
+        expected.add(name)
+        url = "https://raw.githubusercontent.com/vllm-project/vllm/" + BASE + "/" + item["path"]
+        if (item["base_url"] != url or len(local[name]) != item["base_bytes"]
+                or sha256(local[name]) != item["sha256"]):
+            raise ValueError("pinned source audit differs")
+        verify_git_blob(item, local[name])
     if set(local) != expected or set(bundle) != {DIRECTORY + "/" + p for p in expected} | {SCRIPT, TEST}:
         raise ValueError("unexpected or missing bundle input")
     return manifest, local
@@ -213,6 +241,7 @@ def fetch_sources(bundle):
     manifest, local = metadata(bundle)
     sources = [(item["base_url"], local["base/" + item["path"]])
                for item in manifest["files"] if item["base_url"] is not None]
+    sources.extend((item["base_url"], local["audit/" + item["path"]]) for item in manifest["source_audits"])
     sources.append(("https://raw.githubusercontent.com/vllm-project/vllm/" + BASE + "/LICENSE", local["LICENSE"]))
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect(),
                                         urllib.request.HTTPSHandler(context=ssl.create_default_context()))
@@ -262,7 +291,7 @@ def now():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fetch", action="store_true", help="Compare 11 fixed public source responses; no packages")
+    parser.add_argument("--fetch", action="store_true", help="Compare 14 fixed public source responses; no packages")
     parser.add_argument("--record", action="store_true", help="Use committed Git blobs and retain software-only evidence")
     args = parser.parse_args()
     started = now()
@@ -286,6 +315,7 @@ def main():
         if args.fetch:
             report["public_sources"] = fetch_sources(bundle)
         report["files"] = json.loads(bundle[DIRECTORY + "/candidate.json"])["files"]
+        report["source_audits"] = json.loads(bundle[DIRECTORY + "/candidate.json"])["source_audits"]
         report["result"] = "pass"
     except Exception:
         report["failure_code"] = "candidate-check-failed"

@@ -1,0 +1,76 @@
+Subject: [BLOCKED CANDIDATE] Guard collective construction before resource setup
+
+Modified by the neocloud-in-a-box project; see NOTICE and candidate.json.
+Apache-2.0; upstream copyrights retained. Not a runtime qualification.
+Reject conflicting controls and fused workspace construction on CC selection.
+
+diff --git a/vllm/v1/conf_compute_utils.py b/vllm/v1/conf_compute_utils.py
+--- a/vllm/v1/conf_compute_utils.py
++++ b/vllm/v1/conf_compute_utils.py
+@@ -29,6 +29,19 @@
+     from vllm.platforms import current_platform
+
+     return current_platform.is_confidential_compute()
++
++
++def confidential_collectives_selected() -> bool:
++    """Strict software selection for collective guards, never attestation."""
++    try:
++        from vllm.platforms import current_platform
++
++        selected = current_platform.is_confidential_compute()
++        if type(selected) is not bool:
++            raise ValueError
++    except Exception:
++        raise RuntimeError("CC collective selection unavailable or malformed") from None
++    return selected
+
+
+ @cache
+diff --git a/vllm/distributed/device_communicators/cuda_communicator.py b/vllm/distributed/device_communicators/cuda_communicator.py
+--- a/vllm/distributed/device_communicators/cuda_communicator.py
++++ b/vllm/distributed/device_communicators/cuda_communicator.py
+@@ -44,6 +44,28 @@
+         tcp_store_group: StatelessProcessGroup | None = None,
+         use_all2all: bool = False,
+     ):
++        from vllm.v1.conf_compute_utils import confidential_collectives_selected
++
++        if confidential_collectives_selected():
++            try:
++                from vllm.distributed.parallel_state import _ENABLE_CUSTOM_ALL_REDUCE
++
++                config = get_current_vllm_config_or_none()
++                controls = (
++                    config.parallel_config.disable_custom_all_reduce,
++                    _ENABLE_CUSTOM_ALL_REDUCE,
++                    envs.VLLM_ALLREDUCE_USE_SYMM_MEM,
++                    envs.VLLM_ALLREDUCE_USE_FLASHINFER,
++                    envs.VLLM_ALLREDUCE_USE_FLASHINFER_PCIE_IPC,
++                    envs.VLLM_USE_NCCL_SYMM_MEM,
++                )
++                if any(type(value) is not bool for value in controls):
++                    raise ValueError
++            except Exception:
++                raise RuntimeError("CC collective controls unavailable or malformed") from None
++            if not controls[0] or any(controls[1:]):
++                raise RuntimeError("CC collective controls conflict with required policy")
++
+         super().__init__(
+             cpu_group,
+             device,
+diff --git a/vllm/compilation/passes/fusion/allreduce_rms_fusion.py b/vllm/compilation/passes/fusion/allreduce_rms_fusion.py
+--- a/vllm/compilation/passes/fusion/allreduce_rms_fusion.py
++++ b/vllm/compilation/passes/fusion/allreduce_rms_fusion.py
+@@ -983,6 +983,11 @@
+
+ class AllReduceFusionPass(VllmPatternMatcherPass):
+     def __init__(self, config: VllmConfig) -> None:
++        from vllm.v1.conf_compute_utils import confidential_collectives_selected
++
++        if confidential_collectives_selected():
++            raise RuntimeError("AllReduce fusion construction is disabled by the CC candidate")
++
+         super().__init__(config)
+         self.disabled = True
+         self.tp_size = get_tensor_model_parallel_world_size()
