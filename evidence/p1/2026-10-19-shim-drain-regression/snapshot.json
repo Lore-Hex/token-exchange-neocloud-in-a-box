@@ -1,0 +1,7 @@
+{
+  "expected_source_sha256": "f8950780631cb93781f92849dfa20f7be6b2520219d0bf9d863159e566b751c1",
+  "git_archive_sha256": "3f16eddd397533d91ad330acf4e6d68c945b126343b72742a0f0ef586b983465",
+  "git_sha": "15aa087817b4716f732196cb514c44cb5af13b79",
+  "replacement_objects": false,
+  "working_tree_used": false
+}
