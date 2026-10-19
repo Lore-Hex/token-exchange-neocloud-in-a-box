@@ -52,8 +52,8 @@ explicit archive extraction filter. It never overwrites an existing run.
 Use a new slug for a subsequent check. The checker is reusable
 for any operator; its tests do not depend on Hixtube's DNS.
 
-The [2026-10-19 snapshot-built check](../../evidence/p1/2026-10-19-hixtube-dns-v2/run.json)
-failed: [both names had no address](../../evidence/p1/2026-10-19-hixtube-dns-v2/output.log).
+The [2026-10-19 snapshot-built check](../../evidence/p1/2026-10-19-hixtube-dns-v3/run.json)
+failed: [both names had no address](../../evidence/p1/2026-10-19-hixtube-dns-v3/output.log).
 This is a DNS setup blocker, not an inference outage or attestation failure.
 The earlier working-tree-built failure is retained as historical evidence,
 not as proof that Git cleanliness alone excludes ignored build inputs.
