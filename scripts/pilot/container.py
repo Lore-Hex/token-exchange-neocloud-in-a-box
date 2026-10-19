@@ -75,13 +75,25 @@ def runtime_command(image, name):
             "--platform", "linux/amd64", image]
 
 
-def run(inputs, summary, env, home):
+def image_ids(env):
+    result = snapshot.execute_process_group(
+        ["docker", "image", "ls", "--all", "--quiet", "--no-trunc"], env=env,
+        timeout=30, max_output_bytes=65536)
+    result.check_returncode()
+    identities = result.stdout.decode("ascii").splitlines()
+    pilot.require(all(re.fullmatch(r"sha256:[0-9a-f]{64}", value) for value in identities),
+                  "image-inventory-invalid")
+    return set(identities)
+
+
+def run(inputs, summary, env, home, *, export=None):
     name = "nib-qwen-" + uuid.uuid4().hex[:12]
     image = "nib-qwen-local:" + name.removeprefix("nib-qwen-")
     summary["container"] = {"platform": "linux/amd64", "network": "none",
                             "read_only": True, "published": False}
     build_started, build_finished = False, False
     runtime_started, runtime_finished = False, False
+    identity, preexisting = None, set()
     try:
         env = {**env, "DOCKER_HOST": snapshot.local_docker_endpoint(env, home)}
         snapshot.require_buildkit(env)
@@ -94,6 +106,8 @@ def run(inputs, summary, env, home):
             bases = summary["container_inputs"]["base_images"]
             summary["stage"] = "build-container"
             iid = work / "image-id"
+            if export is not None:
+                preexisting = image_ids(env)
             build_started = True
             built = snapshot.execute_process_group(["docker", "build", "--platform", bases["platform"],
                             "--tag", image, "--iidfile", str(iid),
@@ -123,17 +137,42 @@ def run(inputs, summary, env, home):
             summary["runtime"] = report
             summary["result"] = report["result"]
             summary["stage"] = "complete" if report["result"] == "pass" else "container-runtime-failed"
+            if export is not None and report["result"] == "pass":
+                summary["stage"] = "export-container"
+                export.save(identity, ROOT, context, summary["container_inputs"]["model"],
+                            snapshot.execute_process_group, env)
+                summary["stage"] = "complete"
     except pilot.PilotError as error:
         summary.update(result="fail", failure_code=str(error))
-    except (OSError, ValueError, TypeError, KeyError, pilot.tarfile.TarError, subprocess.SubprocessError):
+    except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError, EOFError,
+            pilot.tarfile.TarError, subprocess.SubprocessError):
         summary.update(result="fail", failure_code="container-execution-failed")
     finally:
         summary["container_cleanup"] = e2e.cleanup_resources(image, name, env=env)
+        if export is not None and identity is not None:
+            check = summary["container_cleanup"]["exported_images"] = {"result": "fail"}
+            try:
+                remaining = image_ids(env)
+                candidates = {identity}
+                if isinstance(export.archive, dict):
+                    candidates.update(export.archive["load_ids"])
+                check["identities"] = {value: {
+                    "preexisting": value in preexisting,
+                    "presence": "present" if value in remaining else "absent"
+                } for value in sorted(candidates)}
+                if not (candidates & remaining) - preexisting:
+                    check["result"] = "pass"
+            except (OSError, ValueError, TypeError, KeyError, pilot.PilotError, subprocess.SubprocessError):
+                check["presence"] = "unknown"
+            if check["result"] != "pass":
+                summary["container_cleanup"]["result"] = "fail"
         if build_started and not build_finished:
             # Client death does not prove server-side BuildKit cancellation.
             # A later image could appear: fail closed even if current lists are empty.
             summary["container_cleanup"].update(result="fail", build_completion="unknown")
         if runtime_started and not runtime_finished:
             summary["container_cleanup"].update(result="fail", runtime_completion="unknown")
+        if summary.get("export", {}).get("load_started") and not summary["export"].get("load_completed"):
+            summary["container_cleanup"].update(result="fail", load_completion="unknown")
         if summary["container_cleanup"]["result"] != "pass":
             summary.update(result="fail", failure_code="container-cleanup-unresolved")

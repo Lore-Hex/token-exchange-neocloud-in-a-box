@@ -8,6 +8,7 @@ if __name__ == "__main__" and not sys.flags.isolated:
     sys.exit("Run this recorder with python -I to exclude ambient Python imports.")
 
 import argparse
+from contextlib import ExitStack
 import datetime
 import json
 import os
@@ -66,11 +67,15 @@ def main():
     parser.add_argument("--slug", required=True)
     parser.add_argument("--linux-container", action="store_true",
                         help="Run the same real-model tests in a network-none local Linux container")
+    parser.add_argument("--export-image", type=Path,
+                        help="Atomically export the tested Linux image to a new private local bundle")
     args = parser.parse_args()
+    if args.export_image and not args.linux_container:
+        parser.error("--export-image requires --linux-container")
     if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", args.slug) or len(args.slug) > 64:
         raise ValueError("invalid evidence slug")
     started = now()
-    with tempfile.TemporaryDirectory(prefix="nib-qwen-proof-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="nib-qwen-proof-") as temporary, ExitStack() as pending_exports:
         work = Path(temporary)
         env = controlled_env(work / "control")
         if git(ROOT, env, "status", "--porcelain", stdout=subprocess.PIPE).stdout:
@@ -78,13 +83,20 @@ def main():
         source = work / "source"
         revision, expected, archive_digest = snapshot_commit(ROOT, source, work / "control", env)
         validate_bootstrap(source)
+        artifact = None
+        report = {}
         try:
             if args.linux_container:
                 runner, _ = load_source("container_pilot", source / "scripts/pilot/container.py")
                 report = {"result": "fail", "execution": "real-cpu-model", "confidential": False,
                           "hardware_validated": False, "public_endpoint": False,
                           "billing_integrated": False, "cloud_resources_created": False}
-                runner.run(args.inputs.resolve(), report, env, Path(pwd.getpwuid(os.getuid()).pw_dir))
+                if args.export_image:
+                    exporter, _ = load_source("pilot_export", source / "scripts/pilot/export.py")
+                    artifact = pending_exports.enter_context(exporter.Bundle(args.export_image,
+                        {"git_sha": revision, "archive_sha256": archive_digest}, report))
+                runner.run(args.inputs.resolve(), report, env, Path(pwd.getpwuid(os.getuid()).pw_dir),
+                           export=artifact)
                 returncode = 0 if report["result"] == "pass" else 1
             else:
                 result = execute_pilot([sys.executable, "-I", "-B", str(source / "scripts/pilot/run.py"),
@@ -99,17 +111,20 @@ def main():
                     or (report.get("result") == "pass") != (returncode == 0)):
                 raise ValueError("invalid pilot result")
         except (OSError, ValueError, AttributeError, subprocess.SubprocessError):
-            report = {"result": "fail", "execution": "real-cpu-model", "confidential": False,
-                      "hardware_validated": False, "failure_code": "pilot-execution-or-report-failed"}
+            if not isinstance(report, dict):
+                report = {}
+            report.update(result="fail", execution="real-cpu-model", confidential=False,
+                          hardware_validated=False, failure_code="pilot-execution-or-report-failed")
         validate_snapshot(source, expected)
         # Reuse the exclusive, traversal-resistant evidence scaffolder.
         nib = work / "nib"
         subprocess.run(["go", "build", "-trimpath", "-buildvcs=false", "-o", str(nib), "./cmd/nib"],
                        cwd=source, env=env, check=True, capture_output=True, timeout=180)
         record = {
-            "schema": "nib.evidence/v1", "phase": "P3", "task": "T7", "git_sha": revision,
+            "schema": "nib.evidence/v1", "phase": "P3", "task": "T8" if args.export_image else "T7", "git_sha": revision,
             "command": "python3 -I scripts/record-qwen-pilot.py --inputs " + str(args.inputs.resolve())
-                       + " --slug " + args.slug + (" --linux-container" if args.linux_container else ""),
+                       + " --slug " + args.slug + (" --linux-container" if args.linux_container else "")
+                       + (" --export-image " + str(args.export_image) if args.export_image else ""),
             "started_utc": started, "ended_utc": now(),
             "host": {"provider": "local", "machine": platform.system().lower() + "/" + platform.machine(),
                      "gpus": "none", "driver": None, "cuda": None},
@@ -126,6 +141,20 @@ def main():
         if not re.fullmatch(r"evidence/p3/\d{4}-\d{2}-\d{2}-" + args.slug, relative):
             raise ValueError("unexpected evidence path")
         destination = ROOT / relative
+        if artifact is not None:
+            try:
+                if report["result"] == "pass":
+                    artifact.publish()
+                else:
+                    artifact.abort()
+            except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                report.update(result="fail", failure_code="export-publication-failed")
+                try:
+                    artifact.abort()
+                except (OSError, ValueError):
+                    report["failure_code"] = "export-cleanup-unresolved"
+                record["result"] = "fail"
+        record["ended_utc"] = now()
         (destination / "output.log").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
         pending = destination / "run.json.pending"
         with pending.open("x") as stream:

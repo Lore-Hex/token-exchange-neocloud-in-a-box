@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import selectors
 import subprocess
 import tarfile
 import time
@@ -14,13 +15,20 @@ import time
 TOOL_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 
 
-def execute_process_group(args, *, env, cwd=None, timeout=1800, capture_output=True):
+def execute_process_group(args, *, env, cwd=None, timeout=1800, capture_output=True,
+                          stdout_file=None, max_output_bytes=None, stdin=None):
     """Bound the entire local tool tree, including Docker CLI plugins."""
     stream = subprocess.PIPE if capture_output else subprocess.DEVNULL
+    if ((stdout_file is not None and max_output_bytes is None)
+            or (max_output_bytes is not None and (not capture_output or max_output_bytes <= 0))):
+        raise ValueError("streaming output requires a byte limit")
     process = subprocess.Popen(args, env=env, cwd=cwd, start_new_session=True,
-                               stdout=stream, stderr=stream)
+                               stdout=stream, stderr=stream, stdin=stdin)
     try:
-        stdout, stderr = process.communicate(timeout=timeout)
+        if max_output_bytes is None:
+            stdout, stderr = process.communicate(timeout=timeout)
+        else:
+            stdout, stderr = bounded_output(process, args, timeout, stdout_file, max_output_bytes)
         return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
     finally:
         try:
@@ -48,6 +56,36 @@ def execute_process_group(args, *, env, cwd=None, timeout=1800, capture_output=T
             if time.monotonic() >= deadline:
                 raise ValueError("tool process-group absence unproven")
             time.sleep(0.05)
+
+
+def bounded_output(process, args, timeout, output, limit):
+    """Drain both pipes without retaining a Docker archive or unbounded diagnostics."""
+    deadline = time.monotonic() + timeout
+    buffers = {process.stdout: bytearray(), process.stderr: bytearray()}
+    sizes = dict.fromkeys(buffers, 0)
+    with selectors.DefaultSelector() as selector:
+        for pipe in buffers:
+            selector.register(pipe, selectors.EVENT_READ)
+        while selector.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(args, timeout)
+            for key, _ in selector.select(min(remaining, 0.1)):
+                pipe = key.fileobj
+                chunk = os.read(pipe.fileno(), 65536)
+                if not chunk:
+                    selector.unregister(pipe)
+                    continue
+                sizes[pipe] += len(chunk)
+                if sizes[pipe] > (limit if pipe is process.stdout else 65536):
+                    raise ValueError("tool output limit exceeded")
+                if pipe is process.stdout and output is not None:
+                    if output.write(chunk) != len(chunk):
+                        raise ValueError("short tool output write")
+                else:
+                    buffers[pipe].extend(chunk)
+        process.wait(timeout=max(0, deadline - time.monotonic()))
+    return bytes(buffers[process.stdout]), bytes(buffers[process.stderr])
 
 
 def controlled_env(control):

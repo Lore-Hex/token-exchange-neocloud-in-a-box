@@ -1,0 +1,214 @@
+{
+  "billing_integrated": false,
+  "cloud_resources_created": false,
+  "confidential": false,
+  "container": {
+    "image_id": "sha256:57b36658ad6605653285088bba2406e52863746192ac96237399375e802b4d33",
+    "network": "none",
+    "platform": "linux/amd64",
+    "published": false,
+    "read_only": true
+  },
+  "container_cleanup": {
+    "container": {
+      "absence": "confirmed",
+      "removal": {
+        "exit_code": 0,
+        "status": "exited"
+      },
+      "resource": "nib-qwen-98e237b8f8d7"
+    },
+    "exported_images": {
+      "identities": {
+        "sha256:57b36658ad6605653285088bba2406e52863746192ac96237399375e802b4d33": {
+          "preexisting": false,
+          "presence": "absent"
+        },
+        "sha256:871d8bfe8cff5bebef724b13e43f962e24b15dd7cb61471dbb98408fa91470f7": {
+          "preexisting": false,
+          "presence": "absent"
+        },
+        "sha256:8bffd1648790c44320dd80d19fd145338c80f1440ee72cc0f56c4caa67a72991": {
+          "preexisting": false,
+          "presence": "absent"
+        },
+        "sha256:95f04f3b917c5f62353119db2f52b65defe55c77d497fec6fb8e62d614822b80": {
+          "preexisting": false,
+          "presence": "absent"
+        }
+      },
+      "result": "pass"
+    },
+    "image": {
+      "absence": "confirmed",
+      "removal": {
+        "exit_code": 0,
+        "status": "exited"
+      },
+      "resource": "nib-qwen-local:98e237b8f8d7"
+    },
+    "result": "pass"
+  },
+  "container_inputs": {
+    "base_images": {
+      "go_image": "docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61",
+      "platform": "linux/amd64",
+      "python_image": "docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2",
+      "schema": "nib.e2e-pins/v1",
+      "trcs": {
+        "archive_sha256": "e1beeffa430048e823b60c8ec6e7cdc34851053d2af04e57d882c0a76af31bf3",
+        "binary_sha256": "9669c0358f8cc7951bd8da3f85c59994d2f87288f744cca7d54c5532ced0110c",
+        "commit": "8a87d9765ceabe76bbfa5e56a72c91da6d8290d5"
+      }
+    },
+    "context_sha256": "3eb43f4f55752664dcb5a52de9b237acd0c7bfed2ae8dfc8be7c37a665087723",
+    "model": {
+      "engine": {
+        "archive_sha256": "1d4a987d9bd048f6e93107e838026438df70fbde237fc0c69c63d600512b4bd9",
+        "repository": "ggml-org/llama.cpp",
+        "revision": "620d2225cc436ab0b001e3200e590e3b286ef9ab"
+      },
+      "model": {
+        "bytes": 639446688,
+        "filename": "Qwen3-0.6B-Q8_0.gguf",
+        "repository": "Qwen/Qwen3-0.6B-GGUF",
+        "revision": "23749fefcc72300e3a2ad315e1317431b06b590a",
+        "sha256": "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031"
+      },
+      "model_id": "qwen/qwen3-0.6b",
+      "schema": "nib.local-pilot/v1"
+    }
+  },
+  "execution": "real-cpu-model",
+  "export": {
+    "archive": {
+      "bytes": 676191744,
+      "config_id": "sha256:95f04f3b917c5f62353119db2f52b65defe55c77d497fec6fb8e62d614822b80",
+      "image_id": "sha256:57b36658ad6605653285088bba2406e52863746192ac96237399375e802b4d33",
+      "layers": 13,
+      "load_ids": [
+        "sha256:57b36658ad6605653285088bba2406e52863746192ac96237399375e802b4d33",
+        "sha256:871d8bfe8cff5bebef724b13e43f962e24b15dd7cb61471dbb98408fa91470f7",
+        "sha256:8bffd1648790c44320dd80d19fd145338c80f1440ee72cc0f56c4caa67a72991",
+        "sha256:95f04f3b917c5f62353119db2f52b65defe55c77d497fec6fb8e62d614822b80"
+      ],
+      "platform": "linux/amd64",
+      "sha256": "f3b1bbaa89543debcb67a5978c58ce38f50c44698606269ca2e2d9b581e34e90"
+    },
+    "cleanup": "pass",
+    "load_checked": true,
+    "load_completed": true,
+    "load_started": true,
+    "local_only": true,
+    "published": true,
+    "result": "pass",
+    "stage": "verified"
+  },
+  "hardware_validated": false,
+  "public_endpoint": false,
+  "result": "pass",
+  "runtime": {
+    "backend_failure_rejected": true,
+    "billing_integrated": false,
+    "built_binary_sha256": {
+      "llama-server": "628396ef10be65c73a402e70ad56f969735fed450a5f9fcde58cf1fcfd059d6f",
+      "trcs": "9669c0358f8cc7951bd8da3f85c59994d2f87288f744cca7d54c5532ced0110c"
+    },
+    "cleanup": "processes-stopped-and-temporary-files-removed",
+    "cloud_resources_created": false,
+    "confidential": false,
+    "execution": "real-cpu-model",
+    "hardware_validated": false,
+    "inference": {
+      "known_answer": "pass",
+      "unauthorized_rejected": true,
+      "usage": {
+        "completion_tokens": 2,
+        "prompt_tokens": 24,
+        "total_tokens": 26
+      }
+    },
+    "pins": {
+      "engine": {
+        "archive_sha256": "1d4a987d9bd048f6e93107e838026438df70fbde237fc0c69c63d600512b4bd9",
+        "repository": "ggml-org/llama.cpp",
+        "revision": "620d2225cc436ab0b001e3200e590e3b286ef9ab"
+      },
+      "model": {
+        "bytes": 639446688,
+        "filename": "Qwen3-0.6B-Q8_0.gguf",
+        "repository": "Qwen/Qwen3-0.6B-GGUF",
+        "revision": "23749fefcc72300e3a2ad315e1317431b06b590a",
+        "sha256": "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031"
+      },
+      "model_id": "qwen/qwen3-0.6b",
+      "schema": "nib.local-pilot/v1",
+      "trcs": {
+        "archive_sha256": "e1beeffa430048e823b60c8ec6e7cdc34851053d2af04e57d882c0a76af31bf3",
+        "commit": "8a87d9765ceabe76bbfa5e56a72c91da6d8290d5"
+      }
+    },
+    "provider": {
+      "checks": {
+        "callability.advertised-models": "pass",
+        "catalog.declared-v2": "skip",
+        "catalog.native-model-discovery": "pass",
+        "chat.finish-reason": "pass",
+        "chat.forwarded-fields": "pass",
+        "chat.max-token-spelling": "pass",
+        "chat.model": "pass",
+        "chat.non-empty": "pass",
+        "chat.pong": "pass",
+        "chat.temperature-zero": "pass",
+        "chat.usage": "pass",
+        "stream.done": "pass",
+        "stream.error-signaling": "pass",
+        "stream.first-delta": "pass",
+        "stream.incremental-delivery": "pass",
+        "stream.response-status": "pass",
+        "stream.sse-framing": "pass",
+        "stream.usage": "pass"
+      },
+      "result": "pass"
+    },
+    "public_endpoint": false,
+    "result": "pass",
+    "runtime_platform": {
+      "machine": "x86_64",
+      "system": "Linux"
+    },
+    "service": {
+      "catalog_v2": "pass",
+      "graceful_shutdown": "pass",
+      "inflight_stream_drained": "pass",
+      "listeners_closed": "pass",
+      "output_limit": "pass",
+      "retirement_declared": "pass"
+    },
+    "service_provider": {
+      "checks": {
+        "callability.advertised-models": "pass",
+        "catalog.declared-v2": "pass",
+        "catalog.native-model-discovery": "pass",
+        "chat.finish-reason": "pass",
+        "chat.forwarded-fields": "pass",
+        "chat.max-token-spelling": "pass",
+        "chat.model": "pass",
+        "chat.non-empty": "pass",
+        "chat.pong": "pass",
+        "chat.temperature-zero": "pass",
+        "chat.usage": "pass",
+        "stream.done": "pass",
+        "stream.error-signaling": "pass",
+        "stream.first-delta": "pass",
+        "stream.incremental-delivery": "pass",
+        "stream.response-status": "pass",
+        "stream.sse-framing": "pass",
+        "stream.usage": "pass"
+      },
+      "result": "pass"
+    },
+    "stage": "complete"
+  },
+  "stage": "complete"
+}
