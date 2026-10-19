@@ -12,6 +12,7 @@ import (
 	"io"
 	"math/big"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -217,10 +218,51 @@ func decode(data []byte, requireJSON bool) (any, error) {
 	if err := checkYAML(&node, 0); err != nil {
 		return nil, err
 	}
+	var value any
+	var err error
 	if json.Valid(data) {
-		return jsonschema.UnmarshalJSON(bytes.NewReader(data))
+		value, err = jsonschema.UnmarshalJSON(bytes.NewReader(data))
+	} else {
+		value, err = yamlValue(&node)
 	}
-	return yamlValue(&node)
+	if err != nil {
+		return nil, err
+	}
+	if err := boundNumbers(value); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+// Bound the representation before arbitrary-precision schema arithmetic. A
+// byte limit alone does not bound the work implied by a short exponent.
+func boundNumbers(value any) error {
+	switch v := value.(type) {
+	case json.Number:
+		s := string(v)
+		if len(s) > 128 {
+			return errors.New("numeric representation exceeds limit")
+		}
+		if i := strings.IndexAny(s, "eE"); i >= 0 {
+			exponent, err := strconv.ParseInt(s[i+1:], 10, 16)
+			if err != nil || exponent < -1024 || exponent > 1024 {
+				return errors.New("numeric exponent exceeds limit")
+			}
+		}
+	case map[string]any:
+		for _, child := range v {
+			if err := boundNumbers(child); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, child := range v {
+			if err := boundNumbers(child); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func yamlValue(n *yaml.Node) (any, error) {
@@ -252,7 +294,7 @@ func yamlValue(n *yaml.Node) (any, error) {
 			// Do not round through float64: schema integer/maximum assertions
 			// must see the original mathematical value, including exponents.
 			num, err := jsonschema.UnmarshalJSON(strings.NewReader(n.Value))
-			if _, ok := num.(json.Number); err != nil || !ok || len(n.Value) > 128 {
+			if _, ok := num.(json.Number); err != nil || !ok {
 				return nil, errors.New("YAML number must use JSON numeric syntax")
 			}
 			return num, nil
