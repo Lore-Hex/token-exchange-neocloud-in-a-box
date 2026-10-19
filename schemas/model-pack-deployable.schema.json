@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.neocloud.invalid/nib/model-pack-deployable.schema.json",
+  "$comment": "SPDX-License-Identifier: Apache-2.0. Completeness only; does not prove a build or a hardware run.",
+  "allOf": [
+    {"$ref": "model-pack.schema.json"},
+    {"properties": {
+      "weights_volume": {"properties": {"verity_root_hash": {"$ref": "common.schema.json#/$defs/sha256"}}},
+      "engine_profiles": {"minProperties": 1}
+    }},
+    {
+      "$comment": "Conventional TDX names are checked here. Repository release validation also checks custom profile names using hardware CC context. PLAN 3.1 and P5.T4.",
+      "if": {"anyOf": [
+        {"properties": {"hf_repo": {"pattern": "^[Dd][Ee][Ee][Pp][Ss][Ee][Ee][Kk]-[Aa][Ii]/"}}},
+        {"properties": {"id": {"pattern": "^deepseek-"}}},
+        {"properties": {"tr_model_id": {"pattern": "^deepseek/"}}}
+      ]},
+      "then": {"properties": {"engine_profiles": {"patternProperties": {
+        "(^|-)tdx($|-)": {"$ref": "model-pack-confidential.schema.json#/$defs/noUVA"}
+      }}}}
+    }
+  ]
+}
