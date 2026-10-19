@@ -8,14 +8,17 @@ were wrong. PLAN changes belong to its separate owner. Packs remain not deployab
 until built weight images and hardware validation exist. A newly verified
 Tinfoil-only global-UVA patch prevents claiming upstream CC compatibility.
 
-## Current Security Blocker
+## Engine Security Update
 
-The selected vLLM 0.31.0 remains a reference candidate. The official
+The former vLLM 0.31.0 candidate is replaced with the official 0.32.0
+Linux/amd64 pin. The official
 [v0.32.0 release notes](https://github.com/vllm-project/vllm/releases/tag/v0.32.0)
-announce newer security fixes, detailed in [SOURCES.md](SOURCES.md). A security
-upgrade and review are required before deployment beyond isolated plain P2
-synthetic-only testing. Do not expose the candidate to users or untrusted traffic.
-Pins remain unchanged pending matching recipe and immutable-image verification.
+announce security fixes, detailed in [SOURCES.md](SOURCES.md). The current checker
+binds the image's manifest/configuration metadata to the reviewed source revision.
+This resolves the old-version selection problem, not runtime security or CC
+compatibility. Full-model testing, layer/dependency review, and the global UVA
+and hardware blockers remain. Do not expose the candidate to untrusted traffic.
+The 0.31.0/Tinfoil details below are preserved historical audit results.
 
 ## Complete-Manifest Totals
 

@@ -25,8 +25,8 @@ import (
 	"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/modelpack"
 )
 
-const upstreamImage = "vllm/vllm-openai@sha256:a4a4c0437bf7240089da5f08aa370c4aee17ae5290f7a3b468825ee26c4c3a6b"
-const tinfoilImage = "ghcr.io/tinfoilsh/confidential-deepseek-v4-1-flash@sha256:989d5d0d8c02b240254f39ada9ac4e898c430ac955b12feb68070d41bb12b639"
+const upstreamRevision = "5df63a7203cdb9328d824a27b682e77c7b9928be"
+const upstreamImage = "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9"
 
 var packs = []struct {
 	dir, repo, revision string
@@ -68,12 +68,12 @@ func run(args []string) error {
 	}
 	var output bytes.Buffer
 	var report struct {
-		Sources           []sourceProof           `json:"sources"`
-		Models            []*modelpack.Manifest   `json:"models"`
-		Images            []*modelpack.ImageProof `json:"images"`
-		ManifestSHA256    map[string]string       `json:"manifest_sha256"`
-		Mode              string                  `json:"mode"`
-		HardwareValidated bool                    `json:"hardware_validated"`
+		Sources           []sourceProof                 `json:"sources"`
+		Models            []*modelpack.Manifest         `json:"models"`
+		Images            []*modelpack.EngineImageProof `json:"images"`
+		ManifestSHA256    map[string]string             `json:"manifest_sha256"`
+		Mode              string                        `json:"mode"`
+		HardwareValidated bool                          `json:"hardware_validated"`
 	}
 	report.Mode = mode
 	report.ManifestSHA256 = make(map[string]string)
@@ -85,15 +85,13 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintln(&output, "Immutable engine sources hashed; global VLLM_DISABLE_UVA requires Tinfoil's patch, absent from the upstream base.")
-		for _, image := range []string{upstreamImage, tinfoilImage} {
-			proof, err := modelpack.VerifyImage(ctx, image)
-			if err != nil {
-				return err
-			}
-			report.Images = append(report.Images, proof)
-			fmt.Fprintf(&output, "Registry manifest digest verified: %s (%d bytes); no layers downloaded.\n", proof.Image, proof.ManifestBytes)
+		fmt.Fprintln(&output, "vLLM v0.32.0 release revision and immutable configuration sources checked; no global upstream VLLM_DISABLE_UVA setting. CC remains blocked.")
+		proof, err := modelpack.VerifyEngineImage(ctx, upstreamImage, upstreamRevision)
+		if err != nil {
+			return err
 		}
+		report.Images = append(report.Images, proof)
+		fmt.Fprintf(&output, "Engine manifest/configuration metadata verified: %s (%d manifest bytes); no layers downloaded. This is not a signed build-provenance or runtime proof.\n", proof.Image, proof.ManifestBytes)
 		for _, p := range packs {
 			m, err := modelpack.Generate(ctx, p.repo, p.revision)
 			if err != nil {
