@@ -1,0 +1,12 @@
+{
+  "bundle_sha256": "e037fbe30f389c9b99406cb4389ab4aea8e634b360c6b18c1f69cfcbb2c04f1f",
+  "candidate_status": "BLOCKED",
+  "deployable": false,
+  "failure_code": "candidate-check-failed",
+  "focused_tests": 35,
+  "git_sha": "bd336219a65d4e471f14866011be046b86cc6d76",
+  "hardware_validated": false,
+  "public_sources": [],
+  "result": "fail",
+  "scope": "source-and-software-contracts-only"
+}

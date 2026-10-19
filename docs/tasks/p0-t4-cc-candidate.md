@@ -31,12 +31,14 @@ indexing. Whole-module AST comparisons outside the intended additions protect
 these semantics; `async_copy_to_np(copy=True)` is also retained. This is source
 equivalence testing, not execution of all those release features.
 
-The second patch is byte-identical to upstream commit 3. The third and fourth
-are local Apache-licensed hardening patches. Every touched file has five SHA-256
+The second patch is byte-identical to upstream commit 3. The third through fifth
+are local Apache-licensed hardening patches. Every touched file has six SHA-256
 values in the manifest: release base (null for the new helper), rebased first
 patch, upstream ordering correction, strict selection/buffer ordering, and the
-generic CUDA host-mapping guard. The first three patches and their stage hashes
-are unchanged by the fourth patch. No intermediate stage is usable.
+generic CUDA host-mapping guard, followed by collective-constructor guards.
+The first four patches and their stage hashes are unchanged. Two new unmodified
+base inputs have identical hashes through stage 4, then change at stage 5.
+No intermediate stage is usable.
 
 ## Selection And Ordering
 
@@ -93,6 +95,61 @@ whole-module release comparison excludes only the deliberate additions; all
 existing release-semantics and stream-ordering tests still run. These checks do
 not establish GPU memory coherence or coverage of other mapping/collective paths.
 
+## Collective Constructor Guards
+
+Patch 5 checks the pinned
+[`CudaCommunicator.__init__`](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/distributed/device_communicators/cuda_communicator.py#L35-L179)
+at entry, before even its base constructor. On CC selection it requires:
+
+- `parallel_config.disable_custom_all_reduce is True` and the actual
+  `_ENABLE_CUSTOM_ALL_REDUCE is False`; inconsistent config/global state rejects.
+- `VLLM_ALLREDUCE_USE_SYMM_MEM`, `VLLM_ALLREDUCE_USE_FLASHINFER`,
+  `VLLM_ALLREDUCE_USE_FLASHINFER_PCIE_IPC` and `VLLM_USE_NCCL_SYMM_MEM` all false.
+
+These are the release's existing control names, not new runtime options. Its
+[environment readers](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/envs.py#L1965-L1978)
+default the first two on; therefore defaults do not satisfy this candidate.
+The [NCCL symmetric-memory reader](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/envs.py#L2098-L2101)
+is checked before communicator construction or registration. Flags masked by
+batch invariance, a non-TP group, or world size one still reject if enabled.
+There is no silent flag rewrite or custom/symmetric-memory fallback.
+The pinned [allocator predicate](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/distributed/device_communicators/pynccl_allocator.py#L49-L51)
+reads that same NCCL flag directly; no separate cached enablement is inferred.
+
+Missing config, non-boolean controls and reader exceptions fail with a fixed
+diagnostic. A shared helper rejects failed or non-boolean platform selection
+with a fixed exception and suppressed raw exception context. It selects a
+software policy, not confidential hardware. On a genuine boolean false result,
+the original constructor body is unchanged. All-off CC tests construct only the
+ordinary fake PyNCCL communicator; this does not qualify NCCL or hardware.
+
+The separate
+[`AllReduceFusionPass.__init__`](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/compilation/passes/fusion/allreduce_rms_fusion.py#L984-L1066)
+rejects any CC construction before its base constructor, workspace allocators or
+pattern registration. This guards direct construction even when a caller sets
+`fuse_allreduce_rms=true`; no reliance on a default-selection predicate remains
+at this entry point. Non-CC workspace and pattern setup is preserved.
+
+The pinned, unmodified
+[`supports_mhc_all_reduce`](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/models/deepseek_v41/nvidia/ops/mhc.py#L59-L72)
+is retained under `audit/` as source-only test input. At TP4/EP-off with matching
+model dimensions it returns false when `ca_comm` is None. Its positive control
+uses a fake multicast pointer, never a kernel. This proves the normal predicate
+path, not prohibition of direct calls to lower-level mHC routines.
+
+The two new base files and the audit input carry immutable release URLs, byte
+counts, SHA-256 and Git blob IDs in the manifest. The checker independently
+enforces those blob IDs. Full-module AST comparisons outside the deliberate
+entry guards preserve release behavior; test constructors use fake base classes,
+backends and allocators without importing upstream packages.
+
+Retain TP4, EP off, Engram `cpu_offload:false`, and `VLLM_ENABLE_GEMM_RS=0` as
+candidate prerequisites. The pinned
+[DS GEMM-RS selector](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/models/deepseek_v41/nvidia/model.py#L259-L279)
+is separate from these guards; the new patch does not qualify or harden it,
+EngramPeerExchange, EP backends, other raw allocators, or changing settings after
+construction. No pack/profile is activated or edited by this increment.
+
 ## Reproduction
 
 From the repository root with Python 3.11+ and Git, on Linux/macOS, no installed
@@ -136,8 +193,8 @@ the local trusted checkout remain trusted. Stop other writers during recording.
 Uncommitted candidate/test edits are ignored in recording mode; commit intended
 changes first. There is no `git status`/checkout/filter execution in the recorder.
 
-`--fetch` makes exactly eleven fixed anonymous HTTPS GETs: ten release source
-files and LICENSE at the immutable base on `raw.githubusercontent.com`. No
+`--fetch` makes exactly fourteen fixed anonymous HTTPS GETs: twelve release base
+files, the mHC audit source and LICENSE at the immutable base on `raw.githubusercontent.com`. No
 credentials, cookies, environment proxy, redirects, retries, package downloads,
 Git history, image layers or weights are used. Each body is limited to its exact
 pinned byte length plus one overflow byte; all bytes must equal the committed
@@ -189,6 +246,22 @@ records 25 focused tests, including the missing-promisor local-helper positive
 control, and the unchanged four candidate patch stages. Input bundle SHA-256:
 `592633db3d73da57602483ccf0db98640cf5fef10c2a95a480c846a5b33fd27d`.
 No public-source fetch was requested; software-only/BLOCKED limitations remain.
+These earlier runs predate the fifth patch and do not prove its guards.
+
+The five-stage [collective-guard run](../../evidence/p0/2026-10-19T201457Z-vllm-cc-candidate/run.json)
+passed from `bd336219a65d4e471f14866011be046b86cc6d76`. Its
+[structured output](../../evidence/p0/2026-10-19T201457Z-vllm-cc-candidate/output.log)
+records 35 software contracts, all six per-file hash states, the unchanged mHC
+audit input, and fourteen public source comparisons totaling 457,301 bytes.
+Input bundle SHA-256:
+`e037fbe30f389c9b99406cb4389ab4aea8e634b360c6b18c1f69cfcbb2c04f1f`.
+The initial [sandboxed attempt](../../evidence/p0/2026-10-19T201401Z-vllm-cc-candidate/run.json)
+failed during DNS resolution after software tests passed; its fixed-error record
+is retained. The retry used the same committed source with public HTTPS reads
+permitted. Full local `make check` passed 142 Python tests and both Go race
+variants. Independent final-head review remains separate. These are source and
+fake-object software results only; BLOCKED/deployable-false/image-null and every
+hardware/runtime gate remain unchanged.
 
 ## Remaining Gates
 
@@ -199,8 +272,10 @@ No public-source fetch was requested; software-only/BLOCKED limitations remain.
 - Multi-GPU settings, device inventory/readiness, production versus devtools,
   CPU/GPU evidence and topology qualification remain blocked. No interpretation
   of `multiGpuMode` is added here.
-- DS V2 runner coverage, mHC/NCCL symmetric-memory multicast and GEMM-RS paths
-  need a source audit and real testing for the exact intended topology. See
+- DS V2 runner coverage, lower-level mHC/NCCL symmetric-memory multicast and
+  GEMM-RS paths still need real qualification for the exact intended topology.
+  The constructor guards and mHC predicate test do not qualify the remaining
+  kernels, direct-call paths or ordinary NCCL. See
   [DS collectives](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/models/deepseek_v41/nvidia/ops/mhc.py).
 - [Engram](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/models/deepseek_v41/common/engram.py#L981)
   with CPU offload requires UVA and raises when unavailable; the patch does not

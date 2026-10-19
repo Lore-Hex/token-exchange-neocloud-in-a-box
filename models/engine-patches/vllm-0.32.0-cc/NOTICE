@@ -15,6 +15,9 @@ ZMQ listener imports/lifecycle, asynchronous fallback copies and 64-bit indexing
 of attestation, and unconditionally orders staged-buffer stream handoff.
 0004 rejects generic CUDA host mapping when the candidate CC path is selected,
 using a fixed error instead of silently replacing a required alias with a copy.
+0005 adds constructor-entry collective/fusion guards and shared strict software
+selection. Two additional unmodified release files are pinned under base/;
+the unmodified mHC source under audit/ is a predicate test input, not a patch.
 
 All base files retain upstream copyright/SPDX headers. The patches are marked
 modified and remain Apache-2.0. Upstream benchmark statements in original patch
