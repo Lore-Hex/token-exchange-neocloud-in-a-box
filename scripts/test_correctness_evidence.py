@@ -2,10 +2,130 @@
 import hashlib
 import json
 from pathlib import Path
+import tempfile
+import types
 import unittest
+from unittest import mock
 
 
 class CorrectnessEvidenceTests(unittest.TestCase):
+    def test_vendored_attempt_stopped_before_entry_with_historical_payload_binding(self):
+        import test_engine_cpu_entry as cpu_tests
+
+        tool = cpu_tests.tool
+        root = Path(__file__).resolve().parents[1]
+        directory = root / "evidence/p2/2026-10-20-cpu-vendored-7fb794a"
+        revision = "7fb794a442287bb6c7ac974c2a72f1067ed22fe6"
+        documents = []
+        for name, digest in (
+            ("run.json", "3b013bb7e0597537cfaec42d20bba1683794ccac4b295a2538f949483e575f28"),
+            ("output.log", "3e25936d68048e5e5c92ac1772a8674838a0ebc9bee3728d2fc72e8bd9b9c092"),
+        ):
+            raw = (directory / name).read_bytes()
+            self.assertLessEqual(len(raw), 65536)
+            self.assertEqual(hashlib.sha256(raw).hexdigest(), digest)
+            documents.append(json.loads(raw))
+        run, report = documents
+        self.assertEqual((run["git_sha"], run["execution"], run["result"]), (revision, "software", "fail"))
+        self.assertEqual((run["started_utc"], run["ended_utc"]),
+                         ("2026-10-20T16:12:39Z", "2026-10-20T16:25:06Z"))
+        self.assertEqual(run["command"], "python3 -I -S scripts/record-engine-cpu-entry.py --slug cpu-vendored-7fb794a")
+        self.assertEqual(run["host"], {"provider": "local", "machine": "local-software-experiment",
+                                      "gpus": "none", "driver": None, "cuda": None})
+        self.assertFalse(run["hardware_validated"])
+        self.assertEqual((report["stage"], report["cleanup"], report["result"]), ("completed", "confirmed", "fail"))
+        experiment = report["experiment"]
+        self.assertEqual(experiment["stage"], "application")
+        self.assertEqual(experiment["failure"], "bounded-cpu-entry-rejected")
+        self.assertEqual(experiment["phase_elapsed_ms"],
+                         {"application-preflight": 18233, "application": 701769, "entry": None})
+        self.assertIsNone(experiment["application"])
+        self.assertIsNone(experiment["entry"])
+        for row in (report, experiment):
+            for key in ("entry_pass", "confidential", "deployable", "inference_started", "hardware_validated", "abi_validated"):
+                self.assertIs(row[key], False)
+            self.assertEqual(row["execution"], "software")
+        self.assertEqual(report["candidate_status"], "BLOCKED")
+        self.assertEqual(experiment["status"], "BLOCKED")
+
+        # Execute only pinned repository preparation helpers, never the payload,
+        # Docker or upstream sources. Preserve the historical helper closure.
+        names = (
+            "scripts/record-engine-cpu-entry.py", "scripts/engine_cpu_entry.py", "scripts/engine_lab.py",
+            "scripts/engine_lab_bootstrap.py", "scripts/record-engine-import-smoke.py",
+            "scripts/prepare-engine-application.py", "scripts/engine_application.py",
+            "scripts/engine_python_bootstrap.py", "scripts/engine_import_smoke.py",
+            "scripts/record-engine-image.py", "scripts/prepare-engine-overlay.py",
+            "scripts/engine_overlay.py", "scripts/check-engine-candidate.py",
+            "scripts/e2e/snapshot.py", "scripts/engine_image_diagnostic.py",
+            "scripts/engine_python_descriptor.py",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            source_root = Path(temporary).resolve()
+            for name in names:
+                raw = tool.checker.git(root, "show", revision + ":" + name)
+                self.assertLessEqual(len(raw), 2 << 20)
+                path = source_root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(raw)
+            source = (source_root / names[0]).read_bytes()
+            self.assertEqual(hashlib.sha256(source).hexdigest(),
+                             "f007c3b3470ae92d09d245f6efb1a65b3cfe895abd3ce8d5ac8c5a3f87d2a9f1")
+            historical = types.ModuleType("historical_cpu_entry")
+            historical.__file__ = str(source_root / names[0])
+            exec(compile(source, historical.__file__, "exec"), historical.__dict__)
+            original_git = historical.checker.git
+
+            def source_git(repo, *args, **kwargs):
+                if args == ("rev-parse", "--verify", "HEAD^{commit}"):
+                    return (revision + "\n").encode()
+                return original_git(repo, *args, **kwargs)
+
+            with mock.patch.object(historical.checker, "git", side_effect=source_git):
+                files, contract = historical.prepare_files(*historical.inputs(root))
+            overlay = historical.overlay
+            payload = overlay.bundle_digest(files)
+            self.assertEqual(payload, "d0246f9465eb864072203397ed2b495ae15c4694fbbf4b79c4673b2648d9b4a8")
+            provenance = report["provenance"]
+            self.assertEqual(provenance["payload_sha256"], payload)
+            self.assertEqual(provenance["git_sha"], revision)
+            self.assertEqual(provenance["source_bundle_sha256"], contract["source_bundle_sha256"])
+            self.assertEqual(provenance["measurement_sha256"], contract["measurement_sha256"])
+            self.assertEqual(provenance["expected_config_sha256"], contract["official_config"]["sha256"])
+            self.assertEqual(provenance["requested_image"], overlay.BASE_IMAGE)
+            self.assertTrue(provenance["raw_oci_metadata_verified"])
+            self.assertIn(payload, run["notes"])
+            self.assertTrue(report["image"]["raw_config_link_verified"])
+            self.assertFalse(report["image"]["local_config_bytes_rehashed"])
+            self.assertFalse(report["image"]["local_layers_rehashed"])
+            self.assertEqual(report["image"]["manifest_sha256"], overlay.BASE_IMAGE.split("@sha256:")[1])
+            self.assertEqual(report["image"]["raw_config_sha256"], contract["official_config"]["sha256"])
+            self.assertEqual(report["image"]["platform"], "linux/amd64")
+            # Match the producer's validator-source selection without building
+            # or invoking a second validator in this artifact regression.
+            entries = original_git(root, "ls-tree", "-r", "-z", revision, "--",
+                                   "go.mod", "go.sum", "cmd/nib", "internal", "schemas")
+            validator = {}
+            for entry in entries.split(b"\0"):
+                if not entry:
+                    continue
+                meta, name = entry.decode().split("\t")
+                mode, kind, oid = meta.split()
+                self.assertIn(mode, ("100644", "100755"))
+                self.assertEqual(kind, "blob")
+                self.assertLessEqual(int(original_git(root, "cat-file", "-s", oid)), historical.checker.LIMIT)
+                validator[name] = original_git(root, "cat-file", "blob", oid)
+            self.assertEqual(overlay.bundle_digest(validator), provenance["validator_source_sha256"])
+            application = overlay.load_json(files["application/contract.json"])
+            measured = historical.builder.application.measurement(overlay, files["application/measurement.json"])
+            self.assertEqual(historical.cpu.APPLICATION_SECONDS, 720)
+            self.assertEqual(sum(value for value in experiment["phase_elapsed_ms"].values() if value is not None),
+                             historical.cpu.APPLICATION_SECONDS * 1000 + 2)
+            self.assertFalse(historical.cpu.validate(overlay, experiment, application, measured, historical.base.smoke))
+            with self.assertRaises(ValueError):
+                historical.cpu.validate(overlay, {**experiment, "entry_pass": True},
+                                        application, measured, historical.base.smoke)
+
     def test_cpu_entry_failure_records_only_the_observed_import_boundary(self):
         for name, source, run_digest, output_digest in (
             ("cpu-entry-125036c", "125036cb61a9d15d624f5d1c8a0c65d69076574c",
