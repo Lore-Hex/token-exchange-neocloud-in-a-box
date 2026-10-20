@@ -293,6 +293,34 @@ if __name__ == "__main__":
 '''
 
 
+class BootstrapLayoutTests(unittest.TestCase):
+    def test_symlinked_sysconfig_roots_are_canonical_before_sealed_launch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            actual = [str(Path(path).resolve(strict=True)) for path in
+                      (sysconfig.get_path("stdlib"), sysconfig.get_config_var("DESTSHARED"))]
+            aliases = [root / "stdlib-alias", root / "extensions-alias"]
+            for alias, target in zip(aliases, actual):
+                alias.symlink_to(target, target_is_directory=True)
+            fixture = BootstrapTests("test_real_spawn_grandchild_fresh_tracker_before_unpickle")
+            self.addCleanup(fixture.doCleanups)
+            with mock.patch.object(sysconfig, "get_path", return_value=str(aliases[0])), \
+                    mock.patch.object(sysconfig, "get_config_var", return_value=str(aliases[1])):
+                fixture.setUp()
+            self.assertEqual(fixture.layout["stdlib_roots"], actual)
+            self.assertEqual(fixture.layout["paths"][:2], actual)
+            fixture.test_real_spawn_grandchild_fresh_tracker_before_unpickle()
+
+            # The fixture correction must not relax the runtime's canonical-root check.
+            fixture.layout["stdlib_roots"] = [str(path) for path in aliases]
+            fixture.layout["paths"][:2] = fixture.layout["stdlib_roots"]
+            (fixture.root / "layout.json").write_text(json.dumps(fixture.layout))
+            result = subprocess.run([fixture.layout["wrapper"], "fresh"], cwd="/",
+                                    capture_output=True, timeout=45)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(b"lab Python boundary rejected", result.stderr)
+
+
 class BootstrapTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -317,7 +345,8 @@ class BootstrapTests(unittest.TestCase):
         dist = self.package / "setuptools-80.10.2.dist-info"
         dist.mkdir()
         (dist / "METADATA").write_text("Name: setuptools\nVersion: 80.10.2\n")
-        stdlib = [sysconfig.get_path("stdlib"), sysconfig.get_config_var("DESTSHARED")]
+        stdlib = [str(Path(path).resolve(strict=True)) for path in
+                  (sysconfig.get_path("stdlib"), sysconfig.get_config_var("DESTSHARED"))]
         self.layout = {"paths": stdlib + [str(self.package)], "stdlib_roots": stdlib,
                        "launcher": str(self.root / "launch.py"), "wrapper": str(self.root / "python")}
         (self.root / "layout.json").write_text(json.dumps(self.layout))
