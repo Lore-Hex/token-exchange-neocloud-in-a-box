@@ -67,10 +67,11 @@ class FakeNvml:
 
 
 class FakeCapture:
-    def __init__(self, mutation=None, verified_mutation=None):
+    def __init__(self, mutation=None, verified_mutation=None, signed_mutation=None):
         self.calls = []
         self.mutation = mutation
         self.verified_mutation = verified_mutation
+        self.signed_mutation = signed_mutation
         self.token_path = None
 
     def __call__(self, args, **options):
@@ -80,8 +81,11 @@ class FakeCapture:
         if "attest" in args:
             if self.mutation:
                 self.mutation(claims)
+            signed = copy.deepcopy(claims)
+            if self.signed_mutation:
+                self.signed_mutation(signed)
             return json.dumps({"result_code": 0, "claims": claims,
-                               "detached_eat": token(claims)}).encode()
+                               "detached_eat": token(signed)}).encode()
         self.token_path = Path(args[args.index("--token-file") + 1])
         assert self.token_path.stat().st_mode & 0o777 == 0o600
         if self.verified_mutation:
@@ -268,9 +272,9 @@ class AttestationTests(unittest.TestCase):
             rows = [claim(i, "nonce") for i in range(8)]
             del rows[0][name]
             with self.assertRaises(lab.ClaimRejection) as raised:
-                lab.claim_map(rows, "nonce", "signed-token")
+                lab.claim_map(rows, "nonce", "verified-cli")
             self.assertEqual((raised.exception.code, raised.exception.source, raised.exception.field),
-                             ("claim-missing", "signed-token", name))
+                             ("claim-missing", "verified-cli", name))
         field = "x-nvidia-gpu-attestation-report-cert-chain"
         for value, expected in (("PRIVATEZ", "certificate-expiry-format"),
                                 ("2001-01-01T00:00:00Z", "certificate-expired")):
@@ -310,6 +314,109 @@ class AttestationTests(unittest.TestCase):
         self.assertEqual(nvml.transitions, 0)
         self.assertFalse(result["nvml_shutdown"])
         self.assertNotIn("PRIVATE", json.dumps(result))
+
+    def test_only_raw_signed_serialization_defaults_may_be_absent(self):
+        fields = tuple(lab.SIGNED_SERIALIZATION_DEFAULTS)
+        for mask in range(1 << len(fields)):
+            def omit(rows):
+                for row in rows:
+                    for index, name in enumerate(fields):
+                        if mask & (1 << index):
+                            del row[name]
+            raw = [claim(i, "nonce") for i in range(8)]
+            omit(raw)
+            untouched = copy.deepcopy(raw)
+            envelope = token(raw)
+            original_envelope = copy.deepcopy(envelope)
+            mapped = lab.claim_map(lab.token_claims(envelope), "nonce", "signed-token")
+            self.assertEqual(raw, untouched)
+            self.assertEqual(envelope, original_envelope)
+            self.assertEqual(set(mapped), {str(i + 1) for i in range(8)})
+            nvml, report = FakeNvml(), {}
+            lab.run_attestation(FakeCapture(signed_mutation=omit), nvml, report,
+                                check=lambda: None, enable_readiness=True)
+            self.assertEqual(nvml.transitions, 1)
+            self.assertEqual(report["readiness_transition"], "enabled-readback-verified")
+            if mask:
+                for source in ("unspecified", "verified-cli", "attested-cli"):
+                    with self.subTest(mask=mask, source=source), self.assertRaises(lab.ClaimRejection):
+                        lab.claim_map(raw, "nonce", source)
+
+    def test_present_signed_serialization_conflicts_cannot_be_overwritten(self):
+        for name, values in (
+            ("x-nvidia-device-type", (None, "", "nvswitch", 1)),
+            ("x-nvidia-gpu-claims-version", (None, "", "3.0", 4)),
+            ("x-nvidia-mismatch-measurement-records", ({}, False, "PRIVATE", [{}])),
+            ("x-nvidia-mismatch-opaque-data-records", ({}, False, "PRIVATE", [{}])),
+        ):
+            for value in values:
+                nvml = FakeNvml()
+                capture = FakeCapture(signed_mutation=lambda rows, n=name, v=value:
+                                      rows[0].update({n: v}))
+                with self.subTest(field=name, value=value), self.assertRaises(lab.ClaimRejection):
+                    lab.run_attestation(capture, nvml, {}, check=lambda: None, enable_readiness=True)
+                self.assertEqual(nvml.transitions, 0)
+
+    def test_signed_security_fields_remain_mandatory_after_serialization_compatibility(self):
+        required = (*lab.TRUE_CLAIMS, "ueid", "eat_nonce", "measres", "dbgstat",
+                    *("x-nvidia-gpu-" + name + "-cert-chain" for name in lab.CHAINS))
+        for name in required:
+            for mode in ("absent", "false"):
+                def mutate(rows):
+                    for row in rows:
+                        for field in lab.SIGNED_SERIALIZATION_DEFAULTS:
+                            del row[field]
+                    if mode == "absent":
+                        del rows[0][name]
+                    else:
+                        rows[0][name] = False
+                nvml = FakeNvml()
+                with self.subTest(field=name, mode=mode), self.assertRaises(lab.ClaimRejection):
+                    lab.run_attestation(FakeCapture(signed_mutation=mutate), nvml, {},
+                                        check=lambda: None, enable_readiness=True)
+                self.assertEqual(nvml.transitions, 0)
+        for chain in lab.CHAINS:
+            for field in ("x-nvidia-cert-status", "x-nvidia-cert-ocsp-status",
+                          "x-nvidia-cert-expiration-date"):
+                def mutate(rows):
+                    del rows[0]["x-nvidia-gpu-" + chain + "-cert-chain"][field]
+                with self.subTest(chain=chain, field=field), self.assertRaises(lab.ClaimRejection):
+                    lab.run_attestation(FakeCapture(signed_mutation=mutate), FakeNvml(), {},
+                                        check=lambda: None, enable_readiness=True)
+
+    def test_raw_claim_tamper_and_failed_verification_still_prevent_transition(self):
+        mutations = (
+            lambda rows: rows[1].update(ueid=rows[0]["ueid"]),
+            lambda rows: rows[0].update(ueid="PRIVATE_WRONG_DEVICE"),
+            lambda rows: rows[0].update(eat_nonce="PRIVATE_OLD_NONCE"),
+            lambda rows: rows[0].update(measres="failure"),
+            lambda rows: rows[0]["x-nvidia-gpu-driver-rim-cert-chain"].update(
+                {"x-nvidia-cert-ocsp-status": "revoked"}),
+            lambda rows: rows[0]["x-nvidia-gpu-vbios-rim-cert-chain"].update(
+                {"x-nvidia-cert-expiration-date": "2001-01-01T00:00:00Z"}),
+        )
+        for change in mutations:
+            def mutate(rows):
+                for row in rows:
+                    for field in lab.SIGNED_SERIALIZATION_DEFAULTS:
+                        del row[field]
+                change(rows)
+            nvml = FakeNvml()
+            with self.assertRaises(lab.ClaimRejection):
+                lab.run_attestation(FakeCapture(signed_mutation=mutate), nvml, {},
+                                    check=lambda: None, enable_readiness=True)
+            self.assertEqual(nvml.transitions, 0)
+        run, nvml = FakeCapture(), FakeNvml()
+        def verification_failure(argv, **kwargs):
+            if "verify-token" in argv:
+                return b'{"result_code":1}'
+            return run(argv, **kwargs)
+        with mock.patch.object(lab, "token_claims", wraps=lab.token_claims) as normalize:
+            with self.assertRaises(ValueError):
+                lab.run_attestation(verification_failure, nvml, {}, check=lambda: None,
+                                    enable_readiness=True)
+        normalize.assert_not_called()
+        self.assertEqual(nvml.transitions, 0)
 
     def test_revoked_expired_and_unavailable_certificates_fail(self):
         for chain in lab.CHAINS:

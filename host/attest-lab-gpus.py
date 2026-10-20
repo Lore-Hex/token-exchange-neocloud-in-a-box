@@ -60,6 +60,15 @@ TRUE_CLAIMS = (
 )
 CHAINS = ("attestation-report", "driver-rim", "vbios-rim")
 READINESS_HEADER = "1a1e86da474d340d7cf58274588f4a4afc8772e7"
+# SDK at SOURCE: src/gpu/claims.cpp from_json/to_json and
+# include/nv_attestation/utils.h deserialize_optional_shared_ptr.
+# These are serialization defaults, never positive security claims.
+SIGNED_SERIALIZATION_DEFAULTS = {
+    "x-nvidia-device-type": "gpu",
+    "x-nvidia-gpu-claims-version": "4.0",
+    "x-nvidia-mismatch-measurement-records": None,
+    "x-nvidia-mismatch-opaque-data-records": None,
+}
 
 
 def require(value):
@@ -312,29 +321,39 @@ def claim_map(claims, nonce, source="unspecified"):
     return found
 
 
+def verified_payload(value):
+    """Decode only after verify-token succeeded; never authenticate a JWT here."""
+    claim_require(type(value) is str and len(value) <= LIMIT // COUNT,
+                  "token-jwt-shape", "signed-token", "detached_eat")
+    parts = value.split(".")
+    claim_require(len(parts) == 3 and all(parts),
+                  "token-jwt-shape", "signed-token", "detached_eat")
+    try:
+        payload = parts[1].encode("ascii")
+        data = base64.b64decode(payload + b"=" * (-len(payload) % 4),
+                                altchars=b"-_", validate=True)
+    except ValueError:
+        raise ClaimRejection("token-payload-encoding", "signed-token", "detached_eat") from None
+    try:
+        result = strict_json(data)
+    except (ValueError, RecursionError):
+        raise ClaimRejection("token-payload-json", "signed-token", "detached_eat") from None
+    claim_require(type(result) is dict, "claim-shape", "signed-token", "detached_eat")
+    return result
+
+
 def token_claims(token):
-    """Decode only after verify-token succeeded; this is NOT a JWT verifier."""
+    """After verify-token success, normalize only four GPU serialization fields."""
     claim_require(type(token) is list and len(token) == 2 and type(token[0]) is list
             and len(token[0]) == 2 and token[0][0] == "JWT"
             and type(token[1]) is dict and len(token[1]) == COUNT,
             "token-shape", "signed-token", "detached_eat")
     result = []
     for value in token[1].values():
-        claim_require(type(value) is str and len(value) <= LIMIT // COUNT,
-                      "token-jwt-shape", "signed-token", "detached_eat")
-        parts = value.split(".")
-        claim_require(len(parts) == 3 and all(parts),
-                      "token-jwt-shape", "signed-token", "detached_eat")
-        try:
-            payload = parts[1].encode("ascii")
-            data = base64.b64decode(payload + b"=" * (-len(payload) % 4),
-                                    altchars=b"-_", validate=True)
-        except ValueError:
-            raise ClaimRejection("token-payload-encoding", "signed-token", "detached_eat") from None
-        try:
-            result.append(strict_json(data))
-        except (ValueError, RecursionError):
-            raise ClaimRejection("token-payload-json", "signed-token", "detached_eat") from None
+        claim = verified_payload(value)
+        # Preserve every present value and never mutate authenticated input.
+        # claim_map still requires the complete GPU security/identity structure.
+        result.append({**SIGNED_SERIALIZATION_DEFAULTS, **claim})
     return result
 
 
