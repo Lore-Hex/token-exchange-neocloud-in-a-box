@@ -45,6 +45,34 @@ imports passed. No GPU, weights, inference, ABI, hardware or confidentiality
 qualification occurred. Do not repeat this unchanged run or weaken a guard;
 any source-backed correction belongs to a separate reviewed change.
 
+### NumPy Startup Attempt
+
+The subsequent unchanged [run metadata](../../evidence/p0/2026-10-20-official-vllm-numpy-startup-smoke/run.json)
+and [sanitized output](../../evidence/p0/2026-10-20-official-vllm-numpy-startup-smoke/output.log)
+record source `1c8c6a5edac427bfe4724159090cd461b4bab94e`, from
+2026-10-20 04:47:36 through 04:56:00 UTC. Payload SHA-256 is
+`4c14aaebaa180952d896dd5f990d1d0c225800650a0c925e564905cd106ed664`.
+
+All five application stages completed again with native inventory unchanged
+and the same 2,879 bytecode removals. Phase durations were 8,142 ms preflight,
+480,489 ms application and 6,149 ms imports. Each fresh/spawn/grandchild process
+then rejected the same first API-entry import with category `guard`: process
+count 1, all other guard counts zero, `first_state_mismatch:null`, and zero
+permitted dependency entrypoint loads. The other three imports were not run.
+Bootstrap/pre-unpickle observations and tracker exit passed. Cleanup is
+`confirmed`; the parent also reported an independent empty label query, whose
+transcript is not part of the artifact.
+
+This is an observed change from state rejection to process rejection, **not
+successful engine initialization or proof of the original first failure's
+cause**. The fixed counters do not identify the rejected executable, command or
+audit event. The exact source-backed process path must be established before a
+separate correction; no generic process exemption or unchanged repeat run is
+authorized by this evidence. The outer stage remains `smoke-rejected`,
+`smoke_pass:false`, `result:fail`, `deployable:false`. No GPU, weights, model
+inference, ABI, hardware or confidentiality qualification occurred. The first
+failed-run artifacts remain unchanged.
+
 ## Exact Inputs
 
 The [application contract](p0-t4-engine-application-contract.md) and its unchanged
@@ -190,9 +218,9 @@ reject; both preconfigured pass with zero guard counters. Restoration does not
 erase the rejection. Changed values, unknown variables and extra finders still
 reject. No NumPy/engine/GPU code runs in these tests. This proves a software
 compatibility issue, **not the first cause of the recorded two state rejections**.
-The prior artifact is unchanged, and this correction has not had an actual
-image run. No later vLLM finder adapter is introduced without reachability
-evidence.
+The prior artifact is unchanged. The subsequent actual run above records no
+state mismatch before a process-guard rejection, not a passing smoke. No later
+vLLM finder adapter is introduced without reachability evidence.
 
 Later smoke rows also report `first_state_mismatch`, initially `null`, then one
 fixed category: `paths`, `argv`, `executable`, `env`, `cwd`, `method`, `pycache`,
