@@ -7,14 +7,57 @@ confidential launch procedure is implemented here yet.
 ## Private Test-Host Preparation
 
 `prepare-lab.py` prepares operator-owned mode-0700 directories for an already
-approved rental. Transfer this committed script alone, verify its SHA-256 against
+approved rental. Transfer this committed script, verify its SHA-256 against
 the trusted local checkout, and run it using `python3 -I -S`. `init --root PATH`
 creates the private root and `stage` subdirectory; the parent must already be
 private and owned. This does not install packages or change GPU modes.
 
-Transfer the approved `source-45e7a09.bundle` into that root, then run
-`checkout --root PATH`. Its fixed SHA-256 and revision must match before Git runs.
-The checkout is new-only, with hooks and ambient Git configuration disabled.
+Checkout also requires the exact committed `host/probe.py` alongside the script.
+Its pinned SHA-256 is checked before reusing only its bounded subprocess capture;
+checkout does not call its inventory or NVIDIA routines. The historical default
+remains `checkout --root PATH`, reading `source-45e7a09.bundle` and requiring the
+unchanged `45e7a09` revision and bundle digest. It does not select current main.
+
+For a current reviewed source transfer, the operator's approved receipt must
+independently name the full 40-character commit and SHA-256 of a complete Git
+bundle. Transfer those exact bytes as `source.bundle` into the private root:
+
+```sh
+python3 -I -S prepare-lab.py checkout --root "$PRIVATE_ROOT" \
+  --revision "$APPROVED_REVISION" --bundle-sha256 "$APPROVED_BUNDLE_SHA256"
+```
+
+Both options are mandatory together, only on `checkout`; branches, abbreviated
+revisions, automatic updates and receipt digests derived from received bytes are
+not substitutes for the operator's approved values. No new receipt format or
+signing authority is introduced. Both modes retain the 16 MiB transfer limit.
+Missing objects or incremental bundles reject offline, without fetch or repair.
+
+The input is read through no-follow descriptors, must be a single-link owned
+regular file with stable identity, and is copied into a private verified snapshot
+before Git runs. Replacing the transfer path cannot substitute Git's input.
+The checkout root and its parent must be private/owned; symlink components reject.
+A nonblocking root-directory lock serializes this helper. The operator must
+exclude other writers; this is not protection against a malicious same-UID or
+root process, kernel or Git binary.
+
+Git starts with an empty private template, fixed environment, no transports,
+hooks, ambient configuration, replacement refs, credentials or lazy fetching.
+Only objects are imported, not remote configuration or bundle ref names. The
+exact commit, complete object graph and regular-file tree are checked before
+materialization. Archive bytes must match the committed blob IDs; symlinks,
+submodules, omitted files and attribute-driven byte substitutions reject.
+Limits are 4,096 files, 16 MiB per file, 64 MiB total source and 80 MiB archive
+output. Ordinary Git command output is capped at 64 KiB and tree metadata at
+1 MiB; stdout/stderr share each bound. Work shares a 180-second deadline with
+at most 60 seconds per command, plus the existing supervisor's bounded cleanup.
+No committed source file, checkout hook, package, image or GPU program executes.
+
+`source` is new-only. Failures may leave a private incomplete directory, which
+must not be used or automatically retried; existing destinations are never
+overwritten or removed. Successful output retains the exact source revision,
+bundle digest and script hash, not raw Git errors or operator paths. Detached
+HEAD is installed only after every committed file has been verified.
 Use the checkout's committed `host/record-probe.py` for actual hardware evidence.
 `prerequisites --root PATH` reports only whether expected executables exist.
 These setup results are not hardware qualification or a model-serving result.
