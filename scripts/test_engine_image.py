@@ -61,11 +61,14 @@ class FakeDocker:
                     "Image": overlay.BASE_IMAGE, "Entrypoint": ["python3"], "Cmd": args[-5:], "User": "65532:65532",
                     "WorkingDir": "/", "Healthcheck": {"Test": ["NONE"]}, "Env": env},
                 "HostConfig": {"NetworkMode": "none", "ReadonlyRootfs": True, "Privileged": False,
+                    "Tmpfs": None,
                     "Runtime": "runc", "CapDrop": ["ALL"], "IpcMode": "none", "CgroupnsMode": "private",
                     "Memory": 1 << 30, "MemorySwap": 1 << 30, "NanoCpus": 2000000000, "PidsLimit": 32,
                     "RestartPolicy": {"Name": "no"}, "LogConfig": {"Type": "none"}, "SecurityOpt": ["no-new-privileges"]},
                 "Mounts": [{"Type": "bind", "Source": flag("--mount").split(",src=", 1)[1].split(",dst=", 1)[0],
                             "Destination": "/opt/nib", "RW": False}]}
+            if "--tmpfs" in args:
+                self.info["HostConfig"]["Tmpfs"] = {"/tmp": flag("--tmpfs").split(":", 1)[1]}
             if self.fault == "create-timeout":
                 raise subprocess.TimeoutExpired(args, 1)
             return subprocess.CompletedProcess(args, 0, b"a" * 64 + b"\n", b"")
@@ -79,6 +82,8 @@ class FakeDocker:
                 data["HostConfig"]["DeviceRequests"] = [{"Count": -1}]
             if self.fault == "extra-env":
                 data["Config"]["Env"].append("PYTHONPATH=SYNTHETIC_PRIVATE_VALUE")
+            if self.fault == "tmpfs":
+                data["HostConfig"]["Tmpfs"] = {"/tmp": "rw,exec,size=1g"}
         elif args[1:3] == ["container", "start"]:
             self.started = True
             if self.fault == "cancel":
@@ -1165,6 +1170,32 @@ class ImageTests(unittest.TestCase):
         self.assertEqual(report["result"], "fail")
         self.assertFalse(any(call[1:3] in (["image", "rm"], ["image", "pull"]) for call in fake.calls))
 
+    def test_python_descriptor_partial_lifecycle_and_tmpfs_are_sealed(self):
+        module = source("descriptor_lifecycle_fixture", "scripts/test_engine_python_descriptor.py")
+        fixture = module.DescriptorTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        child = fixture.collect()
+        contract = {**self.contract, **fixture.contract, "official_config": self.contract["official_config"]}
+        payload = self.work / "descriptor-payload"
+        recorder.prep.publish(payload, {"contract.json": overlay.json_bytes(contract)})
+        for fault in (None, "tmpfs", "bad-result", "run-timeout"):
+            with self.subTest(fault=fault):
+                fake = FakeDocker(self.image, child, fault)
+                report = recorder.run_container(payload, contract, self.config, {}, fake)
+                self.assertEqual(report["result"], "fail")
+                self.assertTrue(fake.removed)
+                self.assertNotIn("SYNTHETIC_PRIVATE_VALUE", json.dumps(report))
+                if fault is None:
+                    self.assertEqual(report["stage"], "python-descriptor-partial")
+                    self.assertEqual(report["cleanup"], "confirmed")
+                    self.assertEqual(report["diagnostic"], child)
+                elif fault == "tmpfs":
+                    self.assertFalse(fake.started)
+                else:
+                    self.assertEqual(report["cleanup"], "completion-unknown")
+                self.assertFalse(any(call[1:3] in (["image", "pull"], ["image", "rm"]) for call in fake.calls))
+
     def test_lifecycle_faults_fail_closed_without_raw_output(self):
         child = self.collect()
         for fault in ("create-timeout", "network", "devices", "extra-env", "foreign-owner", "run-timeout",
@@ -1210,7 +1241,8 @@ class ImageTests(unittest.TestCase):
         repo.mkdir()
         extra = {name: (ROOT / name).read_bytes() for name in (
             recorder.prep.SCRIPT, recorder.prep.INSPECTOR, recorder.prep.PINS, recorder.prep.TEST,
-            recorder.SCRIPT, recorder.PROBE, recorder.DIAGNOSTIC, recorder.SNAPSHOT, recorder.TEST, recorder.CENSUS)}
+            recorder.SCRIPT, recorder.PROBE, recorder.DIAGNOSTIC, recorder.SNAPSHOT, recorder.TEST, recorder.CENSUS,
+            recorder.DESCRIPTOR, recorder.CANARY, recorder.DESCRIPTOR_TEST, recorder.PYTHON_PINS)}
         for name, data in {**self.fixture.bundle, **extra}.items():
             path = repo / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -1223,16 +1255,22 @@ class ImageTests(unittest.TestCase):
         git("add", ".")
         git("commit", "-qm", "synthetic diagnostic source")
         result = recorder.inputs(repo)
-        for mode in ("integrity", "metadata-census"):
+        for mode in ("integrity", "metadata-census", "python-descriptor"):
             files, contract = recorder.payload_files(*result, mode=mode)
             self.assertEqual(contract["diagnostic_mode"], mode)
             self.assertEqual(overlay.load_json(files["contract.json"]), contract)
             self.assertEqual(files["engine_image_diagnostic.py"], extra[recorder.DIAGNOSTIC])
             self.assertEqual(contract["payload_sources"]["engine_image_diagnostic.py"], recorder.DIAGNOSTIC_SHA)
-            if mode == "integrity":
+            if mode in ("integrity", "python-descriptor"):
                 self.assertEqual(contract["diagnostic_inventory_policy"], overlay.DIAGNOSTIC_INVENTORY_POLICY)
                 self.assertEqual(contract["diagnostic_nonhost_policy"], overlay.CUTLASS_STUB_POLICY)
                 self.assertIs(contract["diagnostic_integrity_details"], True)
+                if mode == "python-descriptor":
+                    self.assertEqual(files["engine_python_descriptor.py"], extra[recorder.DESCRIPTOR])
+                    self.assertEqual(files["python-canary.py"], extra[recorder.CANARY])
+                    self.assertEqual(files["processes.py"], extra[recorder.SNAPSHOT])
+                    self.assertEqual(contract["descriptor_preparation"]["stages"], 5)
+                    self.assertFalse(contract["descriptor_preparation"]["image_writes"])
             else:
                 self.assertNotIn("diagnostic_inventory_policy", contract)
                 self.assertNotIn("diagnostic_nonhost_policy", contract)
@@ -1308,7 +1346,7 @@ class ImageTests(unittest.TestCase):
             recorded.mkdir(parents=True)
             (recorded / "run.json").write_bytes(recorder.prep.read_source(source_directory / "run.json"))
         recorder.call([str(binary), "lint", str(self.work / "recorded")], env, timeout=20)
-        for result, mode in (("pass", "integrity"), ("fail", "integrity"), ("fail", "metadata-census")):
+        for result, mode in (("pass", "integrity"), ("fail", "integrity"), ("fail", "metadata-census"), ("fail", "python-descriptor")):
             work = self.work / (result + "-" + mode)
             work.mkdir()
             report = {"result": result, "provenance": {"payload_sha256": "a" * 64}}
@@ -1319,8 +1357,13 @@ class ImageTests(unittest.TestCase):
             if mode == "metadata-census":
                 self.assertIn("--metadata-census --slug fixture", record["command"])
                 self.assertIn("does not evaluate admission", record["notes"])
+            elif mode == "python-descriptor":
+                self.assertIn("--python-descriptor --slug fixture", record["command"])
+                self.assertIn("synthetic child canaries do not evaluate admission", record["notes"])
         with self.assertRaises(ValueError):
             recorder.evidence_record(revision, "fixture", recorder.now(), {**report, "result": "pass"}, mode="metadata-census")
+        with self.assertRaises(ValueError):
+            recorder.evidence_record(revision, "fixture", recorder.now(), {**report, "result": "pass"}, mode="python-descriptor")
         rejected = self.work / "rejected"
         rejected.mkdir()
         record["hardware_validated"] = True

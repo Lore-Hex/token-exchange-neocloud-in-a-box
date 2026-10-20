@@ -1,0 +1,19 @@
+{
+  "revision": "5df63a7203cdb9328d824a27b682e77c7b9928be",
+  "files": {
+    "vllm/entrypoints/cli/serve.py": {"sha256": "fc1692aa4caec2328ed8d0138074d65651dbef6d768f60cb0c834ed2d7376080"},
+    "vllm/entrypoints/launchers/api_server/entry.py": {"sha256": "0630e130bff19e36d7296194072403bcb730586226770101c741a10674cb4f69"},
+    "vllm/entrypoints/openai/api_server.py": {"sha256": "470ff555bdc19f8e17edf4ee7b6ec3f49ff5af0f773e2a7f91bab536e2239109"},
+    "vllm/v1/engine/async_llm.py": {"sha256": "3491dde64ef226b9f65e4341c944615cf6ebd23de3210293dc66767c4c18365c"},
+    "vllm/v1/engine/core_client.py": {"sha256": "386b528a69029507f80a2df4d6df2a4fa6ba2ba811501dc3449ceea58b5cd90a"},
+    "vllm/v1/engine/core.py": {"sha256": "458fd729771681b124d3a4d5b1c575f689bf789a5e0c8cc9f5c524eb6ec84f87"},
+    "vllm/v1/engine/utils.py": {"sha256": "8740c9af331597573d59941d3d65a58dbfd93c92f0144fd187b44bb25a6e4a2e"},
+    "vllm/v1/executor/multiproc_executor.py": {"sha256": "948c15e09617b02e2d0746d9ee20b43168b083da71313d05f06b29a753f8570b"},
+    "vllm/utils/system_utils.py": {"sha256": "09b103712a196e93e708ccc1d8634c29032c260f74df727789ef79bced1df152"},
+    "vllm/utils/numa_utils.py": {"sha256": "e8d5d52e65bda7b3457f9f3863ecb5431a82bc2f7af97760425dd64626a75f68"},
+    "vllm/utils/numa_wrapper.sh": {"sha256": "0f256fa1a277bf0b12765b7bf09d9ec69ae8bd200db5ee129bf4dc33d9327b3f"},
+    "vllm/utils/ompmultiprocessing.py": {"sha256": "e3a55885b92e70dd27e794bf1192035e1cbe2be8d9722944233cb8a1350ab6a1"},
+    "vllm/config/parallel.py": {"sha256": "e8dcfb67c1ace957dcc7e12569ee62eb0f983aec3901fdef27c13014cea4b760"},
+    "vllm/engine/arg_utils.py": {"sha256": "c10281277fd9a90dc8b22670db4f1af53708c5caa2aefee7aa861fa579329219"}
+  }
+}

@@ -26,14 +26,19 @@ ROOT = Path(__file__).absolute().parent.parent
 SCRIPT = "scripts/record-engine-image.py"
 PROBE = "scripts/engine-image-probe.py"
 DIAGNOSTIC = "scripts/engine_image_diagnostic.py"
+DESCRIPTOR = "scripts/engine_python_descriptor.py"
+CANARY = "scripts/engine-python-canary.py"
+DESCRIPTOR_TEST = "scripts/test_engine_python_descriptor.py"
+PYTHON_PINS = "scripts/engine-python-source-pins.json"
 SNAPSHOT = "scripts/e2e/snapshot.py"
 TEST = "scripts/test_engine_image.py"
 CENSUS = "evidence/p0/2026-10-19-official-vllm-metadata-census/output.log"
 MAX_REPORT = 2 << 20
 GO_TOOLCHAIN = "go1.27.2"
-PREPARER_SHA = "84ad218c21117432175f3aefa54b1d3820bb269bb7ad0b7c46765b7d6e3deec3"
+PREPARER_SHA = "769f354254d8a5a99e44c5c019e064f069babb3354bdb59ea9f13d0727d0f109"
 SNAPSHOT_SHA = "b7f5753ecacde3cda2bf5fdc673b6f2af239875f2a9468e34a5219a797b78b3a"
-DIAGNOSTIC_SHA = "e97285260e589d4d7cb6405529275a49a88be72778977fb34f03394dea2b2a48"
+DIAGNOSTIC_SHA = "47163a40d0727d0b9ec2de5e286a616a9db3e789ae535be4fa27f37e154433d3"
+DESCRIPTOR_SHA = "352ef1903cc306bf15429b9d29810cf040a19e00dfd471dd34453b3a8f461d1b"
 CANCELLED = False
 
 
@@ -88,6 +93,7 @@ try:
     prep, PREPARER_SOURCE = load("image_preparer", ROOT / "scripts/prepare-engine-overlay.py", PREPARER_SHA)
     snapshot, SNAPSHOT_SOURCE = load("image_processes", ROOT / SNAPSHOT, SNAPSHOT_SHA, prep.read_source)
     diagnostic, DIAGNOSTIC_SOURCE = load("image_observations", ROOT / DIAGNOSTIC, DIAGNOSTIC_SHA, prep.read_source)
+    descriptor, DESCRIPTOR_SOURCE = load("image_python_descriptor", ROOT / DESCRIPTOR, DESCRIPTOR_SHA, prep.read_source)
 except Exception:
     if __name__ == "__main__":
         sys.exit("Image diagnostic bootstrap rejected.")
@@ -98,23 +104,24 @@ overlay, checker = prep.inspector, prep.checker
 
 def inputs(root=ROOT):
     revision, bundle, extra = prep.inputs(root)
-    for name in (SCRIPT, PROBE, DIAGNOSTIC, SNAPSHOT, TEST, CENSUS):
+    for name in (SCRIPT, PROBE, DIAGNOSTIC, SNAPSHOT, TEST, CENSUS, DESCRIPTOR, CANARY, DESCRIPTOR_TEST, PYTHON_PINS):
         entry = checker.git(root, "ls-tree", revision, "--", name).decode().split()
         overlay.require(len(entry) == 4 and entry[:2] == ["100644", "blob"] and entry[3] == name)
         overlay.require(int(checker.git(root, "cat-file", "-s", entry[2])) <= checker.LIMIT)
         extra[name] = checker.git(root, "cat-file", "blob", entry[2])
     overlay.require(extra[SCRIPT] == BOOTSTRAP and extra[DIAGNOSTIC] == DIAGNOSTIC_SOURCE
-                    and extra[SNAPSHOT] == SNAPSHOT_SOURCE and extra[prep.SCRIPT] == PREPARER_SOURCE)
+                    and extra[SNAPSHOT] == SNAPSHOT_SOURCE and extra[prep.SCRIPT] == PREPARER_SOURCE
+                    and extra[DESCRIPTOR] == DESCRIPTOR_SOURCE)
     return revision, bundle, extra
 
 
 def payload_files(revision, bundle, extra, *, mode="integrity"):
     # Reuse exact candidate validation/application in memory, never apply to an image.
-    prepared, _ = prep.prepare_files(revision, bundle, extra)
+    prepared, preparation = prep.prepare_files(revision, bundle, extra)
     contract = overlay.load_json(prepared["payload/contract.json"])
-    overlay.require(mode in {"integrity", "metadata-census"})
+    overlay.require(mode in {"integrity", "metadata-census", "python-descriptor"})
     contract["diagnostic_mode"] = mode
-    if mode == "integrity":
+    if mode in {"integrity", "python-descriptor"}:
         policy = overlay.DIAGNOSTIC_INVENTORY_POLICY
         overlay.require(contract["base_image"] == policy["base_image"]
                         and contract["official_config"]["sha256"] == policy["config_sha256"]
@@ -127,6 +134,18 @@ def payload_files(revision, bundle, extra, *, mode="integrity"):
         contract["diagnostic_integrity_details"] = True
     files = {"engine_overlay.py": extra[prep.INSPECTOR], "engine_image_diagnostic.py": extra[DIAGNOSTIC],
              "probe.py": extra[PROBE]}
+    if mode == "python-descriptor":
+        pins = overlay.load_json(extra[PYTHON_PINS])
+        overlay.require(set(pins) == {"revision", "files"} and pins["revision"] == checker.BASE and 0 < len(pins["files"]) <= 32
+                        and all(name.startswith("vllm/") and re.fullmatch(r"[a-zA-Z0-9_/.-]+", name)
+                                and overlay.safe_name(name) and set(item) == {"sha256"}
+                                and re.fullmatch(r"[0-9a-f]{64}", item["sha256"]) for name, item in pins["files"].items()))
+        contract["descriptor_source_pins"] = {"revision": pins["revision"], "files": {name: item["sha256"] for name, item in pins["files"].items()}}
+        contract["descriptor_preparation"] = {"stages": 5, "candidate_bundle_sha256": preparation["candidate_bundle_sha256"],
+                                               "context_sha256": preparation["context_sha256"], "image_writes": False}
+        files.update({"engine_python_descriptor.py": extra[DESCRIPTOR], "python-canary.py": extra[CANARY],
+                      "processes.py": extra[SNAPSHOT],
+                      "python-canary": b'#!/bin/sh\nexec python3 -I -S -B /opt/nib/python-canary.py "$@"\n'})
     contract["payload_sources"] = {name: overlay.digest(data) for name, data in files.items()}
     files["contract.json"] = overlay.json_bytes(contract)
     return files, contract
@@ -215,7 +234,7 @@ def create_command(name, owner, payload, contract_sha, config):
     return args + [overlay.BASE_IMAGE, "-I", "-S", "-B", "/opt/nib/probe.py", contract_sha]
 
 
-def check_container(value, owner, payload, contract_sha, image_id, expected_env):
+def check_container(value, owner, payload, contract_sha, image_id, expected_env, *, python_descriptor=False):
     config, host = value["Config"], value["HostConfig"]
     overlay.require(config["Labels"].get("nib.diagnostic") == owner and value["Image"] == image_id
         and config["Image"] == overlay.BASE_IMAGE and config["Entrypoint"] == ["python3"]
@@ -228,11 +247,13 @@ def check_container(value, owner, payload, contract_sha, image_id, expected_env)
         and not host.get("CapAdd") and not host.get("Devices") and not host.get("DeviceRequests")
         and not host.get("DeviceCgroupRules") and not host.get("PortBindings") and not host.get("PublishAllPorts")
         and not host.get("PidMode") and not host.get("UTSMode") and not host.get("VolumesFrom")
-        and not host.get("Binds") and not host.get("Tmpfs") and host["IpcMode"] == "none"
+        and not host.get("Binds") and host["IpcMode"] == "none"
         and host["CgroupnsMode"] == "private" and host["Memory"] == host["MemorySwap"] == 1 << 30
         and host["NanoCpus"] == 2000000000 and host["PidsLimit"] == 32
         and host["RestartPolicy"]["Name"] == "no" and host["LogConfig"]["Type"] == "none"
         and set(host["SecurityOpt"]) in ({"no-new-privileges"}, {"no-new-privileges=true"}))
+    overlay.require(host.get("Tmpfs") == {"/tmp": "rw,nosuid,nodev,noexec,size=16m,mode=1777"}
+                    if python_descriptor else not host.get("Tmpfs"))
     mounts = value["Mounts"]
     overlay.require(len(mounts) == 1 and mounts[0]["Type"] == "bind" and mounts[0]["Source"] == str(payload)
                     and mounts[0]["Destination"] == "/opt/nib" and mounts[0]["RW"] is False)
@@ -250,6 +271,8 @@ def run_container(payload, contract, config, env, execute=snapshot.execute_proce
         report["image"] = image_binding(value, config, contract)
         overlay.require(not call(absent, env, execute=execute).strip())
         command = create_command(name, owner, payload, contract_sha, config)
+        if contract.get("diagnostic_mode") == "python-descriptor":
+            command[3:3] = ["--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=16m,mode=1777"]
         report["stage"] = "container-create"
         create_started = True
         created = call(command, env, execute=execute).decode().strip()
@@ -258,13 +281,17 @@ def run_container(payload, contract, config, env, execute=snapshot.execute_proce
         report["stage"] = "isolation-check"
         info = docker_json("container", name, env, execute)
         expected_env = [command[i + 1] for i, value in enumerate(command) if value == "--env"]
-        check_container(info, owner, payload, contract_sha, value["Id"], expected_env)
+        check_container(info, owner, payload, contract_sha, value["Id"], expected_env,
+                        python_descriptor=contract.get("diagnostic_mode") == "python-descriptor")
         overlay.require(info["Id"] == created and info["State"]["Status"] == "created")
         report["stage"] = "read-only-diagnostic"
         limit = diagnostic.CENSUS_LIMITS["report_bytes"] if contract.get("diagnostic_mode") == "metadata-census" else MAX_REPORT
         data = call(["docker", "container", "start", "--attach", name], env, execute=execute, timeout=600, limit=limit)
         result = overlay.load_json(data)
-        diagnostic.validate_report(overlay, result, contract)
+        if contract.get("diagnostic_mode") == "python-descriptor":
+            descriptor.validate_report(overlay, result, contract)
+        else:
+            diagnostic.validate_report(overlay, result, contract)
         terminal = docker_json("container", name, env, execute)
         overlay.require(terminal["Id"] == created and terminal["State"]["Status"] == "exited"
                         and terminal["State"]["ExitCode"] == 0 and not terminal["State"].get("OOMKilled"))
@@ -274,6 +301,8 @@ def run_container(payload, contract, config, env, execute=snapshot.execute_proce
         report["stage"] = "complete" if report["result"] == "pass" else "overlay-rejected"
         if contract.get("diagnostic_mode") == "metadata-census":
             report["stage"] = "metadata-census-complete" if result["collection"] == "pass" else "metadata-census-partial"
+        elif contract.get("diagnostic_mode") == "python-descriptor":
+            report["stage"] = "python-descriptor-complete" if result["collection"] == "pass" else "python-descriptor-partial"
     except (OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError):
         report["failure"] = "diagnostic-stage-failed"
     finally:
@@ -380,17 +409,19 @@ def publish_evidence(record, report, nib, work, destination, env):
 
 
 def evidence_record(revision, slug, started, report, *, mode="integrity"):
-    overlay.require(mode in {"integrity", "metadata-census"})
+    overlay.require(mode in {"integrity", "metadata-census", "python-descriptor"})
     census = mode == "metadata-census"
-    overlay.require(not census or report["result"] == "fail")
+    layout = mode == "python-descriptor"
+    overlay.require(not (census or layout) or report["result"] == "fail")
     return {"schema": "nib.evidence/v1", "phase": "P0", "task": "T4", "git_sha": revision,
-            "command": "python3 -I -S scripts/record-engine-image.py " + ("--metadata-census " if census else "") + "--slug " + slug,
+            "command": "python3 -I -S scripts/record-engine-image.py " + ("--" + mode + " " if census or layout else "") + "--slug " + slug,
             "started_utc": started, "ended_utc": now(), "result": report["result"], "execution": "software",
             "hardware_validated": False, "host": {"provider": "local", "machine": "local-software-diagnostic",
                 "gpus": "none", "driver": None, "cuda": None},
             "notes": "Read-only software diagnostic, not ABI/hardware/confidential qualification. "
                      + ("Metadata-only census does not evaluate admission; the run stays failed even if counting completes. "
-                        if census else "Overlay rejection is a failed run even when collection completes. ")
+                        if census else "Python layout and synthetic child canaries do not evaluate admission; the run stays failed. "
+                        if layout else "Overlay rejection is a failed run even when collection completes. ")
                      + "Docker/OS/interpreter trusted. "
                      "No pull, build, image deletion, engine import or application. Payload SHA-256: "
                      + report["provenance"]["payload_sha256"]}
@@ -401,11 +432,13 @@ def main():
     signal.signal(signal.SIGINT, cancel)
     parser = overlay.QuietParser(description=__doc__)
     parser.add_argument("--slug", required=True)
-    parser.add_argument("--metadata-census", action="store_true", help="Count metadata only; never evaluate admission.")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--metadata-census", action="store_true", help="Count metadata only; never evaluate admission.")
+    modes.add_argument("--python-descriptor", action="store_true", help="Observe Python layout and synthetic children; never apply or run the engine.")
     args = parser.parse_args()
     overlay.require(re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", args.slug) and len(args.slug) <= 64)
     revision, bundle, extra = inputs()
-    mode = "metadata-census" if args.metadata_census else "integrity"
+    mode = "metadata-census" if args.metadata_census else "python-descriptor" if args.python_descriptor else "integrity"
     files, contract = payload_files(revision, bundle, extra, mode=mode)
     started = now()
     destination = ROOT / "evidence/p0" / (started[:10] + "-" + args.slug)
@@ -433,7 +466,7 @@ def main():
             # The enclosing temporary directory stays 0700; only this read-only
             # bind mount is readable by the unprivileged container UID.
             for name in files:
-                (payload / name).chmod(0o444)
+                (payload / name).chmod(0o555 if name == "python-canary" else 0o444)
             payload.chmod(0o555)
             overlay.require({name: prep.read_source(payload / name) for name in files} == files)
             report = run_container(payload, contract, config, env)

@@ -10,6 +10,10 @@ application, model weights, image build/publication, GPU, ABI, confidentiality o
 hardware qualification is performed. The existing overlay admission rules remain
 fail-closed; diagnostics do not remove hooks or override package-root checks.
 
+The separate [Python layout descriptor](p0-t4-engine-python-descriptor.md) reuses
+this recorder for bounded interpreter, packaging and synthetic child observations.
+It has not yet been run against the actual image and cannot admit an overlay.
+
 ## Recorded Run
 
 The [unchanged recorder output](../../evidence/p0/2026-10-19-official-vllm-image-diagnostic/output.log)
