@@ -38,6 +38,20 @@ the optional miss; a planted filesystem shadow; and rejection after registry
 mutation or a Windows-platform mismatch. Existing unknown-name, source-pin,
 reload and tampering tests are retained unchanged.
 
-The actual CPU/image rerun, full suite, independent review and hosted CI remain
-separate checks. No GPU inference, model score, TDX validation or production
-deployment is claimed by this compatibility change.
+At code revision `2e93e625fc8fc5c0f30af7b1a731bfcf8ede565a`, `make check`
+passed 810 Python tests, both Go race-test variants, and the static/documentation
+checks. `make test-e2e` passed all 18 provider checks and 14 negative attestation
+mutations against fakes; cleanup was confirmed.
+
+The exact-image CPU-only rerun is preserved unchanged in
+[run.json](../../evidence/p2/2026-10-20-cpu-optional-winreg-2e93e62/run.json)
+and [output.log](../../evidence/p2/2026-10-20-cpu-optional-winreg-2e93e62/output.log).
+All five application stages passed, but startup still **failed** at checkpoint
+11. Unlike the preceding optional-module failure, `paths` is now the sole state
+mismatch. The captured source fingerprint identifies `cv2/__init__.py` at lines
+181 and 153: OpenCV temporarily inserts its native-extension directory into
+`sys.path`, then imports `cv2` again. The guard correctly rejects that mutation.
+This separate compatibility issue is not fixed here. Cleanup was confirmed.
+
+Independent review and hosted CI remain outstanding. No GPU inference, model
+score, TDX validation or production deployment is claimed by this change.
