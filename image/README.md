@@ -14,6 +14,12 @@ repository and re-verifies its complete bytes without installation. The generate
 nonbootable mkosi candidate still requires a pinned Linux tools tree and reviewed
 installation boundary; it is not an installability or reproducibility result.
 
+The [Linux APT simulation tools](../docs/tasks/p3-t1-linux-tools-simulation.md)
+assemble a source-bound, nonbootable image archive without package execution.
+Its fixed CPU-only runner rehearses the exact guest package plan without
+installation. Container execution awaits independent review and coordinated
+validation; the minimal APT root is not yet the complete mkosi tools tree.
+
 [P3.T1 prerequisite audit](../docs/tasks/p3-t1-guest-image-feasibility.md)
 records the source-backed build inputs and unresolved package/boot requirements.
 It is not a build recipe, an artifact lock or evidence of image readiness.
