@@ -1,0 +1,25 @@
+{
+  "abi_validated": false,
+  "candidate_status": "BLOCKED",
+  "cleanup": "not-created",
+  "confidential": false,
+  "deployable": false,
+  "entry_pass": false,
+  "execution": "software",
+  "failure": "bounded-cpu-entry-stage-failed",
+  "hardware_validated": false,
+  "inference_started": false,
+  "provenance": {
+    "expected_config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d",
+    "git_sha": "9115b95792e2d82571391dfa017872eca527746a",
+    "measurement_sha256": "52a15aafc3044821740c5d408e5fc44f6635bea36c30f5af51f5866120810440",
+    "payload_sha256": "a592062aa414fd767e6e8f792febc6945c0dc54a731f54e30693e919d69a2826",
+    "raw_oci_metadata_verified": true,
+    "requested_image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "source_bundle_sha256": "f7db0a724d3b5e9cecdf31eab0a707680ed1a0fc12d6bacf492a6973d211cd21",
+    "validator_source_sha256": "0705178bc3a5cd9fb0397924798e58b44f92e9cc6c7e6a0f553bc39ea3724ee1"
+  },
+  "result": "fail",
+  "schema": "nib.engine-cpu-entry-record/v1",
+  "stage": "image-preflight"
+}

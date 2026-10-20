@@ -33,10 +33,12 @@ version, native-library, loader-order, module-replacement and reload failures
 are sticky. Remove private callback globals even when import fails.
 
 The generated wheel config and native-library hashes come from the exact
-pinned vLLM image, not a claim of reproducible wheel provenance. The read-only
-image/runtime and native dependencies remain trusted in this lab. Hashing and
-direct loading here do not establish confidential admission or native ABI
-qualification.
+pinned vLLM image, not a claim of reproducible wheel provenance. The runtime,
+native dependencies and writable experimental image layer remain trusted in
+this lab. Only the host payload mount is read-only in the CPU recorder. This
+does not protect against malicious native code or concurrent modification of
+the native-library path after its hash check. Hashing and direct loading here
+do not establish confidential admission or native ABI qualification.
 
 ## Verification Scope
 
@@ -51,3 +53,35 @@ of real OpenCV initialization or successful DeepSeek inference.
 Full tests, independent review and hosted CI are required before merge. The
 candidate stays blocked/nondeployable/nonconfidential. No new hardware run,
 model score, TDX result or production deployment is claimed.
+
+## Exact-Image Result
+
+Code revision `9115b95792e2d82571391dfa017872eca527746a` passed all 821 Python
+tests, both Go race-test builds, static/schema/documentation checks and secret
+scans. The unchanged process canary failed inside the host's restricted socket
+sandbox; the same canary and full suite passed with local process/socket access.
+The fake-node E2E passed all 18 provider checks and rejected all 14 attestation
+mutations; cleanup was confirmed. These are software tests, not real inference.
+
+The first [CPU attempt](../../evidence/p2/2026-10-20-cpu-opencv-loader-9115b95/run.json)
+failed at Docker image preflight with no container created. The retry with
+local Docker socket access completed all five image application stages:
+[run](../../evidence/p2/2026-10-20-cpu-opencv-runtime-9115b95/run.json),
+[output](../../evidence/p2/2026-10-20-cpu-opencv-runtime-9115b95/output.log).
+Original artifacts are unchanged. Offline validation against the exact producer
+reports `record_valid=true`, `entry_pass=false`; cleanup was confirmed.
+
+The real image now reaches checkpoint 13, past both the serving-subcommand and
+argument-parser imports. Every bootstrap-state mismatch is false and the
+pattern-matcher adapter reports `applied`. It stops while constructing CLI
+defaults: the captured fingerprint matches upstream
+[`vllm/config/device.py:55`](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/config/device.py#L55),
+SHA-256 `ac7d153000e76d6d6b554fa26eb947c51c62c4295f40fabe13294bc35ba3c066`.
+That branch raises when `current_platform.device_type` is empty. The caller is
+[`arg_utils.py:344`](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/engine/arg_utils.py#L344),
+which instantiates configuration defaults while building the argument parser.
+
+This is consistent with the diagnostic deliberately exposing no GPU. Do not
+spoof a CUDA platform or relax the checkpoint-16 success criterion. Import
+progress is observed; full argument validation, engine startup, workers,
+inference and GPU ABI still require the separately gated hardware run.
