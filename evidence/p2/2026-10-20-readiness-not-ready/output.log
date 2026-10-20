@@ -1,0 +1,194 @@
+{
+  "cleanup": "confirmed",
+  "confidential": false,
+  "deployable": false,
+  "experiment": {
+    "child": {
+      "bootstrap": {
+        "source_index": null,
+        "stage": "complete"
+      },
+      "invocation": {
+        "argument_shape": true,
+        "isolated": true,
+        "linux": true,
+        "no_bytecode": true,
+        "no_site": true
+      },
+      "probe": {
+        "calls": [
+          {
+            "device": null,
+            "return_code": 0,
+            "stage": "init"
+          },
+          {
+            "device": null,
+            "return_code": 0,
+            "stage": "count"
+          },
+          {
+            "device": null,
+            "return_code": 0,
+            "stage": "settings-abi"
+          },
+          {
+            "device": null,
+            "return_code": 0,
+            "stage": "driver-version"
+          },
+          {
+            "device": null,
+            "return_code": 0,
+            "stage": "cuda-version"
+          },
+          {
+            "device": null,
+            "return_code": 0,
+            "stage": "readiness"
+          },
+          {
+            "device": 0,
+            "return_code": 0,
+            "stage": "handle"
+          },
+          {
+            "device": 0,
+            "return_code": 0,
+            "stage": "device-name"
+          },
+          {
+            "device": 0,
+            "return_code": 0,
+            "stage": "memory"
+          },
+          {
+            "device": 1,
+            "return_code": 0,
+            "stage": "handle"
+          },
+          {
+            "device": 1,
+            "return_code": 0,
+            "stage": "device-name"
+          },
+          {
+            "device": 1,
+            "return_code": 0,
+            "stage": "memory"
+          },
+          {
+            "device": 2,
+            "return_code": 0,
+            "stage": "handle"
+          },
+          {
+            "device": 2,
+            "return_code": 0,
+            "stage": "device-name"
+          },
+          {
+            "device": 2,
+            "return_code": 0,
+            "stage": "memory"
+          },
+          {
+            "device": 3,
+            "return_code": 0,
+            "stage": "handle"
+          },
+          {
+            "device": 3,
+            "return_code": 0,
+            "stage": "device-name"
+          },
+          {
+            "device": 3,
+            "return_code": 0,
+            "stage": "memory"
+          },
+          {
+            "device": null,
+            "return_code": 0,
+            "stage": "shutdown"
+          }
+        ],
+        "devices": [
+          {
+            "b200": true,
+            "index": 0,
+            "protected_kib": 185975104,
+            "unprotected_kib": 0
+          },
+          {
+            "b200": true,
+            "index": 1,
+            "protected_kib": 185975104,
+            "unprotected_kib": 0
+          },
+          {
+            "b200": true,
+            "index": 2,
+            "protected_kib": 185975104,
+            "unprotected_kib": 0
+          },
+          {
+            "b200": true,
+            "index": 3,
+            "protected_kib": 185975104,
+            "unprotected_kib": 0
+          }
+        ],
+        "first_failure": "readiness-policy",
+        "observed": {
+          "count": 4,
+          "cuda_driver": 13020,
+          "devtools": 0,
+          "driver_format_valid": true,
+          "environment": 2,
+          "feature": 1,
+          "multigpu": 2,
+          "ready": 0,
+          "settings_version": 16777236
+        },
+        "policy_checks_passed": false,
+        "required_count": 4,
+        "settings_input_version": 16777236,
+        "settings_struct_bytes": 20
+      },
+      "stage": "probe"
+    },
+    "confidential": false,
+    "deployable": false,
+    "functional_pass": false,
+    "probe_execution": "completed",
+    "schema": "nib.deepseek-hardware-diagnostic/v1",
+    "stage": "diagnostic",
+    "status": "BLOCKED"
+  },
+  "functional_pass": false,
+  "image": {
+    "binding": "local-manifest-reference-platform-and-diffids",
+    "daemon_os_interpreter_trusted": true,
+    "docker_reported_id": "sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "local_config_bytes_rehashed": false,
+    "local_layers_rehashed": false,
+    "manifest_sha256": "6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "platform": "linux/amd64",
+    "raw_config_link_verified": true,
+    "raw_config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d"
+  },
+  "provenance": {
+    "config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d",
+    "git_sha": "a58e445c9b599373d78e98a375f081182cdd49f3",
+    "image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "manifest_sha256": "b74ae635c35372cf6c350e4b33ef60c90ff01fe6426ad0fa7bc99b1982fe5bed",
+    "pack_revision": "1bae0e1088993b9b82de08f59de5be5a34e42170",
+    "payload_sha256": "fcfb6da46db700370b0d160933964e0e2e4ddc614404defd951c90c243aeae1c",
+    "receipt_sha256": "c10a18c331f710b6af41cb900eefb7fbb96a540dd8a3fd74c9d3f291ee54b928",
+    "source_bundle_sha256": "09a7835acd8d8c97f72b3e66dd80d0e1d07d1e9e4751930f29d3afd9fddccfe5"
+  },
+  "result": "fail",
+  "stage": "completed",
+  "status": "BLOCKED"
+}
