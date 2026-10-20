@@ -124,6 +124,8 @@ answer is not a quality benchmark or the provider/tau acceptance suite.
 parse-only and fixed; fork/forkserver, NUMA executable substitution and generic
 Python `-c` reject. The sole additional `-c` form is the **exact pinned Torch
 VecISA dlopen template**. Its source hash and template must match; only an
+explicit selected-package-root identity, retained separately from the appended
+setuptools vendor import path, can supply that source. Only an
 anchored no-follow regular single-link `.so` beneath `/cache/inductor/` is
 accepted. It is opened with a 64 MiB bound and held by descriptor across
 `dlopen`, with identity rechecked. The wrapper restores the fixed measured

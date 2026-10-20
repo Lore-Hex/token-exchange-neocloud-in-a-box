@@ -92,10 +92,12 @@ def do_override():
 class VecTests(unittest.TestCase):
     def test_exact_template_only_not_generic_python(self):
         source = types.SimpleNamespace(require=helpers.require, read_source=mock.Mock(return_value=FAKE_VEC))
+        layout = {"selected_root": "/selected", "paths": ["/selected", "/selected/setuptools/_vendor"]}
         with mock.patch.object(bootstrap, "VECISA_SOURCE_SHA", hashlib.sha256(FAKE_VEC).hexdigest()):
             path = "/cache/inductor/ab/candidate.so"
             self.assertEqual(bootstrap.vecisa_library(["-c", TEMPLATE.replace("__lib_path__", path)],
-                                                      {"paths": ["/selected"]}, source), path)
+                                                      layout, source), path)
+            source.read_source.assert_called_once_with("/selected/torch/_inductor/cpu_vec_isa.py", 32768)
             variants = [
                 TEMPLATE.replace("__lib_path__", "/private/sentinel.so"),
                 TEMPLATE.replace("__lib_path__", "/cache/inductor/../sentinel.so"),
@@ -107,9 +109,22 @@ class VecTests(unittest.TestCase):
             ]
             for text in variants:
                 with self.subTest(text=text[:20]), self.assertRaises((ValueError, SyntaxError)):
-                    bootstrap.vecisa_library(["-c", text], {"paths": ["/selected"]}, source)
+                    bootstrap.vecisa_library(["-c", text], layout, source)
         with self.assertRaises(ValueError):
-            bootstrap.vecisa_library(["-c", TEMPLATE], {"paths": ["/selected"]}, source)
+            bootstrap.vecisa_library(["-c", TEMPLATE], layout, source)
+
+    def test_selected_root_missing_or_inconsistent_never_reads(self):
+        source = types.SimpleNamespace(require=helpers.require, read_source=mock.Mock(return_value=FAKE_VEC))
+        base = {"selected_root": "/selected", "paths": ["/selected", "/selected/setuptools/_vendor"]}
+        for changes in ({"selected_root": None}, {"selected_root": "/private/sentinel"},
+                        {"selected_root": "/selected/setuptools/_vendor"}, {"selected_root": "relative"},
+                        {"selected_root": "/selected/.."}, {"paths": ["/selected"]},
+                        {"paths": ["/selected", "/unreviewed"]}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                bootstrap.vecisa_library(["-c", TEMPLATE], {**base, **changes}, source)
+        with self.assertRaises(ValueError):
+            bootstrap.vecisa_library(["-c", TEMPLATE], {"paths": base["paths"]}, source)
+        source.read_source.assert_not_called()
 
     def test_library_nofollow_regular_and_identity(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -351,6 +366,25 @@ class BootstrapTests(unittest.TestCase):
     STATE["check"]()""")
         (self.root / "launch.py").write_bytes(self.source + driver.encode())
         result = self.run_fixture("positive")
+        self.assertTrue(result["child"]["grandchild"]["before"]["paths"])
+        self.assertTrue(result["fresh"]["paths"])
+
+    def test_installed_layout_vecisa_handoff_parent_spawn_grandchild_and_fresh(self):
+        source = self.package / "torch/_inductor/cpu_vec_isa.py"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(FAKE_VEC)
+        shadow = self.package / "setuptools/_vendor/torch/_inductor/cpu_vec_isa.py"
+        shadow.parent.mkdir(parents=True)
+        shadow.write_bytes(b"not the selected package source\n")
+        path = "/cache/inductor/ab/synthetic.so"
+        call = '    assert vecisa_library(["-c", ' + repr(TEMPLATE.replace("__lib_path__", path)) + \
+               '], STATE["layout"], sys.modules[__name__]) == ' + repr(path)
+        driver = DRIVER.replace("    import fake_engine", "    import fake_engine\n" + call +
+                                '\n    assert STATE["layout"]["selected_root"] == LAYOUT["paths"][-2]')
+        pin = "\nVECISA_SOURCE_SHA=" + repr(hashlib.sha256(FAKE_VEC).hexdigest()) + "\n"
+        (self.root / "launch.py").write_bytes(self.source + pin.encode() + driver.encode())
+        result = self.run_fixture("positive")
+        self.assertTrue(result["parent"]["paths"])
         self.assertTrue(result["child"]["grandchild"]["before"]["paths"])
         self.assertTrue(result["fresh"]["paths"])
 
@@ -841,7 +875,8 @@ def public_source_audit(path):
     template = next(n.value.value for n in klass.body if isinstance(n, ast.Assign)
                     and isinstance(n.targets[0], ast.Name) and n.targets[0].id == "_avx_py_load")
     path = "/cache/inductor/ab/source-bound.so"
-    assert bootstrap.vecisa_library(["-c", template.replace("__lib_path__", path)], {"paths": ["/selected"]}, source) == path
+    layout = {"selected_root": "/selected", "paths": ["/selected", "/selected/setuptools/_vendor"]}
+    assert bootstrap.vecisa_library(["-c", template.replace("__lib_path__", path)], layout, source) == path
     print("Pinned Torch VecISA source/template: PASS (compile/parse only; no upstream execution).")
 
 

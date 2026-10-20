@@ -31,7 +31,10 @@ def vecisa_library(args, layout, helpers):
     """Recognize pinned VecISA's one Linux dlopen template; never eval input."""
     require = helpers.require
     require(len(args) == 2 and args[0] == "-c" and type(args[1]) is str and len(args[1]) <= 4096)
-    raw = helpers.read_source(layout["paths"][-1] + "/torch/_inductor/cpu_vec_isa.py", 32768)
+    selected = layout.get("selected_root")
+    require(type(selected) is str and os.path.isabs(selected) and os.path.normpath(selected) == selected
+            and layout["paths"][-2:] == [selected, selected + "/setuptools/_vendor"])
+    raw = helpers.read_source(selected + "/torch/_inductor/cpu_vec_isa.py", 32768)
     require(hashlib.sha256(raw).hexdigest() == VECISA_SOURCE_SHA)
     source = ast.parse(raw)
     classes = [n for n in source.body if isinstance(n, ast.ClassDef) and n.name == "VecISA"]
@@ -81,9 +84,12 @@ def install_lab(layout, helpers):
     require = helpers.require
     require(sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode
             and sys.pycache_prefix is None and os.getcwd() == "/")
+    require("selected_root" not in layout)
     selected = layout["paths"][-1]
     vendor = selected + "/setuptools/_vendor"
-    layout = {**layout, "paths": [*layout["paths"], vendor]}
+    # Keep package identity separate from the additional active vendor path.
+    # Callers handing this state to VecISA must not reinterpret its last path.
+    layout = {**layout, "selected_root": selected, "paths": [*layout["paths"], vendor]}
     old = getattr(sys, "_nib_lab_bootstrap", None)
     if old is not None:
         require(old["layout"] == layout)
