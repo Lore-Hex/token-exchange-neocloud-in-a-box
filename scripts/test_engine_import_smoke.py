@@ -4,6 +4,7 @@
 import copy
 from contextlib import contextmanager
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -17,6 +18,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parent.parent
 RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-import-smoke"
 RECORDED_SOURCE = "4b6b90613cfcd806ea0d40bf0b1aa7a415880313"
+NUMPY_RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-numpy-startup-smoke"
 
 
 def load(name, relative):
@@ -66,7 +68,7 @@ class SmokeTests(unittest.TestCase):
         failures = dict.fromkeys(("state", "method", "executable", "preparation", "process", "import", "site"), 0)
         state = {"isolated": True, "no_site": True, "dont_write_bytecode": True, "before_unpickle": True,
                  "path_sha256": overlay.digest(overlay.json_bytes(self.measured["proposed_paths"])), "rejections": failures}
-        row = {"state": state, "guard_rejections": failures, "dependency_entrypoint_loads": 1,
+        row = {"state": state, "guard_rejections": failures, "first_state_mismatch": None, "dependency_entrypoint_loads": 1,
                "imports": [{"module": name, "status": "pass", "error_category": None} for name in smoke.MODULES]}
         grandchild = {**copy.deepcopy(row), "before_unpickle": state}
         report = {"schema": "nib.engine-import-smoke/v1", "status": "BLOCKED", "deployable": False, "image": None,
@@ -95,12 +97,18 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual({key: contract["environment"][key] for key in smoke.IMPORT_ENVIRONMENT}, {
             "PYTORCH_NVML_BASED_CUDA_CHECK": "1", "TORCHINDUCTOR_COMPILE_THREADS": "1",
             "TRITON_CACHE_AUTOTUNING": "1", "TILELANG_CLEANUP_TEMP_FILES": "1", "TORCH_DEVICE_BACKEND_AUTOLOAD": "0",
-            "OTEL_PYTHON_CONTEXT": "contextvars_context", "OTEL_PROPAGATORS": "none"})
+            "OTEL_PYTHON_CONTEXT": "contextvars_context", "OTEL_PROPAGATORS": "none",
+            "OPENBLAS_MAIN_FREE": "1", "GOTOBLAS_MAIN_FREE": "1"})
         self.assertEqual(contract["import_environment_sources"], list(smoke.ENVIRONMENT_SOURCES))
         self.assertEqual(contract["metadata_source_sha256"], tool.bootstrap.METADATA_SOURCES)
         self.assertEqual(contract["permitted_dependency_entrypoint"], list(tool.bootstrap.CONTEXT_ENTRYPOINT))
         self.assertEqual([p["revision"] for p in contract["import_environment_sources"]],
-                         ["5df63a7203cdb9328d824a27b682e77c7b9928be"] * 2 + ["cf30153c4c131c8164ee7798e5022d810682e2cb"] * 2)
+                         ["5df63a7203cdb9328d824a27b682e77c7b9928be"] * 2 + ["cf30153c4c131c8164ee7798e5022d810682e2cb"] * 2
+                         + ["2b686f659642080e2fc708719385de6e8be0955f"])
+        self.assertEqual(contract["import_environment_sources"][-1], {
+            "repository": "numpy/numpy", "revision": "2b686f659642080e2fc708719385de6e8be0955f",
+            "path": "numpy/_core/__init__.py", "bytes": 5612, "git_blob": "4b90877138a3ae5e06f35eb668200931073f394b",
+            "sha256": "1fde7ecd24f4087ea99e739b8d75175e23e0b6e6fd337e4804669813eab8c2b5"})
         self.assertNotIn("DISABLE_CUPTI_LAZY_REINIT", contract["environment"])
         self.assertNotIn("TEARDOWN_CUPTI", contract["environment"])
         self.assertIn(b"/usr/bin/env -i", self.files["python"])
@@ -117,6 +125,8 @@ class SmokeTests(unittest.TestCase):
                             (["smoke", "spawn", "grandchild", "state", "path_sha256"], "0" * 64),
                             (["smoke", "fresh", "imports", 0, "module"], "private-url"),
                             (["smoke", "fresh", "imports", 0, "error_category"], "synthetic-private"),
+                            (["smoke", "fresh", "first_state_mismatch"], "synthetic-private"),
+                            (["smoke", "fresh", "first_state_mismatch"], "env"),
                             (["smoke", "fresh", "dependency_entrypoint_loads"], True),
                             (["smoke", "fresh", "dependency_entrypoint_loads"], -1),
                             (["private"], "synthetic-secret")):
@@ -142,6 +152,19 @@ class SmokeTests(unittest.TestCase):
         report["smoke"]["fresh"]["guard_rejections"]["process"] = 1
         self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
 
+    def test_state_diagnostics_are_fixed_and_consistent_with_failure_counters(self):
+        for field in ("env", "paths", "finders", "argv", "cwd", "executable", "method", "pycache"):
+            report = self.valid_report()
+            row = report["smoke"]["fresh"]
+            row["first_state_mismatch"] = field
+            row["guard_rejections"]["state"] = 1
+            # Even a caught mismatch followed by passing imports must fail.
+            self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
+            for invalid in (None, True, "", "synthetic-private-name=value"):
+                row["first_state_mismatch"] = invalid
+                with self.subTest(field=field, invalid=invalid), self.assertRaises((ValueError, TypeError)):
+                    smoke.validate(overlay, report, self.application, self.measured)
+
     def test_application_failure_preserves_fixed_stage_and_no_claim(self):
         for stage in ("application-preflight", "application", "import-smoke"):
             report = self.valid_report()
@@ -160,7 +183,9 @@ class SmokeTests(unittest.TestCase):
         for seconds, succeeds in ((84, True), (90, False)):
             fixture = fixtures.ApplicationTests()
             with fixture.wheel() as (_, tree, console, contract, measured):
-                start = time.monotonic()
+                # Exactly representable fake epoch: borrowing a real fractional
+                # clock can round (start + 720) - start above the strict cap.
+                start = 0.0
                 clock = [start]
                 calls = []
                 inventory = tree.inventory
@@ -197,10 +222,11 @@ class SmokeTests(unittest.TestCase):
         fixture = fixtures.ApplicationTests()
         with fixture.wheel() as (_, tree, console, contract, _):
             deadline = tree.deadline
-            for value in (0, time.monotonic() + 721, float("inf")):
-                with self.assertRaises(ValueError):
-                    smoke.application_budget(fixtures.overlay, fixtures.app, contract, tree, console, value)
-                self.assertEqual(tree.deadline, deadline)
+            with mock.patch.object(fixtures.overlay.time, "monotonic", return_value=0.0):
+                for value in (0, math.nextafter(720.0, math.inf), 721, float("inf")):
+                    with self.subTest(value=value), self.assertRaises(ValueError):
+                        smoke.application_budget(fixtures.overlay, fixtures.app, contract, tree, console, value)
+                    self.assertEqual(tree.deadline, deadline)
             contract["base_image"] = "unknown"
             with self.assertRaises(ValueError):
                 smoke.application_budget(fixtures.overlay, fixtures.app, contract, tree, console, time.monotonic() + 500)
@@ -470,23 +496,42 @@ class SmokeTests(unittest.TestCase):
         binary, _ = tool.recorder.build_validator(ROOT, record["git_sha"], self.root, env)
         tool.recorder.publish_evidence(record, report, binary, self.root, self.root / "evidence", env)
         self.assertEqual(json.loads((self.root / "evidence/run.json").read_bytes()), record)
-        recorded = self.root / "recorded/evidence/p0/import-smoke"
-        recorded.mkdir(parents=True)
-        (recorded / "run.json").write_bytes(tool.read_source(RECORDED / "run.json"))
+        for directory in (RECORDED, NUMPY_RECORDED):
+            recorded = self.root / "recorded/evidence/p0" / directory.name
+            recorded.mkdir(parents=True)
+            (recorded / "run.json").write_bytes(tool.read_source(directory / "run.json"))
         tool.recorder.call([str(binary), "lint", str(self.root / "recorded")], env, timeout=20)
 
     def test_recorded_application_pass_and_guard_rejection_preserve_source_and_failure(self):
+        self.assert_recorded_attempt(RECORDED, RECORDED_SOURCE,
+            run_sha="4d7c9d6e7a896747e48a0e7ae3a0aa63bec71c1229bafd5649c63cce97b8eacb",
+            output_sha="fe1105ae2dc62f3d4853606450eec9d917fc3f9f115127edece651ef1d0da21b",
+            recorder_sha="be0a7ee856d85d4543d5485ce4eacf65a9b157d0d5290f46dce1ec478c3a7b8d",
+            payload_sha="069c23588dc7e2381dd14ef6fc4a41561bed2cfbcaa7e45424779afe56734938",
+            timestamps=("2026-10-20T04:03:31Z", "2026-10-20T04:11:55Z"),
+            elapsed={"application-preflight": 8342, "application": 482225, "import-smoke": 4611}, guard=("state", 2))
+
+    def test_recorded_numpy_attempt_preserves_process_rejection_without_state_mismatch(self):
+        self.assert_recorded_attempt(NUMPY_RECORDED, "1c8c6a5edac427bfe4724159090cd461b4bab94e",
+            run_sha="e064e35a481842b6ef3f6e01ffc83a7398c945b2afe4c3da3e0fb5b47cf4befd",
+            output_sha="9892780bdaec342752f70164571e0a867564a9b860cd9c9ba9ee29ddabd304c8",
+            recorder_sha="e0ec2c93748663904d1282833ad93d2d6f3279c0dbcb426f54a75a51c6bd863b",
+            payload_sha="4c14aaebaa180952d896dd5f990d1d0c225800650a0c925e564905cd106ed664",
+            timestamps=("2026-10-20T04:47:36Z", "2026-10-20T04:56:00Z"),
+            elapsed={"application-preflight": 8142, "application": 480489, "import-smoke": 6149}, guard=("process", 1))
+
+    def assert_recorded_attempt(self, directory, revision, *, run_sha, output_sha, recorder_sha, payload_sha,
+                                timestamps, elapsed, guard):
         documents = []
-        for name, expected in (("run.json", "4d7c9d6e7a896747e48a0e7ae3a0aa63bec71c1229bafd5649c63cce97b8eacb"),
-                               ("output.log", "fe1105ae2dc62f3d4853606450eec9d917fc3f9f115127edece651ef1d0da21b")):
-            raw = tool.read_source(RECORDED / name)
+        for name, expected in (("run.json", run_sha), ("output.log", output_sha)):
+            raw = tool.read_source(directory / name)
             self.assertLessEqual(len(raw), 65536)
             self.assertEqual(overlay.digest(raw), expected)
             documents.append(overlay.load_json(raw))
         run, report = documents
-        self.assertEqual((run["git_sha"], run["result"], run["execution"]), (RECORDED_SOURCE, "fail", "software"))
-        self.assertEqual((run["started_utc"], run["ended_utc"]), ("2026-10-20T04:03:31Z", "2026-10-20T04:11:55Z"))
-        self.assertEqual(run["command"], "python3 -I -S scripts/record-engine-import-smoke.py --slug official-vllm-import-smoke")
+        self.assertEqual((run["git_sha"], run["result"], run["execution"]), (revision, "fail", "software"))
+        self.assertEqual((run["started_utc"], run["ended_utc"]), timestamps)
+        self.assertEqual(run["command"], "python3 -I -S scripts/record-engine-import-smoke.py --slug " + directory.name[11:])
         self.assertFalse(run["hardware_validated"])
 
         # Rebuild the complete payload with its historical helper closure. This
@@ -496,27 +541,27 @@ class SmokeTests(unittest.TestCase):
                  tool.recorder.SCRIPT, tool.recorder.prep.SCRIPT, tool.recorder.prep.INSPECTOR, tool.checker.SCRIPT,
                  tool.recorder.SNAPSHOT, tool.recorder.DIAGNOSTIC, tool.recorder.DESCRIPTOR)
         for name in names:
-            raw = tool.checker.git(ROOT, "show", RECORDED_SOURCE + ":" + name)
+            raw = tool.checker.git(ROOT, "show", revision + ":" + name)
             self.assertLessEqual(len(raw), 2 << 20)
             path = source_root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(raw)
         source = (source_root / tool.SCRIPT).read_bytes()
-        self.assertEqual(overlay.digest(source), "be0a7ee856d85d4543d5485ce4eacf65a9b157d0d5290f46dce1ec478c3a7b8d")
+        self.assertEqual(overlay.digest(source), recorder_sha)
         historical = types.ModuleType("recorded_import_smoke")
         historical.__file__ = str(source_root / tool.SCRIPT)
         exec(compile(source, historical.__file__, "exec"), historical.__dict__)
         original_git = historical.checker.git
         def source_git(repo, *args, **kwargs):
             if args == ("rev-parse", "--verify", "HEAD^{commit}"):
-                return (RECORDED_SOURCE + "\n").encode()
+                return (revision + "\n").encode()
             return original_git(repo, *args, **kwargs)
         with mock.patch.object(historical.checker, "git", side_effect=source_git):
             files, contract = historical.prepare_files(*historical.inputs(ROOT))
         payload = overlay.bundle_digest(files)
-        self.assertEqual(payload, "069c23588dc7e2381dd14ef6fc4a41561bed2cfbcaa7e45424779afe56734938")
+        self.assertEqual(payload, payload_sha)
         provenance = report["provenance"]
-        self.assertEqual(provenance["git_sha"], RECORDED_SOURCE)
+        self.assertEqual(provenance["git_sha"], revision)
         self.assertEqual(provenance["payload_sha256"], payload)
         self.assertEqual(provenance["source_bundle_sha256"], contract["source_bundle_sha256"])
         self.assertEqual(provenance["validator_source_sha256"], "c18f7f7028758f683f01a67806cbe5db9d44f503c6f58357393329b01a243232")
@@ -534,7 +579,7 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual((report["stage"], report["cleanup"], report["result"], report["smoke_pass"]),
                          ("smoke-rejected", "confirmed", "fail", False))
         self.assertEqual(experiment["stage"], "complete")
-        self.assertEqual(experiment["phase_elapsed_ms"], {"application-preflight": 8342, "application": 482225, "import-smoke": 4611})
+        self.assertEqual(experiment["phase_elapsed_ms"], elapsed)
         applied = experiment["application"]
         self.assertEqual(applied["stages"], 5)
         self.assertTrue(applied["native_inventory_unchanged"])
@@ -543,7 +588,9 @@ class SmokeTests(unittest.TestCase):
         self.assertFalse(experiment["inference_started"])
         self.assertEqual(experiment["smoke"]["tracker"], {"launched": True, "exit_zero": True})
         for row in (experiment["smoke"]["fresh"], experiment["smoke"]["spawn"], experiment["smoke"]["spawn"]["grandchild"]):
-            self.assertEqual(row["guard_rejections"], {key: 2 if key == "state" else 0 for key in row["guard_rejections"]})
+            self.assertEqual(row["guard_rejections"], {key: guard[1] if key == guard[0] else 0 for key in row["guard_rejections"]})
+            if guard[0] == "process":
+                self.assertIsNone(row["first_state_mismatch"])
             self.assertEqual(row["dependency_entrypoint_loads"], 0)
             self.assertEqual(row["imports"], [{"module": name, "status": "rejected" if i == 0 else "not-run",
                                                "error_category": "guard" if i == 0 else None}

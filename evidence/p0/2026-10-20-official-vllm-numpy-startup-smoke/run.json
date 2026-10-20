@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S scripts/record-engine-import-smoke.py --slug official-vllm-numpy-startup-smoke",
+  "ended_utc": "2026-10-20T04:56:00Z",
+  "execution": "software",
+  "git_sha": "1c8c6a5edac427bfe4724159090cd461b4bab94e",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "local-software-experiment",
+    "provider": "local"
+  },
+  "notes": "Non-qualifying application/import experiment; candidate stays BLOCKED even if smoke_pass is true. Writable owned container layer, read-only payload, no network/GPU/ports/model/inference/build/pull/publication. Imports execute pinned engine/dependency code; not an adversarial Python sandbox or ABI/confidential proof. Docker/OS/interpreter trusted. Payload SHA-256: 4c14aaebaa180952d896dd5f990d1d0c225800650a0c925e564905cd106ed664",
+  "phase": "P0",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-20T04:47:36Z",
+  "task": "T4"
+}

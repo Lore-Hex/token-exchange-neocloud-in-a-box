@@ -135,7 +135,8 @@ def main():
         try:
             forbidden()
         except ValueError as exc:
-            print(json.dumps({"rejected": True, "message": str(exc), "failures": STATE["failures"]}))
+            print(json.dumps({"rejected": True, "message": str(exc), "failures": STATE["failures"],
+                              "first_state_mismatch": STATE["first_state_mismatch"]}))
             return
         raise AssertionError("accepted forbidden operation")
     dispatch(ARGS, STATE)
@@ -212,12 +213,16 @@ class BootstrapTests(unittest.TestCase):
         env_probe = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", "import os,json;print(json.dumps(dict(os.environ)))"],
                                    cwd="/", env=self.env, capture_output=True, check=True)
         self.env = json.loads(env_probe.stdout)
+        self.layout = {"paths": stdlib + [str(package)], "stdlib_roots": stdlib,
+                       "launcher": str(self.launcher), "wrapper": str(self.wrapper), "environment": self.env}
+        self.publish_layout()
+
+    def publish_layout(self):
+        self.layout["environment"] = self.env
         command = ["/usr/bin/env", "-i", *[key + "=" + value for key, value in self.env.items()],
                    sys.executable, "-I", "-S", "-B", str(self.launcher)]
         self.wrapper.write_text("#!/bin/sh\nexec " + shlex.join(command) + ' "$@"\n')
         self.wrapper.chmod(0o700)
-        self.layout = {"paths": stdlib + [str(package)], "stdlib_roots": stdlib,
-                       "launcher": str(self.launcher), "wrapper": str(self.wrapper), "environment": self.env}
         (self.root / "layout.json").write_text(json.dumps(self.layout))
 
     def run_fixture(self, *args):
@@ -454,6 +459,91 @@ class BootstrapTests(unittest.TestCase):
         self.assertTrue(rejected["rejected"])
         self.assertEqual(rejected["message"], "sealed Python operation rejected")
         self.assertGreater(rejected["failures"]["state"], 0)
+
+    def test_numpy_style_temporary_environment_requires_both_preconfigured_values_in_every_process(self):
+        # Original synthetic reproduction of the pinned NumPy conditional
+        # additions, nested import and finally restoration; no NumPy import.
+        (self.root / "packages/fake_engine.py").write_text(
+            "import os\nadded = []\n"
+            "for key in ('OPENBLAS_MAIN_FREE', 'GOTOBLAS_MAIN_FREE'):\n"
+            "    if key not in os.environ:\n        os.environ[key] = '1'\n        added.append(key)\n"
+            "try:\n    import fake_multiarray\n"
+            "finally:\n    for key in added:\n        del os.environ[key]\n"
+            "VALUE = 'synthetic-only'\n")
+        (self.root / "packages/fake_multiarray.py").write_text("VALUE = 'synthetic-only'\n")
+        attempt = '''def attempt_import():
+    before = dict(os.environ)
+    try:
+        import fake_engine
+        passed = True
+    except ValueError as error:
+        assert str(error) == "sealed Python operation rejected"
+        passed = False
+    assert dict(os.environ) == before
+    STATE["check"]()  # restored equality must not erase an earlier rejection
+    return {"passed": passed, "first": STATE["first_state_mismatch"], "failures": dict(STATE["failures"])}
+
+'''
+        driver = DRIVER.replace("def target(writer, prepared, depth):", attempt + "def target(writer, prepared, depth):")
+        driver = driver.replace("    import fake_engine\n    result =", "    imported = attempt_import()\n    result =")
+        driver = driver.replace('"imported": fake_engine.VALUE', '"imported": imported')
+        driver = driver.replace('"state": observation(STATE), "metadata": distribution_observation()',
+                                '"state": observation(STATE), "metadata": distribution_observation(), "attempt": attempt_import()')
+        driver = driver.replace("            result = child(1)", "            parent_attempt = attempt_import()\n            result = child(1)\n            result['parent_attempt'] = parent_attempt")
+        self.launcher.write_bytes(SOURCE + driver.encode())
+        baseline = dict(self.env)
+        keys = ("OPENBLAS_MAIN_FREE", "GOTOBLAS_MAIN_FREE")
+        for present in ((), keys[:1], keys[1:], keys):
+            with self.subTest(present=present):
+                self.env = {key: value for key, value in baseline.items() if key not in keys or key in present}
+                self.publish_layout()
+                row = self.run_fixture("positive")
+                for observed in (row["parent_attempt"], row["imported"], row["grandchild"]["imported"], row["fresh"]["attempt"]):
+                    passed = present == keys
+                    self.assertIs(observed["passed"], passed)
+                    self.assertEqual(observed["first"], None if passed else "env")
+                    self.assertEqual(observed["failures"], {key: int(not passed and key == "state") for key in observed["failures"]})
+                self.assertEqual(row["tracker"], {"launched": True, "exit_zero": True})
+
+    def test_first_state_mismatch_is_fixed_sticky_and_does_not_relax_checks(self):
+        mutations = {
+            "paths": "sys.path.append('/synthetic-private')",
+            "argv": "sys.argv.append('synthetic-private')",
+            "executable": "sys.executable = '/synthetic-private'",
+            "env": "os.environ['SYNTHETIC_PRIVATE'] = 'synthetic-private'",
+            "cwd": "os.chdir(LAYOUT['paths'][-1])",
+            "method": "mp.get_start_method = lambda: 'fork'",
+            "pycache": "sys.pycache_prefix = '/synthetic-private'",
+            "finders": "sys.meta_path.append(object())",
+            "openblas": "os.environ['OPENBLAS_MAIN_FREE'] = '0'",
+            "gotoblas": "os.environ['GOTOBLAS_MAIN_FREE'] = '0'",
+        }
+        for field, change in mutations.items():
+            driver = DRIVER.replace('            if name == "fork":',
+                '            if name == "diagnostic":\n                ' + change + '\n                STATE["check"]()\n'
+                '            elif name == "fork":')
+            self.launcher.write_bytes(SOURCE + driver.encode())
+            with self.subTest(field=field):
+                row = self.run_fixture("reject", "diagnostic")
+                self.assertEqual(row["first_state_mismatch"], "env" if field in ("openblas", "gotoblas") else field)
+                self.assertEqual(row["failures"]["state"], 1)
+                self.assertEqual(row["message"], "sealed Python operation rejected")
+                self.assertNotIn("synthetic-private", json.dumps(row))
+        driver = DRIVER.replace('            if name == "fork":',
+            '            if name == "sticky":\n'
+            '                os.environ["SYNTHETIC_PRIVATE"] = "synthetic-private"\n'
+            '                try: STATE["check"]()\n'
+            '                except ValueError: pass\n'
+            '                del os.environ["SYNTHETIC_PRIVATE"]\n'
+            '                STATE["check"]()\n'
+            '                sys.path.append("/synthetic-private")\n'
+            '                STATE["check"]()\n'
+            '            elif name == "fork":')
+        self.launcher.write_bytes(SOURCE + driver.encode())
+        row = self.run_fixture("reject", "sticky")
+        self.assertEqual(row["first_state_mismatch"], "env")
+        self.assertEqual(row["failures"]["state"], 2)
+        self.assertNotIn("synthetic-private", json.dumps(row))
 
     def test_launch_state_and_import_rejections_are_fixed(self):
         for name in ("fork", "forkserver", "direct-fork", "direct-forkserver", "method", "numa", "ordinary-python",

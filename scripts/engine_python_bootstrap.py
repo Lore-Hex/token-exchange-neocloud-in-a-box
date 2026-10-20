@@ -127,20 +127,28 @@ def install(layout):
     state = {"layout": layout, "failures": failures, "before_unpickle": True, "spawn_entry": False,
              "finders": None, "tracker_pids": [], "backport_context": None, "backport_delegate": None,
              "backport_loading": False, "backport_class": None, "entrypoint_loads": 0,
-             "context_module": None, "context_entrypoint": None}
+             "context_module": None, "context_entrypoint": None, "first_state_mismatch": None}
 
     def reject(kind):
         failures[kind] += 1
         raise ValueError("sealed Python operation rejected")
 
+    def state_check(field, matches):
+        if not matches:
+            if state["first_state_mismatch"] is None:
+                state["first_state_mismatch"] = field
+            reject("state")
+
     def check():
         expected_argv = [layout["launcher"]] + (["--multiprocessing-fork"] if state["spawn_entry"] else [])
-        if not (sys.path == layout["paths"] and sys.argv == expected_argv
-                and sys.executable == layout["wrapper"] and spawn.get_executable() == os.fsencode(layout["wrapper"])
-                and dict(os.environ) == layout["environment"] and os.getcwd() == "/"
-                and mp.get_start_method() == "spawn" and sys.pycache_prefix is None
-                and (state["finders"] is None or sys.meta_path == state["finders"])):
-            reject("state")
+        state_check("paths", sys.path == layout["paths"])
+        state_check("argv", sys.argv == expected_argv)
+        state_check("executable", sys.executable == layout["wrapper"] and spawn.get_executable() == os.fsencode(layout["wrapper"]))
+        state_check("env", dict(os.environ) == layout["environment"])
+        state_check("cwd", os.getcwd() == "/")
+        state_check("method", mp.get_start_method() == "spawn")
+        state_check("pycache", sys.pycache_prefix is None)
+        state_check("finders", state["finders"] is None or sys.meta_path == state["finders"])
 
     original_context = context.BaseContext.get_context
     def get_context(self, method=None):

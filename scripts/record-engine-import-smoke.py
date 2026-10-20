@@ -26,8 +26,8 @@ BOOTSTRAP_FILE = "scripts/engine_python_bootstrap.py"
 SMOKE = "scripts/engine_import_smoke.py"
 TESTS = ("scripts/test_engine_python_bootstrap.py", "scripts/test_engine_import_smoke.py")
 BUILDER_SHA = "4821dfc601f8a8f25985dc84b0c5f40c83f3ef5f153383277b91e2513fa0fc98"
-BOOTSTRAP_SHA = "1acc6487fa838da64ff7e5000423b94c7c5f341882c370249c775593e6b2691e"
-SMOKE_SHA = "45ddf051871948d75565bbd34e78a403fa605ba652ba4f149584e1395dba7554"
+BOOTSTRAP_SHA = "dc1e2dd97b85ef45a8c06e4797e032962d0b8a7138b58cc310f5411ced0690d0"
+SMOKE_SHA = "9e2ad90c412e232827bdd168dd61bf948b376a3470bf0aa9db7550906520e9e7"
 
 
 def read_source(path):
