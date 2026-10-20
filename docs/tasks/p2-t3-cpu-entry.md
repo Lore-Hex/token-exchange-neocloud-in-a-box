@@ -158,3 +158,11 @@ finder, inference or cleanup success follows from that report.
 The separate final workflow log supports an empty labeled-container query at
 that time, not recorder-confirmed cleanup or proof of future absence. The
 original failure bytes and their historical source bindings are preserved.
+
+The [next native attempt](../../evidence/p2/2026-10-20-cpu-native-39467970211-1/README.md)
+at producer `d764993463b6072681227185f4b9a82967178755` completed all five
+application stages and recorded the additional `botocore-vendored-six` finder.
+Entry exited 1 at checkpoint 11 with only the finder-state mismatch; source
+checks passed and cleanup was confirmed. This supplies a concrete identity for
+a reviewed compatibility fix, not an unknown-finder exception or a passing
+engine/inference result.
