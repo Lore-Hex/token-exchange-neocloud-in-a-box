@@ -8,6 +8,12 @@ Its offline checker proves declared dependency coverage, not installability,
 LKCA compilation, a complete guest rootfs, bootability or hardware qualification.
 No release or debug image has been built or validated yet.
 
+[Offline package preparation](../docs/tasks/p3-t1-offline-package-preparation.md)
+now verifies all pinned archives and control metadata, prepares a private local
+repository and re-verifies its complete bytes without installation. The generated
+nonbootable mkosi candidate still requires a pinned Linux tools tree and reviewed
+installation boundary; it is not an installability or reproducibility result.
+
 [P3.T1 prerequisite audit](../docs/tasks/p3-t1-guest-image-feasibility.md)
 records the source-backed build inputs and unresolved package/boot requirements.
 It is not a build recipe, an artifact lock or evidence of image readiness.

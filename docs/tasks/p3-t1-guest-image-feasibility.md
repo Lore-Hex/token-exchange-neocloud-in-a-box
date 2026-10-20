@@ -5,6 +5,11 @@ Follow-up: the [R595 package-input audit](p3-t1-r595-package-inputs.md) selects
 `595.58.03` reference. It pins a checked dependency graph without claiming a
 complete image or relaxing the gates below.
 
+Subsequent [offline package preparation](p3-t1-offline-package-preparation.md)
+adds executable archive/control verification and a generated nonbootable mkosi
+candidate. It does not resolve the full guest or Linux tools-tree requirements
+identified by this historical prerequisite audit.
+
 Status: **source research only; build implementation blocked on exact inputs**.
 Reviewed 2026-10-20. No guest image was built, booted, signed, imported or
 published. No software was installed and no vendor setup script was executed.
