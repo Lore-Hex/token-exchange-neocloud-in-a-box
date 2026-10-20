@@ -1,0 +1,76 @@
+{
+  "confidential_qualified": false,
+  "hardware_validated": false,
+  "inventory": {
+    "checks": {
+      "attestation_interfaces_present": {
+        "amd_sev_guest": true,
+        "intel_tdx_guest": false,
+        "linux_tsm_report": true
+      },
+      "cpu_vendor": "amd",
+      "gpus": [
+        {
+          "driver": "595.91.07",
+          "family": "B200",
+          "memory_mib": 183359
+        },
+        {
+          "driver": "595.91.07",
+          "family": "B200",
+          "memory_mib": 183359
+        },
+        {
+          "driver": "595.91.07",
+          "family": "B200",
+          "memory_mib": 183359
+        },
+        {
+          "driver": "595.91.07",
+          "family": "B200",
+          "memory_mib": 183359
+        },
+        {
+          "driver": "595.91.07",
+          "family": "B200",
+          "memory_mib": 183359
+        },
+        {
+          "driver": "595.91.07",
+          "family": "B200",
+          "memory_mib": 183359
+        },
+        {
+          "driver": "595.91.07",
+          "family": "B200",
+          "memory_mib": 183359
+        },
+        {
+          "driver": "595.91.07",
+          "family": "B200",
+          "memory_mib": 183359
+        }
+      ],
+      "host_memory_kib": 1402168380
+    },
+    "confidential_qualified": false,
+    "eight_b200_reported": true,
+    "ended_utc": "2026-10-20T08:33:44.704412Z",
+    "errors": [],
+    "hardware_attestation_verified": false,
+    "result": "pass",
+    "runtime_ready": false,
+    "schema": "nib.hardware-inventory/v1",
+    "scope": "read-only-inventory",
+    "script_sha256": "1a84acf759252090e91b961ea86772348f4166d68d616f58a3235f3aeb7bbd0c",
+    "started_utc": "2026-10-20T08:33:44.389223Z"
+  },
+  "result": "pass",
+  "runtime_ready": false,
+  "schema": "nib.probe-recording/v1",
+  "source": {
+    "git_sha": "45e7a09039a312429a73b605021b8d18828af4b3",
+    "probe_sha256": "1a84acf759252090e91b961ea86772348f4166d68d616f58a3235f3aeb7bbd0c",
+    "recorder_sha256": "2f7a59ee974fa0132a75209ceed39128fed52e2abc3ff76f35218524a6f2600c"
+  }
+}

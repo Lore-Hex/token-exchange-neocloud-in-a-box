@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I host/record-probe.py",
+  "ended_utc": "2026-10-20T08:33:44.765531Z",
+  "execution": "software",
+  "git_sha": "45e7a09039a312429a73b605021b8d18828af4b3",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "reported inventory only",
+    "machine": "linux",
+    "provider": "operator-approved-test-host"
+  },
+  "notes": "Read-only software inventory, not GPU execution, attestation, qualification or runtime admission. Pass means only eight B200s reported and inventory reads succeeded. Host/OS/tools remain trusted. Probe SHA-256: 1a84acf759252090e91b961ea86772348f4166d68d616f58a3235f3aeb7bbd0c; recorder SHA-256: 2f7a59ee974fa0132a75209ceed39128fed52e2abc3ff76f35218524a6f2600c",
+  "phase": "P2",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-20T08:33:44.348911Z",
+  "task": "T2"
+}
