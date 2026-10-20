@@ -150,14 +150,18 @@ class AttestationTests(unittest.TestCase):
     def test_actual_cli_contract_exact_versions_and_required_help(self):
         metadata = "".join(name + "\t" + lab.VERSION + "\tamd64\tii \n"
                            for name in lab.PACKAGES).encode()
-        helps = [b"  -f,--format TEXT\n  -l,--log-level TEXT\n",
-                 b"  -d,--device TEXT\n  --nonce TEXT\n  --verifier TEXT\n"
+        # The pinned installed binary pads short aliases with spaces.
+        helps = [b"  -f,     --format TEXT\n  -l,     --log-level TEXT\n",
+                 b"  -d,     --device TEXT\n  --nonce TEXT\n  --verifier TEXT\n"
                  b"  --gpu-evidence-source TEXT\n  --nras-url TEXT\n",
                  b"  --token-file TEXT\n  --nonce TEXT\n  --nras-url TEXT\n"
                  b"  --token-type TEXT\n"]
         capture = mock.Mock(side_effect=[metadata, *helps])
         lab.cli_contract(capture, "/private-fixture", clock=lambda: 1024.0)
         self.assertEqual(capture.call_count, 4)
+        for spacing in (b"", b"\t"):
+            variants = [text.replace(b",     --", b"," + spacing + b"--") for text in helps]
+            lab.cli_contract(mock.Mock(side_effect=[metadata, *variants]), "/private-fixture")
         for call in capture.call_args_list:
             self.assertEqual(call.kwargs["timeout"], 30)
             self.assertEqual(call.kwargs["limit"], 65536)

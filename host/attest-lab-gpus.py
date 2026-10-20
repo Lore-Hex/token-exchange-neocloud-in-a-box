@@ -157,7 +157,7 @@ def cli_contract(capture, directory, clock=time.monotonic):
             (["verify-token"], ("--token-file", "--nonce", "--nras-url", "--token-type"))):
         text = call(["/usr/bin/nvattest", *subcommand, "--help"])
         for flag in expected:
-            require(re.search(r"(?m)^[ \t]+(?:-[A-Za-z0-9],)?" + re.escape(flag)
+            require(re.search(r"(?m)^[ \t]+(?:-[A-Za-z0-9],[ \t]*)?" + re.escape(flag)
                               + r"(?:[ =,\t]|$)", text))
 
 
