@@ -330,7 +330,7 @@ def completion_result(raw):
             "prompt_tokens": usage["prompt_tokens"], "completion_tokens": usage["completion_tokens"]}
 
 
-def run_engine(contract, checkpoints):
+def prepare_engine(contract, checkpoints):
     state = install_lab({"paths": contract["paths"], "stdlib_roots": contract["paths"][:2],
                          "wrapper": ROOT + "/python", "launcher": ROOT + "/launch.py"}, sys.modules[__name__],
                         checkpoint=checkpoints.bootstrap)
@@ -349,6 +349,11 @@ def run_engine(contract, checkpoints):
     serve.validate(args)
     checkpoints.emit(16)
     state["check"]()
+    return serve, args
+
+
+def run_engine(contract, checkpoints):
+    serve, args = prepare_engine(contract, checkpoints)
     checkpoints.emit(17)
     # No checkpoint endpoint remains open when real workers may be launched.
     checkpoints.close()

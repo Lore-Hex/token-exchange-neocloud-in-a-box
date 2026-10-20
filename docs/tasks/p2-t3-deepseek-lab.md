@@ -329,3 +329,7 @@ the external VM deletion deadline is still mandatory.
 Software tests use fake layouts, synthetic children and fake Docker/NVML.
 They cannot prove actual EngineCore/TP4 reentry, model compatibility, GPU memory
 coherence, multi-GPU collective correctness, kernel/compiler ABI or throughput.
+
+The separate [CPU-only entry diagnostic](p2-t3-cpu-entry.md) reuses application,
+bootstrap and the pre-serve import/parser/state-check boundary without calling
+`serve.cmd`, supplying weights or GPUs, or changing the original serving route.
