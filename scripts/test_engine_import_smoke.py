@@ -4,6 +4,7 @@
 import copy
 from contextlib import contextmanager
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -181,7 +182,9 @@ class SmokeTests(unittest.TestCase):
         for seconds, succeeds in ((84, True), (90, False)):
             fixture = fixtures.ApplicationTests()
             with fixture.wheel() as (_, tree, console, contract, measured):
-                start = time.monotonic()
+                # Exactly representable fake epoch: borrowing a real fractional
+                # clock can round (start + 720) - start above the strict cap.
+                start = 0.0
                 clock = [start]
                 calls = []
                 inventory = tree.inventory
@@ -218,10 +221,11 @@ class SmokeTests(unittest.TestCase):
         fixture = fixtures.ApplicationTests()
         with fixture.wheel() as (_, tree, console, contract, _):
             deadline = tree.deadline
-            for value in (0, time.monotonic() + 721, float("inf")):
-                with self.assertRaises(ValueError):
-                    smoke.application_budget(fixtures.overlay, fixtures.app, contract, tree, console, value)
-                self.assertEqual(tree.deadline, deadline)
+            with mock.patch.object(fixtures.overlay.time, "monotonic", return_value=0.0):
+                for value in (0, math.nextafter(720.0, math.inf), 721, float("inf")):
+                    with self.subTest(value=value), self.assertRaises(ValueError):
+                        smoke.application_budget(fixtures.overlay, fixtures.app, contract, tree, console, value)
+                    self.assertEqual(tree.deadline, deadline)
             contract["base_image"] = "unknown"
             with self.assertRaises(ValueError):
                 smoke.application_budget(fixtures.overlay, fixtures.app, contract, tree, console, time.monotonic() + 500)
