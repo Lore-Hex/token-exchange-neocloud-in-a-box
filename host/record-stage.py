@@ -444,9 +444,10 @@ def utc():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def run(root, expected, destination, evidence, seconds, budget, download):
+def run(root, expected, destination, evidence, seconds, budget, download, workers=1):
     require(sys.platform == "linux" and os.uname().machine == "x86_64")
     require(type(seconds) is int and 0 < seconds <= MAX_SECONDS and type(budget) is int and budget > 0)
+    require(type(workers) is int and 1 <= workers <= 4)
     require(destination.is_absolute() and destination.name not in ("", ".", "..") and ".." not in destination.parts)
     paths = (root, destination, evidence)
     require(all(path.is_absolute() and str(path) == os.path.normpath(path) and ".." not in path.parts for path in paths))
@@ -466,6 +467,8 @@ def run(root, expected, destination, evidence, seconds, budget, download):
               "last_observation": None, "deadline_seconds": seconds, "body_byte_budget": budget,
               "cleanup": "not-started", "cleanup_scope": "local-process-group-only", "stage": "disk-preflight", "hardware_validated": False,
               "runtime_ready": False, "confidential_qualified": False}
+    if workers != 1:
+        report["download_workers"] = workers
     with new_directory(evidence) as output:
         try:
             require(not CANCELLED)
@@ -485,8 +488,9 @@ def run(root, expected, destination, evidence, seconds, budget, download):
                     report["last_observation"] = {"elapsed_seconds": elapsed, "counts": counts, "verified": False}
                     print(json_bytes({"stage": "staging", **report["last_observation"]}).decode(), end="", flush=True)
                 report.update(stage="staging", cleanup="unproven")
+                worker_args = [] if workers == 1 else ["--workers", str(workers)]
                 code, data = execute([str(private / "nib"), "model", "stage", "--download", "--max-bytes", str(budget),
-                                     "--timeout", str(seconds) + "s", str(private), str(destination)], seconds, progress, report)
+                                     "--timeout", str(seconds) + "s", *worker_args, str(private), str(destination)], seconds, progress, report)
                 require(code == 0)
                 proof = parse(data)
                 validate_proof(proof, plan, budget)
@@ -500,6 +504,7 @@ def run(root, expected, destination, evidence, seconds, budget, download):
         record = {"schema": "nib.evidence/v1", "phase": "P0", "task": "T4", "git_sha": receipt["git_sha"],
                   "command": "python3 -I -S record-stage.py run --download --seconds " + str(seconds)
                       + " --max-bytes " + str(budget) + " --receipt-sha256 " + expected
+                      + ("" if workers == 1 else " --workers " + str(workers))
                       + " --destination <private> --evidence <private>",
                   "started_utc": started, "ended_utc": ended, "result": report["result"], "execution": "software",
                   "hardware_validated": False, "host": {"provider": "operator-approved-test-host", "machine": "linux-amd64",
@@ -529,12 +534,13 @@ def main():
     launch.add_argument("--seconds", type=int, required=True)
     launch.add_argument("--max-bytes", type=int, required=True)
     launch.add_argument("--download", action="store_true")
+    launch.add_argument("--workers", type=int, default=1)
     args = parser.parse_args()
     if args.command == "prepare":
         prepare(args.output)
         return 0
     return run(Path(__file__).absolute().parent, args.receipt_sha256, args.destination, args.evidence,
-               args.seconds, args.max_bytes, args.download)
+               args.seconds, args.max_bytes, args.download, args.workers)
 
 
 def cancel(signum, frame):

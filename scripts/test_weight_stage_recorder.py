@@ -47,7 +47,7 @@ class StageRecorderTests(unittest.TestCase):
         self.proof.update(verified_bytes=10, downloaded_bytes=10, reused_files=0)
         self.disk = dict(available_bytes=100 << 30, required_bytes=(10 << 30) + 10, overhead_bytes=10 << 30, sufficient=True)
 
-    def run_fixture(self, outputs=None, *, download=True, disk=None, disk_error=None):
+    def run_fixture(self, outputs=None, *, download=True, disk=None, disk_error=None, workers=1):
         results = iter(outputs or [(0, stage.json_bytes(self.plan)), (0, stage.json_bytes(self.proof))])
         def execute(argv, timeout, progress=None, state=None):
             self.assertEqual(stage.read(Path(argv[0]), stage.MAX_BINARY), self.files["nib"])
@@ -65,8 +65,24 @@ class StageRecorderTests(unittest.TestCase):
                 mock.patch.object(stage.os, "uname", return_value=types.SimpleNamespace(machine="x86_64")), \
                 mock.patch.object(stage, "capacity", return_value=disk or self.disk, side_effect=disk_error), \
                 mock.patch.object(stage, "execute", side_effect=execute) as calls, redirect_stdout(io.StringIO()) as printed:
-            code = stage.run(self.bundle, self.receipt_hash, self.destination, self.evidence, 60, 12, download)
+            code = stage.run(self.bundle, self.receipt_hash, self.destination, self.evidence, 60, 12, download, workers)
         return code, printed.getvalue(), calls
+
+    def test_parallel_worker_limit_is_forwarded_and_recorded(self):
+        code, _, calls = self.run_fixture(workers=4)
+        self.assertEqual(code, 0)
+        argv = calls.call_args_list[-1].args[0]
+        self.assertEqual(argv[argv.index("--workers") + 1], "4")
+        report = stage.parse(stage.read(self.evidence / "output.log"))
+        record = stage.parse(stage.read(self.evidence / "run.json"))
+        self.assertEqual(report["download_workers"], 4)
+        self.assertIn("--workers 4", record["command"])
+
+    def test_invalid_workers_rejected_before_execution(self):
+        for workers in (0, -1, 5, True):
+            with self.assertRaises(ValueError):
+                self.run_fixture(workers=workers)
+            self.assertFalse(self.evidence.exists())
 
     def test_receipt_and_source_tamper_fail_before_execution(self):
         receipt, files = stage.bundle(self.bundle, self.receipt_hash)

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/config"
@@ -61,6 +62,7 @@ func PlanStage(packPath string) (*StagePlan, error) {
 type StageOptions struct {
 	MaxBytes int64
 	Timeout  time.Duration
+	Workers  int
 }
 
 type StageProof struct {
@@ -93,6 +95,13 @@ func stageWithSync(ctx context.Context, packPath, directory string, options Stag
 	}
 	if options.MaxBytes < in.plan.MinimumBudgetBytes || options.Timeout <= 0 || options.Timeout > 24*time.Hour {
 		return nil, errors.New("modelpack: explicit sufficient byte budget and timeout up to 24h required")
+	}
+	workers := options.Workers
+	if workers == 0 {
+		workers = 1
+	}
+	if workers < 1 || workers > 4 {
+		return nil, errors.New("modelpack: download workers must be between 1 and 4")
 	}
 	if !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
 		return nil, errors.New("modelpack: canonical absolute staging directory required")
@@ -143,20 +152,40 @@ func stageWithSync(ctx context.Context, packPath, directory string, options Stag
 		}
 	}
 	var downloaded int64
-	for _, f := range in.files {
-		if err := ctx.Err(); err != nil {
-			return nil, err
+	if workers > 1 {
+		pending := make([]config.ManifestFile, 0, len(in.files))
+		for _, f := range in.files {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			if _, ok := initial[f.Path]; ok {
+				continue
+			}
+			if err := root.MkdirAll(path.Dir(f.Path), 0700); err != nil {
+				return nil, errors.New("modelpack: cannot create model directory")
+			}
+			pending = append(pending, f)
 		}
-		if _, ok := initial[f.Path]; ok {
-			continue
-		}
-		if err := root.MkdirAll(path.Dir(f.Path), 0700); err != nil {
-			return nil, errors.New("modelpack: cannot create model directory")
-		}
-		n, err := stageFile(ctx, root, in.pack, f, options.MaxBytes-downloaded, download, buf, syncDirectory)
-		downloaded += n
+		downloaded, err = stageParallel(ctx, root, in.pack, pending, workers, download, syncDirectory)
 		if err != nil {
 			return nil, err
+		}
+	} else {
+		for _, f := range in.files {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			if _, ok := initial[f.Path]; ok {
+				continue
+			}
+			if err := root.MkdirAll(path.Dir(f.Path), 0700); err != nil {
+				return nil, errors.New("modelpack: cannot create model directory")
+			}
+			n, err := stageFile(ctx, root, in.pack, f, options.MaxBytes-downloaded, download, buf, syncDirectory)
+			downloaded += n
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	if err := verifyLocalSet(ctx, root, in.files); err != nil {
@@ -177,6 +206,57 @@ func stageWithSync(ctx context.Context, packPath, directory string, options Stag
 		return nil, err
 	}
 	return &StageProof{LocalProof: localProof(in.pack, in.manifest, len(in.files)), DownloadedBytes: downloaded, ReusedFiles: len(initial)}, nil
+}
+
+func stageParallel(ctx context.Context, root *os.Root, pack *Pack, files []config.ManifestFile, workers int, download *weightDownload, syncDirectory func(*os.Root, string) error) (int64, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	jobs := make(chan config.ManifestFile)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var downloaded int64
+	var firstErr error
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			buf := make([]byte, 256<<10)
+			for f := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				// Each file gets one attempt bounded to its manifest size plus
+				// one byte. Their sum cannot exceed the validated global budget.
+				n, err := stageFile(ctx, root, pack, f, f.Bytes+1, download, buf, syncDirectory)
+				mu.Lock()
+				downloaded += n
+				if err != nil && firstErr == nil {
+					firstErr = err
+					cancel()
+				}
+				mu.Unlock()
+				if err != nil {
+					return
+				}
+			}
+		}()
+	}
+send:
+	for _, f := range files {
+		select {
+		case jobs <- f:
+		case <-ctx.Done():
+			break send
+		}
+	}
+	close(jobs)
+	// Join every worker, including partial-file cleanup, before releasing the
+	// staging lock or returning a proof/error to the caller.
+	wg.Wait()
+	if firstErr != nil {
+		return downloaded, firstErr
+	}
+	return downloaded, ctx.Err()
 }
 
 func stageFile(ctx context.Context, root *os.Root, pack *Pack, expected config.ManifestFile, budget int64, download *weightDownload, buf []byte, syncDirectory func(*os.Root, string) error) (n int64, result error) {
