@@ -286,6 +286,21 @@ class DiagnosticTests(unittest.TestCase):
 
 
 class ImportTests(unittest.TestCase):
+    def test_committed_diagnostic_artifact_is_original_and_not_a_success(self):
+        path = ROOT / "evidence/p3/2026-10-20-apt-missing-preferences/output.log"
+        self.assertEqual(path.read_bytes(), observed_diagnostic())
+        run = json.loads(path.with_name("run.json").read_bytes())
+        self.assertEqual((run["git_sha"], run["result"], run["execution"]),
+                         (recorder.DIAGNOSTIC_PRODUCER, "fail", "software"))
+        report = json.loads(path.read_bytes())
+        runner.validate_result(report["simulation"], {
+            "git_sha": recorder.DIAGNOSTIC_PRODUCER,
+            "source_hashes": {runner.prep.FILES[-1]: report["simulation"]["guest_lock_sha256"]}},
+            json.loads((ROOT / runner.prep.FILES[-1]).read_bytes()))
+        self.assertEqual(report["cleanup"], "confirmed")
+        self.assertFalse(report["simulation"]["package_installation_executed"])
+        self.assertFalse(report["simulation"]["maintainer_scripts_executed"])
+
     def test_exact_observed_diagnostic_preserves_failure_and_provenance(self):
         raw = observed_diagnostic()
         self.assertEqual(recorder.base.digest(raw), recorder.DIAGNOSTIC_SHA256)
