@@ -31,9 +31,9 @@ TEST = "scripts/test_engine_image.py"
 CENSUS = "evidence/p0/2026-10-19-official-vllm-metadata-census/output.log"
 MAX_REPORT = 2 << 20
 GO_TOOLCHAIN = "go1.27.2"
-PREPARER_SHA = "928161b5e8aa973b10ac4ae968edc904e2896e4a9b0434352194870553fa7b9d"
+PREPARER_SHA = "1c63b72c522b14edafc53311f736b8f237916d0a91faccca8be9909096ee1d6b"
 SNAPSHOT_SHA = "b7f5753ecacde3cda2bf5fdc673b6f2af239875f2a9468e34a5219a797b78b3a"
-DIAGNOSTIC_SHA = "1e30fd4dcfae33a4b2bd1e4ab4b1f2a969c83a8342ec649e27f75ba977f92be6"
+DIAGNOSTIC_SHA = "e97285260e589d4d7cb6405529275a49a88be72778977fb34f03394dea2b2a48"
 CANCELLED = False
 
 
@@ -124,6 +124,7 @@ def payload_files(revision, bundle, extra, *, mode="integrity"):
         overlay.require(contract["base_image"] == nonhost["base_image"]
                         and contract["official_config"]["sha256"] == nonhost["config_sha256"])
         contract["diagnostic_nonhost_policy"] = nonhost
+        contract["diagnostic_integrity_details"] = True
     files = {"engine_overlay.py": extra[prep.INSPECTOR], "engine_image_diagnostic.py": extra[DIAGNOSTIC],
              "probe.py": extra[PROBE]}
     contract["payload_sources"] = {name: overlay.digest(data) for name, data in files.items()}

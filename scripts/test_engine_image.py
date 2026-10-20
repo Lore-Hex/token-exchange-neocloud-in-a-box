@@ -4,6 +4,8 @@
 import base64
 from contextlib import contextmanager
 import copy
+import csv
+import io
 import json
 import os
 from pathlib import Path
@@ -20,6 +22,7 @@ RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-image-diagnostic"
 CENSUS_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-metadata-census"
 BOUNDED_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-bounded-integrity"
 STUBS_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-cutlass-stubs"
+INTEGRITY_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-record-diagnosis"
 
 
 def source(name, relative):
@@ -451,6 +454,343 @@ class ImageTests(unittest.TestCase):
                 report = self.collect([other])
                 self.assertEqual(report["checks"]["filesystem_inventory"], "rejected")
                 self.assertNotIn("inventory_policy", report)
+
+    def record_rows(self):
+        return list(csv.reader(io.StringIO((self.root / self.fixture.dist / "RECORD").read_text())))
+
+    def write_record_rows(self, rows):
+        output = io.StringIO()
+        csv.writer(output).writerows(rows)
+        self.fixture.write(self.fixture.dist + "/RECORD", output.getvalue().encode())
+
+    def details(self):
+        self.contract["diagnostic_integrity_details"] = True
+        report = self.collect()
+        self.assertEqual(report["overlay_admission"], "rejected")
+        self.assertFalse(report["deployable"])
+        return report, report["integrity_details"]
+
+    def test_integrity_details_reuse_valid_strict_checks_without_admission(self):
+        report, details = self.details()
+        self.assertTrue(details["complete"])
+        self.assertTrue(all(value == "pass" for value in report["checks"].values()))
+        self.assertEqual(details["findings"], [])
+        self.assertEqual(details["record"]["unlisted_owned"], 0)
+        self.assertEqual(details["record"]["listed_missing"], 0)
+        self.assertEqual(details["record"]["listed_unowned"], 0)
+        self.assertEqual(details["bytecode"]["owned"], 0)
+        self.assertTrue(details["metadata"]["entrypoints_match"])
+        self.assertTrue(details["metadata"]["generated_version_match"])
+        self.assertEqual(details["metadata"]["wheel_tags"], ["cp38-abi3-linux_x86_64"])
+        self.assertTrue(all(row["installed_matches"] for row in details["dependencies"]))
+        fake = FakeDocker(self.image, report)
+        run = recorder.run_container(self.payload, self.contract, self.config, {}, fake)
+        self.assertEqual((run["result"], run["cleanup"]), ("fail", "confirmed"))
+
+    def test_integrity_details_record_bytecode_accounting_is_not_a_policy_change(self):
+        rows = self.record_rows()
+        listed = "vllm/__pycache__/envs.cpython-312.pyc"
+        omitted = "vllm/__pycache__/__init__.cpython-312.opt-1.pyc"
+        orphan = "vllm/__pycache__/orphan.cpython-312.pyc"
+        for name in (listed, omitted, orphan, "vllm/unlisted.txt", "unrelated/data.txt"):
+            self.fixture.write(name, b"original synthetic data, never executed")
+        for name in (listed, "unrelated/data.txt"):
+            data = (self.root / name).read_bytes()
+            rows.append([name, "sha256=" + base64.urlsafe_b64encode(bytes.fromhex(overlay.digest(data))).decode().rstrip("="), str(len(data))])
+        rows.append(["vllm/deleted.py", "sha256=" + "a" * 43, "1"])
+        self.write_record_rows(rows)
+        report, details = self.details()
+        self.assertTrue(details["complete"])
+        self.assertEqual(report["checks"]["record_integrity"], "rejected")
+        self.assertEqual(details["record"]["listed_missing"], 1)
+        self.assertEqual(details["record"]["listed_unowned"], 2)
+        self.assertEqual(details["record"]["unlisted_owned"], 3)
+        self.assertEqual(details["bytecode"], dict(complete=True, owned=3, with_source=2, without_source=1,
+            source_recorded=2, listed_empty=0, listed_hashed=1, listed_hash_matches=1, listed_other=0, unlisted=2,
+            unlisted_with_recorded_source=1, unlisted_without_recorded_source=1))
+        reasons = {row["reason"] for row in details["findings"]}
+        self.assertTrue({"record-blank-fields", "record-missing-file", "record-unowned", "record-unlisted-owned"} <= reasons)
+        with overlay.directory(self.root) as fd, self.assertRaises(ValueError):
+            overlay.inspect_record(overlay.Tree(fd), overlay.Tree(fd).inventory(), self.fixture.dist)
+
+    def test_integrity_details_independent_metadata_failures_survive_record_failure(self):
+        self.fixture.write("vllm/unlisted.pyc", b"not executable bytecode")
+        self.fixture.write(self.fixture.dist + "/entry_points.txt", b"SYNTHETIC_PRIVATE_VALUE")
+        self.fixture.write(self.fixture.dist + "/WHEEL", b"Wheel-Version: 9.0\nRoot-Is-Purelib: true\nTag: cp312-cp312-linux_aarch64\n")
+        self.fixture.write("vllm/_version.py", b"__version__ = '0.32.99'\n")
+        self.fixture.write(self.fixture.dist + "/direct_url.json", b'{"url":"https://SYNTHETIC_PRIVATE_VALUE.invalid","dir_info":{"editable":true}}')
+        name = self.fixture.dist + "/METADATA"
+        data = (self.root / name).read_bytes().replace(b">=3.11,<3.15", b">=3.9")
+        data = data.replace(b"torch==2.13.0", b"torch @ https://SYNTHETIC_PRIVATE_VALUE.invalid")
+        self.fixture.write(name, data)
+        (self.root / "torch-2.13.0.dist-info/METADATA").unlink()
+        (self.root / "torch-2.13.0.dist-info").rmdir()
+        self.fixture.write("torch-2.12.0.dist-info/METADATA", b"Name: torch\nVersion: 2.12.0\n")
+        report, details = self.details()
+        self.assertFalse(details["complete"])
+        self.assertEqual(report["collection"], "partial")
+        self.assertEqual(report["checks"]["record_integrity"], "rejected")
+        self.assertEqual(report["checks"]["wheel_integrity"], "rejected")
+        reasons = {row["reason"] for row in details["findings"]}
+        self.assertTrue({"record-unlisted-owned", "entrypoints", "wheel-version", "wheel-purelib", "wheel-tags",
+                        "requires-python", "requirement-pin", "dependency-version", "source-version", "editable-source"} <= reasons)
+        self.assertNotIn("SYNTHETIC_PRIVATE_VALUE", json.dumps(report))
+        torch = next(row for row in details["dependencies"] if row["name"] == "torch")
+        self.assertEqual(torch["installed"], ["2.12.0"])
+        self.assertFalse(torch["installed_matches"])
+        self.assertFalse(torch["declared_matches"])
+
+    def test_integrity_details_duplicate_requirements_and_distributions_are_counted(self):
+        name = self.fixture.dist + "/METADATA"
+        data = (self.root / name).read_bytes()
+        data = data.replace(b"Requires-Dist: torch==2.13.0\n", b"Requires-Dist: torch==2.13.0\n" * 2 + b"Requires-Dist: torch==2.12.0\n")
+        self.fixture.write(name, data)
+        for version in ("2.12.0", "2.11.0"):
+            self.fixture.write(f"torch-{version}.dist-info/METADATA", f"Name: torch\nVersion: {version}\n".encode())
+        _, details = self.details()
+        torch = next(row for row in details["dependencies"] if row["name"] == "torch")
+        self.assertEqual(torch["installed_count"], 3)
+        self.assertEqual(len(torch["installed"]), 2)
+        self.assertEqual(torch["declared_count"], 3)
+        self.assertFalse(torch["declared_matches"])
+        self.assertFalse(torch["installed_matches"])
+        counts = {row["reason"]: row["count"] for row in details["findings"]}
+        self.assertEqual(counts["duplicate-distribution"], 2)
+        self.assertEqual(counts["requirement-duplicate"], 2)
+
+    def test_integrity_details_extra_entrypoint_groups_without_values_or_acceptance(self):
+        self.fixture.write(self.fixture.dist + "/entry_points.txt", b"[console_scripts]\nvllm = vllm.entrypoints.cli.main:main\n"
+                           b"[vllm.general_plugins]\nfixture = SYNTHETIC_PRIVATE_VALUE:never_import\n")
+        report, details = self.details()
+        self.assertTrue(details["complete"])
+        self.assertEqual(report["collection"], "pass")
+        self.assertFalse(details["metadata"]["entrypoints_match"])
+        self.assertEqual(details["metadata"]["entrypoint_groups"], [
+            {"name": "console_scripts", "entries": 1}, {"name": "vllm.general_plugins", "entries": 1}])
+        self.assertEqual(report["checks"]["record_integrity"], "rejected")
+        self.assertNotIn("SYNTHETIC_PRIVATE_VALUE", json.dumps(report))
+        for data in (b"[bad/group]\nname = hidden\n", b"[DEFAULT]\nname = hidden\n",
+                     b"[group]\nname = first\nname = duplicate\n"):
+            with self.subTest(data=data):
+                self.fixture.write(self.fixture.dist + "/entry_points.txt", data)
+                report, details = self.details()
+                self.assertFalse(details["complete"])
+                self.assertEqual(report["collection"], "partial")
+                self.assertEqual(details["metadata"]["entrypoint_groups"], [])
+                self.assertIn("entrypoints-metadata", {row["reason"] for row in details["findings"]})
+
+    def assert_incomplete_integrity_report(self, report, reason):
+        details = report["integrity_details"]
+        self.assertFalse(details["complete"])
+        self.assertEqual(report["collection"], "partial")
+        self.assertIn(reason, {row["reason"] for row in details["findings"]})
+        self.assertNotIn("SYNTHETIC_PRIVATE_VALUE", json.dumps(report))
+        for complete, collection in ((True, "partial"), (False, "pass"), (True, "pass")):
+            changed = {**report, "collection": collection, "integrity_details": {**details, "complete": complete}}
+            with self.assertRaises(ValueError):
+                diagnostic.validate_report(overlay, changed, self.contract)
+
+    def test_integrity_details_suppressed_or_unparsed_metadata_is_partial(self):
+        dist = self.fixture.dist
+        # Keep root selection observable even while the selected METADATA is malformed.
+        self.fixture.write("vllm.egg-info/PKG-INFO", b"Name: vllm\nVersion: 0.32.0\n")
+        metadata = (self.root / dist / "METADATA").read_bytes()
+        wheel = (self.root / dist / "WHEEL").read_bytes()
+        cases = [
+            (dist + "/WHEEL", wheel.replace(b"cp38-abi3-linux_x86_64", b"https://SYNTHETIC_PRIVATE_VALUE.invalid"), "metadata-value"),
+            (dist + "/WHEEL", b"not a header\n", "wheel-metadata"),
+            (dist + "/METADATA", b"not a header\n", "metadata-invalid"),
+            (dist + "/METADATA", metadata.replace(b">=3.11,<3.15", b"https://SYNTHETIC_PRIVATE_VALUE.invalid"), "metadata-value"),
+            (dist + "/METADATA", metadata.replace(b"\n\n", b"\nRequires-Dist: @SYNTHETIC_PRIVATE_VALUE\n\n", 1), "requirement-malformed"),
+            (dist + "/entry_points.txt", b"not ini\n", "entrypoints-metadata"),
+            (dist + "/entry_points.txt", b"\xff", "entrypoints-metadata"),
+            (dist + "/direct_url.json", b"{SYNTHETIC_PRIVATE_VALUE", "direct-url"),
+            (dist + "/direct_url.json", b"[]", "direct-url"),
+            (dist + "/direct_url.json", b'{"dir_info":{"editable":"SYNTHETIC_PRIVATE_VALUE"}}', "direct-url"),
+            ("vllm/_version.py", b"not python syntax\n", "source-version-unavailable"),
+            ("vllm/_version.py", b"__version__ = call_never_executed()\n", "source-version-unavailable"),
+        ]
+        for name, data, reason in cases:
+            path = self.root / name
+            original = path.read_bytes() if path.exists() else None
+            with self.subTest(name=name, reason=reason, data=data):
+                try:
+                    self.fixture.write(name, data)
+                    report, details = self.details()
+                    self.assert_incomplete_integrity_report(report, reason)
+                    self.assertEqual(details["record"]["rows"], len(self.record_rows()))
+                    self.assertEqual(len(details["dependencies"]), len(self.contract["dependency_pins"]))
+                    if name != dist + "/WHEEL":
+                        self.assertEqual(details["metadata"]["wheel_version"], ["1.0"])
+                    if name not in (dist + "/METADATA", "vllm/_version.py"):
+                        self.assertTrue(details["metadata"]["generated_version_match"])
+                finally:
+                    if original is None:
+                        path.unlink()
+                    else:
+                        self.fixture.write(name, original)
+
+    def test_integrity_details_unreportable_version_is_partial(self):
+        version = "1" * 181
+        self.fixture.write("extra-" + version + ".dist-info/METADATA", ("Name: extra\nVersion: " + version + "\n").encode())
+        report, details = self.details()
+        self.assert_incomplete_integrity_report(report, "metadata-value")
+        self.assertTrue(details["metadata"]["generated_version_match"])
+        self.assertEqual(details["metadata"]["wheel_version"], ["1.0"])
+
+    def test_integrity_details_read_and_collision_failures_require_partial(self):
+        dist = self.fixture.dist
+        self.fixture.write("vllm.egg-info/PKG-INFO", b"Name: vllm\nVersion: 0.32.0\n")
+        self.fixture.write(dist + "/direct_url.json", b"{}")
+        original = overlay.Tree.read
+        for name, reason in ((dist + "/WHEEL", "wheel-read"), (dist + "/METADATA", "metadata-read"),
+                             (dist + "/entry_points.txt", "entrypoints-read"), (dist + "/direct_url.json", "direct-url"),
+                             (dist + "/RECORD", "record-read"), ("vllm/_version.py", "source-version-unavailable"),
+                             ("vllm", "console-read")):
+            def read(tree, path, *, retain=True):
+                if retain and path == name:
+                    raise OSError("SYNTHETIC_PRIVATE_VALUE")
+                return original(tree, path, retain=retain)
+            with self.subTest(name=name), mock.patch.object(overlay.Tree, "read", read):
+                report, details = self.details()
+                self.assert_incomplete_integrity_report(report, reason)
+                self.assertEqual(report["checks"]["filesystem_inventory"], "pass")
+                self.assertEqual(len(details["dependencies"]), len(self.contract["dependency_pins"]))
+        with mock.patch.object(overlay.Tree, "check_module_collisions", side_effect=OSError("SYNTHETIC_PRIVATE_VALUE")):
+            report, _ = self.details()
+            self.assert_incomplete_integrity_report(report, "module-collision")
+
+    def test_integrity_details_observed_policy_mismatches_remain_complete(self):
+        self.fixture.write(self.fixture.dist + "/WHEEL", b"Wheel-Version: 9.0\nRoot-Is-Purelib: true\nTag: cp312-cp312-linux_aarch64\n")
+        self.fixture.write("vllm/_version.py", b"__version__ = '0.32.99'\n")
+        self.fixture.write(self.fixture.dist + "/direct_url.json", b'{"dir_info":{"editable":true}}')
+        report, details = self.details()
+        self.assertTrue(details["complete"])
+        self.assertEqual(report["collection"], "pass")
+        self.assertEqual(details["metadata"]["wheel_tags"], ["cp312-cp312-linux_aarch64"])
+        self.assertFalse(details["metadata"]["generated_version_match"])
+        reasons = {row["reason"] for row in details["findings"]}
+        self.assertTrue({"wheel-version", "wheel-purelib", "wheel-tags", "source-version", "editable-source"} <= reasons)
+        self.assertEqual(report["overlay_admission"], "rejected")
+
+    def test_integrity_details_validator_requires_partial_for_unavailable_reasons(self):
+        report, details = self.details()
+        for reason in diagnostic.INTEGRITY_INCOMPLETE_REASONS:
+            with self.subTest(reason=reason):
+                details["findings"] = [{"reason": reason, "count": 1, "paths": []}]
+                with self.assertRaises(ValueError):
+                    diagnostic.validate_report(overlay, report, self.contract)
+        details["findings"] = []
+        for key in ("distribution", "engine_version", "entrypoints_match", "generated_version_match"):
+            changed = copy.deepcopy(report)
+            changed["integrity_details"]["metadata"][key] = None
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                diagnostic.validate_report(overlay, changed, self.contract)
+        changed = copy.deepcopy(report)
+        row = changed["integrity_details"]["dependencies"][0]
+        row.update(installed=[None], installed_matches=False)
+        with self.assertRaises(ValueError):
+            diagnostic.validate_report(overlay, changed, self.contract)
+
+    def test_integrity_details_retains_candidate_absence_and_shadow_checks(self):
+        self.fixture.write("vllm/v1/__pycache__/conf_compute_utils.cpython-312.pyc", b"never executed")
+        self.fixture.write("vllm.py", b"raise AssertionError('never imported')")
+        report, details = self.details()
+        reasons = {row["reason"] for row in details["findings"]}
+        self.assertTrue({"engine-shadow", "candidate-source"} <= reasons)
+        self.assertEqual(report["checks"]["wheel_integrity"], "rejected")
+        self.assertTrue(all(row["matches_base"] for row in report["source_files"]))
+
+    def test_integrity_details_reject_record_paths_and_bound_samples(self):
+        rows = self.record_rows()
+        rows.extend([["/SYNTHETIC_PRIVATE_VALUE", "", ""], ["../SYNTHETIC_PRIVATE_VALUE", "", ""], ["bad-row"]])
+        for index in range(12):
+            self.fixture.write(f"vllm/missing-{index}.txt", b"fixture")
+        self.write_record_rows(rows)
+        report, details = self.details()
+        self.assertNotIn("SYNTHETIC_PRIVATE_VALUE", json.dumps(report))
+        finding = next(row for row in details["findings"] if row["reason"] == "record-unlisted-owned")
+        self.assertEqual(finding["count"], 12)
+        self.assertEqual(len(finding["paths"]), 4)
+        self.assertLess(len(overlay.json_bytes(details)), diagnostic.INTEGRITY_LIMITS["report_bytes"])
+
+    def test_integrity_details_limits_preserve_partial_observations(self):
+        for key, value, reason in (("metadata_bytes", 1, "diagnostic-byte-limit"), ("metadata_files", 0, "diagnostic-file-limit"),
+                                   ("seconds", 0, "diagnostic-time-limit"), ("record_rows", 1, "record-row-limit"),
+                                   ("requirements", 1, "metadata-field-limit")):
+            with self.subTest(key=key), mock.patch.dict(diagnostic.INTEGRITY_LIMITS, {key: value}):
+                report, details = self.details()
+                self.assertEqual(report["collection"], "partial")
+                self.assertFalse(details["complete"])
+                self.assertIn(reason, {row["reason"] for row in details["findings"]})
+                self.assertEqual(report["checks"]["filesystem_inventory"], "pass")
+
+    def test_integrity_details_deadline_cuts_preserve_valid_partial_counts(self):
+        self.fixture.write("vllm/__pycache__/envs.cpython-312.pyc", b"synthetic never executed")
+        with overlay.directory(self.root) as fd, overlay.directory(Path(self.paths["scripts"])) as console_fd:
+            tree = overlay.Tree(fd)
+            inventory = tree.inventory()
+            console = ("../bin/vllm", overlay.Tree(console_fd))
+            for cut in (1, 8, 20, 40, 80, 160, 320):
+                calls = 0
+                def clock():
+                    nonlocal calls
+                    calls += 1
+                    return 0 if calls <= cut else 31
+                with self.subTest(cut=cut), mock.patch.object(diagnostic.time, "monotonic", clock):
+                    details = diagnostic.integrity_observations(overlay, tree, inventory, self.fixture.dist, self.contract, console)
+                diagnostic.validate_integrity_observations(overlay, details, self.contract)
+                if not details["complete"]:
+                    self.assertIn("diagnostic-time-limit", {row["reason"] for row in details["findings"]})
+
+    def test_integrity_details_missing_console_root_retains_observations(self):
+        self.paths["scripts"] = str(self.work / "missing")
+        report, details = self.details()
+        self.assertEqual(report["collection"], "partial")
+        self.assertEqual(report["checks"]["filesystem_inventory"], "pass")
+        self.assertFalse(details["complete"])
+        self.assertEqual(details["findings"], [{"reason": "diagnostic-prerequisite", "count": 1, "paths": []}])
+        self.assertEqual(len(report["source_files"]), 13)
+
+    def test_integrity_details_metadata_fifo_is_bounded_without_raw_errors(self):
+        with overlay.directory(self.root) as fd, overlay.directory(Path(self.paths["scripts"])) as console_fd:
+            tree = overlay.Tree(fd)
+            inventory = tree.inventory()
+            path = self.root / self.fixture.dist / "WHEEL"
+            path.unlink()
+            os.mkfifo(path)
+            details = diagnostic.integrity_observations(overlay, tree, inventory, self.fixture.dist, self.contract,
+                                                       ("../bin/vllm", overlay.Tree(console_fd)))
+            diagnostic.validate_integrity_observations(overlay, details, self.contract)
+        self.assertFalse(details["complete"])
+        self.assertIn("wheel-read", {row["reason"] for row in details["findings"]})
+        self.assertTrue(details["metadata"]["generated_version_match"])
+
+    def test_integrity_details_malformed_record_retains_other_stage_results(self):
+        self.fixture.write(self.fixture.dist + "/RECORD", b'"unterminated\n')
+        report, details = self.details()
+        self.assertFalse(details["record"]["complete"])
+        self.assertIsNone(details["record"]["unlisted_owned"])
+        self.assertFalse(details["complete"])
+        self.assertEqual(details["metadata"]["wheel_version"], ["1.0"])
+        self.assertTrue(details["metadata"]["generated_version_match"])
+        self.assertEqual(report["collection"], "partial")
+
+    def test_integrity_details_report_tamper_and_wrong_identity_fail_closed(self):
+        report, details = self.details()
+        mutations = [{**details, "complete": 1}, {**details, "unknown": "SYNTHETIC_PRIVATE_VALUE"},
+                     {**details, "findings": [{"reason": "unknown", "count": 1, "paths": []}]},
+                     {**details, "findings": [{"reason": "record-size", "count": 1, "paths": ["../escape"]}]},
+                     {**details, "dependencies": []}]
+        for broken in mutations:
+            with self.assertRaises((ValueError, KeyError, TypeError)):
+                diagnostic.validate_report(overlay, {**report, "integrity_details": broken}, self.contract)
+        for contract in ({k: v for k, v in self.contract.items() if k != "diagnostic_integrity_details"},
+                         {**self.contract, "official_config": {"sha256": "0" * 64}}):
+            with self.assertRaises(ValueError):
+                diagnostic.validate_report(overlay, report, contract)
+        with self.assertRaises(ValueError):
+            diagnostic.validate_report(overlay, {k: v for k, v in report.items() if k != "integrity_details"}, self.contract)
 
     def test_hooks_and_populated_roots_remain_rejected_but_integrity_observable(self):
         self.fixture.write("distutils-precedence.pth", b"import forbidden_SENSITIVE_VALUE\n")
@@ -892,9 +1232,11 @@ class ImageTests(unittest.TestCase):
             if mode == "integrity":
                 self.assertEqual(contract["diagnostic_inventory_policy"], overlay.DIAGNOSTIC_INVENTORY_POLICY)
                 self.assertEqual(contract["diagnostic_nonhost_policy"], overlay.CUTLASS_STUB_POLICY)
+                self.assertIs(contract["diagnostic_integrity_details"], True)
             else:
                 self.assertNotIn("diagnostic_inventory_policy", contract)
                 self.assertNotIn("diagnostic_nonhost_policy", contract)
+                self.assertNotIn("diagnostic_integrity_details", contract)
         revision, bundle, captured = result
         for replacement in (b"{}\n", b"forged census"):
             with self.assertRaises(ValueError):
@@ -961,7 +1303,7 @@ class ImageTests(unittest.TestCase):
         env = recorder.offline_environment(self.work / "control")
         binary, source_hash = recorder.build_validator(ROOT, revision, self.work, env)
         self.assertRegex(source_hash, r"^[0-9a-f]{64}$")
-        for index, source_directory in enumerate((RECORDED, CENSUS_RECORDED, BOUNDED_RECORDED, STUBS_RECORDED)):
+        for index, source_directory in enumerate((RECORDED, CENSUS_RECORDED, BOUNDED_RECORDED, STUBS_RECORDED, INTEGRITY_RECORDED)):
             recorded = self.work / "recorded/evidence/p0" / ("official-image-" + str(index))
             recorded.mkdir(parents=True)
             (recorded / "run.json").write_bytes(recorder.prep.read_source(source_directory / "run.json"))
@@ -1154,6 +1496,65 @@ class ImageTests(unittest.TestCase):
         self.assertFalse(report["image"]["local_config_bytes_rehashed"])
         self.assertFalse(report["image"]["local_layers_rehashed"])
         self.assertEqual(overlay.MAX_FILES, 100000)
+
+    def test_recorded_integrity_causes_preserve_failure_and_exact_observations(self):
+        hashes = {"run.json": "8ac7a81e9984c83a22d0c56d0014ef7177219d433818682fa58b5fa81fbd23e2",
+                  "output.log": "abf7f9fbb4dce9ace3da05fa2873f4e27041baf13a18405ddce8c71e7febfc76"}
+        files = {}
+        for name, digest in hashes.items():
+            data = recorder.prep.read_source(INTEGRITY_RECORDED / name)
+            self.assertLessEqual(len(data), 65536)
+            self.assertEqual(overlay.digest(data), digest)
+            files[name] = overlay.load_json(data)
+        run, report = files["run.json"], files["output.log"]
+        child, provenance = report["diagnostic"], report["provenance"]
+        contract = {**self.contract, "diagnostic_inventory_policy": overlay.DIAGNOSTIC_INVENTORY_POLICY,
+                    "diagnostic_nonhost_policy": overlay.CUTLASS_STUB_POLICY, "diagnostic_integrity_details": True}
+        diagnostic.validate_report(overlay, child, contract)
+        self.assertEqual(run["git_sha"], "aed2389f4fcb56aeaad9a573f59c5b351b15718b")
+        self.assertEqual(provenance["git_sha"], run["git_sha"])
+        self.assertEqual(provenance["payload_sha256"], "16378fdd3216a2b44282b2c62db3bc7a5ce58c00e56a18ba1c6e69f5aaa4cdc8")
+        self.assertEqual(provenance["source_bundle_sha256"], "e0a4af2583f7592a67f1fbe7a912ba10827fbd9f7676dd3e88865f6b23357fc2")
+        self.assertEqual(provenance["validator_source_sha256"], "c18f7f7028758f683f01a67806cbe5db9d44f503c6f58357393329b01a243232")
+        self.assertEqual(run["command"], "python3 -I -S scripts/record-engine-image.py --slug official-vllm-record-diagnosis")
+        self.assertEqual((run["started_utc"], run["ended_utc"]), ("2026-10-19T23:57:58Z", "2026-10-19T23:59:06Z"))
+        self.assertEqual(run["execution"], "software")
+        self.assertFalse(run["hardware_validated"])
+        self.assertEqual(run["result"], report["result"])
+        self.assertEqual((report["result"], report["stage"], report["cleanup"]), ("fail", "overlay-rejected", "confirmed"))
+        self.assertEqual((child["collection"], child["overlay_admission"]), ("pass", "rejected"))
+        self.assertEqual(child["checks"], dict(filesystem_inventory="pass", record_integrity="rejected",
+            wheel_integrity="rejected", root_admission="rejected", selected_root_admission="rejected"))
+        details = child["integrity_details"]
+        self.assertTrue(details["complete"])
+        self.assertEqual({row["reason"]: row["count"] for row in details["findings"]},
+                         {"entrypoints": 1, "record-unlisted-owned": 2879})
+        self.assertEqual(details["record"], dict(complete=True, rows=5449, unique_paths=5449, owned_files=8327,
+            listed_missing=0, listed_unowned=0, unlisted_owned=2879))
+        self.assertEqual(details["bytecode"], dict(complete=True, owned=2879, with_source=2879, without_source=0,
+            source_recorded=2879, listed_empty=0, listed_hashed=0, listed_hash_matches=0, listed_other=0,
+            unlisted=2879, unlisted_with_recorded_source=2879, unlisted_without_recorded_source=0))
+        self.assertEqual(details["metadata"], dict(distribution="vllm-0.32.0.dist-info", engine_version="0.32.0",
+            entrypoint_groups=[{"name": "console_scripts", "entries": 1}, {"name": "vllm.general_plugins", "entries": 2}],
+            entrypoints_match=False, generated_version_match=True, requires_python=["<3.15,>=3.11"],
+            root_is_purelib=["false"], wheel_tags=["cp38-abi3-linux_x86_64"], wheel_version=["1.0"]))
+        dependencies = details["dependencies"]
+        self.assertEqual(len(dependencies), 14)
+        self.assertTrue(all(row["installed_count"] == 1 and row["installed_matches"] for row in dependencies))
+        for row in dependencies:
+            self.assertEqual((row["declared_count"], row["declared_matches"]),
+                             (0, False) if row["name"] == "nvidia-nccl-cu13" else (1, True))
+        self.assertEqual(len(child["source_files"]), 13)
+        self.assertTrue(all(row["matches_base"] for row in child["source_files"]))
+        self.assertEqual(sum(row["status"] == "absent" for row in child["source_files"]), 1)
+        self.assertEqual(len(child["classified_nonhost_assets"]), 4)
+        for item in (child, report):
+            self.assertEqual(item["candidate_status"], "BLOCKED")
+            self.assertTrue(all(item[key] is False for key in ("deployable", "abi_validated", "hardware_validated")))
+        self.assertTrue(report["image"]["raw_config_link_verified"])
+        self.assertEqual(report["image"]["raw_config_sha256"], overlay.CUTLASS_STUB_POLICY["config_sha256"])
+        self.assertFalse(report["image"]["local_config_bytes_rehashed"])
+        self.assertFalse(report["image"]["local_layers_rehashed"])
 
     def test_validator_toolchain_resolution_is_cache_only_and_exact(self):
         env = recorder.offline_environment(self.work / "control")

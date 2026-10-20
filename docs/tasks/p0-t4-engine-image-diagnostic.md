@@ -233,12 +233,20 @@ The subsequent [four-asset diagnostic policy](p0-t4-cutlass-stubs.md) has now
 source `2dea53cd9ab7556de9dd1a705266496c949735b7`: all four assets match,
 collection and filesystem inventory pass, and cleanup is confirmed. RECORD,
 wheel, root and selected-root admission checks reject; overall result remains
-`fail`. The exact RECORD/wheel rejection causes remain unresolved.
+`fail`. That run did not identify the exact RECORD/wheel rejection causes.
 It requires the exact image/config, path, whole-file hash, size and AArch64 header
 for four published CUTLASS 4.8.0 AOT link-time stubs. It does not alter generic
 native checks, overlay admission, root/startup gates or historical evidence.
 All four assets are required for a complete classified inventory; missing or
 changed assets fail closed. Even complete classification never grants admission.
+
+The subsequent [bounded RECORD/wheel metadata diagnostic](p0-t4-engine-record-diagnostic.md#recorded-outcome)
+completed collection from source `aed2389f4fcb56aeaad9a573f59c5b351b15718b`.
+It identified two strict-policy mismatches: an additional entry-point group and
+2,879 unlisted bytecode files, all with corresponding recorded source names.
+Selected wheel metadata and dependency pins match. This does not validate
+bytecode contents or native ABI, change admission, or resolve the hook/root
+blockers; the overall result remains `fail`, with cleanup confirmed.
 
 ## Fixed Inputs And Identity
 
