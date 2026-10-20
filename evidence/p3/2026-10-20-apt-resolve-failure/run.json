@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I host/simulate-guest-apt.py --run --metadata <private-metadata> --archives <private-archives> --bundle <private-bundle> --output <private-output>",
+  "ended_utc": "2026-10-20T18:52:08Z",
+  "execution": "software",
+  "git_sha": "03d52b4b078c8102b296e03603ec34c00c0c3401",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "linux-amd64",
+    "provider": "local-docker"
+  },
+  "notes": "Historical content-free report import, not a new execution or independent container verification. Original producer and reported execution timestamps retained. Command uses the producer's fixed CLI with private paths normalized; literal path values were not recorded. Resolve failure cause is unknown. No package installation, scripts, guest build or hardware validation. output.log is byte-identical to original report.json; SHA256=37801abac400cd6cda8be1986591c8b7f1cae8c01de1f42e401246af98c2dd4f. Importer git_sha=e3c2bc747312874175e3402e88919da39ba5b22a; importer/helper SHA256={\"image/inputs/r595-ubuntu2404.json\": \"ea8a93155131f15d460f6b3c147063e672e718d027366ab6c53c4264066a8883\", \"scripts/e2e/snapshot.py\": \"b7f5753ecacde3cda2bf5fdc673b6f2af239875f2a9468e34a5219a797b78b3a\", \"scripts/guest_package_inputs.py\": \"3fa2cb86c54b1ccf5575c813aa2eae334be00e5ace96c53dd5cff5c31ce796cd\", \"scripts/prepare_guest_packages.py\": \"7d522005c4717548945c5ffa0788841ea3eeb4447e4d1d94fac564c84e4a613f\", \"scripts/record_apt_report.py\": \"1438f5ce21d2180d40c1f93223dcd29d0a81ba290bef6b67a279191a07cdd109\"}",
+  "phase": "P3",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-20T18:52:06Z",
+  "task": "T1"
+}
