@@ -12,6 +12,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -366,6 +367,30 @@ class AttestationTests(unittest.TestCase):
         with mock.patch.object(lab, "read_regular", return_value=b"raise Exception('PRIVATE')"):
             with self.assertRaises(ValueError):
                 lab.load_capture()
+
+    def test_alias_read_atime_change_is_not_identity_change(self):
+        with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as temporary:
+            root = Path(temporary)
+            alias = root / lab.LIB_ALIAS.lstrip("/")
+            alias.parent.mkdir(parents=True)
+            alias.symlink_to("libnvat.so.2.0.0")
+            actual = alias.lstat()
+            fields = ("st_dev", "st_ino", "st_mode", "st_nlink", "st_size",
+                      "st_mtime_ns", "st_ctime_ns", "st_atime", "st_atime_ns")
+            before = types.SimpleNamespace(**{name: getattr(actual, name) for name in fields})
+            after = copy.copy(before)
+            after.st_atime += 1
+            after.st_atime_ns += 1000000000
+            with mock.patch.object(lab, "FILES", {}), \
+                 mock.patch.object(Path, "lstat", side_effect=[before, after]):
+                lab.verify_installation(root)
+            for name in fields[:7]:
+                changed = copy.copy(after)
+                setattr(changed, name, getattr(changed, name) + 1)
+                with self.subTest(field=name), mock.patch.object(lab, "FILES", {}), \
+                     mock.patch.object(Path, "lstat", side_effect=[before, changed]):
+                    with self.assertRaises(ValueError):
+                        lab.verify_installation(root)
 
     def test_certificate_serial_prefix_is_bounded(self):
         def pem(serial, version=b"\xa0\x03\x02\x01\x02"):

@@ -65,6 +65,11 @@ def require(value):
         raise ValueError("attestation-check-rejected")
 
 
+def file_identity(row):
+    return (row.st_dev, row.st_ino, row.st_mode, row.st_nlink, row.st_size,
+            row.st_mtime_ns, row.st_ctime_ns)
+
+
 def read_regular(path, limit):
     """No symlinks in any component; no blocking special files or hard links."""
     path = Path(path).absolute()
@@ -93,10 +98,8 @@ def read_regular(path, limit):
                 remaining -= len(chunk)
             after = os.fstat(file)
             named = os.stat(path.name, dir_fd=descriptor, follow_symlinks=False)
-            identity = lambda row: (row.st_dev, row.st_ino, row.st_mode, row.st_nlink,
-                                    row.st_size, row.st_mtime_ns, row.st_ctime_ns)
             data = b"".join(chunks)
-            require(identity(before) == identity(after) == identity(named)
+            require(file_identity(before) == file_identity(after) == file_identity(named)
                     and len(data) == before.st_size <= limit)
             return data
         finally:
@@ -113,7 +116,7 @@ def verify_installation(root=Path("/")):
     before = alias.lstat()
     require(stat.S_ISLNK(before.st_mode) and before.st_nlink == 1
             and os.readlink(alias) == "libnvat.so.2.0.0"
-            and alias.lstat() == before)
+            and file_identity(alias.lstat()) == file_identity(before))
     preload = root / "etc/ld.so.preload"
     if os.path.lexists(preload):
         require(not read_regular(preload, 4096).strip())
