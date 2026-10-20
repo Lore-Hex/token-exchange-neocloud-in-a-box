@@ -9,7 +9,7 @@ The candidate stays BLOCKED, non-deployable and non-confidential.
 ## Public Catalog
 
 Before engine import, the existing bounded `compiled_catalog` helper reads
-four exact selected-root files, checks full byte length and SHA-256, and
+six exact selected-root files, checks full byte length and SHA-256, and
 compiles them with `dont_inherit=True`, `optimize=0`. It never executes these
 reference code objects or imports the referenced dependencies. Each method
 selector must resolve uniquely. Missing, unreadable, changed, uncompilable or
@@ -21,6 +21,8 @@ unselectable sources produce fixed statuses, not an exception message.
 | `_distutils_hack/__init__.py` | 6755 | `df81e6bcba34ee3e3952f776551fb669143b9490fdd6c4caeb32609f97e985b4` |
 | `importlib_metadata/__init__.py` | 37734 | `bbb130e3e524a73358fa46ba93e591903850652d5a9242cc7d6b367849d4986a` |
 | `six.py` | 34703 | `c51c91f703d3d4b3696c923cb5fec213e05e75d9215393befac7f2fa6a3904df` |
+| `botocore/vendored/six.py` | 34549 | `4ce39f422ee71467ccac8bed76beb05f8c321c7f0ceda9279ae2dfa3670106b3` |
+| `setuptools/_vendor/importlib_metadata/__init__.py` | 37734 | `bbb130e3e524a73358fa46ba93e591903850652d5a9242cc7d6b367849d4986a` |
 
 Fixed IDs and immutable primary sources:
 
@@ -35,6 +37,35 @@ Fixed IDs and immutable primary sources:
   six 1.17.0. Its [registration](https://github.com/benjaminp/six/blob/ebd9b3af90247b8858d415a05e96e9ee61e48d07/six.py)
   appends a finder. This is a source-backed possible mutation, not observed
   causality in an image.
+- `botocore-vendored-six`: [`_SixMetaPathImporter.find_spec`](https://github.com/boto/botocore/blob/fca45a8afc1294fb6c1fc3d2d4a9187e415f37e1/botocore/vendored/six.py#L194),
+  botocore 1.43.114's vendored six 1.16.0. Its
+  [registration](https://github.com/boto/botocore/blob/fca45a8afc1294fb6c1fc3d2d4a9187e415f37e1/botocore/vendored/six.py#L998)
+  appends a finder under the distinct `botocore.vendored.six` binding.
+- `setuptools-vendored-metadata`: [`MetadataPathFinder.find_distributions`](https://github.com/pypa/setuptools/blob/5cf2d085186f2c8053940076db99045b826ec22a/setuptools/_vendor/importlib_metadata/__init__.py#L970),
+  the vendored importlib_metadata 8.7.1 in setuptools 80.10.2, bound only to
+  `setuptools._vendor.importlib_metadata`. Its
+  [install decorator](https://github.com/pypa/setuptools/blob/5cf2d085186f2c8053940076db99045b826ec22a/setuptools/_vendor/importlib_metadata/_compat.py)
+  appends a finder. The presence of these bytes does not prove this alias loads.
+
+The vendored candidates address a classification gap, not an admission gap:
+identical method code under another module dictionary correctly failed the
+earlier top-level-only binding check. This extension does not accept arbitrary
+aliases. Each new category requires its own pinned installed file and exact
+module dictionary/path, in addition to the existing full code comparison.
+The botocore method's structure matches the top-level six method, so code alone
+cannot distinguish them.
+
+A concrete possible eager route is pinned vLLM's
+[`ModelConfig` import of `runai_utils`](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/config/model.py#L52).
+Run:ai model-streamer 0.17.0
+[`FileStreamer` initializes its S3 credentials module at import time](https://github.com/dsx-ai-factory/model-streamer/blob/dd9e5d34f966cc2667c9f0505262050b4bedc35a/py/runai_model_streamer/runai_model_streamer/file_streamer/file_streamer.py#L38);
+the installed S3 extra
+[`imports boto3`](https://github.com/dsx-ai-factory/model-streamer/blob/dd9e5d34f966cc2667c9f0505262050b4bedc35a/py/runai_model_streamer_s3/runai_model_streamer_s3/credentials/credentials.py).
+Boto3 1.43.114's
+[`session`](https://github.com/boto/boto3/blob/432fa176ed4875d5bc70c775e8b4ec738c31e9b9/boto3/session.py#L17)
+imports botocore, whose
+[`compat` module imports vendored six](https://github.com/boto/botocore/blob/fca45a8afc1294fb6c1fc3d2d4a9187e415f37e1/botocore/compat.py#L29).
+This static route is not proof of which hook caused a recorded rejection.
 
 The inspected pinned Torch
 [`__init__`](https://github.com/pytorch/pytorch/blob/cf30153c4c131c8164ee7798e5022d810682e2cb/torch/__init__.py),
@@ -43,7 +74,7 @@ The inspected pinned Torch
 and [`trace_rules`](https://github.com/pytorch/pytorch/blob/cf30153c4c131c8164ee7798e5022d810682e2cb/torch/_dynamo/trace_rules.py)
 did not define a meta-path finder for this catalog. This is not an exhaustive
 transitive import audit. No speculative Torch category is emitted.
-Other hooks remain `unknown`, including unsupported vendored copies.
+Other hooks remain `unknown`, including all other vendored copies.
 Only hashes/selectors are added, not copied upstream implementations.
 
 ## Observation Contract
@@ -74,7 +105,7 @@ The fixed report also distinguishes:
   applied, failed or unknown. This is the final state, not proof that a
   particular callback was reached before the first rejection.
 
-The existing second FIFO transports exactly 44 bytes: two state bytes, ten
+The existing second FIFO transports exactly 46 bytes: two state bytes, twelve
 header bytes and 32 fixed one-byte entry IDs with padding. It is nonblocking,
 explicitly passed, non-inheritable in the child, and closed by the existing
 finally paths. Oversized, short, unknown-code or contradictory packets reject.
@@ -92,9 +123,13 @@ into success. Historical reports are not upgraded with inferred identities.
 ## Software Checks
 
 Focused tests use original synthetic modules and subprocesses only. They
-exercise all five fixed categories, source/selector failures, full-code
+exercise all seven fixed categories, source/selector failures, full-code
 mismatches, signed zero, shadow/cached module identity, hostile attribute and
 equality methods, list mutation classes, truncation, malformed packets,
-publication validation and owned pipe cleanup. The four cached public source
-files were independently rehashed and compiled as data: all five selectors
-resolved uniquely. No upstream module, image, GPU, model or endpoint was run.
+publication validation and owned pipe cleanup. Vendored-alias tests reproduce
+the old `unknown` with identical method code, distinguish the new exact binding
+from its top-level counterpart, and reject missing/changed sources and shadowed
+modules. Classification does not change `same_identity_list` or permit a pass.
+The original four-source compile-only audit remains historical; it did not
+cover these two additional bindings. No upstream module, image, GPU, model or
+endpoint is executed by these tests.

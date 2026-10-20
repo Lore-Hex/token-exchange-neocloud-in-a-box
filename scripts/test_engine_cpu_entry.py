@@ -311,7 +311,7 @@ class FinderTests(unittest.TestCase):
         for index, spec in enumerate(cpu.FINDER_SPECS):
             for site in spec["sites"]:
                 method = site["qualname"].split(".")[-1]
-                module, function = self.synthetic(index, method, index == 2)
+                module, function = self.synthetic(index, method, method == "find_distributions")
                 catalog = (self.sources, [(site["id"], spec["id"], function.__code__, None)], "/selected")
                 with self.subTest(category=site["id"]), mock.patch.dict(sys.modules, {module.__name__: module}):
                     row = self.observe([*self.expected, module.Hook()], catalog)
@@ -329,6 +329,41 @@ class FinderTests(unittest.TestCase):
                     self.assertEqual(self.observe([module.Hook()], catalog)["entries"], ["unknown"])
                     module.__file__ = "/selected/" + spec["installed"]
                 self.assertEqual(self.observe([module.Hook()], catalog)["entries"], ["unknown"])
+
+    def test_identical_vendored_method_requires_its_own_source_and_module_binding(self):
+        for canonical, vendored in ((3, 4), (2, 5)):
+            spec = cpu.FINDER_SPECS[vendored]
+            site = spec["sites"][0]
+            method = site["qualname"].split(".")[-1]
+            module, function = self.synthetic(vendored, method, method == "find_distributions")
+            top, top_function = self.synthetic(canonical, method, method == "find_distributions")
+            self.assertTrue(helpers.same_code(function.__code__, top_function.__code__))
+            top_spec = cpu.FINDER_SPECS[canonical]
+            top_ref = (top_spec["sites"][0]["id"], top_spec["id"], top_function.__code__, None)
+            own_ref = (site["id"], spec["id"], function.__code__, None)
+            with self.subTest(category=site["id"]), mock.patch.dict(
+                    sys.modules, {module.__name__: module, top.__name__: top}):
+                old = (self.sources, [top_ref], "/selected")
+                self.assertEqual(self.observe([module.Hook()], old)["entries"], ["unknown"])
+                current = (self.sources, [top_ref, own_ref], "/selected")
+                row = self.observe([*self.expected, module.Hook()], current)
+                self.assertEqual(row["entries"][-1], site["id"])
+                self.assertFalse(row["same_identity_list"])
+                self.assertEqual(self.observe([top.Hook()], current)["entries"], [top_ref[0]])
+                # A matching reference cannot substitute for the loaded module.
+                shadow = types.ModuleType(module.__name__)
+                shadow.__file__ = module.__file__
+                with mock.patch.dict(sys.modules, {module.__name__: shadow}):
+                    self.assertEqual(self.observe([module.Hook()], current)["entries"], ["unknown"])
+                # Missing or changed vendor bytes provide no vendor reference.
+                sources = copy.deepcopy(self.sources)
+                sources[vendored]["status"] = "source-mismatch"
+                self.assertEqual(self.observe([module.Hook()], (sources, [top_ref], "/selected"))["entries"],
+                                 ["unknown"])
+                bad = copy.deepcopy(row)
+                bad["sources"][vendored]["status"] = "source-mismatch"
+                with self.assertRaises(ValueError):
+                    cpu.validate_finders(bad)
 
     def test_unknown_never_invokes_finder_descriptors_equality_or_stringification(self):
         called = []

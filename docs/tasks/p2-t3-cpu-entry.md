@@ -47,7 +47,7 @@ Each endpoint is an explicitly passed write-only nonblocking FIFO, made
 non-inheritable and closed on every owned exit path. No FD number is assumed.
 The parent retains only a fixed status and last checkpoint.
 
-A second dedicated pipe carries a fixed 44-byte packet. Its first two bytes
+A second dedicated pipe carries a fixed 46-byte packet. Its first two bytes
 remain the ten fixed mismatch bits or the unavailable sentinel. They report
 only the existing comparisons for
 paths, executable, spawn executable, start method, cwd, pycache prefix, plugin
