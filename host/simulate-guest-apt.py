@@ -48,6 +48,7 @@ def load():
 
 prep, PREPARER_SOURCE = load()
 base, require = prep.base, prep.require
+sim, SIMULATION_SOURCE = base.helper("apt_simulation_contract", prep.FILES[1])
 
 
 def validate_container(row, tag):
@@ -73,10 +74,10 @@ def validate_container(row, tag):
 
 def validate_result(result, receipt, guest):
     keys = {"schema", "result", "stage", "git_sha", "guest_lock_sha256",
-            "target_packages", "plan", "package_installation_executed",
+            "target_packages", "plan", "diagnostic", "package_installation_executed",
             "maintainer_scripts_executed", "installable_verified", "bootable", "deployable"}
     require(isinstance(result, dict) and set(result) == keys
-            and result["schema"] == "nib.apt-simulation/v1"
+            and result["schema"] == "nib.apt-simulation/v2"
             and result["git_sha"] == receipt["git_sha"]
             and result["guest_lock_sha256"] == receipt["source_hashes"][prep.FILES[-1]]
             and type(result["target_packages"]) is int
@@ -87,7 +88,7 @@ def validate_result(result, receipt, guest):
             and result["stage"] in ("setup", "apt-version", "local-index", "resolve", "complete"))
     if result["result"] == "pass":
         plan = result["plan"]
-        require(result["stage"] == "complete" and isinstance(plan, dict)
+        require(result["stage"] == "complete" and result["diagnostic"] is None and isinstance(plan, dict)
                 and set(plan) == {"installed", "configured", "removed", "plan_sha256"}
                 and all(type(plan[k]) is int for k in ("installed", "configured", "removed"))
                 and plan["installed"] == plan["configured"] == len(guest["packages"])
@@ -95,6 +96,8 @@ def validate_result(result, receipt, guest):
                 and re.fullmatch("[0-9a-f]{64}", plan["plan_sha256"]))
     else:
         require(result["stage"] != "complete" and result["plan"] is None)
+        sim.validate_diagnostic(result["diagnostic"], result["stage"],
+                                {r["Package"]: r["Version"] for r in guest["packages"]})
 
 
 def execute(image, receipt, guest, call):
@@ -104,7 +107,7 @@ def execute(image, receipt, guest, call):
     name = "nib-apt-" + uuid.uuid4().hex
     label = "org.nib.apt-run=" + name
     image_owned = container_owned = completion_unknown = False
-    report = {"schema": "nib.apt-container-run/v1", "result": "fail", "stage": "preflight",
+    report = {"schema": "nib.apt-container-run/v2", "result": "fail", "stage": "preflight",
               "git_sha": receipt["git_sha"], "image_archive_sha256": receipt["archive_sha256"],
               "config_sha256": receipt["config_sha256"], "layer_sha256": receipt["layer_sha256"],
               "simulation": None, "cleanup": "not-created",
@@ -188,7 +191,7 @@ def main():
     prep.separate_output(args.output, (args.metadata, args.archives, args.bundle))
     require(not args.output.exists() and not args.output.is_symlink())
     revision, sources = prep.committed()
-    require(sources[prep.FILES[0]] == PREPARER_SOURCE)
+    require(sources[prep.FILES[0]] == PREPARER_SOURCE and sources[prep.FILES[1]] == SIMULATION_SOURCE)
     files, receipt = prep.build(args.metadata, args.archives, revision, sources)
     base.verify(args.bundle, files)
     started = utc()

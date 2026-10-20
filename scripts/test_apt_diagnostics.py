@@ -1,0 +1,274 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Fake APT outputs; exact historical report import; no package/container runs."""
+import copy
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import types
+import unittest
+from unittest import mock
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def load(path):
+    module = types.ModuleType("apt_diagnostics_fixture")
+    module.__file__ = str(ROOT / path)
+    exec(compile(Path(module.__file__).read_bytes(), module.__file__, "exec",
+                 dont_inherit=True), module.__dict__)
+    return module
+
+
+fixtures = load("scripts/test_guest_tools.py")
+sim, runner = fixtures.sim, fixtures.runner
+recorder = load("scripts/record_apt_report.py")
+SECRET = "PRIVATE_SENTINEL_unsupported_path_and_credential"
+HISTORICAL = ROOT / "evidence/p3/2026-10-20-apt-resolve-failure/output.log"
+
+
+def historical():
+    flags = {"installable_verified": False, "bootable": False, "deployable": False}
+    return recorder.base.encoded({
+        **flags, "schema": "nib.apt-container-run/v1", "result": "fail", "stage": "complete",
+        "cleanup": "confirmed", "git_sha": recorder.PRODUCER,
+        "started_at": "2026-10-20T18:52:06Z", "finished_at": "2026-10-20T18:52:08Z",
+        "image_archive_sha256": "6c64249d47cef04c2b029fab997edc8561d527b7000acd1e267b231ff50ab714",
+        "config_sha256": "d32f7f89bbbe8b9686d9702a27835b48feaec78457a6671198e8c2aaebcaccf9",
+        "layer_sha256": "54443fb63ca3b8236520f4d34da26560eb30e19df0f819488c00bbb98f1b4c8d",
+        "simulation": {
+            **flags, "schema": "nib.apt-simulation/v1", "result": "fail", "stage": "resolve",
+            "git_sha": recorder.PRODUCER, "target_packages": 145, "plan": None,
+            "guest_lock_sha256": "ea8a93155131f15d460f6b3c147063e672e718d027366ab6c53c4264066a8883",
+            "maintainer_scripts_executed": False, "package_installation_executed": False,
+        },
+    })
+
+
+def result(output=None, *, status=0, error=b""):
+    return subprocess.CompletedProcess(["private-never-published"], status,
+                                       fixtures.plan() if output is None else output, error)
+
+
+def resolve(last):
+    execute = mock.Mock(side_effect=[result(b"apt 2.8.3 (amd64)\n"), result(b"local\n"), last])
+    return sim.simulate(fixtures.inputs(), execute, setup_work=False)
+
+
+class DiagnosticTests(unittest.TestCase):
+    def validate(self, row):
+        receipt = {"git_sha": "a" * 40, "source_hashes": {runner.prep.FILES[-1]: "b" * 64}}
+        guest = {"packages": [{"Package": "fixture", "Version": "1.0"}]}
+        runner.validate_result(row, receipt, guest)
+
+    def test_actual_resolve_stage_now_distinguishes_three_prior_ambiguities(self):
+        values = [(result(status=100, error=("E: " + SECRET).encode()), "process-nonzero"),
+                  (result(error=("W: " + SECRET).encode()), "stderr-nonempty"),
+                  (result(b"Inst " + SECRET.encode()), "plan-record-syntax")]
+        for value, reason in values:
+            row = resolve(value)
+            self.assertEqual((row["result"], row["stage"]), ("fail", "resolve"))
+            self.assertEqual(row["diagnostic"]["reason"], reason)
+            self.validate(row)
+            self.assertNotIn(SECRET, json.dumps(row))
+            self.assertNotIn("private-never-published", json.dumps(row))
+        failure = resolve(values[0][0])["diagnostic"]
+        self.assertEqual(failure["exit_code"], 100)
+        self.assertEqual(failure["stderr_kinds"], {"error": 1, "warning": 0, "notice": 0, "other": 0})
+
+    def test_timeout_overflow_os_unknown_errors_do_not_publish_exception_data(self):
+        errors = [
+            (subprocess.TimeoutExpired(SECRET, 1, output=SECRET.encode(), stderr=SECRET.encode()),
+             "process-timeout"),
+            (ValueError("tool output limit exceeded"), "output-limit"),
+            (ValueError(SECRET), "collector-error"),
+            (subprocess.CalledProcessError(100, SECRET, SECRET.encode()), "collector-error"),
+            (OSError(SECRET), "process-os-error"),
+        ]
+        for error, reason in errors:
+            row = resolve(error)
+            self.assertEqual(row["diagnostic"]["reason"], reason)
+            self.assertIsNone(row["diagnostic"]["exit_code"])
+            self.assertIsNone(row["diagnostic"]["stdout_bytes"])
+            self.validate(row)
+            self.assertNotIn(SECRET, json.dumps(row))
+
+    def test_all_plan_rejections_preserve_gate_and_known_ids_only(self):
+        variants = [
+            (b"\xff", "plan-utf8"), (b"\x00", "plan-control-character"),
+            (b"x" * 8193, "plan-line-limit"),
+            (fixtures.plan() + b"Remv private\n", "plan-forbidden-operation"),
+            (fixtures.plan(SECRET.lower().replace("_", "-")), "plan-package-unexpected"),
+            (fixtures.plan(version=SECRET), "plan-version-mismatch"),
+            (fixtures.plan() * 2, "plan-duplicate"),
+            (fixtures.plan().replace(b")\nConf", b") [private]\nConf"), "plan-pending-rejected"),
+            (b"", "plan-coverage"),
+        ]
+        for raw, reason in variants:
+            with self.subTest(reason=reason):
+                row = resolve(result(raw))
+                self.assertEqual(row["diagnostic"]["reason"], reason)
+                self.validate(row)
+                self.assertNotIn(SECRET, json.dumps(row))
+                self.assertNotIn(SECRET.lower(), json.dumps(row))
+                self.assertNotIn(SECRET.lower().replace("_", "-"), json.dumps(row))
+                self.assertIsNone(row["plan"])
+
+    def test_coverage_counts_complete_output_ids_capped_and_sorted(self):
+        targets = {"pkg" + str(n): "1.0" for n in range(40)}
+        with self.assertRaises(sim.Rejected) as caught:
+            sim.validate_plan(b"", targets)
+        plan = caught.exception.plan
+        self.assertEqual(plan["missing_installed_count"], 40)
+        self.assertEqual(plan["missing_installed"], sorted(targets)[:16])
+        self.assertEqual(plan["missing_configured"], sorted(targets)[:16])
+        self.assertEqual(plan["installed"], 0)
+
+    def test_validation_rejects_private_ids_arbitrary_fields_and_count_inconsistency(self):
+        original = resolve(result(b""))
+        for key, value in (("reason", SECRET), ("exit_code", True), ("stdout_bytes", -1),
+                           ("stderr_bytes", 65537), ("plan", None)):
+            row = copy.deepcopy(original)
+            row["diagnostic"][key] = value
+            with self.subTest(key=key), self.assertRaises((ValueError, TypeError)):
+                self.validate(row)
+        for key, value in (("subject", SECRET), ("missing_installed", [SECRET]),
+                           ("missing_installed_count", 0), ("installed", True)):
+            row = copy.deepcopy(original)
+            row["diagnostic"]["plan"][key] = value
+            with self.subTest(key=key), self.assertRaises((ValueError, TypeError)):
+                self.validate(row)
+        row = copy.deepcopy(original)
+        row["diagnostic"]["arbitrary"] = SECRET
+        with self.assertRaises(ValueError):
+            self.validate(row)
+        row = resolve(result())
+        row["diagnostic"] = original["diagnostic"]
+        with self.assertRaises(ValueError):
+            self.validate(row)
+
+    def test_shared_deadline_not_reset_and_environment_commands_unchanged(self):
+        execute = mock.Mock(return_value=result(b"apt 2.8.3 (amd64)\n"))
+        with mock.patch.object(sim.time, "monotonic", side_effect=[1024., 1024., 1144.]):
+            row = sim.simulate(fixtures.inputs(), execute, setup_work=False)
+        self.assertEqual(row["diagnostic"]["reason"], "deadline")
+        self.assertEqual(execute.call_count, 1)
+        self.assertEqual(execute.call_args.kwargs["env"], sim.ENV)
+        self.assertEqual(execute.call_args.kwargs["max_output_bytes"], 2 << 20)
+        self.assertEqual(execute.call_args.kwargs["timeout"], 120)
+        self.validate(row)
+        self.assertIsNone(resolve(result())["diagnostic"])
+
+    def test_setup_and_version_failures_are_separate(self):
+        with mock.patch.object(sim, "setup", side_effect=OSError(SECRET)):
+            row = sim.simulate(fixtures.inputs(), mock.Mock())
+        self.assertEqual(row["diagnostic"]["reason"], "setup-error")
+        self.validate(row)
+        row = sim.simulate(fixtures.inputs(), mock.Mock(return_value=result(b"not apt")), setup_work=False)
+        self.assertEqual(row["diagnostic"]["reason"], "apt-version-mismatch")
+        self.validate(row)
+
+    def test_original_plan_acceptance_unchanged_against_committed_producer(self):
+        value = recorder.base.processes.execute_process_group(
+            ["git", "-C", str(ROOT), "show", recorder.PRODUCER + ":scripts/guest_apt_simulation.py"],
+            env=recorder.base.GIT_ENV, timeout=15, max_output_bytes=65536,
+            stdin=subprocess.DEVNULL)
+        value.check_returncode()
+        original = types.ModuleType("historical_apt_contract")
+        exec(compile(value.stdout, "historical_apt_contract", "exec", dont_inherit=True),
+             original.__dict__)
+        samples = [b"", fixtures.plan(), fixtures.plan() * 2, b"\xff", b"\r",
+                   b"x" * 8193, fixtures.plan("extra"), fixtures.plan(version="2.0")]
+        for prefix in (b"", b"Inst ", b"Conf ", b"Remv ", b"Purg ", b"E:", b"W:", b"Err:"):
+            for suffix in (b"", b" []", b" [fixture:amd64 ]", b" [other]", b" [fixture fixture]"):
+                samples.append(prefix + fixtures.plan().replace(b")\n", b")" + suffix + b"\n"))
+        for raw in samples:
+            accepted = []
+            for contract in (original, sim):
+                try:
+                    accepted.append(contract.validate_plan(raw, fixtures.inputs()["targets"]))
+                except (ValueError, UnicodeError):
+                    accepted.append(None)
+            self.assertEqual(accepted[0], accepted[1])
+
+
+class ImportTests(unittest.TestCase):
+    def test_committed_importer_and_helpers_no_ambient_git_or_untracked_source(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            for name in (*recorder.base.SOURCE_FILES, recorder.SCRIPT):
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes((ROOT / name).read_bytes())
+            env = {**recorder.base.GIT_ENV, "GIT_AUTHOR_NAME": "Fixture",
+                   "GIT_AUTHOR_EMAIL": "fixture@example.invalid", "GIT_COMMITTER_NAME": "Fixture",
+                   "GIT_COMMITTER_EMAIL": "fixture@example.invalid"}
+            def git(*args):
+                return subprocess.run(["git", "-C", str(root), *args], env=env, check=True,
+                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15).stdout
+            git("init", "-q")
+            git("add", ".")
+            git("-c", "commit.gpgsign=false", "commit", "-qm", "fixture")
+            with mock.patch.object(recorder, "ROOT", root), mock.patch.object(recorder.base, "ROOT", root), \
+                    mock.patch.object(recorder.base.processes, "execute_process_group",
+                                      wraps=recorder.base.processes.execute_process_group) as execute:
+                revision, sources = recorder.committed()
+                self.assertEqual(revision, git("rev-parse", "HEAD").decode().strip())
+                self.assertEqual(sources[recorder.SCRIPT], recorder.BOOTSTRAP)
+                for call in execute.call_args_list:
+                    self.assertEqual(call.kwargs["env"]["GIT_NO_REPLACE_OBJECTS"], "1")
+                    self.assertEqual(call.kwargs["env"]["GIT_NO_LAZY_FETCH"], "1")
+                    self.assertEqual(call.kwargs["env"]["GIT_ALLOW_PROTOCOL"], "")
+                    self.assertEqual(call.kwargs["env"]["GIT_TERMINAL_PROMPT"], "0")
+                (root / recorder.SCRIPT).write_bytes(b"uncommitted")
+                with self.assertRaises(ValueError):
+                    recorder.committed()
+
+    def test_bad_cli_does_not_echo_arbitrary_arguments(self):
+        value = subprocess.run([sys.executable, "-I", str(ROOT / recorder.SCRIPT),
+                                "--report", SECRET, "--output", SECRET, "--unknown=" + SECRET],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+        self.assertEqual(value.returncode, 2)
+        self.assertNotIn(SECRET.encode(), value.stdout + value.stderr)
+
+    def test_reject_unpinned_report_before_publication(self):
+        for raw in (b"{}", b'{"arbitrary":"' + SECRET.encode() + b'"}'):
+            with self.assertRaises(ValueError):
+                recorder.evidence(raw, "a" * 40, {})
+
+    def test_exact_historical_report_schema_and_byte_identity(self):
+        raw = historical()
+        self.assertEqual(recorder.base.digest(raw), recorder.REPORT_SHA256)
+        files = recorder.evidence(raw, "a" * 40, {recorder.SCRIPT: b"fixture"})
+        self.assertEqual(files["output.log"], raw)
+        run = json.loads(files["run.json"])
+        self.assertEqual(run["git_sha"], recorder.PRODUCER)
+        self.assertEqual(run["result"], "fail")
+        self.assertEqual(run["execution"], "software")
+        self.assertFalse(run["hardware_validated"])
+        self.assertEqual(run["started_utc"], "2026-10-20T18:52:06Z")
+        self.assertEqual(files, recorder.evidence(raw, "a" * 40, {recorder.SCRIPT: b"fixture"}))
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary).resolve() / "evidence"
+            recorder.base.publish(destination, files)
+            recorder.base.verify(destination, files)
+            with self.assertRaises(FileExistsError):
+                recorder.base.publish(destination, files)
+        with self.assertRaises(ValueError):
+            recorder.evidence(raw + b"\n", "a" * 40, {})
+
+    def test_no_follow_report_reader(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / "private").write_bytes(b"private")
+            (root / "link").symlink_to(root / "private")
+            os.mkfifo(root / "fifo")
+            for name in ("link", "fifo"):
+                with self.assertRaises((ValueError, OSError)):
+                    recorder.base.read(root / name, 16384)
+
+
+if __name__ == "__main__":
+    unittest.main()
