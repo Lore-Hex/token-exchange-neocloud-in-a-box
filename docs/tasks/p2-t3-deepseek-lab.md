@@ -14,6 +14,34 @@ It retains isolated/no-site/source-only Python, fixed paths and spawn-only
 reentry **before preparation and unpickling**. It is not a general sandbox
 against malicious native engine code.
 
+## Startup Observations
+
+Newly prepared bundles include a content-free `startup` record. The parent
+observes a fixed outcome (`launch-failed`, `child-exited`, `startup-timeout`,
+`models-rejected`, `ready`, or `supervisor-failure`), health-probe count,
+startup-wait duration in milliseconds, and the child's exit code or signal
+when it exits before readiness. The wait duration excludes process creation.
+Exit observations are captured before cleanup; cleanup cannot overwrite them.
+
+`ready` means that health and the exact served-model declaration passed. It
+does not establish correct inference, quality, attestation or confidentiality.
+`models-rejected` covers an unavailable or malformed model declaration.
+SIGKILL alone does not establish an out-of-memory failure.
+
+Engine stdout/stderr are still discarded. No raw errors, paths, prompts,
+completions, request bodies or tokens are added to evidence. The recorder
+rejects unknown fields, unbounded values and inconsistent startup states.
+The existing runtime limits and fail-closed admission remain unchanged.
+Older prepared bundles retain their original source and evidence shape.
+
+The outer recorder also identifies its fixed experiment step: `attach`,
+`decode`, `terminal`, `validation`, or `completed`. Before cleanup it inspects
+the owned container and retains only status, exit code and Docker's OOM flag;
+unavailable or invalid observations remain null. The bounded output byte count
+does not retain output content. Exit 137 alone is not an OOM claim. Unvalidated
+inner results are still discarded, and diagnostic observations never authorize
+a successful result.
+
 ## Prerequisites
 
 - An individually approved host, spend limit and external VM deletion deadline.

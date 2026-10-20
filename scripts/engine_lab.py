@@ -275,11 +275,47 @@ def recheck_sources(overlay, application, paths):
                     os.close(cache)
 
 
+def observe_startup(engine, observation):
+    """Record only supervisor observations; never consume the engine's logs."""
+    started = time.monotonic()
+    observation["outcome"] = "supervisor-failure"
+    try:
+        deadline = started + STARTUP_SECONDS
+        while True:
+            code = engine.poll()
+            if code is not None:
+                require(type(code) is int and -128 <= code <= 255)
+                observation.update(outcome="child-exited", exit_code=code)
+                raise ValueError("engine-startup-rejected")
+            if time.monotonic() >= deadline:
+                observation["outcome"] = "startup-timeout"
+                raise ValueError("engine-startup-rejected")
+            observation["health_probes"] += 1
+            try:
+                http_request("/health")
+                break
+            except (OSError, ValueError, http.client.HTTPException):
+                time.sleep(1)
+        observation["outcome"] = "models-rejected"
+        models = json.loads(http_request("/v1/models"))
+        require(type(models) is dict and type(models.get("data")) is list
+                and all(type(row) is dict for row in models["data"])
+                and [row.get("id") for row in models["data"]] == [MODEL])
+        observation["outcome"] = "ready"
+    finally:
+        elapsed = time.monotonic() - started
+        if not 0 <= elapsed <= TOTAL_SECONDS:
+            observation.update(outcome="supervisor-failure", exit_code=None)
+            raise ValueError("engine-startup-clock-rejected")
+        observation["wait_ms"] = int(elapsed * 1000)
+
+
 def application_and_request(contract, sources, modules, application, measured):
     overlay, diagnostic, descriptor, app = modules
     result = {"schema": "nib.deepseek-lab-result/v1", "status": "BLOCKED", "deployable": False,
               "confidential": False, "functional_pass": False, "stage": "hardware",
-              "application": None, "hardware": None, "completion": None, "engine_stopped": False}
+              "application": None, "hardware": None, "completion": None,
+              "startup": None, "engine_stopped": False}
     correctness = contract["operation"] == "local-correctness"
     if correctness:
         result.update(schema="nib.deepseek-lab-correctness-result/v1", correctness=None)
@@ -305,19 +341,11 @@ def application_and_request(contract, sources, modules, application, measured):
             CORRECTNESS.verify_sources(read_source, contract["paths"][-1])
         require(time.monotonic() - started < WEIGHTS_SECONDS + APPLICATION_SECONDS + 60)
         result["stage"] = "startup"
+        result["startup"] = {"outcome": "launch-failed", "wait_ms": 0,
+                             "exit_code": None, "health_probes": 0}
         engine = subprocess.Popen([ROOT + "/python", "engine"], stdin=subprocess.DEVNULL,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-        deadline = time.monotonic() + STARTUP_SECONDS
-        while True:
-            require(engine.poll() is None and time.monotonic() < deadline)
-            try:
-                http_request("/health")
-                break
-            except (OSError, ValueError, http.client.HTTPException):
-                time.sleep(1)
-        models = json.loads(http_request("/v1/models"))
-        require(type(models) is dict and type(models.get("data")) is list
-                and [row.get("id") for row in models["data"]] == [MODEL])
+        observe_startup(engine, result["startup"])
         result["stage"] = "request"
         if correctness:
             result["correctness"] = CORRECTNESS.run(
