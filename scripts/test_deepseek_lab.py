@@ -539,9 +539,14 @@ class BoundedProcessTests(unittest.TestCase):
                 self.assertTrue(ready.exists())
                 process.kill()
                 process.wait(timeout=5)
-                while not marker.exists() and time.monotonic() < end:
+                observed = None
+                while time.monotonic() < end:
+                    if marker.exists():
+                        observed = marker.read_text()
+                        if observed:
+                            break
                     time.sleep(.01)
-                self.assertEqual(marker.read_text(), "confirmed")
+                self.assertEqual(observed, "confirmed")
             finally:
                 if process.poll() is None:
                     process.kill()
@@ -841,6 +846,69 @@ class PayloadTests(unittest.TestCase):
             host.validate_result(row, root, contract, None)
             with self.assertRaises(ValueError):
                 host.validate_result({**row, "functional_pass": True}, root, contract, None)
+
+    def test_diagnostic_main_publishes_failed_nvml_observations_with_authoritative_schema(self):
+        recorder = self.builder.recorder
+        revision = recorder.checker.git(ROOT, "rev-parse", "HEAD").decode().strip()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            env = recorder.offline_environment(root / "control")
+            build = root / "build"
+            build.mkdir()
+            binary, _ = recorder.build_validator(ROOT, revision, build, env)
+            files, contract = host.make_payload(self.builder, revision, self.bundle, self.extra,
+                                                b"fake-container-binary", "hardware-diagnostic")
+            bundle, weights = root / "bundle", root / "empty-weights"
+            (bundle / "payload").mkdir(parents=True)
+            weights.mkdir()
+            (bundle / "payload/probe.py").write_bytes(files["probe.py"])
+            receipt = {"git_sha": revision, "source_bundle_sha256": contract["source_bundle_sha256"],
+                       "payload_sha256": self.builder.overlay.bundle_digest(files)}
+            fixture = DiagnosticTests()
+            children = [fixture.child(fixture.diagnose(count=8)),
+                        fixture.child(fixture.diagnose(codes={"nvmlDeviceGetCount_v2": 26})),
+                        fixture.child(fixture.diagnose()), None]
+            children.append({"stage": "bootstrap", "invocation": children[0]["invocation"],
+                             "bootstrap": {"stage": "setuptools-source", "source_index": 2}, "probe": None})
+            original_publish = recorder.publish_evidence
+
+            def publish(record, report, _container_binary, work, output, _container_env):
+                # Only the container boundary is synthetic; run the real native
+                # committed-source validator and no-overwrite evidence publisher.
+                original_publish(record, report, binary, work, output, env)
+
+            for index, child in enumerate(children):
+                output = root / ("published-" + str(index))
+                experiment = {"schema": "nib.deepseek-hardware-diagnostic/v1", "status": "BLOCKED",
+                              "deployable": False, "confidential": False, "functional_pass": False,
+                              "stage": "diagnostic", "probe_execution": "timeout" if child is None else "completed",
+                              "child": child}
+                host.validate_result(experiment, bundle, contract, recorder)
+                report = {"result": "fail", "status": "BLOCKED", "deployable": False, "confidential": False,
+                          "functional_pass": False, "stage": "completed", "cleanup": "confirmed", "experiment": experiment}
+                deadline = (host.dt.datetime.now(host.dt.timezone.utc) + host.dt.timedelta(seconds=240)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                argv = [host.__file__, "--run", str(bundle), "--receipt-sha256", "a" * 64, "--weights", str(weights),
+                        "--output", str(output), "--deadline", deadline]
+                with self.subTest(index=index), mock.patch.object(host.sys, "argv", argv), \
+                        mock.patch.object(host.sys, "platform", "linux"), \
+                        mock.patch.object(host, "bundle_inputs", return_value=(receipt, contract, {}, recorder)), \
+                        mock.patch.object(host, "run_container", return_value=report), \
+                        mock.patch.object(host.signal, "signal"), mock.patch("builtins.print"), \
+                        mock.patch.object(recorder, "publish_evidence", side_effect=publish):
+                    self.assertEqual(host.main(), 1)
+                record = json.loads((output / "run.json").read_bytes())
+                self.assertEqual(record["execution"], "software")
+                self.assertEqual(record["result"], "fail")
+                self.assertFalse(record["hardware_validated"])
+                self.assertIsNone(record["host"]["driver"])
+                self.assertIsNone(record["host"]["cuda"])
+                self.assertEqual(json.loads((output / "output.log").read_bytes())["experiment"], experiment)
+            for index, change in enumerate(({"execution": "hardware"}, {"hardware_validated": True})):
+                work = root / ("rejected-" + str(index))
+                work.mkdir()
+                with self.assertRaises(subprocess.CalledProcessError):
+                    original_publish({**record, **change}, report, binary, work, work / "published", env)
+                self.assertFalse((work / "published").exists())
 
     def test_authoritative_application_receipt_reused_not_relaxed(self):
         fixtures = self.fixtures

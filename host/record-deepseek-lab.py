@@ -490,10 +490,9 @@ def main():
                             "manifest_sha256": contract["manifest_sha256"], "pack_revision": contract["pack_revision"]}
     hardware_row = report.get("experiment", {}).get("hardware")
     diagnostic = contract["operation"] == "hardware-diagnostic"
-    probe_row = ((report.get("experiment", {}).get("child") or {}).get("probe") or {}) if diagnostic else {}
     record = {"schema": "nib.evidence/v1", "phase": "P2", "task": "T3", "git_sha": receipt["git_sha"],
               "started_utc": started, "ended_utc": recorder.now(), "result": "fail",
-              "execution": "hardware" if hardware_row or probe_row.get("calls") else "software", "hardware_validated": False,
+              "execution": "hardware" if hardware_row else "software", "hardware_validated": False,
               "host": {"provider": "spheron", "machine": "approved-isolated-lab",
                        "gpus": "four-selected-B200" if hardware_row else "unobserved",
                        "driver": hardware_row["driver"] if hardware_row else None,
