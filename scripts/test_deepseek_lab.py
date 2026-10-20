@@ -88,6 +88,60 @@ def do_override():
     "setuptools/_distutils/__init__.py": 'VALUE = "source"\n',
 }
 
+# Exact function excerpts from Apache-2.0 vLLM env_override.py at
+# 5df63a7203cdb9328d824a27b682e77c7b9928be, Copyright contributors to vLLM.
+# Only these two functions run against synthetic modules, never the engine.
+UPSTREAM_PATTERN_FUNCTIONS = '''
+def _apply_inductor_pattern_matcher_patch() -> None:
+    """Allow custom ops and functionalization wrappers with unsupported dtypes."""
+    from torch._inductor import pattern_matcher
+    from torch._inductor.lowering import fallback_node_due_to_unsupported_type
+
+    def fallback_for_builtin(node, allow_cpu_inputs=True):
+        return (
+            isinstance(node.target, torch._ops.OpOverload)
+            and torch._library.utils.is_builtin(node.target)
+            and fallback_node_due_to_unsupported_type(node, allow_cpu_inputs)
+        )
+
+    pattern_matcher.fallback_node_due_to_unsupported_type = fallback_for_builtin
+
+
+def _patch_inductor_pattern_matcher() -> None:
+    """Apply the backport when Inductor imports its pattern matcher."""
+    import sys
+
+    target_name = "torch._inductor.pattern_matcher"
+    if target_name in sys.modules:
+        _apply_inductor_pattern_matcher_patch()
+        return
+
+    import importlib.abc
+
+    class _PatternMatcherPatchFinder(importlib.abc.MetaPathFinder):
+        def find_spec(self, fullname, path, target=None):
+            if fullname != target_name:
+                return None
+            sys.meta_path.remove(self)
+            spec = importlib.util.find_spec(fullname)
+            if spec is None or spec.loader is None:
+                return None
+            original_exec = spec.loader.exec_module
+
+            def _exec_then_patch(module):
+                original_exec(module)
+                _apply_inductor_pattern_matcher_patch()
+
+            spec.loader.exec_module = _exec_then_patch  # type: ignore[method-assign]
+            return spec
+
+    sys.meta_path.insert(0, _PatternMatcherPatchFinder())
+'''
+FAKE_PATTERN_ENV = ("import torch\n" + UPSTREAM_PATTERN_FUNCTIONS
+                    + '\ndef is_torch_equal_or_newer(value):\n    assert value == "2.16.0.dev"\n    return False\n'
+                    + 'if not is_torch_equal_or_newer("2.16.0.dev"):\n    _patch_inductor_pattern_matcher()\n')
+FAKE_PATTERN_TARGET = 'from .lowering import fallback_node_due_to_unsupported_type\nLOADED = True\n'
+
 
 class VecTests(unittest.TestCase):
     def test_exact_template_only_not_generic_python(self):
@@ -461,6 +515,294 @@ class BootstrapTests(unittest.TestCase):
         (shadow / "override.py").write_bytes(original)
         (self.root / "launch.py").write_bytes(self.source + driver.encode())
         self.assertTrue(self.run_fixture("fresh")["paths"])
+
+
+class PatternMatcherTests(unittest.TestCase):
+    setUp = BootstrapTests.setUp
+    run_fixture = BootstrapTests.run_fixture
+
+    def fixture(self, body, env_source=FAKE_PATTERN_ENV, target_source=FAKE_PATTERN_TARGET):
+        sources = {
+            "vllm/__init__.py": "",
+            "vllm/env_override.py": env_source,
+            "torch/__init__.py": '''from types import SimpleNamespace
+class OpOverload:
+    def __init__(self, builtin): self.builtin = builtin
+_ops = SimpleNamespace(OpOverload=OpOverload)
+_library = SimpleNamespace(utils=SimpleNamespace(is_builtin=lambda op: op.builtin))
+''',
+            "torch/_inductor/__init__.py": "",
+            "torch/_inductor/lowering.py": '''def fallback_node_due_to_unsupported_type(node, allow_cpu_inputs=True):
+    return (node.unsupported, allow_cpu_inputs)
+''',
+            "torch/_inductor/pattern_matcher.py": target_source,
+            "torch-2.13.0.dist-info/METADATA": "Name: torch\nVersion: 2.13.0\n",
+        }
+        for name, raw in sources.items():
+            path = self.package / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(raw)
+        pins = {name: (relative, hashlib.sha256(sources[relative].encode()).hexdigest())
+                for name, (relative, _) in bootstrap.PATTERN_SOURCES.items()}
+        self.pattern_source = self.source + ("\nPATTERN_SOURCES=" + repr(pins) + "\n").encode()
+        self.pattern_driver = DRIVER.replace("    import fake_engine", "    import fake_engine\n" + body)
+        (self.root / "launch.py").write_bytes(self.pattern_source + self.pattern_driver.encode())
+
+    def test_source_excerpts_are_exact_pinned_upstream_functions(self):
+        tree = ast.parse(UPSTREAM_PATTERN_FUNCTIONS)
+        expected = {
+            "_apply_inductor_pattern_matcher_patch": "a40c9f901a694c92bca1be32fb9504e00a3df456f31d32f1bf54eaef62830e81",
+            "_patch_inductor_pattern_matcher": "1f81d20a6113ace5b65a09b633c13866a29ab2fcaa8d20af74ef5187d5fb453f",
+        }
+        self.assertEqual({node.name: hashlib.sha256(ast.get_source_segment(
+            UPSTREAM_PATTERN_FUNCTIONS, node).encode()).hexdigest() for node in tree.body}, expected)
+
+    def test_original_source_registration_reproduces_strict_finder_rejection(self):
+        self.fixture('''    before = list(sys.meta_path)
+    # Deliberately omit only this adapter in the synthetic positive control.
+    PATTERN_SOURCES.pop(PATTERN_ENV)
+    import vllm.env_override
+    assert len(sys.meta_path) == len(before) + 1
+    assert type(sys.meta_path[0]).__name__ == "_PatternMatcherPatchFinder"
+    try: STATE["check"]()
+    except ValueError: pass
+    else: raise AssertionError("original finder was accepted")
+    sys.meta_path[:] = before
+    STATE["check"]()''')
+        self.assertTrue(self.run_fixture("fresh")["paths"])
+
+    def test_deferred_callback_preserved_parent_spawn_grandchild_and_fresh(self):
+        self.fixture('''    before = list(sys.meta_path)
+    import vllm.env_override
+    import torch
+    assert STATE["pattern_status"] in ("pending", "applied")
+    assert "_nib_register_pattern_matcher" not in vars(vllm.env_override)
+    from torch._inductor import pattern_matcher
+    assert STATE["pattern_status"] == "applied"
+    assert pattern_matcher.LOADED
+    from types import SimpleNamespace
+    fallback = pattern_matcher.fallback_node_due_to_unsupported_type
+    assert fallback(SimpleNamespace(target=torch._ops.OpOverload(True), unsupported=True), False) == (True, False)
+    assert fallback(SimpleNamespace(target=torch._ops.OpOverload(False), unsupported=True)) is False
+    assert fallback(SimpleNamespace(target=object(), unsupported=True)) is False
+    assert sys.meta_path == before
+    STATE["check"]()''')
+        row = self.run_fixture("positive")
+        self.assertTrue(row["fresh"]["paths"])
+        self.assertTrue(row["child"]["grandchild"]["before"]["paths"])
+
+    def test_already_loaded_target_and_later_unknown_finder(self):
+        self.fixture('''    from torch._inductor import pattern_matcher
+    before_function = pattern_matcher.fallback_node_due_to_unsupported_type
+    assert STATE["pattern_status"] == "not-registered"
+    import vllm.env_override
+    assert STATE["pattern_status"] == "applied"
+    assert pattern_matcher.fallback_node_due_to_unsupported_type is not before_function
+    before = list(sys.meta_path)
+    sys.meta_path.append(importlib.machinery.PathFinder)
+    try: STATE["check"]()
+    except ValueError: pass
+    else: raise AssertionError("unrelated finder allowed")
+    sys.meta_path[:] = before
+    STATE["check"]()''')
+        (self.package / "torch-2.13.0.dist-info/METADATA").write_text("Name: torch\nVersion: 2.13.0+cu130\n")
+        self.assertTrue(self.run_fixture("fresh")["paths"])
+
+    def test_changed_sources_wrong_version_and_origin_reject_before_execution(self):
+        self.fixture('''    import vllm.env_override
+    from torch._inductor import pattern_matcher''')
+        def rejected():
+            result = subprocess.run([self.layout["wrapper"], "fresh"], cwd="/", capture_output=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn(b"private-body-ran", result.stdout + result.stderr)
+        for relative, _ in bootstrap.PATTERN_SOURCES.values():
+            path = self.package / relative
+            original = path.read_bytes()
+            path.write_text("print('private-body-ran')\n")
+            with self.subTest(relative=relative):
+                rejected()
+            path.write_bytes(original)
+        metadata = self.package / "torch-2.13.0.dist-info/METADATA"
+        metadata.write_text("Name: torch\nVersion: 2.16.0\n")
+        rejected()
+        metadata.write_text("Name: torch\nVersion: 2.13.0\n")
+        for name, (relative, _) in bootstrap.PATTERN_SOURCES.items():
+            shadow = self.package / "shadow"
+            shadow.mkdir(exist_ok=True)
+            (shadow / Path(relative).name).write_bytes((self.package / relative).read_bytes())
+            parent = name.rsplit(".", 1)[0]
+            code = ("    import " + parent + "\n    " + parent + ".__path__[:] = ["
+                    + repr(str(shadow)) + "]\n    import " + name)
+            if name == bootstrap.PATTERN_TARGET:
+                code = "    import vllm.env_override\n" + code
+            driver = DRIVER.replace("    import fake_engine", "    import fake_engine\n" + code)
+            (self.root / "launch.py").write_bytes(self.pattern_source + driver.encode())
+            with self.subTest(shadow=name):
+                rejected()
+
+    def test_cached_bytecode_is_never_the_verified_source(self):
+        import importlib.util
+        import marshal
+        import struct
+        self.fixture('''    import vllm.env_override
+    from torch._inductor import pattern_matcher
+    assert STATE["pattern_status"] == "applied"''')
+        for relative, _ in bootstrap.PATTERN_SOURCES.values():
+            source = self.package / relative
+            cache = Path(importlib.util.cache_from_source(str(source)))
+            cache.parent.mkdir(exist_ok=True)
+            cache.write_bytes(importlib.util.MAGIC_NUMBER
+                              + struct.pack("<III", 0, int(source.stat().st_mtime), source.stat().st_size)
+                              + marshal.dumps(compile("raise RuntimeError('private cached pattern')", str(source), "exec")))
+        self.assertTrue(self.run_fixture("fresh")["paths"])
+
+    def test_preloaded_target_and_registration_replay_rejected(self):
+        for replay in ("vllm.env_override", "torch._inductor.pattern_matcher"):
+            self.fixture('''    import vllm.env_override
+    from torch._inductor import pattern_matcher
+    try: importlib.reload(sys.modules[''' + repr(replay) + '''])
+    except ValueError: pass
+    else: raise AssertionError("registration replay")
+    assert STATE["pattern_status"] == "failed"
+    try: STATE["check"]()
+    except ValueError: pass
+    else: raise AssertionError("replay failure not sticky")
+    print('{"rejected":true}')
+    raise SystemExit(0)''')
+            with self.subTest(replay=replay):
+                self.assertEqual(self.run_fixture("fresh"), {"rejected": True})
+        prefix = '\nsys.modules[PATTERN_TARGET] = type(sys)(PATTERN_TARGET)\n'
+        (self.root / "launch.py").write_bytes(self.pattern_source + prefix.encode() + self.pattern_driver.encode())
+        result = subprocess.run([self.layout["wrapper"], "fresh"], cwd="/", capture_output=True, timeout=10)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_target_load_verify_and_postcheck_failures_latch_before_retry(self):
+        body = '''    import vllm.env_override
+    assert STATE["pattern_status"] == "pending"
+    try:
+        from torch._inductor import pattern_matcher
+    except (ImportError, ValueError, RuntimeError): pass
+    else: raise AssertionError("failed target accepted")
+    assert STATE["pattern_status"] == "failed"
+    assert STATE["pattern_module"] is None
+    assert STATE["pattern_loading"] is None
+    assert PATTERN_TARGET not in sys.modules
+    # Restore an attempted list mutation only to prove the failure stays latched.
+    sys.meta_path[:] = STATE["finders"]
+    for operation in (STATE["check"], lambda: importlib.import_module(PATTERN_TARGET)):
+        try: operation()
+        except ValueError: pass
+        else: raise AssertionError("target retry accepted after partial load")
+    print('{"rejected":true}')
+    raise SystemExit(0)'''
+        cases = {
+            "execution": "PARTIAL = True\nraise ImportError('synthetic missing dependency')\n",
+            "runtime": "PARTIAL = True\nraise RuntimeError('synthetic target failure')\n",
+            "postcheck": "import sys\nsys.meta_path.append(object())\n",
+            "verify": FAKE_PATTERN_TARGET,
+        }
+        for name, source in cases.items():
+            self.fixture(body, target_source=source)
+            if name == "verify":
+                (self.package / "torch/_inductor/pattern_matcher.py").write_text(
+                    "print('private-body-ran')\n")
+            with self.subTest(failure=name):
+                self.assertEqual(self.run_fixture("fresh"), {"rejected": True})
+
+    def test_cached_partial_or_replaced_target_is_sticky_rejection(self):
+        for phase in ("pending", "applied"):
+            for change in ("foreign", "none", "deleted"):
+                if phase == "pending" and change == "deleted":
+                    continue
+                code = '    import vllm.env_override\n'
+                if phase == "applied":
+                    code += '    from torch._inductor import pattern_matcher\n'
+                code += {
+                    "foreign": '    sys.modules[PATTERN_TARGET] = type(sys)(PATTERN_TARGET)\n',
+                    "none": '    sys.modules[PATTERN_TARGET] = None\n',
+                    "deleted": '    sys.modules.pop(PATTERN_TARGET)\n',
+                }[change]
+                code += '''    try: STATE["check"]()
+    except ValueError: pass
+    else: raise AssertionError("cached target identity accepted")
+    assert STATE["pattern_status"] == "failed"
+    print('{"rejected":true}')
+    raise SystemExit(0)'''
+                self.fixture(code)
+                with self.subTest(phase=phase, change=change):
+                    self.assertEqual(self.run_fixture("fresh"), {"rejected": True})
+
+    def test_missing_or_sourceless_target_latches_before_fallback(self):
+        import importlib.util
+        import marshal
+        import struct
+        for kind in ("missing", "sourceless"):
+            self.fixture('''    import vllm.env_override
+    try: from torch._inductor import pattern_matcher
+    except ValueError: pass
+    else: raise AssertionError("target source not required")
+    assert STATE["pattern_status"] == "failed"
+    try: STATE["check"]()
+    except ValueError: pass
+    else: raise AssertionError("missing source failure not sticky")
+    print('{"rejected":true}')
+    raise SystemExit(0)''')
+            source = self.package / "torch/_inductor/pattern_matcher.py"
+            source.unlink()
+            if kind == "sourceless":
+                source.with_suffix(".pyc").write_bytes(importlib.util.MAGIC_NUMBER + struct.pack("<III", 0, 0, 0)
+                    + marshal.dumps(compile("print('private-bytecode-ran')", str(source), "exec")))
+            with self.subTest(kind=kind):
+                self.assertEqual(self.run_fixture("fresh"), {"rejected": True})
+
+    def test_callback_failure_is_sticky_and_does_not_publish_applied(self):
+        changed = FAKE_PATTERN_ENV.replace(
+            "    from torch._inductor import pattern_matcher\n",
+            "    raise ImportError('synthetic callback failure')\n    from torch._inductor import pattern_matcher\n", 1)
+        self.fixture('''    import vllm.env_override
+    try: from torch._inductor import pattern_matcher
+    except ImportError: pass
+    else: raise AssertionError("callback failure accepted")
+    assert STATE["pattern_status"] == "failed"
+    assert STATE["pattern_loading"] is None
+    try: STATE["check"]()
+    except ValueError: pass
+    else: raise AssertionError("callback failure not sticky")
+    print('{"rejected":true}')
+    raise SystemExit(0)''', env_source=changed)
+        self.assertEqual(self.run_fixture("fresh"), {"rejected": True})
+
+    def test_foreign_cached_target_cannot_receive_callback(self):
+        self.fixture('''    sys.modules[PATTERN_TARGET] = type(sys)(PATTERN_TARGET)
+    try: import vllm.env_override
+    except ValueError: pass
+    else: raise AssertionError("cached foreign target accepted")
+    assert STATE["pattern_status"] == "failed"
+    # No subsequent apparently successful operation may hide this failure.
+    try: STATE["check"]()
+    except ValueError: pass
+    else: raise AssertionError("failure not sticky")
+    raise SystemExit('{"rejected":true}')''')
+        result = subprocess.run([self.layout["wrapper"], "fresh"], cwd="/", capture_output=True, timeout=10)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stderr.strip(), b'{"rejected":true}')
+
+    def test_adapter_changes_only_registration_call_in_verified_ast(self):
+        pins = copy.deepcopy(bootstrap.PATTERN_SOURCES)
+        pins[bootstrap.PATTERN_ENV] = ("vllm/env_override.py", hashlib.sha256(FAKE_PATTERN_ENV.encode()).hexdigest())
+        with mock.patch.object(bootstrap, "PATTERN_SOURCES", pins):
+            with mock.patch.object(bootstrap, "compile", create=True, return_value="compiled") as compile_mock:
+                self.assertEqual(bootstrap.pattern_env_code(FAKE_PATTERN_ENV.encode(), "pinned.py", helpers.require),
+                                 "compiled")
+                actual = compile_mock.call_args.args[0]
+            expected = ast.parse(FAKE_PATTERN_ENV)
+            for node in ast.walk(expected):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
+                        and node.func.id == "_patch_inductor_pattern_matcher":
+                    node.func.id = bootstrap.PATTERN_REGISTER
+            self.assertEqual(ast.dump(actual, include_attributes=True), ast.dump(expected, include_attributes=True))
+            with self.assertRaises(ValueError):
+                bootstrap.pattern_env_code(FAKE_PATTERN_ENV.encode() + b"\n", "pinned.py", helpers.require)
 
 
 class BoundedProcessTests(unittest.TestCase):

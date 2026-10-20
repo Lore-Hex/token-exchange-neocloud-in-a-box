@@ -6,6 +6,11 @@ has `result=fail`, even if `entry_pass=true`. This does not satisfy P2 model,
 provider, quality or tau acceptance. The prior paid VM is gone; this task does
 not authorize a replacement rental.
 
+The lab-only [pattern-matcher adapter](p2-t3-pattern-matcher-compat.md) addresses
+one exact upstream registration conflict without permitting arbitrary finder
+changes. Its source-backed synthetic reproduction is not proof of the finder
+identity in an earlier diagnostic.
+
 ## Boundary
 
 The committed recorder is
@@ -18,7 +23,7 @@ on a dirty source mismatch, missing offline Git object or substituted helper.
 
 After application, a fresh `-I -S -B` child uses the existing lab bootstrap and
 the shared `prepare_engine` sequence: imports, parser construction, exact
-existing lab arguments, argument validation, then the **unchanged** lab state
+existing lab arguments, argument validation, then the lab state
 check. It returns before `serve.cmd`. The CPU launcher has no serving, hardware
 probe, weight verification, model loading, HTTP request or worker-dispatch
 route. There is no `/model` mount, model binary or model manifest in its payload.
@@ -49,6 +54,9 @@ setting, worker method, NUMA environment presence and finders. No values,
 module/finder names, exception text, stack, argv or logs are retained.
 Unavailable or malformed observations cannot pass. These are observations at
 child termination, not proof of which mutation first caused a rejection.
+They do not encode every loader or source-verification failure. In particular,
+the pattern adapter's sticky load/identity rejection can exit nonzero while
+all ten original process-state comparisons remain false; that is still failure.
 
 Imports can execute pinned dependency initialization and CPU/compiler probes.
 This is not the P0 deny-all-process import guard or an adversarial Python
