@@ -40,9 +40,10 @@ onboarding steps; running the toolkit does not automatically list a provider.
 ## Status
 
 Pre-alpha. **No fully verified confidential inference service yet.** Real
-8xB200 lab checks and a complete DeepSeek weight download have run. GPU
-readiness is still blocked; no DeepSeek inference or quality benchmark has
-passed. The lab uses AMD SEV-SNP, not the plan's Intel TDX deployment.
+8xB200 lab checks and a complete DeepSeek weight download have run. Fresh
+eight-GPU appraisal and readiness readback have passed; DeepSeek inference and
+quality remain unproven. The lab uses AMD SEV-SNP, not the plan's Intel TDX
+deployment.
 
 | Component | State |
 |---|---|
@@ -64,7 +65,8 @@ passed. The lab uses AMD SEV-SNP, not the plan's Intel TDX deployment.
 | Local real-model provider pilot | Qwen3-0.6B CPU inference through standard TLS: 17 conformance checks, auth, usage, upstream failure and cleanup pass on native macOS and an offline Linux/amd64 container; not public or confidential ([native](evidence/p3/2026-10-19-qwen-native-regression-1/run.json), [Linux](evidence/p3/2026-10-19-qwen-linux-4/run.json), [runbook](docs/operators/qwen-pilot.md)) |
 | Provider-configurable Qwen service | Real Linux model: operator metadata, all 18 provider checks, Catalog v2 and declared retirement pass; active streaming response finishes through shutdown; no public cloud or billing claim ([evidence](evidence/p3/2026-10-19-provider-neutral-linux/run.json), [results](evidence/p3/2026-10-19-provider-neutral-linux/output.log), [runbook](docs/operators/qwen-service.md)) |
 | Model bring-up and benchmarks | compatibility bring-up in progress; model inference, throughput and quality/tau benchmarks not yet run (P2) |
-| Bounded DeepSeek CC functional lab | actual admission diagnostic observed production CC, debug tools off and GPU readiness zero; no application or engine launched. A fresh GPU appraisal subsequently rejected claims policy. No confidential qualification; separate container policy leaves P0 admission unchanged ([hardware evidence](evidence/p2/2026-10-20-readiness-not-ready/run.json), [appraisal checkpoint](docs/tasks/p2-t3-appraisal-checkpoint.md), [scope](docs/tasks/p2-t3-deepseek-lab.md)) |
+| GPU appraisal and gated readiness | fresh eight-device appraisal PASS; nonce, measurements, certificates/revocation, secure boot, debug-disabled and local identity checks passed; readiness 0 to 1 readback and NVML shutdown verified. Not full hardware/runtime/confidential qualification ([success](evidence/p2/2026-10-20-gpu-appraisal-121447763215/run.json), [prior failure](evidence/p2/2026-10-20-gpu-appraisal-120201396352/run.json), [checkpoint](docs/tasks/p2-t3-appraisal-checkpoint.md)) |
+| Bounded DeepSeek CC functional lab | initial admission diagnostic observed readiness zero and did not launch an engine; later appraisal/readiness success is recorded separately above. Completed runtime/correctness evidence remains outstanding; separate container policy leaves P0 admission unchanged ([initial hardware evidence](evidence/p2/2026-10-20-readiness-not-ready/run.json), [scope](docs/tasks/p2-t3-deepseek-lab.md)) |
 | Confidential pipeline on a 1-GPU TDX VM | not started (P3) |
 | TrustedRouter generic verifier | not started (P4) |
 | Bare-metal 8×B200 confidential node | not started (P5) |

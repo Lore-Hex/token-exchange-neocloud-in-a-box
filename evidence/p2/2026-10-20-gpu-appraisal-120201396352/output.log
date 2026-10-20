@@ -1,0 +1,48 @@
+{
+  "appraisal": {
+    "claim_failure": {
+      "code": "claim-missing",
+      "field": "x-nvidia-device-type",
+      "source": "signed-token"
+    },
+    "claims": null,
+    "cli_contract_verified": true,
+    "confidential_qualified": false,
+    "deployable": false,
+    "gpu_appraisal_verified": false,
+    "installation_completed": false,
+    "nvml_shutdown": true,
+    "package_sha256": {
+      "libnvat": "cca9409160a7bf793323cc0aafcdc1f569ecc99f346fc6abc6961c850a153b22",
+      "nvattest": "f717e8749cf51921b06871ec54084f56c03a6e93d5daeff967f3694f3c1155e1"
+    },
+    "package_version": "2.0.0.1790976895-1",
+    "persistence_enabled_count": 8,
+    "readiness_header_reference": "1a1e86da474d340d7cf58274588f4a4afc8772e7",
+    "readiness_requested": false,
+    "readiness_transition": "unverified",
+    "ready_after": null,
+    "ready_before": 0,
+    "result": "fail",
+    "runtime_ready": false,
+    "schema": "nib.lab-gpu-appraisal/v1",
+    "script_sha256": "d27f1130c0d79dfd379d46a9da30ac1578aa504c2cfd6db38e780f649233ec4d",
+    "source_reference": "11b2bfeb42a1158aa08744603ecb239ccb3d2265",
+    "stage": "claims-policy"
+  },
+  "confidential_qualified": false,
+  "deployable": false,
+  "hardware_validated": false,
+  "result": "fail",
+  "runtime_ready": false,
+  "schema": "nib.gpu-appraisal-recording/v1",
+  "source": {
+    "files": {
+      "host/attest-lab-gpus.py": "d27f1130c0d79dfd379d46a9da30ac1578aa504c2cfd6db38e780f649233ec4d",
+      "host/probe.py": "dd196679dc4b6d7ee335b3d62900b25484734884bd3da6e74f925260ad7864ff",
+      "host/record-gpu-appraisal.py": "72c3f6caaf41630c6bc3d7019a60279d60eb2e699477ab13f0363b537931b9b0",
+      "host/record-probe.py": "77858e523ae744bc585b28aa68cc759afbdc542dd972466185f52e3a699c40e2"
+    },
+    "git_sha": "a23e66b49acf62a8f8547a276f05fd9fec096297"
+  }
+}

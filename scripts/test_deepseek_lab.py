@@ -943,6 +943,7 @@ class PayloadTests(unittest.TestCase):
                "application": receipt, "hardware": probe.validate(HardwareTests().raw()),
                "completion": {"generated": True, "finish": "stop", "prompt_tokens": 10, "completion_tokens": 1,
                               "final_content_present": True, "synthetic_answer_match": True},
+               "startup": {"outcome": "ready", "wait_ms": 1, "exit_code": None, "health_probes": 1},
                "engine_stopped": True}
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
@@ -954,10 +955,18 @@ class PayloadTests(unittest.TestCase):
             path.parent.mkdir(parents=True)
             path.write_bytes(self.extra[host.SMOKE])
             host.validate_result(row, root, self.contract, self.builder.recorder)
-            for section in ("application", "hardware", "completion"):
+            for section in ("application", "hardware", "completion", "startup"):
                 changed = copy.deepcopy(row)
                 changed[section]["private"] = "sentinel"
                 with self.subTest(section=section), self.assertRaises(ValueError):
+                    host.validate_result(changed, root, self.contract, self.builder.recorder)
+            for mutation in ({"outcome": "PRIVATE"}, {"exit_code": 0}, {"wait_ms": True},
+                             {"wait_ms": -1}, {"wait_ms": host.MAX_SECONDS * 1000 + 1},
+                             {"health_probes": True}, {"health_probes": 0},
+                             {"outcome": "child-exited", "exit_code": 1}):
+                changed = copy.deepcopy(row)
+                changed["startup"].update(mutation)
+                with self.subTest(startup=mutation), self.assertRaises(ValueError):
                     host.validate_result(changed, root, self.contract, self.builder.recorder)
             for field in ("final_content_present", "synthetic_answer_match"):
                 changed = copy.deepcopy(row)
@@ -994,7 +1003,9 @@ class PayloadTests(unittest.TestCase):
             for operation, candidate, input_contract in (
                     ("functional", row, self.contract), ("local-correctness", good, contract)):
                 startup_failed = {**candidate, "functional_pass": False, "stage": "startup",
-                                  "completion": None, "engine_stopped": True}
+                                  "completion": None, "engine_stopped": True,
+                                  "startup": {"outcome": "child-exited", "wait_ms": 1,
+                                              "exit_code": 1, "health_probes": 0}}
                 if operation == "local-correctness":
                     startup_failed["correctness"] = None
                 with self.subTest(operation=operation):
@@ -1008,6 +1019,30 @@ class PayloadTests(unittest.TestCase):
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_startup_observations_are_bounded_and_content_free(self):
+        for scenario in ("ready", "exit", "signal", "timeout", "models", "supervisor"):
+            observation = {"outcome": "launch-failed", "wait_ms": 0,
+                           "exit_code": None, "health_probes": 0}
+            engine = mock.Mock()
+            engine.poll.return_value = {"exit": 1, "signal": -9}.get(scenario)
+            if scenario == "supervisor":
+                engine.poll.side_effect = OSError("PRIVATE")
+            clock = iter([0, lab.STARTUP_SECONDS, lab.STARTUP_SECONDS]) if scenario == "timeout" else iter([0, 0, 0.25])
+            body = b"PRIVATE" if scenario == "models" else json.dumps({"data": [{"id": lab.MODEL}]}).encode()
+            with self.subTest(scenario=scenario), mock.patch.object(lab.time, "monotonic", side_effect=lambda: next(clock)), \
+                    mock.patch.object(lab, "http_request", side_effect=[b"ok", body]):
+                if scenario == "ready":
+                    lab.observe_startup(engine, observation)
+                else:
+                    with self.assertRaises((ValueError, OSError)):
+                        lab.observe_startup(engine, observation)
+            self.assertEqual(observation["outcome"], {
+                "ready": "ready", "exit": "child-exited", "signal": "child-exited",
+                "timeout": "startup-timeout", "models": "models-rejected",
+                "supervisor": "supervisor-failure"}[scenario])
+            self.assertEqual(observation["exit_code"], {"exit": 1, "signal": -9}.get(scenario))
+            self.assertNotIn("PRIVATE", json.dumps(observation))
+
     def test_request_and_shutdown_terminal_states(self):
         @contextmanager
         def selected(*_):
@@ -1052,6 +1087,8 @@ class LifecycleTests(unittest.TestCase):
                 self.assertTrue(row["completion"]["synthetic_answer_match"])
                 self.assertTrue(row["completion"]["generated"])
                 self.assertEqual(row["completion"]["finish"], "length")
+            self.assertEqual(row["startup"]["outcome"], "child-exited" if terminal == "dead-worker" else "ready")
+            self.assertEqual(row["startup"]["exit_code"], 1 if terminal == "dead-worker" else None)
             engine.wait.assert_called()
 
     def test_correctness_runs_inside_existing_lifecycle_and_source_failure_stops_startup(self):
@@ -1150,6 +1187,70 @@ class LifecycleTests(unittest.TestCase):
             start.assert_not_called()
         self.assertEqual(row["cleanup"], "not-created")
 
+    def test_outer_experiment_failures_preserve_only_fixed_observations_before_cleanup(self):
+        identifier, owner = "a" * 64, "b" * 32
+        for failure in ("attach", "decode", "terminal", "validation", "none", "unavailable"):
+            final = {"Id": identifier, "Config": {"Labels": {host.LABEL: owner}},
+                     "State": {"Status": "exited", "ExitCode": 137 if failure == "terminal" else 0,
+                               "OOMKilled": failure == "terminal", "Error": "private sentinel"}}
+            initial = {**final, "State": {"Status": "created"}}
+            raw = b'{"functional_pass":false}' if failure != "decode" else b"private sentinel"
+            attach = subprocess.CalledProcessError(1, "private sentinel") if failure == "attach" else raw
+            recorder = types.SimpleNamespace(image_binding=lambda *_: {"fixed": True},
+                call=mock.Mock(side_effect=[b"", identifier.encode(), attach]))
+            monitor = mock.Mock(returncode=0)
+            monitor.poll.return_value = None
+            inspections = [{"Id": "image"}, initial, final]
+            if failure == "unavailable":
+                inspections = [{"Id": "image"}, initial, ValueError("private sentinel"),
+                               ValueError("private sentinel")]
+            events = []
+            def inspect(*_):
+                events.append("inspect")
+                value = inspections.pop(0)
+                if isinstance(value, Exception):
+                    raise value
+                return value
+            with self.subTest(failure=failure), mock.patch.object(host, "CANCELLED", False), \
+                    mock.patch.object(host, "CLEANING", False), \
+                    mock.patch.object(host.uuid, "uuid4", return_value=types.SimpleNamespace(hex=owner)), \
+                    mock.patch.object(host, "inspect", side_effect=inspect), \
+                    mock.patch.object(host.subprocess, "Popen", return_value=monitor), \
+                    mock.patch.object(host, "create_command", return_value=["docker", "create"]), \
+                    mock.patch.object(host, "check_container"), \
+                    mock.patch.object(host, "validate_result",
+                        side_effect=ValueError("private sentinel") if failure == "validation" else None), \
+                    mock.patch.object(host, "cleanup", side_effect=lambda *_: events.append("cleanup")):
+                row = host.run_container("/unused", "a" * 64, "/unused", time.time() + 60,
+                    recorder, {"base_image": "fixed"}, {}, host.controlled_env("unix:///var/run/docker.sock"))
+            expected = "completed" if failure == "none" else ("terminal" if failure == "unavailable" else failure)
+            self.assertEqual(row["experiment_step"], expected)
+            self.assertFalse(row["functional_pass"])
+            self.assertEqual(row["cleanup"], "confirmed")
+            self.assertEqual(events[-1], "cleanup")
+            self.assertEqual(row["output_bytes"], None if failure == "attach" else len(raw))
+            if failure == "unavailable":
+                self.assertIsNone(row["container_observation"])
+            else:
+                self.assertEqual(row["container_observation"],
+                    {"status": "exited", "exit_code": 137 if failure == "terminal" else 0,
+                     "oom_killed": failure == "terminal"})
+            self.assertEqual("experiment" in row, failure == "none")
+            self.assertNotIn("private sentinel", json.dumps(row))
+
+    def test_container_observations_reject_foreign_or_malformed_state(self):
+        base = {"Id": "fixed", "Config": {"Labels": {host.LABEL: "owner"}},
+                "State": {"Status": "exited", "ExitCode": 137, "OOMKilled": False}}
+        self.assertFalse(host.container_observation(base, "fixed", "owner")["oom_killed"])
+        for state in ({"Status": "private"}, {"ExitCode": True}, {"ExitCode": 256},
+                      {"OOMKilled": "false"}, {"ExitCode": -129}):
+            with self.subTest(state=state), self.assertRaises(ValueError):
+                host.container_observation({**base, "State": {**base["State"], **state}}, "fixed", "owner")
+        with self.assertRaises(ValueError):
+            host.container_observation(base, "different", "owner")
+        with self.assertRaises(ValueError):
+            host.container_observation(base, "fixed", "foreign")
+
 
 class ReportTests(unittest.TestCase):
     def test_final_answer_is_distinct_from_reasoning_token_generation(self):
@@ -1181,7 +1282,8 @@ class ReportTests(unittest.TestCase):
     def test_failure_report_cannot_smuggle_nested_private_data(self):
         row = {"schema": "nib.deepseek-lab-result/v1", "status": "BLOCKED", "deployable": False,
                "confidential": False, "functional_pass": False, "stage": "hardware",
-               "application": None, "hardware": None, "completion": None, "engine_stopped": False}
+               "application": None, "hardware": None, "completion": None,
+               "startup": None, "engine_stopped": False}
         host.validate_result(row, Path("/unused"), {}, None)
         for update in ({"completion": {"private": "sentinel"}}, {"private": "sentinel"},
                        {"stage": "sentinel"}, {"functional_pass": True}, {"engine_stopped": 1}):
