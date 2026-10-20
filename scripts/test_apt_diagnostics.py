@@ -50,6 +50,26 @@ def historical():
     })
 
 
+def observed_diagnostic():
+    row = json.loads(historical())
+    row.update(
+        schema="nib.apt-container-run/v2", git_sha=recorder.DIAGNOSTIC_PRODUCER,
+        started_at="2026-10-20T20:27:45Z", finished_at="2026-10-20T20:27:51Z",
+        image_archive_sha256="b79cf4852ee74fa6236e64f8a7a4d51c154ae63a2522dfa520c9b278fbfbcd38",
+        config_sha256="50f49a4c9d057635183cac413fe709590d0624234ef9c8df953d189d621cd8f4",
+        layer_sha256="169da5519e85f73a281dc4a00ae8a72ada76f6e20f45466bf0342daacf3f133f",
+    )
+    row["simulation"].update(
+        schema="nib.apt-simulation/v2", git_sha=recorder.DIAGNOSTIC_PRODUCER,
+        diagnostic={
+            "exit_code": 0, "plan": None, "reason": "stderr-missing-preferences-directory",
+            "stderr_bytes": 92, "stdout_bytes": 19639,
+            "stderr_kinds": {"error": 0, "notice": 0, "other": 0, "warning": 1},
+        },
+    )
+    return recorder.base.encoded(row)
+
+
 def result(output=None, *, status=0, error=b""):
     return subprocess.CompletedProcess(["private-never-published"], status,
                                        fixtures.plan() if output is None else output, error)
@@ -266,6 +286,27 @@ class DiagnosticTests(unittest.TestCase):
 
 
 class ImportTests(unittest.TestCase):
+    def test_exact_observed_diagnostic_preserves_failure_and_provenance(self):
+        raw = observed_diagnostic()
+        self.assertEqual(recorder.base.digest(raw), recorder.DIAGNOSTIC_SHA256)
+        files = recorder.evidence(raw, "a" * 40, {recorder.SCRIPT: b"fixture"})
+        self.assertEqual(files["output.log"], raw)
+        run = json.loads(files["run.json"])
+        self.assertEqual(run["git_sha"], recorder.DIAGNOSTIC_PRODUCER)
+        self.assertEqual(run["started_utc"], "2026-10-20T20:27:45Z")
+        self.assertEqual(run["ended_utc"], "2026-10-20T20:27:51Z")
+        self.assertEqual((run["result"], run["execution"]), ("fail", "software"))
+        self.assertFalse(run["hardware_validated"])
+        self.assertIn("strict stderr gate", run["notes"])
+        self.assertIn("not a reconstruction", run["notes"])
+        self.assertIn(recorder.DIAGNOSTIC_SHA256, run["notes"])
+        for changed in (raw + b"\n", raw.replace(b'"exit_code": 0', b'"exit_code": 1'),
+                        raw.replace(b'"fail"', b'"pass"'),
+                        raw.replace(b'"confirmed"', b'"unconfirmed"'),
+                        raw.replace(b"92", b"93")):
+            with self.assertRaises(ValueError):
+                recorder.evidence(changed, "a" * 40, {})
+
     def test_committed_historical_artifact_with_original_producer_validator(self):
         raw = HISTORICAL.read_bytes()
         self.assertEqual(raw, historical())

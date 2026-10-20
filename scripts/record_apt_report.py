@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Import only the exact historical failed APT report, without repeating its run."""
+"""Import exact reviewed APT reports without repeating their executions."""
 import sys
 
 if __name__ == "__main__" and not sys.flags.isolated:
@@ -19,6 +19,16 @@ ROOT = Path(__file__).absolute().parent.parent
 SCRIPT = "scripts/record_apt_report.py"
 PRODUCER = "03d52b4b078c8102b296e03603ec34c00c0c3401"
 REPORT_SHA256 = "37801abac400cd6cda8be1986591c8b7f1cae8c01de1f42e401246af98c2dd4f"
+DIAGNOSTIC_PRODUCER = "a3d2657ead1a375d9fa57082dca7e5f23bf6e3d4"
+DIAGNOSTIC_SHA256 = "2a31d0e293c05c09b29b9636d3ffcae41e15d1761e297a6ff1cfb211fa467f9b"
+REPORTS = {
+    REPORT_SHA256: (PRODUCER, 1, "Resolve failure cause is unknown."),
+    DIAGNOSTIC_SHA256: (
+        DIAGNOSTIC_PRODUCER, 2,
+        "Resolve exited zero but the strict stderr gate rejected the exact "
+        "missing-preferences-directory warning (92 bytes). This is the diagnostic "
+        "run's observation, not a reconstruction of the earlier v1 stderr."),
+}
 
 
 def bootstrap():
@@ -62,16 +72,18 @@ def committed():
 def evidence(raw, revision, sources):
     # Deliberately not a general import API: never publish arbitrary input JSON.
     base.require(type(raw) is bytes and len(raw) <= 16384
-                 and base.digest(raw) == REPORT_SHA256
+                 and base.digest(raw) in REPORTS
                  and re.fullmatch("[0-9a-f]{40}", revision) and revision != "0" * 40)
+    report_sha256 = base.digest(raw)
+    producer, version, observation = REPORTS[report_sha256]
     report = json.loads(raw)
-    base.require(report["git_sha"] == PRODUCER and report["result"] == "fail"
-                 and report["schema"] == "nib.apt-container-run/v1"
+    base.require(report["git_sha"] == producer and report["result"] == "fail"
+                 and report["schema"] == "nib.apt-container-run/v" + str(version)
                  and report["stage"] == "complete" and report["cleanup"] == "confirmed"
                  and report["simulation"]["stage"] == "resolve"
                  and report["simulation"]["plan"] is None)
     run = {
-        "schema": "nib.evidence/v1", "phase": "P3", "task": "T1", "git_sha": PRODUCER,
+        "schema": "nib.evidence/v1", "phase": "P3", "task": "T1", "git_sha": producer,
         "command": "python3 -I host/simulate-guest-apt.py --run --metadata <private-metadata> "
                    "--archives <private-archives> --bundle <private-bundle> --output <private-output>",
         "started_utc": report["started_at"], "ended_utc": report["finished_at"],
@@ -81,9 +93,9 @@ def evidence(raw, revision, sources):
         "notes": "Historical content-free report import, not a new execution or independent "
                  "container verification. Original producer and reported execution timestamps "
                  "retained. Command uses the producer's fixed CLI with private paths normalized; "
-                 "literal path values were not recorded. Resolve failure cause is unknown. "
+                 "literal path values were not recorded. " + observation + " "
                  "No package installation, scripts, guest build or hardware validation. "
-                 "output.log is byte-identical to original report.json; SHA256=" + REPORT_SHA256
+                 "output.log is byte-identical to original report.json; SHA256=" + report_sha256
                  + ". Importer git_sha=" + revision + "; importer/helper SHA256="
                  + json.dumps({n: base.digest(b) for n, b in sorted(sources.items())}, sort_keys=True),
     }
@@ -108,7 +120,7 @@ def main():
     base.publish(args.output, files)
     base.verify(args.output, files)
     print(json.dumps({"recorded": True, "original_result": "fail", "rerun": False,
-                      "report_sha256": REPORT_SHA256}, sort_keys=True))
+                      "report_sha256": base.digest(raw)}, sort_keys=True))
 
 
 if __name__ == "__main__":
