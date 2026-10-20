@@ -2,6 +2,7 @@
 """Synthetic interfaces only; never import/install upstream packages or use Docker."""
 
 import copy
+import contextlib
 import io
 import json
 import os
@@ -195,6 +196,33 @@ class BridgeTests(unittest.TestCase):
 
 
 class IntegrationTests(unittest.TestCase):
+    def test_deadline_after_reward_assignment_keeps_failed_trial_and_known_usage(self):
+        manifest = fixtures.manifest()
+        original, depth = worker.alarm, [0]
+        @contextlib.contextmanager
+        def final_boundary(*args):
+            depth[0] += 1
+            try:
+                with original(*args):
+                    yield
+                if depth[0] == 1:
+                    raise worker.Abort("timeout")
+            finally:
+                depth[0] -= 1
+        def execute(root, frozen, selected, bridge):
+            for model in ("nib-scripted-agent", "nib-scripted-simulator"):
+                bridge.complete(model=model, messages=[{"content": CANARY}])
+            return 0.0
+        with mock.patch.object(worker, "alarm", final_boundary):
+            report, accounting = worker.evaluate(tau, agg, manifest, chosen(manifest), producer(), execute)
+        row = report["trials"][0]
+        self.assertEqual(row["status"], "timeout")
+        self.assertIsNone(row["reward"])
+        self.assertEqual(row["requests"], 2)
+        self.assertEqual(row["usage"]["total_tokens"], 4)
+        self.assertTrue(accounting["usage_known"])
+        self.assertNotIn(CANARY, json.dumps([report, accounting]))
+
     def test_all_failure_denominators_and_content_free_output(self):
         manifest = fixtures.manifest()
         selection = chosen(manifest)
@@ -418,6 +446,37 @@ sys.exit(w['main']())
         self.assertFalse(value["completed"])
         self.assertIsNone(value["report"])
         self.assertEqual(observed.stderr, b"")
+
+    def test_worker_does_not_mark_completion_until_outer_deadline_check_finishes(self):
+        code = f"""
+import runpy,sys,os,types,contextlib
+w=runpy.run_path({str(ROOT / 'scripts/tau_trial_worker.py')!r},run_name='fixture')
+g=w['main'].__globals__
+contract={{'files':{{}},'manifest_sha256':'a'*64,'selection':{{}},'producer':{{}}}}
+raw=g['encoded'](contract)
+g['sys']=types.SimpleNamespace(flags=types.SimpleNamespace(isolated=True,no_site=True),
+    dont_write_bytecode=True,version_info=(3,12,13),platform='linux',
+    argv=['fixed',g['digest'](raw)],path=[],addaudithook=lambda hook:None)
+g['os'].uname=lambda:types.SimpleNamespace(machine='x86_64')
+g['os'].confstr=lambda key:'glibc 2.36'
+g['read']=lambda path,limit:raw if path.name=='trial.json' else b'{{}}'
+g['verify_tree']=lambda *args:None
+g['load']=lambda root,name:types.SimpleNamespace(PINS='pins.json',validate_manifest=lambda *args:None)
+g['evaluate']=lambda *args,**kw:({{'content':{CANARY!r}}},{{}})
+@contextlib.contextmanager
+def late(*args):
+    yield
+    raise g['Abort']('timeout')
+g['alarm']=late
+sys.exit(w['main']())
+"""
+        observed = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", code],
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10, check=True)
+        value = json.loads(observed.stdout)
+        self.assertNotIn(CANARY.encode(), observed.stdout + observed.stderr)
+        self.assertFalse(value["completed"])
+        self.assertEqual(value["stage"], "trial")
+        self.assertIsNone(value["report"])
 
 
 class LifecycleTests(unittest.TestCase):

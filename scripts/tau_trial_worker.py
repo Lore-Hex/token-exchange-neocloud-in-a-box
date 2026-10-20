@@ -358,6 +358,8 @@ def evaluate(tau, aggregate, manifest, selection, producer, execute=run_upstream
         status = "cancelled"
     except BaseException:
         status = "infrastructure_error"
+    if status != "evaluated":
+        reward = None
     if bridge.budget.pending is not None:
         bridge.budget.abandon()
         bridge.usage_known = False
@@ -407,7 +409,7 @@ def main():
             result["stage"], result["upstream_executed"] = "trial", True
             report, accounting = evaluate(tau, aggregate, manifest, contract["selection"],
                                           contract["producer"], root=root)
-            result.update(stage="completed", completed=True, report=report, accounting=accounting)
+        result.update(stage="completed", completed=True, report=report, accounting=accounting)
     except BaseException:
         pass
     try:
