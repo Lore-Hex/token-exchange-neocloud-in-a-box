@@ -14,6 +14,8 @@ import types
 import unittest
 from unittest import mock
 
+import yaml
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -654,6 +656,116 @@ class ContractTests(unittest.TestCase):
         self.assertIn("PRIVATE=", create)
         self.assertNotIn("PRIVATE=secret", create)
         self.assertNotIn("secret", json.dumps(report))
+
+    def evidence_fixture(self, host_kind="github-actions"):
+        report, _, _ = self.daemon(self.valid_report())
+        report["provenance"] = {
+            "git_sha": "1" * 40, "source_bundle_sha256": self.contract["source_bundle_sha256"],
+            "payload_sha256": tool.overlay.bundle_digest(self.files), "requested_image": tool.overlay.BASE_IMAGE,
+            "expected_config_sha256": self.contract["official_config"]["sha256"],
+            "measurement_sha256": self.contract["measurement_sha256"], "raw_oci_metadata_verified": True,
+            "validator_source_sha256": "a" * 64,
+        }
+        with mock.patch.object(tool.recorder, "now", return_value="2026-10-20T00:01:00Z"):
+            record = tool.evidence_record("1" * 40, "cpu-unit", "2026-10-20T00:00:00Z", report, host_kind)
+        return record, report
+
+    def check_evidence(self, record, report, host_kind="github-actions"):
+        return tool.check_evidence(record, report, "1" * 40, "cpu-unit", self.files,
+                                   self.contract, host_kind, "a" * 64)
+
+    def test_evidence_recheck_exact_producer_and_host(self):
+        for host_kind in ("local", "github-actions"):
+            record, report = self.evidence_fixture(host_kind)
+            self.assertTrue(self.check_evidence(record, report, host_kind))
+            self.assertEqual(record["host"]["provider"], host_kind)
+            self.assertFalse(record["hardware_validated"])
+            self.assertEqual(record["result"], "fail")
+            suffix = "" if host_kind == "local" else " --host-kind github-actions"
+            self.assertEqual(record["command"], "python3 -I -S scripts/record-engine-cpu-entry.py --slug cpu-unit" + suffix)
+            with self.assertRaises(ValueError):
+                self.check_evidence(record, report, "local" if host_kind == "github-actions" else "github-actions")
+        with self.assertRaises(ValueError):
+            tool.evidence_record("1" * 40, "cpu-unit", "", report, "unreviewed")
+
+    def test_evidence_recheck_rejects_unearned_success_and_provenance_changes(self):
+        record, report = self.evidence_fixture()
+        mutations = [
+            ("record", ["git_sha"], "2" * 40),
+            ("record", ["result"], "pass"),
+            ("record", ["hardware_validated"], 0),
+            ("record", ["started_utc"], "2026-02-30T00:00:00Z"),
+            ("record", ["ended_utc"], "2026-10-19T00:00:00Z"),
+            ("record", ["host", "provider"], "local"),
+            ("record", ["notes"], "PRIVATE"),
+            ("report", ["cleanup"], "completion-unknown"),
+            ("report", ["stage"], "result-validation"),
+            ("report", ["private"], "PRIVATE"),
+            ("report", ["entry_pass"], 1),
+            ("report", ["experiment", "entry", "exit_code"], 1),
+            ("report", ["image", "raw_config_sha256"], "b" * 64),
+            ("report", ["image", "manifest_sha256"], "b" * 64),
+            ("report", ["image", "docker_reported_id"], "invalid"),
+            ("report", ["image", "raw_config_link_verified"], 1),
+            ("report", ["image", "local_layers_rehashed"], True),
+        ]
+        mutations += [("report", ["provenance", key], "b" * 64)
+                      for key in report["provenance"]]
+        for kind, keys, value in mutations:
+            bad_record, bad_report = copy.deepcopy((record, report))
+            target = bad_record if kind == "record" else bad_report
+            for key in keys[:-1]:
+                target = target[key]
+            target[keys[-1]] = value
+            with self.subTest(kind=kind, keys=keys), self.assertRaises((ValueError, KeyError, TypeError)):
+                self.check_evidence(bad_record, bad_report)
+        report["entry_pass"] = report["experiment"]["entry_pass"] = False
+        report["experiment"]["entry"]["exit_code"] = 1
+        self.assertFalse(self.check_evidence(record, report))
+
+    def test_vendored_raw_oci_metadata_is_exact_and_image_binding_consistent(self):
+        config = tool.recorder.raw_metadata(ROOT / "bench/engine-cpu-entry/oci", self.contract)
+        self.assertEqual((config["os"], config["architecture"]), ("linux", "amd64"))
+        record, report = self.evidence_fixture()
+        actual = tool.recorder.image_binding({
+            "Os": "linux", "Architecture": "amd64", "Id": report["image"]["docker_reported_id"],
+            "RepoDigests": [tool.overlay.BASE_IMAGE],
+            "RootFS": {"Type": "layers", "Layers": config["rootfs"]["diff_ids"]},
+        }, config, self.contract)
+        self.assertEqual(report["image"], actual)
+        self.assertTrue(self.check_evidence(record, report))
+
+    def test_native_workflow_is_manual_main_only_and_rechecks_failure_artifacts(self):
+        workflow = yaml.load((ROOT / ".github/workflows/engine-cpu-entry.yml").read_text(),
+                             Loader=yaml.BaseLoader)
+        self.assertEqual(workflow["on"], {"workflow_dispatch": ""})
+        self.assertEqual(workflow["permissions"], {"contents": "read"})
+        self.assertEqual(workflow["concurrency"]["cancel-in-progress"], "false")
+        self.assertEqual(set(workflow["jobs"]), {"diagnostic"})
+        job = workflow["jobs"]["diagnostic"]
+        self.assertEqual(job["if"], "github.ref == 'refs/heads/main'")
+        self.assertEqual(job["runs-on"], "ubuntu-24.04")
+        self.assertEqual(job["timeout-minutes"], "45")
+        steps = job["steps"]
+        self.assertEqual(steps[0]["with"]["persist-credentials"], "false")
+        self.assertEqual(steps[1]["with"]["cache"], "false")
+        self.assertEqual([step["uses"] for step in steps if "uses" in step], [
+            "actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+            "actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff",
+            "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+        ])
+        self.assertEqual(steps[3]["run"], "python3 -I -S host/pull-lab-image.py")
+        self.assertEqual(steps[4]["run"],
+                         'python3 -I -S scripts/record-engine-cpu-entry.py --slug "$SLUG" --host-kind github-actions')
+        self.assertEqual(steps[4]["continue-on-error"], "true")
+        self.assertEqual(steps[5]["if"], "always()")
+        self.assertEqual(steps[5]["with"]["retention-days"], "7")
+        self.assertEqual(steps[5]["with"]["if-no-files-found"], "error")
+        self.assertEqual(steps[5]["with"]["path"], "evidence/p2/*-${{ env.SLUG }}/")
+        self.assertEqual(steps[6]["if"], "always()")
+        self.assertIn('--check-result "$1" --host-kind github-actions', steps[6]["run"])
+        self.assertIn("label=nib.cpu-entry", steps[6]["run"])
+        self.assertNotIn("secrets.", json.dumps(workflow))
 
     def test_cleanup_and_isolation_failures_never_grant_entry_pass(self):
         for failure in ("network", "runtime", "devices", "ports", "weights", "create-timeout",

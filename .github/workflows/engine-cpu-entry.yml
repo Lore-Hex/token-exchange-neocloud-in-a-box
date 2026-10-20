@@ -1,0 +1,65 @@
+name: Native CPU engine entry
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-cpu-engine-entry
+  cancel-in-progress: false
+
+jobs:
+  diagnostic:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      SLUG: cpu-native-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Prepare native ephemeral runner
+        run: |
+          test "$(uname -m)" = x86_64
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          python3 - <<'PY'
+          from pathlib import Path
+          rows = dict(line.split(":", 1) for line in Path("/proc/meminfo").read_text().splitlines())
+          assert int(rows["MemTotal"].split()[0]) >= 10 * 2**20
+          PY
+          # Only unused SDKs on this disposable hosted runner; never a self-hosted machine.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          python3 -c 'import shutil; assert shutil.disk_usage("/var/lib/docker").free >= 50 * 2**30'
+          go mod download
+          mkdir -p build/engine-image-metadata
+          cp bench/engine-cpu-entry/oci/manifest.json bench/engine-cpu-entry/oci/config.json \
+            build/engine-image-metadata/
+      - name: Fetch the immutable public image without credentials
+        run: python3 -I -S host/pull-lab-image.py
+      - name: Record bounded CPU-only entry
+        id: record
+        continue-on-error: true
+        run: python3 -I -S scripts/record-engine-cpu-entry.py --slug "$SLUG" --host-kind github-actions
+      - name: Preserve original content-free evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: ${{ env.SLUG }}
+          path: evidence/p2/*-${{ env.SLUG }}/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Require diagnostic success and owned-container cleanup
+        if: always()
+        run: |
+          test -z "$(docker container ls --all --quiet --filter label=nib.cpu-entry)"
+          set -- evidence/p2/*-"$SLUG"
+          test "$#" -eq 1
+          python3 -I -S scripts/record-engine-cpu-entry.py --check-result "$1" --host-kind github-actions
