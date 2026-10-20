@@ -50,7 +50,7 @@ class DescriptorTests(unittest.TestCase):
         for path in (self.stdlib, self.selected, self.dsl, "/usr/bin", self.stdlib + "/lib-dynload"):
             (self.root / path[1:]).mkdir(parents=True, exist_ok=True)
         self.write("/usr/bin/python3.12", b"synthetic executable never run")
-        (self.root / "usr/bin/python3").symlink_to("python3.12")
+        self.alternatives_chain()
         for name in descriptor.SOURCES:
             self.write(self.stdlib + "/" + name, b"raise RuntimeError('never imported')\n")
         for name in diagnostic.HOOKS:
@@ -76,6 +76,157 @@ class DescriptorTests(unittest.TestCase):
         path.write_bytes(data)
         return path
 
+    def alternatives_chain(self):
+        (self.root / "etc/alternatives").mkdir(parents=True, exist_ok=True)
+        for name, target in descriptor.INTERPRETER_CHAIN:
+            path = self.root / name[1:]
+            path.unlink(missing_ok=True)
+            path.symlink_to(target)
+
+    def test_exact_interpreter_chain_is_scoped_and_validated_without_execution(self):
+        self.alternatives_chain()
+        with overlay.directory(self.root) as fd:
+            fs = descriptor.Filesystem(overlay, fd, self.contract)
+            with self.assertRaises(descriptor.ObservationRejected):
+                fs.resolve("/usr/bin/python3")
+            self.assertFalse(descriptor.public_path("/etc/alternatives/python3"))
+            for name in ("executable", "base_executable"):
+                row = fs.file(name, "/usr/bin/python3")
+                self.assertEqual((row["status"], row["resolved"], row["sha256"]),
+                    ("read", "/usr/bin/python3.12", overlay.digest(b"synthetic executable never run")))
+                self.assertEqual(row["links"], descriptor.interpreter_links())
+            self.assertEqual(fs.file("site.py", "/usr/bin/python3")["reason"], "unsafe-target")
+        report = self.collect()
+        descriptor.validate_report(overlay, report, self.contract)
+        self.assertNotIn("executable-unverified", report["canaries"]["blockers"])
+        for change in ({"resolved": "/usr/bin/other"}, {"links": descriptor.interpreter_links()[:1]},
+                       {"links": [{"path": "/usr/bin/python3", "target": "/etc/SYNTHETIC_PRIVATE_VALUE"}]}):
+            changed = copy.deepcopy(report)
+            changed["files"][0].update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                descriptor.validate_report(overlay, changed, self.contract)
+
+    def test_interpreter_chain_unknown_image_config_mode_and_role_never_read_terminal(self):
+        self.alternatives_chain()
+        with overlay.directory(self.root) as fd, mock.patch.object(overlay.Tree, "read", side_effect=AssertionError("no terminal read")):
+            for contract in (None, {}, {**self.contract, "base_image": "unknown"},
+                             {**self.contract, "official_config": {"sha256": "0" * 64}},
+                             {**self.contract, "official_config": None}, {**self.contract, "diagnostic_mode": "integrity"}):
+                row = descriptor.Filesystem(overlay, fd, contract).file("executable", "/usr/bin/python3")
+                self.assertEqual((row["status"], row["reason"]), ("rejected", "unsafe-target"))
+            fs = descriptor.Filesystem(overlay, fd, self.contract)
+            (self.root / "usr/bin/alias").symlink_to("/etc/alternatives/python3")
+            for name, path in (("other", "/usr/bin/python3"), ("executable", "/usr/bin/alias"),
+                               ("executable", "/etc/alternatives/python3")):
+                self.assertEqual(fs.file(name, path)["status"], "rejected")
+
+    def test_interpreter_chain_literal_mismatch_loop_extra_hop_and_dangling_are_sanitized(self):
+        self.alternatives_chain()
+        for name, _ in descriptor.INTERPRETER_CHAIN:
+            for target in ("/home/SYNTHETIC_PRIVATE_VALUE", "/etc/alternatives/private", "/usr/bin/python3",
+                           "/usr/bin/extra", "/usr/bin/../bin/python3.12"):
+                path = self.root / name[1:]
+                path.unlink()
+                path.symlink_to(target)
+                with self.subTest(name=name, target=target), overlay.directory(self.root) as fd, \
+                        mock.patch.object(overlay.Tree, "read", side_effect=AssertionError("no terminal read")):
+                    row = descriptor.Filesystem(overlay, fd, self.contract).file("executable", "/usr/bin/python3")
+                    self.assertEqual(row["status"], "rejected")
+                    self.assertFalse(row["links"])
+                    self.assertIsNone(row["sha256"])
+                    self.assertNotIn("SYNTHETIC_PRIVATE_VALUE", json.dumps(row))
+                self.alternatives_chain()
+        terminal = self.root / "usr/bin/python3.12"
+        terminal.unlink()
+        with overlay.directory(self.root) as fd:
+            row = descriptor.Filesystem(overlay, fd, self.contract).file("executable", "/usr/bin/python3")
+        self.assertEqual(row["reason"], "interpreter-chain-unavailable")
+        terminal.symlink_to("/usr/bin/extra")
+        with overlay.directory(self.root) as fd:
+            row = descriptor.Filesystem(overlay, fd, self.contract).file("executable", "/usr/bin/python3")
+        self.assertEqual(row["reason"], "interpreter-chain-mismatch")
+
+    def test_interpreter_chain_terminal_fifo_hardlink_and_size_fail_before_content_read(self):
+        self.alternatives_chain()
+        terminal = self.root / "usr/bin/python3.12"
+        for kind, reason in (("fifo", "not-regular"), ("hardlink", "link-count"), ("size", "file-size-limit")):
+            terminal.unlink()
+            if kind == "fifo":
+                os.mkfifo(terminal)
+            elif kind == "hardlink":
+                os.link(self.root / "usr/lib/python3.12/site.py", terminal)
+            else:
+                terminal.write_bytes(b"large")
+            with self.subTest(kind=kind), overlay.directory(self.root) as fd, \
+                    mock.patch.dict(descriptor.LIMITS, file_bytes=1), \
+                    mock.patch.object(overlay.Tree, "read", side_effect=AssertionError("no terminal read")):
+                row = descriptor.Filesystem(overlay, fd, self.contract).file("executable", "/usr/bin/python3")
+                self.assertEqual(row["reason"], reason)
+                self.assertIsNone(row["sha256"])
+
+    def test_interpreter_chain_ancestors_are_nofollow_and_failures_prevent_canaries(self):
+        self.alternatives_chain()
+        parent = self.root / "etc/alternatives"
+        moved = self.root / "etc/synthetic"
+        parent.rename(moved)
+        parent.symlink_to("synthetic")
+        report = self.collect()
+        row = report["files"][0]
+        self.assertEqual(row["reason"], "interpreter-chain-ancestor")
+        processes = mock.Mock()
+        children = descriptor.canaries(overlay, self.facts, report["scans"], row, processes, self.root)
+        processes.execute_process_group.assert_not_called()
+        self.assertEqual(children["status"], "not-run")
+        self.assertIn("executable-unverified", children["blockers"])
+        parent.unlink()
+        parent.write_bytes(b"not a directory")
+        with overlay.directory(self.root) as fd:
+            row = descriptor.Filesystem(overlay, fd, self.contract).file("executable", "/usr/bin/python3")
+        self.assertEqual(row["reason"], "interpreter-chain-ancestor")
+
+    def test_interpreter_chain_rechecks_links_ancestors_and_terminal_after_hash(self):
+        self.alternatives_chain()
+        original = overlay.Tree.read
+        for target in ("usr/bin/python3", "etc/alternatives/python3", "usr/bin/python3.12", "etc/alternatives"):
+            def raced(tree, name, **kwargs):
+                item = original(tree, name, **kwargs)
+                node = self.root / target
+                moved = node.with_name(node.name + "-old")
+                node.rename(moved)
+                if moved.is_symlink():
+                    node.symlink_to(os.readlink(moved))
+                    moved.unlink()
+                elif moved.is_file():
+                    node.write_bytes(moved.read_bytes())
+                    moved.unlink()
+                else:
+                    node.mkdir()
+                    for child in moved.iterdir():
+                        child.rename(node / child.name)
+                    moved.rmdir()
+                return item
+            with self.subTest(target=target), overlay.directory(self.root) as fd, \
+                    mock.patch.object(overlay.Tree, "read", new=raced):
+                row = descriptor.Filesystem(overlay, fd, self.contract).file("executable", "/usr/bin/python3")
+                self.assertEqual((row["status"], row["stage"]), ("rejected", "identity"))
+                self.assertIsNone(row["sha256"])
+                self.assertFalse(row["links"])
+
+    def test_interpreter_chain_read_errors_do_not_publish_arbitrary_targets_or_diagnostics(self):
+        self.alternatives_chain()
+        for operation in ("readlink", "stat", "open"):
+            original = getattr(descriptor.os, operation)
+            def denied(path, *args, **kwargs):
+                if path == "alternatives" or (path == "python3" and operation == "readlink"):
+                    raise PermissionError("SYNTHETIC_PRIVATE_VALUE")
+                return original(path, *args, **kwargs)
+            with self.subTest(operation=operation), overlay.directory(self.root) as fd, \
+                    mock.patch.object(descriptor.os, operation, side_effect=denied):
+                row = descriptor.Filesystem(overlay, fd, self.contract).file("executable", "/usr/bin/python3")
+                self.assertEqual(row["status"], "rejected")
+                self.assertIsNone(row["sha256"])
+                self.assertNotIn("SYNTHETIC_PRIVATE_VALUE", json.dumps(row))
+
     def collect(self):
         with mock.patch.object(descriptor, "runtime_facts", return_value=copy.deepcopy(self.facts)), \
                 mock.patch.object(descriptor.platform, "system", return_value="Linux"), \
@@ -90,7 +241,7 @@ class DescriptorTests(unittest.TestCase):
         self.assertEqual(report["overlay_admission"], "not-evaluated")
         executable = report["files"][0]
         self.assertEqual(executable["resolved"], "/usr/bin/python3.12")
-        self.assertEqual(executable["links"], [{"path": "/usr/bin/python3", "target": "/usr/bin/python3.12"}])
+        self.assertEqual(executable["links"], descriptor.interpreter_links())
         self.assertEqual(executable["sha256"], overlay.digest(b"synthetic executable never run"))
         self.assertEqual(report["scans"][2]["status"], "pass")
         self.assertTrue(report["worker_sources"][0]["matches"])
