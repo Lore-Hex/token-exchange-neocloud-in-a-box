@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S scripts/record-engine-cpu-entry.py --slug cpu-six-adapter-94ec89e",
+  "ended_utc": "2026-10-20T22:47:13Z",
+  "execution": "software",
+  "git_sha": "94ec89ef5602b69472334f6eb23bb3922a3ee8bd",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "local-software-experiment",
+    "provider": "local"
+  },
+  "notes": "CPU-only pre-serve diagnostic, not the P0 deny-all import sandbox. No model/weights/GPU runtime/ports/network/credentials; serve.cmd and worker routes never invoked. Imports may probe absent CUDA or compile dependencies; cache is bounded noexec. A failure is not proof of the earlier GPU startup cause; a pass is not GPU/ABI/inference qualification. Candidate BLOCKED; confidential=false. Docker/OS/interpreter trusted. Payload SHA-256: d91bd2908f353a004ea30a539eb1317710fb254af3cb8b7645c39ac19df12ea6",
+  "phase": "P2",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-20T22:38:16Z",
+  "task": "T3"
+}
