@@ -207,9 +207,10 @@ def check_graph(rows, roots, essential):
     return sum(int(row["Size"]) for row in rows)
 
 
-def check(lock, directory):
+def check(lock, directory, *, scope="kernel-driver-build-dependency-coverage"):
+    require(scope in ("kernel-driver-build-dependency-coverage", "apt-tools-dependency-coverage"))
     require(lock["format"] == "nib-package-inputs/v1"
-            and lock["scope"] == "kernel-driver-build-dependency-coverage"
+            and lock["scope"] == scope
             and lock["installable_verified"] is False
             and lock["deployable"] is False)
     expected = lock["packages"]

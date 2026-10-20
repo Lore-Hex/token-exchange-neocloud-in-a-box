@@ -143,7 +143,7 @@ def committed_inputs():
     return revision, sources
 
 
-def control_member(raw):
+def archive_members(raw):
     """The fixed .deb 2.0 ar layout, with no extraction or package execution."""
     require(raw.startswith(b"!<arch>\n"))
     offset, members = 8, []
@@ -172,18 +172,24 @@ def control_member(raw):
             and members[2][0] in ("data.tar", "data.tar.gz", "data.tar.xz", "data.tar.zst",
                                    "data.tar.bz2", "data.tar.lzma"))
     require(len(members[1][1]) <= MAX_CONTROL)
-    return members[1]
+    return members[1], members[2]
 
 
-def decompress(name, raw):
-    if name == "control.tar":
+def control_member(raw):
+    return archive_members(raw)[0]
+
+
+def decompress(name, raw, limit=None):
+    limit = MAX_CONTROL if limit is None else limit
+    if name.endswith(".tar"):
+        require(len(raw) <= limit)
         return raw
     if name.endswith(".gz"):
         with gzip.GzipFile(fileobj=io.BytesIO(raw)) as stream:
-            data = stream.read(MAX_CONTROL + 1)
+            data = stream.read(limit + 1)
     elif name.endswith(".xz"):
-        decoder = lzma.LZMADecompressor(memlimit=MAX_CONTROL * 4)
-        data = decoder.decompress(raw, max_length=MAX_CONTROL + 1)
+        decoder = lzma.LZMADecompressor(memlimit=limit * 4)
+        data = decoder.decompress(raw, max_length=limit + 1)
         require(decoder.eof and not decoder.unused_data)
     else:
         require(name.endswith(".zst"))
@@ -196,10 +202,10 @@ def decompress(name, raw):
             source.seek(0)
             value = processes.execute_process_group(
                 [zstd, "--decompress", "--stdout", "--quiet"], env=TOOL_ENV,
-                stdin=source, timeout=20, max_output_bytes=MAX_CONTROL)
+                stdin=source, timeout=20, max_output_bytes=limit)
         value.check_returncode()
         data = value.stdout
-    require(len(data) <= MAX_CONTROL)
+    require(len(data) <= limit)
     return data
 
 
