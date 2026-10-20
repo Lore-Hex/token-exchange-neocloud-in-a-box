@@ -169,12 +169,13 @@ def run(request, model, *, clock=time.monotonic, deadline=None):
             if case["kind"] == "tool":
                 payload.update(tools=[TOOL], tool_choice="required" if turn == 0 else "none", parallel_tool_calls=False)
             before = clock()
+            request_deadline = min(deadline, before + REQUEST_SECONDS)
             request_row = {"turn": turn + 1, "result": "fail", "failure": "transport", "usage": None, "elapsed_ms": 0}
             row["requests"].append(request_row)
             result["requests_started"] += 1
             try:
-                raw = request(payload, min(deadline, before + REQUEST_SECONDS))
-                require(clock() < min(deadline, before + REQUEST_SECONDS), "timeout")
+                raw = request(payload, request_deadline)
+                require(clock() < request_deadline, "timeout")
                 message, finish, request_row["usage"] = decode_completion(raw, model, MAX_OUTPUT)
                 if case["kind"] == "tool" and turn == 0:
                     messages += tool_continuation(case, message, finish)
@@ -190,7 +191,10 @@ def run(request, model, *, clock=time.monotonic, deadline=None):
                 cancelled = True
             except Exception:
                 pass
-            request_row["elapsed_ms"] = max(0, int((clock() - before) * 1000))
+            finished = clock()
+            if request_row["result"] == "pass" and finished >= request_deadline:
+                request_row.update(result="fail", failure="timeout")
+            request_row["elapsed_ms"] = max(0, int((finished - before) * 1000))
             row["failure"] = request_row["failure"]
             if request_row["result"] != "pass":
                 break

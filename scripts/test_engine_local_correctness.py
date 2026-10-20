@@ -179,6 +179,20 @@ class CorrectnessTests(unittest.TestCase):
         request.assert_not_called()
         self.assertTrue(all(r["result"] == "not_run" and r["failure"] == "budget" for r in row["cases"]))
 
+    def test_response_before_deadline_but_grading_after_is_recorded_timeout(self):
+        times = iter([100, 100, 100, 100, 159.999, 160.002])
+        def clock():
+            return next(times, 160.002)
+        row = smoke.run(success, MODEL, clock=clock)
+        first = row["cases"][0]["requests"][0]
+        self.assertFalse(row["all_cases_pass"])
+        self.assertEqual(first["failure"], "timeout")
+        self.assertEqual(first["result"], "fail")
+        self.assertGreater(first["elapsed_ms"], 60000)
+        self.assertIsNotNone(first["usage"])
+        self.assertEqual(row["requests_started"], 10)
+        smoke.validate(row)
+
     def test_opaque_transport_failure_does_not_leak(self):
         request = mock.Mock(side_effect=RuntimeError("credential sentinel"))
         row = smoke.run(request, MODEL)
