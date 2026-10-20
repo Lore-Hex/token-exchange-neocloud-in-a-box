@@ -25,6 +25,28 @@ SETUPTOOLS_MODULES = {
     "_distutils_hack.override": "_distutils_hack/override.py",
     "setuptools._distutils": "setuptools/_distutils/__init__.py",
 }
+# vLLM 5df63a7203cdb9328d824a27b682e77c7b9928be and Torch
+# cf30153c4c131c8164ee7798e5022d810682e2cb. These are loader identities,
+# not permissions to install an upstream meta-path finder.
+PATTERN_ENV = "vllm.env_override"
+PATTERN_TARGET = "torch._inductor.pattern_matcher"
+PATTERN_SOURCES = {
+    PATTERN_ENV: ("vllm/env_override.py", "8a22650f862565a9ce2ba4441d39a99afbcecc2b60664be2272dd18e2df1cd1d"),
+    PATTERN_TARGET: ("torch/_inductor/pattern_matcher.py", "56e229fddc235768b78ca50118d1ec935c16ecf131578efebeebb391c71ed5d4"),
+}
+PATTERN_REGISTER = "_nib_register_pattern_matcher"
+
+
+def pattern_env_code(raw, path, require):
+    """Adapt one pinned registration call; leave its version gate/callback intact."""
+    require(hashlib.sha256(raw).hexdigest() == PATTERN_SOURCES[PATTERN_ENV][1])
+    tree = ast.parse(raw, filename=path)
+    require(not any(isinstance(node, ast.Name) and node.id == PATTERN_REGISTER for node in ast.walk(tree)))
+    calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+             and isinstance(node.func, ast.Name) and node.func.id == "_patch_inductor_pattern_matcher"]
+    require(len(calls) == 1 and not calls[0].args and not calls[0].keywords)
+    calls[0].func.id = PATTERN_REGISTER
+    return compile(tree, path, "exec", flags=0, dont_inherit=True, optimize=0)
 
 
 def vecisa_library(args, layout, helpers):
@@ -98,6 +120,7 @@ def install_lab(layout, helpers, checkpoint=None):
         old["check"]()
         return old
     require(not any(name == "vllm" or name.startswith("vllm.") or name == "torch" for name in sys.modules)
+            and PATTERN_TARGET not in sys.modules
             and not {"sitecustomize", "usercustomize"} & set(sys.modules)
             and not any(name.split(".", 1)[0] in ("setuptools", "_distutils_hack", "distutils")
                         for name in sys.modules))
@@ -135,19 +158,28 @@ def install_lab(layout, helpers, checkpoint=None):
     state = {"layout": layout, "spawn_entry": False, "before_unpickle": True, "rejections": 0,
              "finders": None, "backport_loading": False, "backport_context": None,
              "backport_class": None, "backport_delegate": None,
-             "distutils_active": False, "distutils_delegate": None}
+             "distutils_active": False, "distutils_delegate": None,
+             "pattern_status": "not-registered", "pattern_module": None, "pattern_loading": None,
+             "pattern_callback": None}
 
     def reject():
         state["rejections"] += 1
         raise ValueError("lab Python boundary rejected")
 
     def check():
+        if ((PATTERN_TARGET in sys.modules and (sys.modules[PATTERN_TARGET] is None
+                or all(sys.modules[PATTERN_TARGET] is not item
+                       for item in (state["pattern_module"], state["pattern_loading"]))))
+                or (state["pattern_module"] is not None
+                    and sys.modules.get(PATTERN_TARGET) is not state["pattern_module"])):
+            state["pattern_status"] = "failed"
         if (sys.path != layout["paths"] or sys.executable != layout["wrapper"]
                 or spawn.get_executable() != os.fsencode(layout["wrapper"])
                 or mp.get_start_method() != "spawn" or os.getcwd() != "/"
                 or sys.pycache_prefix is not None or os.environ.get("VLLM_PLUGINS") != ""
                 or os.environ.get("VLLM_WORKER_MULTIPROC_METHOD") != "spawn"
                 or "NUMACTL_PYTHON" in os.environ
+                or state["pattern_status"] == "failed"
                 or (state["finders"] is not None and sys.meta_path != state["finders"])):
             reject()
 
@@ -287,6 +319,79 @@ def install_lab(layout, helpers, checkpoint=None):
                 module.add_shim = lambda: None if state["distutils_active"] else insert_shim()
             check()
 
+    def apply_pattern_patch():
+        check()
+        require(state["pattern_status"] == "pending" and state["pattern_module"] is not None
+                and sys.modules.get(PATTERN_TARGET) is state["pattern_module"])
+        state["pattern_status"] = "applying"
+        try:
+            state["pattern_callback"]()
+            check()
+        except BaseException:
+            state["pattern_status"] = "failed"
+            raise
+        state["pattern_status"] = "applied"
+
+    class PatternSource(SourceOnly):
+        def exec_module(self, module):
+            try:
+                if module.__name__ == PATTERN_TARGET:
+                    require(state["pattern_module"] is None and state["pattern_loading"] is None
+                            and sys.modules.get(PATTERN_TARGET) is module and module.__spec__.loader is self)
+                    state["pattern_loading"] = module
+                self.exec_verified(module)
+            except BaseException:
+                state["pattern_status"] = "failed"
+                raise
+            finally:
+                if state["pattern_loading"] is module:
+                    state["pattern_loading"] = None
+
+        def exec_verified(self, module):
+            check()
+            name = module.__name__
+            relative, expected = PATTERN_SOURCES[name]
+            raw = helpers.read_source(self.path, 128 << 10)
+            require(self.path == selected + "/" + relative and hashlib.sha256(raw).hexdigest() == expected
+                    and sys.modules.get(name) is module)
+            if name == PATTERN_TARGET:
+                require(state["pattern_module"] is None)
+                exec(compile(raw, self.path, "exec", flags=0, dont_inherit=True, optimize=0), module.__dict__)
+                check()
+                state["pattern_module"] = module
+                if state["pattern_status"] == "pending":
+                    apply_pattern_patch()
+                return
+
+            from importlib import metadata
+            require(metadata.version("torch") in ("2.13.0", "2.13.0+cu130")
+                    and state["pattern_status"] == "not-registered")
+
+            def register():
+                check()
+                require(state["pattern_status"] == "not-registered")
+                callback = module.__dict__["_apply_inductor_pattern_matcher_patch"]
+                require(type(callback) is type(register) and callback.__globals__ is module.__dict__)
+                state["pattern_callback"] = callback
+                state["pattern_status"] = "pending"
+                if PATTERN_TARGET in sys.modules:
+                    # Only a completed load through this exact source loader is
+                    # eligible, never a cached/injected module or partial import.
+                    require(sys.modules[PATTERN_TARGET] is state["pattern_module"])
+                    apply_pattern_patch()
+
+            require(PATTERN_REGISTER not in module.__dict__)
+            module.__dict__[PATTERN_REGISTER] = register
+            try:
+                exec(pattern_env_code(raw, self.path, require), module.__dict__)
+                check()
+                require(state["pattern_status"] in ("pending", "applied"))
+            except BaseException:
+                state["pattern_status"] = "failed"
+                raise
+            finally:
+                module.__dict__.pop(PATTERN_REGISTER, None)
+
     class Finder:
         @staticmethod
         def find_spec(fullname, path=None, target=None):
@@ -298,7 +403,17 @@ def install_lab(layout, helpers, checkpoint=None):
                 spec = state["distutils_delegate"](fullname, path, target)
                 require(spec is not None and spec.origin == selected + "/setuptools/_distutils/__init__.py")
                 return spec
-            spec = importlib.machinery.PathFinder.find_spec(fullname, path, target)
+            try:
+                spec = importlib.machinery.PathFinder.find_spec(fullname, path, target)
+                if fullname in PATTERN_SOURCES:
+                    require(spec is not None and type(spec.loader) is importlib.machinery.SourceFileLoader
+                            and spec.origin == selected + "/" + PATTERN_SOURCES[fullname][0])
+                    spec.loader = PatternSource(fullname, spec.origin)
+                    return spec
+            except BaseException:
+                if fullname in PATTERN_SOURCES:
+                    state["pattern_status"] = "failed"
+                raise
             if spec is None:
                 return None
             origins = list(spec.submodule_search_locations or []) if spec.origin is None else [spec.origin]
