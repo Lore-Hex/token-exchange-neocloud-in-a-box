@@ -1,5 +1,9 @@
 # Offline tau manifest foundation
 
+The separate [content-free aggregator](p2-t3-tau-aggregation.md) consumes a frozen
+manifest and allowlisted trial records. It does not implement the live adapter
+or turn this foundation into a measured benchmark.
+
 Status: software-only preflight and budget primitives. **No benchmark execution,
 score, endpoint qualification or live tau adapter.** This is preparation for the
 [evaluation plan](../benchmarks/tau-validation.md), not satisfaction of P2.T3.

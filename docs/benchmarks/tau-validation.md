@@ -1,9 +1,12 @@
 # DeepSeek serving-quality validation
 
-Status: **offline manifest/budget foundation implemented; live runner and
+Status: **offline manifest/budget and result aggregation foundations implemented; live runner and
 evaluation not implemented or run** (2026-10-20). The
 [preflight foundation](../tasks/p2-t3-tau-preflight.md) verifies pinned public
-inputs without importing upstream or contacting endpoints. This is an additional
+inputs without importing upstream or contacting endpoints. The
+[content-free aggregator](../tasks/p2-t3-tau-aggregation.md) checks frozen coverage
+and computes fixture-tested arithmetic; no benchmark score has been measured.
+This is an additional
 P2.T3 acceptance requirement requested by Joseph, repeated under confidential
 computing in P5.T5. We serve DeepSeek's existing weights; this is not a new
 trained model. An HTTP 200 or PONG proves neither model quality nor confidentiality.

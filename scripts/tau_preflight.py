@@ -316,8 +316,12 @@ class Budget:
         self.failed = True
 
 
-def committed_identity(deadline):
+def committed_identity(deadline, *, extra_files=()):
     """No lazy fetch, replacement objects, hooks, ambient Git or private paths."""
+    require(type(extra_files) is tuple and len(extra_files) <= 4
+            and all(type(name) is str and re.fullmatch(r"[A-Za-z0-9_./-]+", name)
+                    and not name.startswith("/") and all(p not in ("", ".", "..") for p in name.split("/"))
+                    for name in extra_files))
     env = {"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", "HOME": "/nonexistent",
            "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
            "GIT_NO_REPLACE_OBJECTS": "1", "GIT_NO_LAZY_FETCH": "1", "GIT_ALLOW_PROTOCOL": "",
@@ -332,7 +336,7 @@ def committed_identity(deadline):
     revision = git("rev-parse", "--verify", "HEAD^{commit}").decode().strip()
     require(re.fullmatch("[0-9a-f]{40}", revision))
     hashes = {}
-    for name in ("scripts/tau_preflight.py", PINS, PACK + "/pack.yaml", PACK + "/files.sha256"):
+    for name in ("scripts/tau_preflight.py", PINS, PACK + "/pack.yaml", PACK + "/files.sha256", *extra_files):
         size = git("cat-file", "-s", revision + ":" + name).decode().strip()
         require(size.isdigit() and 0 < int(size) <= 1 << 20)
         data = git("show", revision + ":" + name)
@@ -341,7 +345,8 @@ def committed_identity(deadline):
     return {"git_sha": revision, "files": hashes}
 
 
-def publish(destination, manifest):
+def publish(destination, manifest, *, filename="manifest.json"):
+    require(filename in ("manifest.json", "summary.json"))
     destination = Path(destination)
     raw = encoded(manifest)
     require(len(raw) <= 1 << 20)
@@ -357,7 +362,7 @@ def publish(destination, manifest):
         directory = os.open(destination.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
         try:
             os.fsync(parent)
-            fd = os.open("manifest.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            fd = os.open(filename, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
                          0o600, dir_fd=directory)
             with os.fdopen(fd, "wb") as stream:
                 stream.write(raw)
