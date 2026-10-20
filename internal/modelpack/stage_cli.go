@@ -19,9 +19,10 @@ func runStage(ctx context.Context, args []string, out, errOut io.Writer) int {
 	download := flags.Bool("download", false, "download pinned public weights")
 	maxBytes := flags.Int64("max-bytes", 0, "maximum downloaded body bytes")
 	timeout := flags.Duration("timeout", 0, "maximum run duration, up to 24h")
-	if flags.Parse(args) != nil || (!*download && (flags.NArg() != 1 || *maxBytes != 0 || *timeout != 0)) ||
+	workers := flags.Int("workers", 1, "concurrent downloads, between 1 and 4")
+	if flags.Parse(args) != nil || *workers < 1 || *workers > 4 || (!*download && (flags.NArg() != 1 || *maxBytes != 0 || *timeout != 0 || *workers != 1)) ||
 		(*download && (flags.NArg() != 2 || *maxBytes <= 0 || *timeout <= 0)) {
-		fmt.Fprintln(errOut, "usage: nib model stage <pack> | stage --download --max-bytes N --timeout D <pack> <absolute-staged-directory>")
+		fmt.Fprintln(errOut, "usage: nib model stage <pack> | stage --download --max-bytes N --timeout D [--workers 1..4] <pack> <absolute-staged-directory>")
 		return 2
 	}
 	if !*download {
@@ -37,7 +38,7 @@ func runStage(ctx context.Context, args []string, out, errOut io.Writer) int {
 	}
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	proof, err := Stage(ctx, flags.Arg(0), flags.Arg(1), StageOptions{MaxBytes: *maxBytes, Timeout: *timeout})
+	proof, err := Stage(ctx, flags.Arg(0), flags.Arg(1), StageOptions{MaxBytes: *maxBytes, Timeout: *timeout, Workers: *workers})
 	if err != nil {
 		fmt.Fprintln(errOut, err)
 		return 1

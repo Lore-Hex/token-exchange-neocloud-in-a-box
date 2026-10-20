@@ -46,7 +46,7 @@ Pre-alpha. **Nothing in this repository has run on confidential hardware yet.**
 | Plan, sizing, phase definitions | written ([PLAN.md](PLAN.md)) |
 | CLI skeleton and repository checks | implemented; no serving runtime ([development](docs/development.md)) |
 | Model packs (pinned revisions and checksums) | source-audited drafts; not deployable confidential profiles ([model packs](models/README.md)) |
-| Pinned weight staging | bounded streaming download, verified-file restart and offline exact-set verification implemented; tested with synthetic files, not a complete DeepSeek download ([staging](docs/tasks/p0-t4-weight-staging.md)) |
+| Pinned weight staging | bounded streaming download, optional 1-4 workers, verified-file restart and offline exact-set verification implemented; tested with synthetic files, not a complete DeepSeek download ([staging](docs/tasks/p0-t4-weight-staging.md), [parallel bounds](docs/tasks/p2-t2-parallel-stage.md)) |
 | Engine candidate overlay preparation | offline committed-source context and installed-wheel checks tested with fake files; BLOCKED, no image build, ABI or hardware validation ([scope and limits](docs/tasks/p0-t4-engine-overlay.md)) |
 | Experimental packaging contract | standalone contract tested with synthetic files; exact entry-point map and sealed bytecode removal subsequently exercised by the bounded smoke application below; default admission unchanged ([scope](docs/tasks/p0-t4-engine-packaging-contract.md)) |
 | Python layout descriptor | read-only collection complete: exact interpreter chain, packaging and 14 source pins verified; stdlib child canaries pass, overall qualification remains failed, no engine/GPU admission ([evidence](docs/tasks/p0-t4-engine-python-chain.md#recorded-outcome)) |

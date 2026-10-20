@@ -28,7 +28,7 @@ func runWithInput(args []string, in io.Reader, out, errOut io.Writer) int {
 		fmt.Fprintln(out, "Usage: nib catalog [--root DIR] [--pricing PATH]")
 		fmt.Fprintln(out, "Usage: nib model check-remote <pack.yaml-or-directory>")
 		fmt.Fprintln(out, "Usage: nib model check-local <pack.yaml-or-directory> <staged-directory>")
-		fmt.Fprintln(out, "Usage: nib model stage [--download --max-bytes N --timeout D] <pack> [staged-directory]")
+		fmt.Fprintln(out, "Usage: nib model stage [--download --max-bytes N --timeout D --workers 1..4] <pack> [staged-directory]")
 		return 0
 	}
 	if args[0] == "lint" {
