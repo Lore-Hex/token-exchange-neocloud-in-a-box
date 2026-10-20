@@ -1,5 +1,10 @@
 # P3.T1 guest-image prerequisite audit
 
+Follow-up: the [R595 package-input audit](p3-t1-r595-package-inputs.md) selects
+`595.91.07` because later NVIDIA security bulletins supersede the historical
+`595.58.03` reference. It pins a checked dependency graph without claiming a
+complete image or relaxing the gates below.
+
 Status: **source research only; build implementation blocked on exact inputs**.
 Reviewed 2026-10-20. No guest image was built, booted, signed, imported or
 published. No software was installed and no vendor setup script was executed.
