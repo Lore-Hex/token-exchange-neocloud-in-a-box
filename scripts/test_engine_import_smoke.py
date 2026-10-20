@@ -66,7 +66,7 @@ class SmokeTests(unittest.TestCase):
         failures = dict.fromkeys(("state", "method", "executable", "preparation", "process", "import", "site"), 0)
         state = {"isolated": True, "no_site": True, "dont_write_bytecode": True, "before_unpickle": True,
                  "path_sha256": overlay.digest(overlay.json_bytes(self.measured["proposed_paths"])), "rejections": failures}
-        row = {"state": state, "guard_rejections": failures, "dependency_entrypoint_loads": 1,
+        row = {"state": state, "guard_rejections": failures, "first_state_mismatch": None, "dependency_entrypoint_loads": 1,
                "imports": [{"module": name, "status": "pass", "error_category": None} for name in smoke.MODULES]}
         grandchild = {**copy.deepcopy(row), "before_unpickle": state}
         report = {"schema": "nib.engine-import-smoke/v1", "status": "BLOCKED", "deployable": False, "image": None,
@@ -95,12 +95,18 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual({key: contract["environment"][key] for key in smoke.IMPORT_ENVIRONMENT}, {
             "PYTORCH_NVML_BASED_CUDA_CHECK": "1", "TORCHINDUCTOR_COMPILE_THREADS": "1",
             "TRITON_CACHE_AUTOTUNING": "1", "TILELANG_CLEANUP_TEMP_FILES": "1", "TORCH_DEVICE_BACKEND_AUTOLOAD": "0",
-            "OTEL_PYTHON_CONTEXT": "contextvars_context", "OTEL_PROPAGATORS": "none"})
+            "OTEL_PYTHON_CONTEXT": "contextvars_context", "OTEL_PROPAGATORS": "none",
+            "OPENBLAS_MAIN_FREE": "1", "GOTOBLAS_MAIN_FREE": "1"})
         self.assertEqual(contract["import_environment_sources"], list(smoke.ENVIRONMENT_SOURCES))
         self.assertEqual(contract["metadata_source_sha256"], tool.bootstrap.METADATA_SOURCES)
         self.assertEqual(contract["permitted_dependency_entrypoint"], list(tool.bootstrap.CONTEXT_ENTRYPOINT))
         self.assertEqual([p["revision"] for p in contract["import_environment_sources"]],
-                         ["5df63a7203cdb9328d824a27b682e77c7b9928be"] * 2 + ["cf30153c4c131c8164ee7798e5022d810682e2cb"] * 2)
+                         ["5df63a7203cdb9328d824a27b682e77c7b9928be"] * 2 + ["cf30153c4c131c8164ee7798e5022d810682e2cb"] * 2
+                         + ["2b686f659642080e2fc708719385de6e8be0955f"])
+        self.assertEqual(contract["import_environment_sources"][-1], {
+            "repository": "numpy/numpy", "revision": "2b686f659642080e2fc708719385de6e8be0955f",
+            "path": "numpy/_core/__init__.py", "bytes": 5612, "git_blob": "4b90877138a3ae5e06f35eb668200931073f394b",
+            "sha256": "1fde7ecd24f4087ea99e739b8d75175e23e0b6e6fd337e4804669813eab8c2b5"})
         self.assertNotIn("DISABLE_CUPTI_LAZY_REINIT", contract["environment"])
         self.assertNotIn("TEARDOWN_CUPTI", contract["environment"])
         self.assertIn(b"/usr/bin/env -i", self.files["python"])
@@ -117,6 +123,8 @@ class SmokeTests(unittest.TestCase):
                             (["smoke", "spawn", "grandchild", "state", "path_sha256"], "0" * 64),
                             (["smoke", "fresh", "imports", 0, "module"], "private-url"),
                             (["smoke", "fresh", "imports", 0, "error_category"], "synthetic-private"),
+                            (["smoke", "fresh", "first_state_mismatch"], "synthetic-private"),
+                            (["smoke", "fresh", "first_state_mismatch"], "env"),
                             (["smoke", "fresh", "dependency_entrypoint_loads"], True),
                             (["smoke", "fresh", "dependency_entrypoint_loads"], -1),
                             (["private"], "synthetic-secret")):
@@ -141,6 +149,19 @@ class SmokeTests(unittest.TestCase):
         report = copy.deepcopy(original)
         report["smoke"]["fresh"]["guard_rejections"]["process"] = 1
         self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
+
+    def test_state_diagnostics_are_fixed_and_consistent_with_failure_counters(self):
+        for field in ("env", "paths", "finders", "argv", "cwd", "executable", "method", "pycache"):
+            report = self.valid_report()
+            row = report["smoke"]["fresh"]
+            row["first_state_mismatch"] = field
+            row["guard_rejections"]["state"] = 1
+            # Even a caught mismatch followed by passing imports must fail.
+            self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
+            for invalid in (None, True, "", "synthetic-private-name=value"):
+                row["first_state_mismatch"] = invalid
+                with self.subTest(field=field, invalid=invalid), self.assertRaises((ValueError, TypeError)):
+                    smoke.validate(overlay, report, self.application, self.measured)
 
     def test_application_failure_preserves_fixed_stage_and_no_claim(self):
         for stage in ("application-preflight", "application", "import-smoke"):

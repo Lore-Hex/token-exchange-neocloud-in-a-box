@@ -19,6 +19,7 @@ IMPORT_ENVIRONMENT = {
     "TRITON_CACHE_AUTOTUNING": "1", "TILELANG_CLEANUP_TEMP_FILES": "1",
     "TORCH_DEVICE_BACKEND_AUTOLOAD": "0",
     "OTEL_PYTHON_CONTEXT": "contextvars_context", "OTEL_PROPAGATORS": "none",
+    "OPENBLAS_MAIN_FREE": "1", "GOTOBLAS_MAIN_FREE": "1",
 }
 ENVIRONMENT_SOURCES = (
     {"repository": "vllm-project/vllm", "revision": "5df63a7203cdb9328d824a27b682e77c7b9928be",
@@ -33,6 +34,9 @@ ENVIRONMENT_SOURCES = (
     {"repository": "pytorch/pytorch", "revision": "cf30153c4c131c8164ee7798e5022d810682e2cb",
      "path": "torch/_inductor/async_compile.py", "bytes": 34432, "git_blob": "0962f6b89dbe99e0c64f147f75292cb5acd9dd99",
      "sha256": "401933b518592b8958bb137ddd963c8dd623f4c63b9de215c933424ccc296c7d"},
+    {"repository": "numpy/numpy", "revision": "2b686f659642080e2fc708719385de6e8be0955f",
+     "path": "numpy/_core/__init__.py", "bytes": 5612, "git_blob": "4b90877138a3ae5e06f35eb668200931073f394b",
+     "sha256": "1fde7ecd24f4087ea99e739b8d75175e23e0b6e6fd337e4804669813eab8c2b5"},
 )
 
 
@@ -151,6 +155,7 @@ def child_target(writer, prepared, depth):
         result["grandchild"] = child(0)
     result["imports"] = imports()
     result["guard_rejections"] = dict(sys._nib_smoke_guard["failures"])
+    result["first_state_mismatch"] = sys._nib_smoke_guard["first_state_mismatch"]
     result["dependency_entrypoint_loads"] = sys._nib_smoke_guard["entrypoint_loads"]
     writer.send_bytes(json_bytes(result))
     writer.close()
@@ -257,6 +262,7 @@ def entry():
             state = install(layout)
             if args[1:] == ["fresh"]:
                 result = {"state": current(), "imports": imports(), "guard_rejections": dict(state["failures"]),
+                          "first_state_mismatch": state["first_state_mismatch"],
                           "dependency_entrypoint_loads": state["entrypoint_loads"]}
             elif args[1:] == ["smoke"]:
                 import multiprocessing as mp
@@ -367,11 +373,13 @@ def validate(overlay, report, application, measured):
     rows = []
     for key in ("spawn", "grandchild", "fresh"):
         row = smoke["spawn"]["grandchild"] if key == "grandchild" else smoke[key]
-        keys = {"state", "imports", "guard_rejections", "dependency_entrypoint_loads"} | ({"before_unpickle"} if key != "fresh" else set()) | ({"grandchild"} if key == "spawn" else set())
+        keys = {"state", "imports", "guard_rejections", "first_state_mismatch", "dependency_entrypoint_loads"} | ({"before_unpickle"} if key != "fresh" else set()) | ({"grandchild"} if key == "spawn" else set())
         overlay.require(type(row) is dict and set(row) == keys and same(row["state"], expected_state)
                         and (key == "fresh" or same(row["before_unpickle"], expected_state)))
         overlay.require(type(row["guard_rejections"]) is dict and set(row["guard_rejections"]) == set(failures)
                         and all(type(value) is int and 0 <= value <= 1000000 for value in row["guard_rejections"].values()))
+        overlay.require(row["first_state_mismatch"] in {None, "env", "paths", "finders", "argv", "cwd", "executable", "method", "pycache"}
+                        and (row["first_state_mismatch"] is None) == (row["guard_rejections"]["state"] == 0))
         overlay.require(type(row["dependency_entrypoint_loads"]) is int and 0 <= row["dependency_entrypoint_loads"] <= 1000000)
         overlay.require(type(row["imports"]) is list and len(row["imports"]) == len(MODULES))
         seen_failure = False

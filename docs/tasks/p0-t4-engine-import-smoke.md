@@ -165,6 +165,44 @@ proof that all imports succeed. The existing full measured inventory, installed
 dependency pins and source checks remain mandatory. Local fake imports exercise
 these environment actions without importing upstream engine/dependency code.
 
+### NumPy Startup Compatibility
+
+The [historical installed-package observation](../../evidence/p0/2026-10-19-official-vllm-record-diagnosis/output.log)
+reports NumPy 2.2.6. Its immutable
+[core initialization source](https://github.com/numpy/numpy/blob/2b686f659642080e2fc708719385de6e8be0955f/numpy/_core/__init__.py#L16-L52)
+adds `OPENBLAS_MAIN_FREE=1` and `GOTOBLAS_MAIN_FREE=1` only when absent, performs
+a nested import, and removes only its additions in `finally`. A guard invoked
+during that import rejects the transient environment change, even if the
+variables are restored afterward. Both values are now preconfigured to exactly
+`1` in the sealed environment; no mutation exemption or extra finder is allowed.
+
+The public source was retrieved through GitHub's contents API with the Git blob
+recomputed and verified. Its observation is included in the payload's
+`import_environment_sources` alongside the vLLM/PyTorch observations:
+
+| NumPy Revision | Path | Bytes | Git Blob | SHA-256 |
+| --- | --- | ---: | --- | --- |
+| `2b686f659642080e2fc708719385de6e8be0955f` | `numpy/_core/__init__.py` | 5612 | `4b90877138a3ae5e06f35eb668200931073f394b` | `1fde7ecd24f4087ea99e739b8d75175e23e0b6e6fd337e4804669813eab8c2b5` |
+
+Original synthetic tests exercise the conditional changes and nested import in
+parent, spawn, grandchild and fresh processes. Both absent and either one absent
+reject; both preconfigured pass with zero guard counters. Restoration does not
+erase the rejection. Changed values, unknown variables and extra finders still
+reject. No NumPy/engine/GPU code runs in these tests. This proves a software
+compatibility issue, **not the first cause of the recorded two state rejections**.
+The prior artifact is unchanged, and this correction has not had an actual
+image run. No later vLLM finder adapter is introduced without reachability
+evidence.
+
+Later smoke rows also report `first_state_mismatch`, initially `null`, then one
+fixed category: `paths`, `argv`, `executable`, `env`, `cwd`, `method`, `pycache`,
+or `finders`. This list is the original short-circuit check order, not a causal
+ranking. The first observed mismatch stays recorded after restoration or later
+failures; state counters and fail-closed checks are unchanged. No variable name,
+argument, path, finder identity, value or raw exception is published. Host
+validation rejects unknown categories and inconsistent category/counter pairs.
+Historical reports use their historical validator and are not rewritten.
+
 ### Metadata And Dependency Context
 
 The observed image contains `importlib_metadata==8.7.1` and
