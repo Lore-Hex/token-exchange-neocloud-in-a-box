@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -577,7 +578,7 @@ class ContractTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(dir="/private/tmp" if sys.platform == "darwin" else None)
         self.addCleanup(temporary.cleanup)
         payload = Path(temporary.name).resolve() / "payload"
-        tool.recorder.prep.publish(payload, self.files)
+        tool.publish_container_payload(payload, self.files)
         self.validate(result)
         config = {"config": {"Env": ["PATH=old", "PRIVATE=secret",
                     "LD_LIBRARY_PATH=" + tool.lab.IMAGE_LD_PATH, "CUDA_HOME=/usr/local/cuda"]},
@@ -640,6 +641,39 @@ class ContractTests(unittest.TestCase):
                 self.fail("unexpected command")
             return subprocess.CompletedProcess(args, 0, raw, b"")
         return tool.run_container(payload, self.contract, config, {}, execute), commands, state
+
+    def test_container_payload_readable_without_changing_private_parent_or_bytes(self):
+        with tempfile.TemporaryDirectory(dir="/private/tmp" if sys.platform == "darwin" else None) as temp:
+            parent = Path(temp).resolve()
+            private_file = parent / "host-only"
+            private_file.write_bytes(b"host-only")
+            private_file.chmod(0o600)
+            destination = parent / "payload"
+            tool.publish_container_payload(destination, self.files)
+            self.assertEqual(stat.S_IMODE(parent.stat().st_mode), 0o700)
+            self.assertEqual(stat.S_IMODE(private_file.stat().st_mode), 0o600)
+            self.assertEqual({name: tool.read_source(destination / name) for name in self.files}, self.files)
+            self.assertEqual(stat.S_IMODE(destination.stat().st_mode), 0o555)
+            for name in self.files:
+                path = destination / name
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o555 if name == "python" else 0o444)
+                for directory in path.parents[:len(Path(name).parts)]:
+                    self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o555)
+            with self.assertRaises(FileExistsError):
+                tool.publish_container_payload(destination, self.files)
+
+    def test_container_payload_refuses_public_parent_and_unsafe_sources(self):
+        with tempfile.TemporaryDirectory(dir="/private/tmp" if sys.platform == "darwin" else None) as temp:
+            parent = Path(temp).resolve()
+            parent.chmod(0o755)
+            with self.assertRaises(ValueError):
+                tool.publish_container_payload(parent / "public", self.files)
+            self.assertFalse((parent / "public").exists())
+            parent.chmod(0o700)
+            with self.assertRaises(ValueError):
+                tool.publish_container_payload(parent / "unsafe", {"../outside": b"data"})
+            self.assertFalse((parent / "outside").exists())
+            self.assertEqual(stat.S_IMODE(parent.stat().st_mode), 0o700)
 
     def test_cpu_policy_and_owned_cleanup_success_still_fail_qualification(self):
         report, commands, state = self.daemon(self.valid_report())
