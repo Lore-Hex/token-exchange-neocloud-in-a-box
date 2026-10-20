@@ -54,18 +54,18 @@ def run(argv, *, capture=False):
 
 
 def installation_plan(text):
-    installs = {}
+    plans = {"Inst": {}, "Conf": {}}
     for line in text.splitlines():
         if line.startswith("Remv "):
             raise ValueError("package-removal-rejected")
-        if line.startswith("Inst "):
-            match = re.fullmatch(r"Inst ([a-z0-9.-]+) \(([^ ]+) .+\)", line)
-            if not match or match[1] in installs:
+        if line.startswith(("Inst ", "Conf ")):
+            match = re.fullmatch(r"(Inst|Conf) ([a-z0-9.-]+) \(([^ ]+) .+\)", line)
+            if not match or match[2] in plans[match[1]]:
                 raise ValueError("upgrade-or-unknown-package-rejected")
-            installs[match[1]] = match[2]
-    if installs != PACKAGES:
+            plans[match[1]][match[2]] = match[3]
+    if any(value != PACKAGES for value in plans.values()):
         raise ValueError("package-plan-mismatch")
-    return installs
+    return plans["Inst"]
 
 
 def platform_check():

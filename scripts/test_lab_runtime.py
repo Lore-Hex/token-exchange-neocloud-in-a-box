@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 import importlib.util
+import json
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -15,7 +16,8 @@ pull_spec.loader.exec_module(pull)
 
 class LabRuntimeTests(unittest.TestCase):
     def plan(self):
-        return "\n".join(f"Inst {name} ({version} Vendor [amd64])"
+        return "\n".join(f"{operation} {name} ({version} Vendor [amd64])"
+                         for operation in ("Inst", "Conf")
                          for name, version in runtime.PACKAGES.items())
 
     def test_exact_new_packages_pass(self):
@@ -28,6 +30,10 @@ class LabRuntimeTests(unittest.TestCase):
     def test_removal_rejected(self):
         with self.assertRaises(ValueError):
             runtime.installation_plan(self.plan() + "\nRemv existing-package")
+
+    def test_unrelated_configuration_rejected(self):
+        with self.assertRaises(ValueError):
+            runtime.installation_plan(self.plan() + "\nConf nvidia-driver (595 Vendor [amd64])")
 
     def test_upgrade_rejected(self):
         with self.assertRaises(ValueError):
@@ -54,16 +60,26 @@ class LabRuntimeTests(unittest.TestCase):
         with patch.object(pull.subprocess, "run") as run:
             run.return_value.returncode = 0
             run.return_value.stdout = (pull.CONFIG + " linux/amd64\n").encode()
-            self.assertTrue(pull.image_identity())
+            self.assertTrue(pull.image_identity(pull.ENV))
 
     def test_unexpected_image_identity(self):
         with patch.object(pull.subprocess, "run") as run:
             run.return_value.returncode = 0
             run.return_value.stdout = b"sha256:wrong linux/arm64\n"
             with self.assertRaises(ValueError):
-                pull.image_identity()
+                pull.image_identity(pull.ENV)
 
     def test_missing_image(self):
         with patch.object(pull.subprocess, "run") as run:
             run.return_value.returncode = 1
-            self.assertFalse(pull.image_identity())
+            self.assertFalse(pull.image_identity(pull.ENV))
+
+    def test_private_empty_auth_config_and_cleanup(self):
+        with pull.docker_environment() as env:
+            directory = Path(env["DOCKER_CONFIG"])
+            config = directory / "config.json"
+            self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(config.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(json.loads(config.read_text()),
+                             {"auths": {"https://index.docker.io/v1/": {}}})
+        self.assertFalse(directory.exists())
