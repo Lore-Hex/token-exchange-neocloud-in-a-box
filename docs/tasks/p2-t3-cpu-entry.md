@@ -131,3 +131,13 @@ failure. The pattern adapter was `pending`; the responsible finder remains
 unidentified. All five application stages passed, but entry again exited 1 at
 checkpoint 11 with only `finders=true`. Cleanup is confirmed. This is a failed
 software diagnostic, not an inference result or permission to admit the hook.
+
+The [fourth attempt](../../evidence/p2/2026-10-20-cpu-vendored-7fb794a/README.md)
+ran reviewed source `7fb794a442287bb6c7ac974c2a72f1067ed22fe6` after green CI,
+with the additional pinned vendored finder categories. It did not reach entry.
+Preflight took 18,233 ms and application 701,769 ms, totaling 720,002 ms against
+their shared 720-second deadline. The fixed failure is consistent with deadline
+exhaustion but does not identify an internal exception or host-side cause.
+There is no complete application receipt, entry timing, checkpoint or finder
+observation. Cleanup is confirmed. This run neither attributes the prior
+unknown finder to Botocore nor authorizes an adapter or guard change.
