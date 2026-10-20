@@ -68,7 +68,7 @@ def exception_packet(error, roots):
                 len(EXCEPTION_TYPES))
     frames, flags = [], 0
     try:
-        require(type(roots) is tuple and len(roots) <= 4
+        require(type(roots) is tuple and len(roots) <= 5
                 and all(type(root) is str and root.startswith("/") and root.endswith("/") for root in roots))
         tb = BaseException.__traceback__.__get__(error)
         scanned = 0

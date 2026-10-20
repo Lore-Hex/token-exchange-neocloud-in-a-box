@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S scripts/record-engine-cpu-entry.py --slug cpu-exception-sites-ffddd59",
+  "ended_utc": "2026-10-20T23:03:28Z",
+  "execution": "software",
+  "git_sha": "ffddd59b37745b0f58c75ad76eb20e330353832c",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "local-software-experiment",
+    "provider": "local"
+  },
+  "notes": "CPU-only pre-serve diagnostic, not the P0 deny-all import sandbox. No model/weights/GPU runtime/ports/network/credentials; serve.cmd and worker routes never invoked. Imports may probe absent CUDA or compile dependencies; cache is bounded noexec. A failure is not proof of the earlier GPU startup cause; a pass is not GPU/ABI/inference qualification. Candidate BLOCKED; confidential=false. Docker/OS/interpreter trusted. Payload SHA-256: 5523af4907895f7b9ae9ef63d3649008c41e94161a15358c7961a1362844095a",
+  "phase": "P2",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-20T22:54:42Z",
+  "task": "T3"
+}

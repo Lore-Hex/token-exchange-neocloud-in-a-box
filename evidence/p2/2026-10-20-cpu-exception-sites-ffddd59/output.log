@@ -1,0 +1,158 @@
+{
+  "abi_validated": false,
+  "candidate_status": "BLOCKED",
+  "cleanup": "confirmed",
+  "confidential": false,
+  "deployable": false,
+  "entry_pass": false,
+  "execution": "software",
+  "experiment": {
+    "abi_validated": false,
+    "application": {
+      "abi_validated": false,
+      "after_inventory_sha256": "0c0fa880028029cf8ebc9f76b5707a0ca01f8ffa8a731d2feb50fef575d7a0d3",
+      "alternate_roots": "unchanged-excluded-from-import-contract",
+      "application_measurement_sha256": "52a15aafc3044821740c5d408e5fc44f6635bea36c30f5af51f5866120810440",
+      "base_image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+      "before_inventory_sha256": "e702e944656badc6e136f6ddcf51f6f0cb6694f262dfaeb84afca7c91c870b0c",
+      "classified_nonhost_assets": "four-exact-published-crosscompile-assets-not-host-abi",
+      "dependency_scope": "selected-exact-upstream-pins-only",
+      "deployable": false,
+      "engine_executed": false,
+      "generic_overlay_admission": "not-granted",
+      "git_sha": "ffddd59b37745b0f58c75ad76eb20e330353832c",
+      "hardware_validated": false,
+      "image": null,
+      "image_origin_verified": false,
+      "import_contract_sha256": "0d1905913990c11f6094981b1bcab2578b8f68b2eaa4805f60106e25c571b516",
+      "native_inventory_unchanged": true,
+      "packaging": {
+        "bytecode_executed": false,
+        "entrypoint_scope": "exact-upstream-map-only",
+        "listed_bytecode_policy": "unchanged",
+        "plugins_loaded": false,
+        "policy_sha256": "f45b654271ca89e35e2cd94c3aa338c6de83bf673e28a1a0e9c45a449183ff85",
+        "removal_plan_sha256": "210a50805b36797d06e1d17425f6eacba6f90f1e04aaa7c0560692c05ffb3b3f",
+        "removal_verified_before_patch": true,
+        "removed_unlisted_bytecode_files": 2879
+      },
+      "removed_bytecode_files": 2879,
+      "schema": "nib.engine-overlay/v1",
+      "scope": "exact-image-experimental-application-only",
+      "source_bundle_sha256": "5d88204462fab97f0537c9a4f0fa8da6b0ea20f5913ab28f63432f9c861c4518",
+      "stages": 5,
+      "startup_hooks": "unchanged-inert-only-under-isolated-no-site-bootstrap",
+      "status": "BLOCKED",
+      "wheel_record": "original-preserved-overlay-receipt-required"
+    },
+    "confidential": false,
+    "deployable": false,
+    "entry": {
+      "checkpoints": {
+        "last_id": 11,
+        "status": "eof"
+      },
+      "exception_diagnostic": {
+        "frames": [],
+        "observer_failed": true,
+        "source_unavailable": false,
+        "truncated": false,
+        "type": "value"
+      },
+      "exit_code": 1,
+      "finder_diagnostic": {
+        "comparison_failed": false,
+        "entries": [
+          "builtin",
+          "frozen",
+          "sealed"
+        ],
+        "expected_duplicated": false,
+        "expected_order_changed": false,
+        "missing_expected_in_scan": [],
+        "pattern_adapter_stage": "pending",
+        "same_identity_list": true,
+        "scan_truncated": false,
+        "sources": [
+          {
+            "id": "vllm-env",
+            "status": "verified"
+          },
+          {
+            "id": "setuptools-hack",
+            "status": "verified"
+          },
+          {
+            "id": "metadata-backport",
+            "status": "verified"
+          },
+          {
+            "id": "six",
+            "status": "verified"
+          },
+          {
+            "id": "botocore-six",
+            "status": "verified"
+          },
+          {
+            "id": "setuptools-metadata",
+            "status": "verified"
+          }
+        ],
+        "status": "observed"
+      },
+      "outcome": "exited",
+      "state_mismatches": {
+        "cwd": false,
+        "executable": false,
+        "finders": false,
+        "numa_environment": false,
+        "paths": false,
+        "plugins": false,
+        "pycache_prefix": false,
+        "spawn_executable": false,
+        "start_method": false,
+        "worker_method": false
+      },
+      "state_observation": "observed"
+    },
+    "entry_pass": false,
+    "execution": "software",
+    "hardware_validated": false,
+    "inference_started": false,
+    "phase_elapsed_ms": {
+      "application": 491964,
+      "application-preflight": 8641,
+      "entry": 14409
+    },
+    "schema": "nib.engine-cpu-entry/v1",
+    "stage": "complete",
+    "status": "BLOCKED"
+  },
+  "hardware_validated": false,
+  "image": {
+    "binding": "local-manifest-reference-platform-and-diffids",
+    "daemon_os_interpreter_trusted": true,
+    "docker_reported_id": "sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "local_config_bytes_rehashed": false,
+    "local_layers_rehashed": false,
+    "manifest_sha256": "6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "platform": "linux/amd64",
+    "raw_config_link_verified": true,
+    "raw_config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d"
+  },
+  "inference_started": false,
+  "provenance": {
+    "expected_config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d",
+    "git_sha": "ffddd59b37745b0f58c75ad76eb20e330353832c",
+    "measurement_sha256": "52a15aafc3044821740c5d408e5fc44f6635bea36c30f5af51f5866120810440",
+    "payload_sha256": "5523af4907895f7b9ae9ef63d3649008c41e94161a15358c7961a1362844095a",
+    "raw_oci_metadata_verified": true,
+    "requested_image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "source_bundle_sha256": "5d88204462fab97f0537c9a4f0fa8da6b0ea20f5913ab28f63432f9c861c4518",
+    "validator_source_sha256": "0705178bc3a5cd9fb0397924798e58b44f92e9cc6c7e6a0f553bc39ea3724ee1"
+  },
+  "result": "fail",
+  "schema": "nib.engine-cpu-entry-record/v1",
+  "stage": "completed"
+}

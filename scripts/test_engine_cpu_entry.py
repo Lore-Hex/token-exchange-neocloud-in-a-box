@@ -597,6 +597,13 @@ class ContractTests(unittest.TestCase):
         self.assertIn(self.extra[tool.RUNTIME], files["launch.py"])
         self.assertEqual(hashlib.sha256(self.extra[tool.BASE]).hexdigest(), tool.BASE_SHA)
 
+    def test_exception_observer_accepts_exact_prepared_source_layout(self):
+        roots = (cpu.ROOT + "/", *tuple(path.rstrip("/") + "/" for path in self.contract["paths"]))
+        self.assertEqual(len(roots), 5)
+        row = cpu.decode_exception(cpu.exception_packet(ValueError("PRIVATE"), roots))
+        self.assertFalse(row["observer_failed"])
+        self.assertTrue(cpu.decode_exception(cpu.exception_packet(ValueError(), roots + ("/extra/",)))["observer_failed"])
+
     def test_validator_reuses_exact_five_stage_receipt_and_rejects_unearned_pass(self):
         report = self.valid_report()
         self.assertTrue(self.validate(report))

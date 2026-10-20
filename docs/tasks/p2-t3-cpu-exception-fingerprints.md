@@ -30,3 +30,14 @@ provenance. The candidate remains nondeployable and nonconfidential.
 hooks, bounded recursion/source reads, unavailable source, packet corruption,
 content canaries, child descriptor cleanup, and rejection of unearned success.
 The old evidence and producer bytes remain unchanged in Git history.
+
+## First Instrumented Run
+
+The run at `ffddd59` confirms a `ValueError` with unchanged finder/state checks
+and confirmed cleanup, but its diagnostic rejected the source-root count:
+[run](../../evidence/p2/2026-10-20-cpu-exception-sites-ffddd59/run.json),
+[output](../../evidence/p2/2026-10-20-cpu-exception-sites-ffddd59/output.log).
+The pinned layout includes stdlib, dynamic extensions, the CUTLASS DSL root and
+site packages, plus the diagnostic payload root. Permit exactly this bounded
+five-root layout and test the actual prepared contract; a sixth root still
+reports observer failure. This does not change any engine import roots.
