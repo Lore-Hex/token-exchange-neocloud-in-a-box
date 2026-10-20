@@ -1,5 +1,9 @@
 # P1.T3: Software-only container integration
 
+The later [process-cleanup correction](p1-t3-process-cleanup.md) preserves
+fail-closed group-absence checks after locally observed signal denial. It does
+not rewrite the historical results below.
+
 ## Status and dependencies
 
 Full local software-only integration passed with the merged trcs pin. Final
