@@ -153,7 +153,7 @@ def validate_output(data, source_digest, started, ended):
 
 
 @contextmanager
-def destination(root, started):
+def destination(root, started, label="hardware-probe"):
     # Same confinement/private/no-overwrite contract as nib evidence new, using
     # Unix dir_fd operations so the remote host needs no Go toolchain or build.
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
@@ -165,7 +165,9 @@ def destination(root, started):
                 raise ValueError("private-owned-evidence-directory-required")
             return fd
         parent = keep(os.open(root, flags))
-        name = started.strftime("%Y-%m-%d-hardware-probe-%H%M%S%f")
+        if label not in ("hardware-probe", "gpu-appraisal"):
+            raise ValueError("invalid-evidence-label")
+        name = started.strftime("%Y-%m-%d-") + label + started.strftime("-%H%M%S%f")
         for component in ("evidence", "p2", name):
             try:
                 os.mkdir(component, 0o700, dir_fd=parent)

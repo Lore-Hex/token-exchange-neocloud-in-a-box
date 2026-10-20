@@ -32,10 +32,13 @@ full-pack-plus-overhead policy; a 500 GB disk is insufficient.
 
 The [pinned appraisal helper](../docs/tasks/p2-t3-nvidia-attestation.md) separates
 offline package inspection, explicit two-package installation, and authorized
-anonymous remote appraisal. It contains no readiness setter. Eight authenticated
+anonymous remote appraisal. Audit mode contains no readiness action. Eight authenticated
 nonce-bound claims must match the local certificate identities; installation or
-inspection alone cannot pass. No actual run or confidential qualification is
-claimed by this implementation.
+inspection alone cannot pass. The separate
+[gated readiness mode and recorder](../docs/tasks/p2-t3-gated-readiness.md) require
+fresh successful appraisal, unchanged inventory and existing persistence on all
+eight devices before one explicit readiness transition. No actual transition or
+confidential qualification is claimed by software tests.
 
 ## Read-only inventory
 
