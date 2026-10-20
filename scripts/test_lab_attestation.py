@@ -16,6 +16,7 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
+TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
 SPEC = importlib.util.spec_from_file_location("lab_attestation", ROOT / "host/attest-lab-gpus.py")
 lab = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(lab)
@@ -84,7 +85,7 @@ class FakeCapture:
 
 class AttestationTests(unittest.TestCase):
     def test_offline_installer_checks_archives_before_exact_dpkg(self):
-        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
+        with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as temporary:
             root = Path(temporary)
             packages = root / "input"
             packages.mkdir()
@@ -318,7 +319,7 @@ class AttestationTests(unittest.TestCase):
         self.assertNotIn("PRIVATE", json.dumps(result))
 
     def test_installed_files_and_alias_are_exact(self):
-        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
+        with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as temporary:
             root = Path(temporary)
             pins = {}
             for path in lab.FILES:
@@ -342,7 +343,7 @@ class AttestationTests(unittest.TestCase):
                     lab.verify_installation(root)
 
     def test_no_follow_fifo_hardlinks_bounds_and_helper_tamper(self):
-        with tempfile.TemporaryDirectory(dir="/private/tmp") as temporary:
+        with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as temporary:
             root = Path(temporary)
             file = root / "regular"
             file.write_bytes(b"abc")
