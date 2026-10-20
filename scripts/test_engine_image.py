@@ -23,6 +23,7 @@ CENSUS_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-metadata-census"
 BOUNDED_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-bounded-integrity"
 STUBS_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-cutlass-stubs"
 INTEGRITY_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-record-diagnosis"
+PYTHON_RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-python-layout"
 
 
 def source(name, relative):
@@ -1341,7 +1342,7 @@ class ImageTests(unittest.TestCase):
         env = recorder.offline_environment(self.work / "control")
         binary, source_hash = recorder.build_validator(ROOT, revision, self.work, env)
         self.assertRegex(source_hash, r"^[0-9a-f]{64}$")
-        for index, source_directory in enumerate((RECORDED, CENSUS_RECORDED, BOUNDED_RECORDED, STUBS_RECORDED, INTEGRITY_RECORDED)):
+        for index, source_directory in enumerate((RECORDED, CENSUS_RECORDED, BOUNDED_RECORDED, STUBS_RECORDED, INTEGRITY_RECORDED, PYTHON_RECORDED)):
             recorded = self.work / "recorded/evidence/p0" / ("official-image-" + str(index))
             recorded.mkdir(parents=True)
             (recorded / "run.json").write_bytes(recorder.prep.read_source(source_directory / "run.json"))
@@ -1596,6 +1597,69 @@ class ImageTests(unittest.TestCase):
             self.assertTrue(all(item[key] is False for key in ("deployable", "abi_validated", "hardware_validated")))
         self.assertTrue(report["image"]["raw_config_link_verified"])
         self.assertEqual(report["image"]["raw_config_sha256"], overlay.CUTLASS_STUB_POLICY["config_sha256"])
+        self.assertFalse(report["image"]["local_config_bytes_rehashed"])
+        self.assertFalse(report["image"]["local_layers_rehashed"])
+
+    def test_recorded_python_layout_preserves_partial_and_unattempted_children(self):
+        hashes = {"run.json": "beeddd0b1f86a97e822589861fe548274d74495134492e357bec106343e2a0f5",
+                  "output.log": "259e57d317b64d750b251a8940f3de0dcd51dc220cec6c4e19e818e3cf56cb18"}
+        files = {}
+        for name, digest in hashes.items():
+            data = recorder.prep.read_source(PYTHON_RECORDED / name)
+            self.assertLessEqual(len(data), recorder.descriptor.LIMITS["report_bytes"])
+            self.assertEqual(overlay.digest(data), digest)
+            files[name] = overlay.load_json(data)
+        run, report = files["run.json"], files["output.log"]
+        child, provenance = report["diagnostic"], report["provenance"]
+        pins = overlay.load_json(recorder.prep.read_source(ROOT / recorder.PYTHON_PINS))
+        preparation = dict(stages=5, image_writes=False,
+            candidate_bundle_sha256="8b0b2aca8c20395e99dabc930e7bdf1605cc50f85f5d41d93a291f01cbf5a766",
+            context_sha256="3c80b022258448f24172e24e2c2085173ae0af11c80b612bbd4abdc3e7dd9c35")
+        contract = {**self.contract, "diagnostic_mode": "python-descriptor", "descriptor_preparation": preparation,
+                    "descriptor_source_pins": {"revision": pins["revision"],
+                        "files": {name: item["sha256"] for name, item in pins["files"].items()}}}
+        recorder.descriptor.validate_report(overlay, child, contract)
+        self.assertEqual(run["git_sha"], "af35ad100e1c9a0522b13211daa780dfeb8eddcc")
+        self.assertEqual(provenance["git_sha"], run["git_sha"])
+        self.assertEqual(provenance["payload_sha256"], "87535c54124f5186710961bb8c303343708c1f63bff982c82da261917f2771d5")
+        self.assertEqual(provenance["source_bundle_sha256"], "541dcd191956dc805384d68ca0b11f992983bd2c89f679bf8fc388f4a56b7322")
+        self.assertEqual(provenance["validator_source_sha256"], "c18f7f7028758f683f01a67806cbe5db9d44f503c6f58357393329b01a243232")
+        self.assertEqual(provenance["diagnostic_mode"], "python-descriptor")
+        self.assertEqual(run["command"], "python3 -I -S scripts/record-engine-image.py --python-descriptor --slug official-vllm-python-layout")
+        self.assertEqual((run["started_utc"], run["ended_utc"]), ("2026-10-20T01:03:13Z", "2026-10-20T01:04:41Z"))
+        self.assertEqual(run["execution"], "software")
+        self.assertFalse(run["hardware_validated"])
+        self.assertEqual(run["result"], report["result"])
+        self.assertEqual((report["result"], report["stage"], report["cleanup"]), ("fail", "python-descriptor-partial", "confirmed"))
+        self.assertEqual((child["collection"], child["overlay_admission"]), ("partial", "not-evaluated"))
+        self.assertEqual(child["preparation"], preparation)
+        self.assertEqual((child["runtime"]["status"], child["runtime"]["python"]), ("observed", "3.12.3"))
+        for row in child["files"][:2]:
+            self.assertEqual((row["path"], row["status"], row["sha256"]), ("/usr/bin/python3", "rejected", None))
+        roots = {row["name"]: row for row in child["scans"]}
+        self.assertEqual((roots["site_root_2"]["path"], roots["site_root_2"]["status"]), ("/usr/lib/python3.12/dist-packages", "absent"))
+        self.assertTrue(all(row["status"] == "pass" for name, row in roots.items() if name != "site_root_2"))
+        packaging = child["packaging"]
+        self.assertEqual((packaging["status"], packaging["inventory"], packaging["entrypoints_match"]), ("pass", "pass", True))
+        self.assertEqual(packaging["entrypoints"], overlay.PACKAGING_POLICY["entrypoints"])
+        self.assertEqual((packaging["removal_count"], packaging["removal_bytes"]), (2879, 48909952))
+        self.assertEqual(packaging["removal_plan_sha256"], "210a50805b36797d06e1d17425f6eacba6f90f1e04aaa7c0560692c05ffb3b3f")
+        self.assertTrue(all(packaging[key] == 0 for key in ("legacy_bytecode", "without_source", "ambiguous")))
+        self.assertEqual(len(packaging["classified_nonhost_assets"]), 4)
+        self.assertEqual(len(child["worker_sources"]), 14)
+        self.assertTrue(all(row["status"] == "read" and row["matches"] for row in child["worker_sources"]))
+        # The recorded prerequisites reject before any child launch; the fixed
+        # reason is not evidence of a subprocess failure.
+        processes = mock.Mock()
+        self.assertEqual(recorder.descriptor.canaries(overlay, child["runtime"], child["scans"], child["files"][0],
+            processes, Path("/opt/nib")), child["canaries"])
+        processes.execute_process_group.assert_not_called()
+        self.assertTrue(all(child["canaries"][key] is None for key in ("path_sha256", "fresh", "fork", "spawn", "grandchild", "forkserver")))
+        for item in (child, report):
+            self.assertEqual(item["candidate_status"], "BLOCKED")
+            self.assertTrue(all(item[key] is False for key in ("deployable", "abi_validated", "hardware_validated")))
+        self.assertTrue(provenance["raw_oci_metadata_verified"])
+        self.assertTrue(report["image"]["raw_config_link_verified"])
         self.assertFalse(report["image"]["local_config_bytes_rehashed"])
         self.assertFalse(report["image"]["local_layers_rehashed"])
 

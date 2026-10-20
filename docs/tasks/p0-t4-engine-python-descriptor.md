@@ -1,10 +1,49 @@
 # Read-Only Python Layout Descriptor
 
-**Implemented and tested with synthetic files and host stdlib children. No actual
-image run yet.** This extends the existing committed-source image recorder; it is
+**Recorded actual-image collection: partial; packaging observations complete,
+child canaries not attempted.** This extends the existing committed-source image recorder; it is
 not an engine launcher, image application, ABI check or hardware qualification.
 The candidate remains `BLOCKED`, `deployable:false`, `image:null`. No default
 overlay admission rule or runtime profile changes.
+
+## Recorded Outcome
+
+The [run metadata](../../evidence/p0/2026-10-20-official-vllm-python-layout/run.json)
+and [unchanged output](../../evidence/p0/2026-10-20-official-vllm-python-layout/output.log)
+were produced from `af35ad100e1c9a0522b13211daa780dfeb8eddcc` on 2026-10-20,
+01:03:13 to 01:04:41 UTC. Payload SHA-256:
+`87535c54124f5186710961bb8c303343708c1f63bff982c82da261917f2771d5`.
+The run exited 1, with `result:fail`, `collection:partial`,
+`overlay_admission:not-evaluated` and `cleanup:confirmed`. The parent separately
+confirmed an empty diagnostic-container label listing. The cached image remains.
+
+- Runtime fields report Python 3.12.3, isolated flags and the expected x86_64
+  sysconfig/cache-tag fields. Both executable-file observations for
+  `/usr/bin/python3` were rejected with no hash. **This artifact does not identify
+  the file-check rejection cause** or establish interpreter-file integrity.
+- `site_root_2`, `/usr/lib/python3.12/dist-packages`, was absent; the other six
+  metadata scans completed. The selected root retained 204,969 entries and
+  19,176,556,448 logical bytes. Source-name bytecode counts are not source-hash
+  qualification: the stdlib scan includes two bytecode entries without a source
+  counterpart. These metadata scans did not read cache contents; no removal was
+  performed.
+- Packaging verification passed: the exact PR35 entry-point map matches, and a
+  complete source-verified removal plan contains **2,879 files, 48,909,952 bytes**,
+  SHA-256 `210a50805b36797d06e1d17425f6eacba6f90f1e04aaa7c0560692c05ffb3b3f`.
+  Legacy/sourceless/ambiguous owned-bytecode counts were zero. All four pinned
+  cross-compile stub classifications matched. This is a plan, not removal,
+  overlay application, import admission or native ABI validation.
+- All 14 pinned worker-chain source files matched. All five candidate stages
+  were prepared in host memory, with no image writes.
+- Canary prerequisites rejected **before child execution**. The recorded fixed
+  `child-canary-rejected` reason has a null path digest and null child results;
+  it must not be described as children having run or failed. The executable
+  rejection and absent-root prerequisite require a separate reviewed follow-up.
+
+Raw OCI linkage and local Docker metadata association passed the existing checks;
+local config/layer bytes were not independently rehashed. No engine/plugin import,
+model inference, application, GPU, hardware, ABI or confidentiality qualification
+occurred. The earlier synthetic host-child tests remain a separate software result.
 
 ## One Bounded Collection
 
@@ -120,4 +159,5 @@ size failures, unknown bytecode, dependency-import rejection and cleanup errors.
 Host sandbox policy must allow local Unix sockets for forkserver tests; no network
 or actual container is needed. A future complete collection still records
 `result:fail`, `overlay_admission:not-evaluated`, exit 1 and no ABI/GPU/TEE claim.
-No new actual-image evidence is included in this source change.
+The recorded partial result above is protected by exact artifact hashes, report
+contract assertions and the authoritative offline evidence-schema test.
