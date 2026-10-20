@@ -21,13 +21,20 @@ PRODUCER = "03d52b4b078c8102b296e03603ec34c00c0c3401"
 REPORT_SHA256 = "37801abac400cd6cda8be1986591c8b7f1cae8c01de1f42e401246af98c2dd4f"
 DIAGNOSTIC_PRODUCER = "a3d2657ead1a375d9fa57082dca7e5f23bf6e3d4"
 DIAGNOSTIC_SHA256 = "2a31d0e293c05c09b29b9636d3ffcae41e15d1761e297a6ff1cfb211fa467f9b"
+RESOLVED_PRODUCER = "87f7d15c6d3a02f3faa83b0ac584315501e1fe9b"
+RESOLVED_SHA256 = "980e1a5e9599a3e39d98e58c46dc8da707b92cfc5965a8360b5df16329be0fa0"
 REPORTS = {
-    REPORT_SHA256: (PRODUCER, 1, "Resolve failure cause is unknown."),
+    REPORT_SHA256: (PRODUCER, 1, "fail", "Resolve failure cause is unknown."),
     DIAGNOSTIC_SHA256: (
-        DIAGNOSTIC_PRODUCER, 2,
+        DIAGNOSTIC_PRODUCER, 2, "fail",
         "Resolve exited zero but the strict stderr gate rejected the exact "
         "missing-preferences-directory warning (92 bytes). This is the diagnostic "
         "run's observation, not a reconstruction of the earlier v1 stderr."),
+    RESOLVED_SHA256: (
+        RESOLVED_PRODUCER, 2, "pass",
+        "Offline resolution passed with explicit private empty preferences: "
+        "145 packages planned for install/configuration and zero removals. "
+        "This is a simulated package plan, not an installed or bootable guest."),
 }
 
 
@@ -75,13 +82,24 @@ def evidence(raw, revision, sources):
                  and base.digest(raw) in REPORTS
                  and re.fullmatch("[0-9a-f]{40}", revision) and revision != "0" * 40)
     report_sha256 = base.digest(raw)
-    producer, version, observation = REPORTS[report_sha256]
+    producer, version, result, observation = REPORTS[report_sha256]
     report = json.loads(raw)
-    base.require(report["git_sha"] == producer and report["result"] == "fail"
+    base.require(report["git_sha"] == producer and report["result"] == result
                  and report["schema"] == "nib.apt-container-run/v" + str(version)
-                 and report["stage"] == "complete" and report["cleanup"] == "confirmed"
-                 and report["simulation"]["stage"] == "resolve"
-                 and report["simulation"]["plan"] is None)
+                 and report["stage"] == "complete" and report["cleanup"] == "confirmed")
+    simulation = report["simulation"]
+    base.require(simulation["result"] == result
+                 and not any(simulation[key] for key in
+                             ("installable_verified", "package_installation_executed",
+                              "maintainer_scripts_executed", "bootable", "deployable")))
+    if result == "pass":
+        base.require(simulation["stage"] == "complete" and simulation["diagnostic"] is None
+                     and simulation["target_packages"] == 145
+                     and simulation["plan"] == {
+                         "installed": 145, "configured": 145, "removed": 0,
+                         "plan_sha256": "8bccb4aa2b6c004f7081f817a7244c931cc003280c166dc8c930ecbc915efe4c"})
+    else:
+        base.require(simulation["stage"] == "resolve" and simulation["plan"] is None)
     run = {
         "schema": "nib.evidence/v1", "phase": "P3", "task": "T1", "git_sha": producer,
         "command": "python3 -I host/simulate-guest-apt.py --run --metadata <private-metadata> "
@@ -89,7 +107,7 @@ def evidence(raw, revision, sources):
         "started_utc": report["started_at"], "ended_utc": report["finished_at"],
         "host": {"provider": "local-docker", "machine": "linux-amd64",
                  "gpus": "none", "driver": None, "cuda": None},
-        "result": "fail", "execution": "software", "hardware_validated": False,
+        "result": result, "execution": "software", "hardware_validated": False,
         "notes": "Historical content-free report import, not a new execution or independent "
                  "container verification. Original producer and reported execution timestamps "
                  "retained. Command uses the producer's fixed CLI with private paths normalized; "
@@ -119,7 +137,7 @@ def main():
     files = evidence(raw, revision, sources)
     base.publish(args.output, files)
     base.verify(args.output, files)
-    print(json.dumps({"recorded": True, "original_result": "fail", "rerun": False,
+    print(json.dumps({"recorded": True, "original_result": json.loads(raw)["result"], "rerun": False,
                       "report_sha256": base.digest(raw)}, sort_keys=True))
 
 
