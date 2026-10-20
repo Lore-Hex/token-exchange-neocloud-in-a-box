@@ -1180,6 +1180,8 @@ writer.close()
             self.assertEqual(channel.observation["last_id"],
                              {None: 17, "parse": 14, "validate": 15, "check": 16}[failure])
 
+    @mock.patch.object(sys, "flags", types.SimpleNamespace(isolated=True, no_site=True))
+    @mock.patch.object(sys, "dont_write_bytecode", True)
     def test_engine_entry_requires_exact_route_and_closes_on_early_failure(self):
         for args in (["engine"], ["engine", "--checkpoint-fd"], ["engine", "3"],
                      ["engine", "--checkpoint-fd", "3", "extra"]):
@@ -1200,10 +1202,29 @@ writer.close()
                     lab.lab_entry()
             with self.assertRaises(OSError):
                 os.fstat(child)
+            child = None
             channel.finish()
             self.assertEqual(channel.observation, {"status": "eof", "last_id": 1})
         finally:
+            if child is not None:
+                try:
+                    os.close(child)
+                except OSError:
+                    pass
             channel.finish()
+
+    def test_engine_entry_rejects_each_wrong_flag_before_claiming_fd(self):
+        for isolated, no_site, no_bytecode in ((False, True, True), (True, False, True), (True, True, False)):
+            with self.subTest(flags=(isolated, no_site, no_bytecode)), \
+                    mock.patch.object(sys, "flags", types.SimpleNamespace(isolated=isolated, no_site=no_site)), \
+                    mock.patch.object(sys, "dont_write_bytecode", no_bytecode), \
+                    mock.patch.object(sys, "argv", ["launch.py", "a" * 64, "engine", "--checkpoint-fd", "17"]), \
+                    mock.patch.object(lab, "EntryCheckpointWriter") as writer, \
+                    mock.patch.object(lab, "lab_context") as context:
+                with self.assertRaises(ValueError):
+                    lab.lab_entry()
+                writer.assert_not_called()
+                context.assert_not_called()
 
 
 class LifecycleTests(unittest.TestCase):
