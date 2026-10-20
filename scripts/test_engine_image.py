@@ -22,6 +22,7 @@ RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-image-diagnostic"
 CENSUS_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-metadata-census"
 BOUNDED_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-bounded-integrity"
 STUBS_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-cutlass-stubs"
+INTEGRITY_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-record-diagnosis"
 
 
 def source(name, relative):
@@ -1302,7 +1303,7 @@ class ImageTests(unittest.TestCase):
         env = recorder.offline_environment(self.work / "control")
         binary, source_hash = recorder.build_validator(ROOT, revision, self.work, env)
         self.assertRegex(source_hash, r"^[0-9a-f]{64}$")
-        for index, source_directory in enumerate((RECORDED, CENSUS_RECORDED, BOUNDED_RECORDED, STUBS_RECORDED)):
+        for index, source_directory in enumerate((RECORDED, CENSUS_RECORDED, BOUNDED_RECORDED, STUBS_RECORDED, INTEGRITY_RECORDED)):
             recorded = self.work / "recorded/evidence/p0" / ("official-image-" + str(index))
             recorded.mkdir(parents=True)
             (recorded / "run.json").write_bytes(recorder.prep.read_source(source_directory / "run.json"))
@@ -1495,6 +1496,65 @@ class ImageTests(unittest.TestCase):
         self.assertFalse(report["image"]["local_config_bytes_rehashed"])
         self.assertFalse(report["image"]["local_layers_rehashed"])
         self.assertEqual(overlay.MAX_FILES, 100000)
+
+    def test_recorded_integrity_causes_preserve_failure_and_exact_observations(self):
+        hashes = {"run.json": "8ac7a81e9984c83a22d0c56d0014ef7177219d433818682fa58b5fa81fbd23e2",
+                  "output.log": "abf7f9fbb4dce9ace3da05fa2873f4e27041baf13a18405ddce8c71e7febfc76"}
+        files = {}
+        for name, digest in hashes.items():
+            data = recorder.prep.read_source(INTEGRITY_RECORDED / name)
+            self.assertLessEqual(len(data), 65536)
+            self.assertEqual(overlay.digest(data), digest)
+            files[name] = overlay.load_json(data)
+        run, report = files["run.json"], files["output.log"]
+        child, provenance = report["diagnostic"], report["provenance"]
+        contract = {**self.contract, "diagnostic_inventory_policy": overlay.DIAGNOSTIC_INVENTORY_POLICY,
+                    "diagnostic_nonhost_policy": overlay.CUTLASS_STUB_POLICY, "diagnostic_integrity_details": True}
+        diagnostic.validate_report(overlay, child, contract)
+        self.assertEqual(run["git_sha"], "aed2389f4fcb56aeaad9a573f59c5b351b15718b")
+        self.assertEqual(provenance["git_sha"], run["git_sha"])
+        self.assertEqual(provenance["payload_sha256"], "16378fdd3216a2b44282b2c62db3bc7a5ce58c00e56a18ba1c6e69f5aaa4cdc8")
+        self.assertEqual(provenance["source_bundle_sha256"], "e0a4af2583f7592a67f1fbe7a912ba10827fbd9f7676dd3e88865f6b23357fc2")
+        self.assertEqual(provenance["validator_source_sha256"], "c18f7f7028758f683f01a67806cbe5db9d44f503c6f58357393329b01a243232")
+        self.assertEqual(run["command"], "python3 -I -S scripts/record-engine-image.py --slug official-vllm-record-diagnosis")
+        self.assertEqual((run["started_utc"], run["ended_utc"]), ("2026-10-19T23:57:58Z", "2026-10-19T23:59:06Z"))
+        self.assertEqual(run["execution"], "software")
+        self.assertFalse(run["hardware_validated"])
+        self.assertEqual(run["result"], report["result"])
+        self.assertEqual((report["result"], report["stage"], report["cleanup"]), ("fail", "overlay-rejected", "confirmed"))
+        self.assertEqual((child["collection"], child["overlay_admission"]), ("pass", "rejected"))
+        self.assertEqual(child["checks"], dict(filesystem_inventory="pass", record_integrity="rejected",
+            wheel_integrity="rejected", root_admission="rejected", selected_root_admission="rejected"))
+        details = child["integrity_details"]
+        self.assertTrue(details["complete"])
+        self.assertEqual({row["reason"]: row["count"] for row in details["findings"]},
+                         {"entrypoints": 1, "record-unlisted-owned": 2879})
+        self.assertEqual(details["record"], dict(complete=True, rows=5449, unique_paths=5449, owned_files=8327,
+            listed_missing=0, listed_unowned=0, unlisted_owned=2879))
+        self.assertEqual(details["bytecode"], dict(complete=True, owned=2879, with_source=2879, without_source=0,
+            source_recorded=2879, listed_empty=0, listed_hashed=0, listed_hash_matches=0, listed_other=0,
+            unlisted=2879, unlisted_with_recorded_source=2879, unlisted_without_recorded_source=0))
+        self.assertEqual(details["metadata"], dict(distribution="vllm-0.32.0.dist-info", engine_version="0.32.0",
+            entrypoint_groups=[{"name": "console_scripts", "entries": 1}, {"name": "vllm.general_plugins", "entries": 2}],
+            entrypoints_match=False, generated_version_match=True, requires_python=["<3.15,>=3.11"],
+            root_is_purelib=["false"], wheel_tags=["cp38-abi3-linux_x86_64"], wheel_version=["1.0"]))
+        dependencies = details["dependencies"]
+        self.assertEqual(len(dependencies), 14)
+        self.assertTrue(all(row["installed_count"] == 1 and row["installed_matches"] for row in dependencies))
+        for row in dependencies:
+            self.assertEqual((row["declared_count"], row["declared_matches"]),
+                             (0, False) if row["name"] == "nvidia-nccl-cu13" else (1, True))
+        self.assertEqual(len(child["source_files"]), 13)
+        self.assertTrue(all(row["matches_base"] for row in child["source_files"]))
+        self.assertEqual(sum(row["status"] == "absent" for row in child["source_files"]), 1)
+        self.assertEqual(len(child["classified_nonhost_assets"]), 4)
+        for item in (child, report):
+            self.assertEqual(item["candidate_status"], "BLOCKED")
+            self.assertTrue(all(item[key] is False for key in ("deployable", "abi_validated", "hardware_validated")))
+        self.assertTrue(report["image"]["raw_config_link_verified"])
+        self.assertEqual(report["image"]["raw_config_sha256"], overlay.CUTLASS_STUB_POLICY["config_sha256"])
+        self.assertFalse(report["image"]["local_config_bytes_rehashed"])
+        self.assertFalse(report["image"]["local_layers_rehashed"])
 
     def test_validator_toolchain_resolution_is_cache_only_and_exact(self):
         env = recorder.offline_environment(self.work / "control")
