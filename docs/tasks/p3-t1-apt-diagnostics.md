@@ -100,9 +100,22 @@ Outer and inner results remain **fail**; cleanup is **confirmed**. No package
 installation or maintainer script executed.
 
 This identifies the reproduced diagnostic failure, not new fields in the
-historical v1 report. Creating the missing private preferences inputs requires
-a separately reviewed and CI-green configuration change and another actual
-run. No warning is ignored and no successful fix is claimed here.
+historical v1 report. No warning was ignored.
+
+## Corrected rehearsal
+
+The separately reviewed, CI-green producer
+`87f7d15c6d3a02f3faa83b0ac584315501e1fe9b` ran once at
+21:00:27-21:00:30 UTC on October 20, 2026 using explicit private empty
+preferences. The [original passing report](../../evidence/p3/2026-10-20-apt-private-preferences-pass/output.log)
+retains the same offline, local Linux/amd64 emulated boundary and strict stderr
+gate. It plans all 145 target packages for installation and configuration, with
+zero removals; outer cleanup is confirmed. Plan SHA-256:
+`8bccb4aa2b6c004f7081f817a7244c931cc003280c166dc8c930ecbc915efe4c`.
+
+This passes dependency resolution only. No package was installed, no maintainer
+script ran, and no guest image was built or booted. The two earlier failure
+reports remain unchanged.
 
 ## Exact report preservation
 
@@ -113,6 +126,7 @@ report byte sequences, not arbitrary JSON or caller-supplied hashes:
 | --- | --- |
 | Original v1 failure | `37801abac400cd6cda8be1986591c8b7f1cae8c01de1f42e401246af98c2dd4f` |
 | v2 missing-preferences diagnostic | `2a31d0e293c05c09b29b9636d3ffcae41e15d1761e297a6ff1cfb211fa467f9b` |
+| v2 private-preferences passing rehearsal | `980e1a5e9599a3e39d98e58c46dc8da707b92cfc5965a8360b5df16329be0fa0` |
 
 ```sh
 python3 -I scripts/record_apt_report.py \
@@ -123,7 +137,7 @@ python3 -I scripts/record_apt_report.py \
 From a committed producer, it creates private, no-overwrite `run.json` and
 `output.log`. The latter is byte-identical to the original report, not a
 reformatted or enriched substitute. `run.json` retains the original producer
-SHA, reported execution timestamps and failure. It identifies the importer SHA
+SHA, reported execution timestamps and result. It identifies the importer SHA
 and helper hashes separately. The fixed original CLI is shown with normalized
 private paths, whose literal values were not captured in the report.
 

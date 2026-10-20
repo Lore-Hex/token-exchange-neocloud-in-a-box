@@ -286,6 +286,37 @@ class DiagnosticTests(unittest.TestCase):
 
 
 class ImportTests(unittest.TestCase):
+    def test_passing_rehearsal_preserves_exact_report_and_limited_scope(self):
+        path = ROOT / "evidence/p3/2026-10-20-apt-private-preferences-pass/output.log"
+        raw = path.read_bytes()
+        self.assertEqual(recorder.base.digest(raw), recorder.RESOLVED_SHA256)
+        files = recorder.evidence(raw, "a" * 40, {recorder.SCRIPT: b"fixture"})
+        self.assertEqual(files["output.log"], raw)
+        for run in (json.loads(files["run.json"]),
+                    json.loads(path.with_name("run.json").read_bytes())):
+            self.assertEqual((run["git_sha"], run["result"], run["execution"]),
+                             (recorder.RESOLVED_PRODUCER, "pass", "software"))
+            self.assertEqual((run["started_utc"], run["ended_utc"]),
+                             ("2026-10-20T21:00:27Z", "2026-10-20T21:00:30Z"))
+            self.assertFalse(run["hardware_validated"])
+            self.assertIn("not an installed or bootable guest", run["notes"])
+        report = json.loads(raw)
+        self.assertEqual(report["cleanup"], "confirmed")
+        runner.validate_result(report["simulation"], {
+            "git_sha": recorder.RESOLVED_PRODUCER,
+            "source_hashes": {runner.prep.FILES[-1]: report["simulation"]["guest_lock_sha256"]}},
+            json.loads((ROOT / runner.prep.FILES[-1]).read_bytes()))
+        self.assertEqual(report["simulation"]["plan"]["installed"], 145)
+        for key in ("installable_verified", "package_installation_executed",
+                    "maintainer_scripts_executed", "bootable", "deployable"):
+            self.assertIs(report["simulation"][key], False)
+        for changed in (raw + b"\n", raw.replace(b'"removed": 0', b'"removed": 1'),
+                        raw.replace(b'"confirmed"', b'"unconfirmed"'),
+                        raw.replace(b'"package_installation_executed": false',
+                                    b'"package_installation_executed": true')):
+            with self.assertRaises(ValueError):
+                recorder.evidence(changed, "a" * 40, {})
+
     def test_committed_diagnostic_artifact_is_original_and_not_a_success(self):
         path = ROOT / "evidence/p3/2026-10-20-apt-missing-preferences/output.log"
         self.assertEqual(path.read_bytes(), observed_diagnostic())
