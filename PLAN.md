@@ -634,8 +634,15 @@ Gates:
   - A quality smoke: the same 200-question GSM8K and MMLU-Pro subsets, greedy
     decoding, run with `lm-eval` against our node and against the vendor's
     first-party API as the reference (a few dollars; G-RUN). Within ±2 points.
+  - **2026-10-20 additional acceptance:** the
+    [pinned tau text validation](docs/benchmarks/tau-validation.md): tool-call
+    smoke, then all airline/retail/telecom `base` tasks with four trials and a
+    matched-revision reference. Report uncertainty, failures, latency and cost;
+    small smoke runs and incompatible published scores do not prove quality.
+    Runner and live evaluation remain pending; repeat the frozen evaluation
+    under CC in P5.T5. This adds no spending or production authorization.
   - AC: provider-check exits 0, and the smoke result is within tolerance or
-    explained.
+    explained; the additional tau validation meets its acceptance criteria.
 - **T4. Benchmarks** (`bench/`).
   - Three scenarios: chat 2K/512; agent 32K/1K with 80% prefix reuse;
     long context 128K/1K.
