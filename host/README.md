@@ -28,6 +28,15 @@ It does not launch an engine, qualify hardware or stop rental billing. The
 510.31 GB DeepSeek pack needs at least 561.35 GB free under its conservative
 full-pack-plus-overhead policy; a 500 GB disk is insufficient.
 
+## Lab GPU Appraisal
+
+The [pinned appraisal helper](../docs/tasks/p2-t3-nvidia-attestation.md) separates
+offline package inspection, explicit two-package installation, and authorized
+anonymous remote appraisal. It contains no readiness setter. Eight authenticated
+nonce-bound claims must match the local certificate identities; installation or
+inspection alone cannot pass. No actual run or confidential qualification is
+claimed by this implementation.
+
 ## Read-only inventory
 
 After a scoped hardware-run approval, transfer the committed `host/probe.py`
