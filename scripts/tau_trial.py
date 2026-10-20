@@ -323,7 +323,8 @@ def run(payload, sha, destination, socket):
             raise KeyboardInterrupt
         signal.signal(signal.SIGTERM, cancelled)
         try:
-            rows = tau.json_value(command("image", "inspect", runtime.TARGET["image"]))
+            rows = tau.json_value(command("image", "inspect", "--platform", plan["platform"],
+                                          runtime.TARGET["image"]))
             require(type(rows) is list and len(rows) == 1)
             image = rows[0]
             require(image["Os"] == "linux" and image["Architecture"] == "amd64"
