@@ -41,3 +41,25 @@ The pinned layout includes stdlib, dynamic extensions, the CUTLASS DSL root and
 site packages, plus the diagnostic payload root. Permit exactly this bounded
 five-root layout and test the actual prepared contract; a sixth root still
 reports observer failure. This does not change any engine import roots.
+
+## Corrected Observation
+
+The exact `6e1e177` producer passed all 804 Python tests and both Go race-test
+builds. Its bounded local CPU run completed with cleanup confirmed but still
+failed at checkpoint 11:
+[run](../../evidence/p2/2026-10-20-cpu-exception-sites-6e1e177/run.json),
+[output](../../evidence/p2/2026-10-20-cpu-exception-sites-6e1e177/output.log).
+The observer now succeeds. The frame list is explicitly truncated and contains
+unavailable sources; it is not a complete traceback.
+
+The last frames identify the sealed Six finder's registry assertion. Immediately
+before it, `dateutil/tz/win.py` line 13 imports `six.moves.winreg`. Its source
+SHA-256 is `c49b335a04b0135c4fc7f1c98f86647a9cae902fe1372d35e9631c5e16d1681f`.
+`dateutil/tz/tz.py` line 29 calls that module and catches only `ImportError`;
+its SHA-256 is `1149c474c7de4e15e263a978b21f7205a6d9eb7fcf3b3cb4d734ac87db619f5a`.
+Both match the official python-dateutil `2.9.0.post0` wheel and
+[source revision](https://github.com/dateutil/dateutil/tree/1ae807774053c071acc9e7d3d27778fba0a7773e/src/dateutil/tz).
+The pinned Six source excludes `winreg` on Linux. A separate compatibility fix
+must preserve this expected absence without permitting a filesystem fallback
+or weakening the existing unknown-name and tampering failures. No such engine
+change is part of this diagnostic PR.
