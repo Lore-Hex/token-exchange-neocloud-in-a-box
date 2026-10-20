@@ -33,6 +33,15 @@ script hash are emitted. Package-manager failure can leave a partial install
 and is not automatically rolled back. Never continue to an engine experiment
 after a failed result.
 
+After installation, `python3 -I -S host/pull-lab-image.py` downloads only the
+repository's reviewed immutable vLLM image digest. It checks the exact expected
+image configuration and Linux/amd64 platform before and after pulling, reuses
+an already matching local image, uses no Docker credentials, and launches no
+container. The 15-minute CLI timeout does not prove cancellation of daemon-side
+downloads; inspect the daemon and retain the independent rental deadline after
+a timeout. Image download is not image qualification; the separate engine
+recorder still verifies its source, layers and application inputs.
+
 Tests use synthetic apt plans. They prove rejection of upgrades, removals,
 extra packages, changed versions, missing packages and duplicates. They do not
 prove GPU readiness, inference, attestation or model quality.

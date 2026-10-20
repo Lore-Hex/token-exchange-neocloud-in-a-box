@@ -8,6 +8,9 @@ SOURCE = Path(__file__).resolve().parents[1] / "host" / "install-lab-runtime.py"
 spec = importlib.util.spec_from_file_location("lab_runtime", SOURCE)
 runtime = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runtime)
+pull_spec = importlib.util.spec_from_file_location("lab_pull", SOURCE.with_name("pull-lab-image.py"))
+pull = importlib.util.module_from_spec(pull_spec)
+pull_spec.loader.exec_module(pull)
 
 
 class LabRuntimeTests(unittest.TestCase):
@@ -46,3 +49,21 @@ class LabRuntimeTests(unittest.TestCase):
         with patch.object(runtime.os, "geteuid", return_value=1000):
             with self.assertRaises(ValueError):
                 runtime.platform_check()
+
+    def test_expected_image_identity(self):
+        with patch.object(pull.subprocess, "run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = (pull.CONFIG + " linux/amd64\n").encode()
+            self.assertTrue(pull.image_identity())
+
+    def test_unexpected_image_identity(self):
+        with patch.object(pull.subprocess, "run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = b"sha256:wrong linux/arm64\n"
+            with self.assertRaises(ValueError):
+                pull.image_identity()
+
+    def test_missing_image(self):
+        with patch.object(pull.subprocess, "run") as run:
+            run.return_value.returncode = 1
+            self.assertFalse(pull.image_identity())
