@@ -49,7 +49,7 @@ finally:
 """
 
 
-def capture(argv, timeout=15):
+def capture(argv, timeout=15, *, env=None, limit=LIMIT):
     """Bound both streams together; never emit diagnostics from the child."""
     reader, writer = os.pipe()
     try:
@@ -59,10 +59,11 @@ def capture(argv, timeout=15):
         os.close(writer)
         raise
     try:
-        process = subprocess.Popen([sys.executable, "-I", "-c", SUPERVISOR,
+        process = subprocess.Popen([sys.executable, "-I", "-S", "-B", "-c", SUPERVISOR,
                                     str(writer), str(life_reader), *argv],
                                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE, env=ENV, start_new_session=True,
+                                   stderr=subprocess.PIPE, env=ENV if env is None else env,
+                                   start_new_session=True,
                                    pass_fds=(writer, life_reader))
     except BaseException:
         os.close(reader)
@@ -90,7 +91,7 @@ def capture(argv, timeout=15):
                         selector.unregister(key.fileobj)
                         continue
                     count += len(chunk)
-                    if count > LIMIT:
+                    if count > limit:
                         raise ValueError("probe-output-limit")
                     if key.data == "stdout":
                         output.extend(chunk)
