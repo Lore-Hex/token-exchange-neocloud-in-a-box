@@ -6,6 +6,11 @@ not an engine launcher, image application, ABI check or hardware qualification.
 The candidate remains `BLOCKED`, `deployable:false`, `image:null`. No default
 overlay admission rule or runtime profile changes.
 
+The subsequent [v2 prerequisite diagnostics](p0-t4-engine-python-prerequisites.md)
+add fixed file rejection reasons and distinguish unattempted from failed canaries.
+The v1 artifact below remains unchanged; the new implementation has no actual-image
+measurement yet and does not resolve its executable-file rejection.
+
 ## Recorded Outcome
 
 The [run metadata](../../evidence/p0/2026-10-20-official-vllm-python-layout/run.json)

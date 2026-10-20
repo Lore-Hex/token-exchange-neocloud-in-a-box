@@ -1601,6 +1601,12 @@ class ImageTests(unittest.TestCase):
         self.assertFalse(report["image"]["local_layers_rehashed"])
 
     def test_recorded_python_layout_preserves_partial_and_unattempted_children(self):
+        # Validate the unchanged v1 artifact with its exact reviewed producer,
+        # not a compatibility bypass in the current v2 recorder.
+        historical_source = recorder.checker.git(ROOT, "show", "af35ad100e1c9a0522b13211daa780dfeb8eddcc:scripts/engine_python_descriptor.py")
+        self.assertEqual(overlay.digest(historical_source), "352ef1903cc306bf15429b9d29810cf040a19e00dfd471dd34453b3a8f461d1b")
+        historical = types.ModuleType("recorded_python_descriptor_v1")
+        exec(compile(historical_source, "recorded_python_descriptor_v1", "exec"), historical.__dict__)
         hashes = {"run.json": "beeddd0b1f86a97e822589861fe548274d74495134492e357bec106343e2a0f5",
                   "output.log": "259e57d317b64d750b251a8940f3de0dcd51dc220cec6c4e19e818e3cf56cb18"}
         files = {}
@@ -1618,7 +1624,7 @@ class ImageTests(unittest.TestCase):
         contract = {**self.contract, "diagnostic_mode": "python-descriptor", "descriptor_preparation": preparation,
                     "descriptor_source_pins": {"revision": pins["revision"],
                         "files": {name: item["sha256"] for name, item in pins["files"].items()}}}
-        recorder.descriptor.validate_report(overlay, child, contract)
+        historical.validate_report(overlay, child, contract)
         self.assertEqual(run["git_sha"], "af35ad100e1c9a0522b13211daa780dfeb8eddcc")
         self.assertEqual(provenance["git_sha"], run["git_sha"])
         self.assertEqual(provenance["payload_sha256"], "87535c54124f5186710961bb8c303343708c1f63bff982c82da261917f2771d5")
@@ -1651,7 +1657,7 @@ class ImageTests(unittest.TestCase):
         # The recorded prerequisites reject before any child launch; the fixed
         # reason is not evidence of a subprocess failure.
         processes = mock.Mock()
-        self.assertEqual(recorder.descriptor.canaries(overlay, child["runtime"], child["scans"], child["files"][0],
+        self.assertEqual(historical.canaries(overlay, child["runtime"], child["scans"], child["files"][0],
             processes, Path("/opt/nib")), child["canaries"])
         processes.execute_process_group.assert_not_called()
         self.assertTrue(all(child["canaries"][key] is None for key in ("path_sha256", "fresh", "fork", "spawn", "grandchild", "forkserver")))

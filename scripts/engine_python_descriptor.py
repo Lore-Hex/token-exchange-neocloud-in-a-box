@@ -30,6 +30,29 @@ FILE_NAMES = ("executable", "base_executable", *SOURCES, "distutils-precedence.p
 SCAN_NAMES = ("stdlib", "selected", "cutlass", "dynload")
 ERRORS = (OSError, ValueError, KeyError, TypeError, AttributeError, UnicodeError)
 SHA = r"[0-9a-f]{64}"
+FILE_REASON_STAGES = {"unsafe-path": "resolution", "resolution-failed": "resolution", "time-limit": "resolution",
+    "stat-failed": "stat", "confirmed-absent": "stat", "ancestor-absent": "stat", "absence-unconfirmed": "stat",
+    "dangling-link": "stat", "link-limit": "resolution", "link-read-failed": "resolution", "unsafe-target": "resolution",
+    "identity-changed": "identity", "ancestor-not-directory": "resolution", "directory-open-failed": "resolution",
+    "not-regular": "type", "link-count": "link-count", "file-size-limit": "size-budget", "total-size-limit": "size-budget",
+    "read-rejected": "read", "read-failed": "read", "identity-recheck-failed": "identity"}
+
+
+def observed_stat(info=None):
+    if info is None:
+        return dict(type=None, mode=None, size=None, nlink=None)
+    kind = next((name for name, predicate in (("regular", stat.S_ISREG), ("directory", stat.S_ISDIR),
+        ("symlink", stat.S_ISLNK), ("fifo", stat.S_ISFIFO), ("socket", stat.S_ISSOCK),
+        ("block", stat.S_ISBLK), ("character", stat.S_ISCHR)) if predicate(info.st_mode)), "other")
+    return {"type": kind, "mode": stat.S_IMODE(info.st_mode),
+            "size": info.st_size if 0 <= info.st_size < 1 << 63 else None,
+            "nlink": info.st_nlink if 0 <= info.st_nlink < 1 << 64 else None}
+
+
+class ObservationRejected(ValueError):
+    def __init__(self, stage, reason, info=None):
+        super().__init__("descriptor observation rejected")
+        self.stage, self.reason, self.observed = stage, reason, observed_stat(info)
 
 
 def public_path(value):
@@ -47,7 +70,8 @@ def location(name, value, optional=False):
 
 def file_report(name, path):
     return {"name": name, "path": path, "resolved": None, "links": [], "status": "rejected",
-            "sha256": None, "bytes": None, "mode": None}
+            "sha256": None, "bytes": None, "mode": None, "stage": "resolution", "reason": "resolution-failed",
+            "observed": observed_stat()}
 
 
 class Filesystem:
@@ -59,35 +83,75 @@ class Filesystem:
         self.spent = 0
 
     def resolve(self, path):
-        require = self.overlay.require
-        require(public_path(path))
+        if not public_path(path):
+            raise ObservationRejected("resolution", "unsafe-path")
         links = []
         while True:
-            require(time.monotonic() < self.deadline)
+            if time.monotonic() >= self.deadline:
+                raise ObservationRejected("resolution", "time-limit")
             parts, done = path[1:].split("/"), []
             fd = os.dup(self.fd)
             try:
                 for index, part in enumerate(parts):
-                    info = os.stat(part, dir_fd=fd, follow_symlinks=False)
+                    parent_info = os.fstat(fd)
+                    try:
+                        info = os.stat(part, dir_fd=fd, follow_symlinks=False)
+                    except FileNotFoundError:
+                        # Absence requires a stable anchored parent and two
+                        # no-follow misses; a dangling link is never optional.
+                        if links:
+                            raise ObservationRejected("stat", "dangling-link") from None
+                        try:
+                            os.stat(part, dir_fd=fd, follow_symlinks=False)
+                        except FileNotFoundError:
+                            if self.overlay.identity(parent_info) == self.overlay.identity(os.fstat(fd)):
+                                reason = "confirmed-absent" if index == len(parts) - 1 else "ancestor-absent"
+                                raise ObservationRejected("stat", reason) from None
+                        except OSError:
+                            pass
+                        raise ObservationRejected("stat", "absence-unconfirmed") from None
+                    except OSError:
+                        raise ObservationRejected("stat", "stat-failed") from None
+                    target_info = info if index == len(parts) - 1 else None
                     if stat.S_ISLNK(info.st_mode):
-                        require(len(links) < LIMITS["links"])
-                        value = os.readlink(part, dir_fd=fd)
-                        require(self.overlay.identity(info) == self.overlay.identity(os.stat(part, dir_fd=fd, follow_symlinks=False)))
+                        if len(links) >= LIMITS["links"]:
+                            raise ObservationRejected("resolution", "link-limit", target_info)
+                        try:
+                            value = os.readlink(part, dir_fd=fd)
+                            after = os.stat(part, dir_fd=fd, follow_symlinks=False)
+                        except OSError:
+                            raise ObservationRejected("resolution", "link-read-failed", target_info) from None
+                        if self.overlay.identity(info) != self.overlay.identity(after):
+                            raise ObservationRejected("identity", "identity-changed", target_info)
                         target = posixpath.normpath(posixpath.join("/", *done, value))
-                        require(public_path(target))
+                        if not public_path(target):
+                            raise ObservationRejected("resolution", "unsafe-target", target_info)
                         links.append({"path": "/" + "/".join(done + [part]), "target": target})
                         path = posixpath.join(target, *parts[index + 1:])
-                        require(public_path(path))
+                        if not public_path(path):
+                            raise ObservationRejected("resolution", "unsafe-target", target_info)
                         break
                     done.append(part)
                     if index == len(parts) - 1:
                         return path, links, info
-                    child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
-                    require(self.overlay.identity(info) == self.overlay.identity(os.fstat(child)))
+                    if not stat.S_ISDIR(info.st_mode):
+                        raise ObservationRejected("resolution", "ancestor-not-directory")
+                    try:
+                        child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                    except OSError:
+                        raise ObservationRejected("resolution", "directory-open-failed") from None
+                    try:
+                        unchanged = self.overlay.identity(info) == self.overlay.identity(os.fstat(child))
+                    except OSError:
+                        os.close(child)
+                        raise ObservationRejected("resolution", "directory-open-failed") from None
+                    if not unchanged:
+                        os.close(child)
+                        raise ObservationRejected("identity", "identity-changed")
                     os.close(fd)
                     fd = child
                 else:
-                    raise ValueError("image path rejected")
+                    raise ObservationRejected("resolution", "unsafe-path")
             finally:
                 os.close(fd)
 
@@ -101,18 +165,35 @@ class Filesystem:
         row = file_report(name, path if public_path(path) else None)
         try:
             resolved, links, info = self.resolve(path)
-            self.overlay.require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1
-                and 0 <= info.st_size <= LIMITS["file_bytes"] and self.spent + info.st_size <= LIMITS["hashed_bytes"])
+            row["observed"] = observed_stat(info)
+            if not stat.S_ISREG(info.st_mode):
+                raise ObservationRejected("type", "not-regular", info)
+            if info.st_nlink != 1:
+                raise ObservationRejected("link-count", "link-count", info)
+            if not 0 <= info.st_size <= LIMITS["file_bytes"]:
+                raise ObservationRejected("size-budget", "file-size-limit", info)
+            if self.spent + info.st_size > LIMITS["hashed_bytes"]:
+                raise ObservationRejected("size-budget", "total-size-limit", info)
             self.spent += info.st_size
             tree = self.overlay.Tree(self.fd)
             tree.deadline = self.deadline
-            item = tree.read(resolved[1:], retain=False, max_bytes=min(LIMITS["file_bytes"], info.st_size))
-            self.overlay.require(item["bytes"] == info.st_size
-                and self.overlay.identity(info) == self.overlay.identity(self.resolve(path)[2]))
+            row.update(stage="read", reason="read-rejected")
+            try:
+                item = tree.read(resolved[1:], retain=False, max_bytes=min(LIMITS["file_bytes"], info.st_size))
+            except OSError:
+                raise ObservationRejected("read", "read-failed", info) from None
+            row.update(stage="identity", reason="identity-recheck-failed")
+            try:
+                final = self.resolve(path)[2]
+            except ERRORS:
+                raise ObservationRejected("identity", "identity-recheck-failed", info) from None
+            if item["bytes"] != info.st_size or self.overlay.identity(info) != self.overlay.identity(final):
+                raise ObservationRejected("identity", "identity-changed", info)
             row.update(resolved=resolved, links=links, status="read", sha256=item["sha256"],
-                       bytes=item["bytes"], mode=item["mode"])
-        except FileNotFoundError:
-            row["status"] = "absent"
+                       bytes=item["bytes"], mode=item["mode"], stage="complete", reason=None)
+        except ObservationRejected as error:
+            row.update(stage=error.stage, reason=error.reason, observed=error.observed,
+                       status="absent" if error.reason == "confirmed-absent" else "rejected")
         except ERRORS:
             pass
         return row
@@ -176,8 +257,8 @@ def scan(fs, diagnostic, name, path):
             found = possible & sources
             counts["with_source" if len(found) == 1 else "ambiguous" if found else "without_source"] += 1
         row.update(top_level_imports=len(imports), top_level_imports_sha256=fs.overlay.digest(fs.overlay.json_bytes(sorted(imports))))
-    except FileNotFoundError:
-        row.update(status="absent", reason="metadata-rejected")
+    except ObservationRejected as error:
+        row.update(status="absent" if error.reason == "confirmed-absent" else "rejected", reason=error.reason)
     except ERRORS:
         row.update(status="partial", reason="metadata-rejected")
     row["elapsed_ms"] = min(LIMITS["seconds"] * 1000, max(0, int((time.monotonic() - started) * 1000)))
@@ -289,37 +370,93 @@ def packaging_observations(fs, contract, paths):
 
 
 def canary_report():
-    return {"status": "unavailable", "reason": "prerequisite", "path_sha256": None,
+    return {"status": "not-run", "reason": "prerequisite", "path_sha256": None, "blockers": [],
+            "available": {"processes": False, "payload": False},
+            "attempts": {key: {"status": "not-run", "reason": "prerequisite"} for key in ("fresh", "children")},
             "fresh": None, "fork": None, "spawn": None, "grandchild": None, "forkserver": None}
+
+
+def proposed_paths(facts):
+    paths = {row["name"]: row["path"] for row in facts["locations"]}
+    proposed = [paths.get("stdlib"), paths.get("dynload"),
+                paths["purelib"] + "/nvidia_cutlass_dsl/dsl_packages" if paths.get("purelib") else None, paths.get("purelib")]
+    return list(dict.fromkeys(proposed)) if all(public_path(p) for p in proposed) else []
+
+
+def scan_acceptable(row, scans, facts):
+    if row["status"] == "pass":
+        return True
+    locations = {r["name"]: r for r in facts["locations"]}
+    # A site-root index is not an allowlist. Only a confirmed missing root
+    # outside every required path/alias may be irrelevant to the proposed path.
+    if not (row["name"].startswith("site_root_") and row["name"] in locations
+            and locations[row["name"]]["status"] == "observed" and row["path"] == locations[row["name"]]["path"]
+            and row["status"] == "absent" and row["reason"] == "confirmed-absent" and public_path(row["path"])):
+        return False
+    protected = proposed_paths(facts) + [r["resolved"] for r in scans if r["status"] == "pass" and r["resolved"]]
+    return bool(proposed_paths(facts)) and not any(p == row["path"] or p.startswith(row["path"] + "/") for p in protected)
+
+
+def prerequisite_blockers(facts, scans, executable, available):
+    blockers = []
+    if facts["status"] != "observed":
+        blockers.append("runtime-unobserved")
+    if not all(value is True for value in facts["flags"].values()):
+        blockers.append("runtime-flags")
+    paths = {row["name"]: row["path"] for row in facts["locations"]}
+    blockers += ["location:" + row["name"] for row in facts["locations"] if row["status"] == "rejected"]
+    if paths.get("pycache_prefix") is not None:
+        blockers.append("pycache-prefix")
+    if not proposed_paths(facts):
+        blockers.append("proposed-paths")
+    if paths.get("purelib") != paths.get("platlib"):
+        blockers.append("split-library-roots")
+    blockers += ["scan:" + row["name"] for row in scans if not scan_acceptable(row, scans, facts)]
+    if executable["status"] != "read":
+        blockers.append("executable-unverified")
+    blockers += ["unavailable:" + key for key, value in available.items() if not value]
+    return sorted(set(blockers))
 
 
 def canaries(overlay, facts, scans, executable, processes, payload):
     result = canary_report()
-    try:
-        overlay.require(processes is not None and payload is not None and facts["status"] == "observed"
-                        and all(row["status"] == "pass" for row in scans) and executable["status"] == "read"
-                        and all(row["status"] != "rejected" for row in facts["locations"]))
-        paths = {row["name"]: row["path"] for row in facts["locations"]}
-        proposed = list(dict.fromkeys([paths["stdlib"], paths["dynload"], paths["purelib"] + "/nvidia_cutlass_dsl/dsl_packages", paths["purelib"]]))
-        overlay.require(all(public_path(p) for p in proposed) and paths["pycache_prefix"] is None)
-        result["path_sha256"] = overlay.digest(overlay.json_bytes(proposed))
-        layout = {"paths": proposed, "executable": executable["resolved"], "python": facts["python"], "payload": str(payload)}
-        env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/nonexistent", "TMPDIR": "/tmp",
-               "NIB_PYTHON_CANARY": overlay.json_bytes(layout).decode()}
-        outputs = {}
-        for mode in ("fresh", "children"):
+    result["available"] = {"processes": processes is not None, "payload": payload is not None}
+    result["blockers"] = prerequisite_blockers(facts, scans, executable, result["available"])
+    if result["blockers"]:
+        return result
+    proposed = proposed_paths(facts)
+    result["path_sha256"] = overlay.digest(overlay.json_bytes(proposed))
+    layout = {"paths": proposed, "executable": executable["resolved"], "python": facts["python"], "payload": str(payload)}
+    env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/nonexistent", "TMPDIR": "/tmp",
+           "NIB_PYTHON_CANARY": overlay.json_bytes(layout).decode()}
+    for mode in ("fresh", "children"):
+        attempt = result["attempts"][mode]
+        attempt.update(status="failed", reason="execution-rejected")
+        try:
             process = processes.execute_process_group([executable["resolved"], "-I", "-S", "-B", str(payload / "python-canary.py"), mode],
                 env=env, cwd="/", timeout=45, max_output_bytes=8192)
-            process.check_returncode()
+            attempt["reason"] = "nonzero-exit"
+            overlay.require(process.returncode == 0)
+            attempt["reason"] = "output-rejected"
             overlay.require(not process.stderr)
-            outputs[mode] = overlay.load_json(process.stdout)
-        result.update(fresh=outputs["fresh"], fork=outputs["children"]["fork"], spawn=outputs["children"]["spawn"], forkserver=outputs["children"]["forkserver"])
-        result["grandchild"] = result["spawn"].pop("grandchild")
-        for key in ("fresh", "fork", "spawn", "grandchild", "forkserver"):
-            validate_canary(overlay, result[key], result["path_sha256"])
-        result.update(status="pass", reason=None)
-    except (*ERRORS, subprocess.SubprocessError):
-        result.update(status="rejected", reason="child-canary-rejected", fresh=None, fork=None, spawn=None, grandchild=None, forkserver=None)
+            output = overlay.load_json(process.stdout)
+            if mode == "fresh":
+                values = {"fresh": output}
+            else:
+                overlay.require(type(output) is dict and set(output) == {"fork", "spawn", "forkserver"})
+                values = {**output, "grandchild": output["spawn"].pop("grandchild")}
+            for value in values.values():
+                validate_canary(overlay, value, result["path_sha256"])
+            result.update(values)
+            attempt.update(status="pass", reason=None)
+        except subprocess.TimeoutExpired:
+            attempt["reason"] = "time-limit"
+        except OSError:
+            attempt["reason"] = "launch-or-io-failed"
+        except (*ERRORS, subprocess.SubprocessError):
+            pass
+    passed = all(row["status"] == "pass" for row in result["attempts"].values())
+    result.update(status="pass" if passed else "failed", reason=None if passed else "attempt-failed")
     return result
 
 
@@ -328,7 +465,7 @@ def collect(overlay, diagnostic, contract, *, filesystem_root="/", processes=Non
                     and contract["official_config"]["sha256"] == overlay.PACKAGING_POLICY["config_sha256"]
                     and platform.system() == "Linux" and platform.machine() == "x86_64" and sys.version_info[:2] == (3, 12))
     facts = runtime_facts()
-    report = {"schema": "nib.engine-python-descriptor/v1", "collection": "partial", "limits": dict(LIMITS),
+    report = {"schema": "nib.engine-python-descriptor/v2", "collection": "partial", "limits": dict(LIMITS),
               "candidate_status": "BLOCKED", "deployable": False, "abi_validated": False, "hardware_validated": False,
               "overlay_admission": "not-evaluated", "runtime": facts, "files": [], "scans": [], "collisions": [],
               "worker_sources": [], "packaging": packaging_report(), "canaries": canary_report(), "proposed_paths": [],
@@ -353,9 +490,7 @@ def collect(overlay, diagnostic, contract, *, filesystem_root="/", processes=Non
         roots = [("stdlib", paths.get("stdlib")), ("selected", paths.get("purelib")),
                  ("cutlass", join("purelib", "nvidia_cutlass_dsl/dsl_packages")), ("dynload", paths.get("dynload"))]
         roots += [(name, value) for name, value in paths.items() if name.startswith("site_root_")]
-        proposed = [paths.get("stdlib"), paths.get("dynload"), join("purelib", "nvidia_cutlass_dsl/dsl_packages"), paths.get("purelib")]
-        if all(public_path(p) for p in proposed):
-            report["proposed_paths"] = list(dict.fromkeys(proposed))
+        report["proposed_paths"] = proposed_paths(facts)
         names = {}
         for label, path in roots:
             row, imports = scan(fs, diagnostic, label, path)
@@ -371,7 +506,7 @@ def collect(overlay, diagnostic, contract, *, filesystem_root="/", processes=Non
     complete = (facts["status"] == "observed" and all(row["status"] != "rejected" for row in facts["locations"])
                 and all(row["status"] == "read" for row in required_files)
                 and report["files"][-1]["status"] in ("read", "absent")
-                and all(row["status"] == "pass" for row in report["scans"])
+                and all(scan_acceptable(row, report["scans"], facts) for row in report["scans"])
                 and all(row["status"] == "read" for row in report["worker_sources"])
                 and report["packaging"]["status"] == "pass" and report["canaries"]["status"] == "pass")
     report["collection"] = "pass" if complete else "partial"
@@ -397,7 +532,7 @@ def validate_report(overlay, report, contract):
     require(preparation == contract["descriptor_preparation"] and set(preparation) == {"stages", "candidate_bundle_sha256", "context_sha256", "image_writes"}
             and preparation["stages"] == 5 and preparation["image_writes"] is False
             and all(re.fullmatch(SHA, preparation[key]) for key in ("candidate_bundle_sha256", "context_sha256")))
-    require(report["schema"] == "nib.engine-python-descriptor/v1" and report["collection"] in ("pass", "partial")
+    require(report["schema"] == "nib.engine-python-descriptor/v2" and report["collection"] in ("pass", "partial")
         and report["limits"] == LIMITS and report["candidate_status"] == "BLOCKED" and report["deployable"] is False
         and report["abi_validated"] is False and report["hardware_validated"] is False and report["overlay_admission"] == "not-evaluated"
         and report["scope"] == "installed-file-hashes-and-name-counterparts-not-loaded-code-or-launcher-validation")
@@ -411,7 +546,7 @@ def validate_report(overlay, report, contract):
     require(facts["status"] in ("observed", "rejected") and (facts["python"] is None or re.fullmatch(r"3\.12\.[0-9]{1,3}", facts["python"]))
             and facts["cache_tag"] in (None, "cpython-312"))
     require(set(facts["flags"]) == {"isolated", "no_site", "ignore_environment", "no_user_site", "safe_path", "dont_write_bytecode"}
-            and all(value is True for value in facts["flags"].values()))
+            and all(type(value) is bool for value in facts["flags"].values()))
     require(type(facts["extension_suffixes"]) is list and len(facts["extension_suffixes"]) <= 8
             and all(type(value) is str and re.fullmatch(r"\.[A-Za-z0-9_.-]{1,100}", value) for value in facts["extension_suffixes"]))
     require(type(facts["multiprocessing_flags"]) is list and len(facts["multiprocessing_flags"]) <= 3
@@ -440,6 +575,14 @@ def validate_report(overlay, report, contract):
         require(row["status"] in ("read", "absent", "rejected"))
         if row in report["files"]:
             require(set(row) == set(file_report("", None)))
+        observation = row["observed"]
+        require(set(observation) == {"type", "mode", "size", "nlink"}
+                and observation["type"] in (None, "regular", "directory", "symlink", "fifo", "socket", "block", "character", "other"))
+        for key, bound in (("mode", 0o10000), ("size", 1 << 63), ("nlink", 1 << 64)):
+            require(observation[key] is None or type(observation[key]) is int and 0 <= observation[key] < bound)
+        require(observation["type"] is not None or all(value is None for value in observation.values()))
+        require(row["stage"] == "complete" and row["reason"] is None if row["status"] == "read"
+                else row["reason"] in FILE_REASON_STAGES and row["stage"] == FILE_REASON_STAGES[row["reason"]])
         require(row["path"] is None or public_path(row["path"]))
         key = "stdlib" if row["name"] in SOURCES else "purelib"
         suffix = "nvidia_cutlass_dsl/__init__.py" if row["name"] == "cutlass-init" else row["name"]
@@ -453,8 +596,15 @@ def validate_report(overlay, report, contract):
             require(public_path(row["resolved"]) and re.fullmatch(SHA, row["sha256"])
                     and type(row["bytes"]) is int and 0 <= row["bytes"] <= LIMITS["file_bytes"]
                     and type(row["mode"]) is int and 0 <= row["mode"] <= 0o7777)
+            require(observation == dict(type="regular", mode=row["mode"], size=row["bytes"], nlink=1))
         else:
             require(not row["links"] and all(row[key] is None for key in ("resolved", "sha256", "bytes", "mode")))
+            require((row["status"] == "absent") == (row["reason"] == "confirmed-absent"))
+            require(row["status"] != "absent" or observation == observed_stat())
+            if row["reason"] == "not-regular":
+                require(observation["type"] not in (None, "regular"))
+            if row["reason"] == "link-count":
+                require(observation["type"] == "regular" and observation["nlink"] != 1)
     require(sum(row["bytes"] or 0 for row in report["files"] + report["worker_sources"]) <= LIMITS["hashed_bytes"])
     require(type(report["scans"]) is list and [row["name"] for row in report["scans"]] == list(SCAN_NAMES) + [row["name"] for row in locations if row["name"].startswith("site_root_")])
     for row in report["scans"]:
@@ -464,8 +614,9 @@ def validate_report(overlay, report, contract):
             "purelib" if row["name"] == "selected" else row["name"])
         require(row["path"] == expected_path)
         require(row["resolved"] is None or public_path(row["resolved"]))
-        require(row["reason"] in (None, "metadata-rejected", "time-limit", "entry-limit", "depth-limit", "unsafe-name",
-                                   "size-limit", "directory-changed", "device-boundary"))
+        require(row["reason"] in {None, "metadata-rejected", "time-limit", "entry-limit", "depth-limit", "unsafe-name",
+                                   "size-limit", "directory-changed", "device-boundary"} | FILE_REASON_STAGES.keys())
+        require((row["status"] == "absent") == (row["reason"] == "confirmed-absent"))
         require(set(row["types"]) == {"regular", "directory", "symlink", "special"}
                 and set(row["bytecode"]) == {"total", "with_source", "without_source", "ambiguous"}
                 and set(row["startup_hooks"]) == {"pth", "egg_link", "editable", "sitecustomize", "usercustomize"})
@@ -477,6 +628,9 @@ def validate_report(overlay, report, contract):
                 and type(row["elapsed_ms"]) is int and 0 <= row["elapsed_ms"] <= LIMITS["seconds"] * 1000)
         require(row["mode"] is None or type(row["mode"]) is int and 0 <= row["mode"] <= 0o7777)
         require(row["top_level_imports_sha256"] is None or re.fullmatch(SHA, row["top_level_imports_sha256"]))
+        if row["status"] == "absent":
+            require(row == {**scan_report(row["name"], row["path"]), "status": "absent",
+                            "reason": "confirmed-absent", "elapsed_ms": row["elapsed_ms"]})
         if row["status"] == "pass":
             require(row["reason"] is None and row["mode"] is not None and row["resolved"] is not None
                     and row["top_level_imports_sha256"] is not None)
@@ -512,25 +666,36 @@ def validate_report(overlay, report, contract):
                                                             "legacy_bytecode", "without_source", "ambiguous"))
                 and names == sorted(overlay.CUTLASS_STUB_POLICY["paths"]))
     children = report["canaries"]
-    require(set(children) == set(canary_report()) and children["status"] in ("pass", "unavailable", "rejected")
-            and children["reason"] in (None, "prerequisite", "child-canary-rejected")
-            and (children["path_sha256"] is None or re.fullmatch(SHA, children["path_sha256"])))
-    if children["status"] == "pass":
-        require(children["reason"] is None and report["proposed_paths"]
-                and children["path_sha256"] == overlay.digest(overlay.json_bytes(report["proposed_paths"]))
-                and facts["status"] == "observed" and paths["pycache_prefix"] is None
-                and all(row["status"] == "pass" for row in report["scans"]))
-        for key in ("fresh", "fork", "spawn", "grandchild", "forkserver"):
-            validate_canary(overlay, children[key], children["path_sha256"])
-    else:
+    require(set(children) == set(canary_report()) and children["status"] in ("pass", "not-run", "failed")
+            and set(children["available"]) == {"processes", "payload"}
+            and all(type(value) is bool for value in children["available"].values()))
+    blockers = prerequisite_blockers(facts, report["scans"], report["files"][0], children["available"])
+    require(children["blockers"] == blockers and len(blockers) <= 64 and set(children["attempts"]) == {"fresh", "children"})
+    if blockers:
+        require(children["status"] == "not-run" and children["reason"] == "prerequisite" and children["path_sha256"] is None)
+        require(all(row == {"status": "not-run", "reason": "prerequisite"} for row in children["attempts"].values()))
         require(all(children[key] is None for key in ("fresh", "fork", "spawn", "grandchild", "forkserver")))
+    else:
+        require(report["proposed_paths"] and children["path_sha256"] == overlay.digest(overlay.json_bytes(report["proposed_paths"])))
+        for mode, keys in (("fresh", ("fresh",)), ("children", ("fork", "spawn", "grandchild", "forkserver"))):
+            attempt = children["attempts"][mode]
+            require(set(attempt) == {"status", "reason"} and attempt["status"] in ("pass", "failed"))
+            if attempt["status"] == "pass":
+                require(attempt["reason"] is None)
+                for key in keys:
+                    validate_canary(overlay, children[key], children["path_sha256"])
+            else:
+                require(attempt["reason"] in {"execution-rejected", "nonzero-exit", "output-rejected", "time-limit", "launch-or-io-failed"}
+                        and all(children[key] is None for key in keys))
+        passed = all(row["status"] == "pass" for row in children["attempts"].values())
+        require(children["status"] == ("pass" if passed else "failed") and children["reason"] == (None if passed else "attempt-failed"))
     if report["collection"] == "pass":
         require(facts["status"] == "observed" and all(row["status"] != "rejected" for row in locations)
                 and facts["python"] is not None and facts["cache_tag"] == "cpython-312"
                 and facts["extension_suffixes"] and set(facts["multiprocessing_flags"]) == {"-B", "-S", "-I"}
                 and all(row["status"] == "read" for row in report["files"][:-1])
                 and report["files"][-1]["status"] in ("read", "absent")
-                and all(row["status"] == "pass" for row in report["scans"])
-                and all(row["status"] == "read" for row in report["worker_sources"])
+                and all(scan_acceptable(row, report["scans"], facts) for row in report["scans"]))
+        require(all(row["status"] == "read" for row in report["worker_sources"])
                 and packaging["status"] == "pass" and children["status"] == "pass")
     require(len(overlay.json_bytes(report)) <= LIMITS["report_bytes"])
