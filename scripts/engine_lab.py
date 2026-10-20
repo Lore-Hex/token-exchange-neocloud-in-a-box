@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Appended to exact reviewed bootstrap helpers; separate bounded CC lab entry."""
 
+import fcntl
 import http.client
 import json
 import signal
+import stat
 import subprocess
 import time
 from pathlib import Path
@@ -25,6 +27,99 @@ IMAGE_LD_PATH = "/usr/local/nvidia/lib64:/usr/local/cuda/lib64:/usr/local/cuda/l
 PROCESSES = None
 GPU_PROBE = None
 CORRECTNESS = None
+ENTRY_CHECKPOINTS = 17
+
+
+class EntryCheckpointWriter:
+    """One fixed byte per boundary, on the explicitly inherited pipe only."""
+
+    def __init__(self, argument):
+        require(type(argument) is str and argument.isascii() and argument.isdecimal()
+                and 0 < len(argument) <= 7 and str(int(argument)) == argument)
+        fd = int(argument)
+        require(2 < fd <= 1048575 and stat.S_ISFIFO(os.fstat(fd).st_mode)
+                and fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_ACCMODE == os.O_WRONLY
+                and not os.get_blocking(fd))
+        os.set_inheritable(fd, False)
+        self.fd, self.last = fd, 0
+
+    def emit(self, code):
+        require(self.fd is not None and type(code) is int
+                and code == self.last + 1 and code <= ENTRY_CHECKPOINTS)
+        require(os.write(self.fd, bytes([code])) == 1)
+        self.last = code
+
+    def bootstrap(self, stage, index):
+        if stage == "setuptools-source":
+            require(type(index) is int and 0 <= index < 4)
+            code = 4 + index
+        else:
+            require(index is None and stage in ("preconditions", "vendor-root", "install", "complete"))
+            code = {"preconditions": 3, "vendor-root": 8, "install": 9, "complete": 10}[stage]
+        self.emit(code)
+
+    def close(self):
+        if self.fd is not None:
+            fd, self.fd = self.fd, None
+            os.close(fd)
+
+
+class EntryCheckpointReader:
+    """Bounded nonblocking supervisor observations, never an authorization."""
+
+    def __init__(self, observation):
+        self.observation = observation
+        self.reader, self.writer = os.pipe()
+        try:
+            os.set_blocking(self.reader, False)
+            os.set_blocking(self.writer, False)
+        except BaseException:
+            os.close(self.reader)
+            os.close(self.writer)
+            raise
+
+    def close_writer(self):
+        if self.writer is not None:
+            fd, self.writer = self.writer, None
+            os.close(fd)
+
+    def poll(self):
+        if self.observation["status"] != "open":
+            return
+        # At most 18 bytes across two reads, including an overflow/EOF check.
+        budget = ENTRY_CHECKPOINTS + 1
+        for _ in range(2):
+            try:
+                data = os.read(self.reader, budget)
+            except BlockingIOError:
+                return
+            except OSError:
+                self.observation["status"] = "read-failed"
+                return
+            if not data:
+                self.observation["status"] = "eof"
+                return
+            budget -= len(data)
+            for code in data:
+                last = self.observation["last_id"] or 0
+                if last == ENTRY_CHECKPOINTS:
+                    self.observation["status"] = "overflow"
+                    return
+                if code != last + 1:
+                    self.observation["status"] = "invalid"
+                    return
+                self.observation["last_id"] = code
+            if budget == 0:
+                return
+
+    def finish(self):
+        self.close_writer()
+        self.poll()
+        if self.observation["status"] == "open":
+            self.observation["status"] = "incomplete"
+        if self.reader is not None:
+            fd, self.reader = self.reader, None
+            os.close(fd)
 
 
 def lab_args(plan):
@@ -235,18 +330,28 @@ def completion_result(raw):
             "prompt_tokens": usage["prompt_tokens"], "completion_tokens": usage["completion_tokens"]}
 
 
-def run_engine(contract):
+def run_engine(contract, checkpoints):
     state = install_lab({"paths": contract["paths"], "stdlib_roots": contract["paths"][:2],
-                         "wrapper": ROOT + "/python", "launcher": ROOT + "/launch.py"}, sys.modules[__name__])
+                         "wrapper": ROOT + "/python", "launcher": ROOT + "/launch.py"}, sys.modules[__name__],
+                        checkpoint=checkpoints.bootstrap)
     # At this boundary all metadata/paths are established before engine imports.
+    checkpoints.emit(11)
     from vllm.entrypoints.cli.serve import ServeSubcommand
+    checkpoints.emit(12)
     from vllm.utils.argparse_utils import FlexibleArgumentParser
+    checkpoints.emit(13)
     parser = FlexibleArgumentParser()
     serve = ServeSubcommand()
     serve.subparser_init(parser.add_subparsers(dest="subparser"))
+    checkpoints.emit(14)
     args = parser.parse_args(["serve", *contract["arguments"]])
+    checkpoints.emit(15)
     serve.validate(args)
+    checkpoints.emit(16)
     state["check"]()
+    checkpoints.emit(17)
+    # No checkpoint endpoint remains open when real workers may be launched.
+    checkpoints.close()
     serve.cmd(args)
 
 
@@ -275,13 +380,15 @@ def recheck_sources(overlay, application, paths):
                     os.close(cache)
 
 
-def observe_startup(engine, observation):
+def observe_startup(engine, observation, checkpoints=None):
     """Record only supervisor observations; never consume the engine's logs."""
     started = time.monotonic()
     observation["outcome"] = "supervisor-failure"
     try:
         deadline = started + STARTUP_SECONDS
         while True:
+            if checkpoints is not None:
+                checkpoints.poll()
             code = engine.poll()
             if code is not None:
                 require(type(code) is int and -128 <= code <= 255)
@@ -303,6 +410,8 @@ def observe_startup(engine, observation):
                 and [row.get("id") for row in models["data"]] == [MODEL])
         observation["outcome"] = "ready"
     finally:
+        if checkpoints is not None:
+            checkpoints.finish()
         elapsed = time.monotonic() - started
         if not 0 <= elapsed <= TOTAL_SECONDS:
             observation.update(outcome="supervisor-failure", exit_code=None)
@@ -319,7 +428,7 @@ def application_and_request(contract, sources, modules, application, measured):
     correctness = contract["operation"] == "local-correctness"
     if correctness:
         result.update(schema="nib.deepseek-lab-correctness-result/v1", correctness=None)
-    engine = None
+    engine = checkpoints = None
     started = time.monotonic()
     try:
         result["hardware"] = hardware()
@@ -342,10 +451,18 @@ def application_and_request(contract, sources, modules, application, measured):
         require(time.monotonic() - started < WEIGHTS_SECONDS + APPLICATION_SECONDS + 60)
         result["stage"] = "startup"
         result["startup"] = {"outcome": "launch-failed", "wait_ms": 0,
-                             "exit_code": None, "health_probes": 0}
-        engine = subprocess.Popen([ROOT + "/python", "engine"], stdin=subprocess.DEVNULL,
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-        observe_startup(engine, result["startup"])
+                             "exit_code": None, "health_probes": 0,
+                             "checkpoints": {"status": "not-started", "last_id": None}}
+        checkpoints = EntryCheckpointReader(result["startup"]["checkpoints"])
+        try:
+            engine = subprocess.Popen(
+                [ROOT + "/python", "engine", "--checkpoint-fd", str(checkpoints.writer)],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True, pass_fds=(checkpoints.writer,))
+            checkpoints.observation["status"] = "open"
+        finally:
+            checkpoints.close_writer()
+        observe_startup(engine, result["startup"], checkpoints)
         result["stage"] = "request"
         if correctness:
             result["correctness"] = CORRECTNESS.run(
@@ -364,6 +481,8 @@ def application_and_request(contract, sources, modules, application, measured):
     except Exception:
         result["functional_pass"] = False
     finally:
+        if checkpoints is not None:
+            checkpoints.finish()
         if engine is not None:
             try:
                 os.killpg(engine.pid, signal.SIGTERM)
@@ -390,6 +509,19 @@ def lab_entry():
         print(json.dumps(diagnostic_child(sys.argv[1]), sort_keys=True))
         return
     require(sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode and len(sys.argv) >= 3)
+    if sys.argv[2] == "engine":
+        require(len(sys.argv) == 5 and sys.argv[3] == "--checkpoint-fd")
+        checkpoints = EntryCheckpointWriter(sys.argv[4])
+        try:
+            checkpoints.emit(1)
+            contract, _, modules, application, _ = lab_context(sys.argv[1])
+            require(contract["operation"] in ("functional", "local-correctness"))
+            checkpoints.emit(2)
+            recheck_sources(modules[0], application, contract["paths"])
+            run_engine(contract, checkpoints)
+        finally:
+            checkpoints.close()
+        return
     contract, sources, modules, application, measured = lab_context(sys.argv[1])
     mode, rest = sys.argv[2], sys.argv[2:]
     if contract["operation"] == "hardware-diagnostic":
@@ -412,9 +544,6 @@ def lab_entry():
         install_lab({"paths": contract["paths"], "stdlib_roots": contract["paths"][:2],
                      "wrapper": ROOT + "/python", "launcher": ROOT + "/launch.py"}, sys.modules[__name__])
         print(json.dumps(GPU_PROBE.validate(GPU_PROBE.NVML().observe()), sort_keys=True))
-    elif mode == "engine" and len(rest) == 1:
-        recheck_sources(modules[0], application, contract["paths"])
-        run_engine(contract)
     else:
         recheck_sources(modules[0], application, contract["paths"])
         state = install_lab({"paths": contract["paths"], "stdlib_roots": contract["paths"][:2],

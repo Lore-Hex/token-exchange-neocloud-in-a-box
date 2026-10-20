@@ -432,11 +432,17 @@ def validate_result(row, bundle, contract, recorder):
         require(startup is None)
     else:
         require(type(startup) is dict
-                and set(startup) == {"outcome", "wait_ms", "exit_code", "health_probes"})
+                and set(startup) == {"outcome", "wait_ms", "exit_code", "health_probes", "checkpoints"})
         require(startup["outcome"] in ("launch-failed", "child-exited", "startup-timeout",
                                       "models-rejected", "ready", "supervisor-failure")
                 and type(startup["wait_ms"]) is int and 0 <= startup["wait_ms"] <= MAX_SECONDS * 1000
                 and type(startup["health_probes"]) is int and 0 <= startup["health_probes"] <= MAX_SECONDS + 1)
+        checkpoints = startup["checkpoints"]
+        require(type(checkpoints) is dict and set(checkpoints) == {"status", "last_id"}
+                and checkpoints["status"] in ("not-started", "eof", "incomplete", "invalid", "overflow", "read-failed")
+                and (checkpoints["last_id"] is None
+                     or type(checkpoints["last_id"]) is int and 1 <= checkpoints["last_id"] <= 17)
+                and (checkpoints["status"] != "not-started" or checkpoints["last_id"] is None))
         if startup["outcome"] == "child-exited":
             require(type(startup["exit_code"]) is int and -128 <= startup["exit_code"] <= 255)
         else:

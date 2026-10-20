@@ -943,7 +943,8 @@ class PayloadTests(unittest.TestCase):
                "application": receipt, "hardware": probe.validate(HardwareTests().raw()),
                "completion": {"generated": True, "finish": "stop", "prompt_tokens": 10, "completion_tokens": 1,
                               "final_content_present": True, "synthetic_answer_match": True},
-               "startup": {"outcome": "ready", "wait_ms": 1, "exit_code": None, "health_probes": 1},
+               "startup": {"outcome": "ready", "wait_ms": 1, "exit_code": None, "health_probes": 1,
+                           "checkpoints": {"status": "eof", "last_id": 17}},
                "engine_stopped": True}
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
@@ -967,6 +968,17 @@ class PayloadTests(unittest.TestCase):
                 changed = copy.deepcopy(row)
                 changed["startup"].update(mutation)
                 with self.subTest(startup=mutation), self.assertRaises(ValueError):
+                    host.validate_result(changed, root, self.contract, self.builder.recorder)
+            for checkpoints in ({"status": "PRIVATE", "last_id": None},
+                                {"status": "open", "last_id": 1},
+                                {"status": "eof", "last_id": True},
+                                {"status": "eof", "last_id": 18},
+                                {"status": "eof", "last_id": 0},
+                                {"status": "not-started", "last_id": 1},
+                                {"status": "eof", "last_id": 17, "private": "sentinel"}):
+                changed = copy.deepcopy(row)
+                changed["startup"]["checkpoints"] = checkpoints
+                with self.subTest(checkpoints=checkpoints), self.assertRaises(ValueError):
                     host.validate_result(changed, root, self.contract, self.builder.recorder)
             for field in ("final_content_present", "synthetic_answer_match"):
                 changed = copy.deepcopy(row)
@@ -1005,7 +1017,8 @@ class PayloadTests(unittest.TestCase):
                 startup_failed = {**candidate, "functional_pass": False, "stage": "startup",
                                   "completion": None, "engine_stopped": True,
                                   "startup": {"outcome": "child-exited", "wait_ms": 1,
-                                              "exit_code": 1, "health_probes": 0}}
+                                              "exit_code": 1, "health_probes": 0,
+                                              "checkpoints": {"status": "eof", "last_id": 11}}}
                 if operation == "local-correctness":
                     startup_failed["correctness"] = None
                 with self.subTest(operation=operation):
@@ -1016,6 +1029,202 @@ class PayloadTests(unittest.TestCase):
                         bad["application"]["before_inventory_sha256"] = malformed
                         with self.assertRaises(ValueError):
                             host.validate_result(bad, root, input_contract, self.builder.recorder)
+
+
+class CheckpointTests(unittest.TestCase):
+    def reader(self):
+        return lab.EntryCheckpointReader({"status": "not-started", "last_id": None})
+
+    def test_fixed_order_nonblocking_bound_and_no_raw_values(self):
+        for data, status, last in ((bytes(range(1, 18)), "eof", 17),
+                                   (b"\x01\x02", "eof", 2),
+                                   (b"", "eof", None),
+                                   (b"\x01PRIVATE", "invalid", 1),
+                                   (b"\x02", "invalid", None),
+                                   (bytes(range(1, 18)) + b"\x01" * 1000, "overflow", 17)):
+            channel = self.reader()
+            try:
+                channel.observation["status"] = "open"
+                os.write(channel.writer, data)
+                channel.close_writer()
+                with mock.patch.object(lab.os, "read", wraps=os.read) as read:
+                    channel.finish()
+                self.assertLessEqual(sum(call.args[1] for call in read.call_args_list), 36)
+                self.assertLessEqual(read.call_count, 2)
+                self.assertEqual(channel.observation, {"status": status, "last_id": last})
+                self.assertNotIn("PRIVATE", json.dumps(channel.observation))
+            finally:
+                channel.finish()
+
+    def test_live_pipe_never_blocks_and_close_is_idempotent(self):
+        channel = self.reader()
+        child = os.dup(channel.writer)
+        try:
+            channel.observation["status"] = "open"
+            channel.close_writer()
+            channel.poll()
+            self.assertEqual(channel.observation, {"status": "open", "last_id": None})
+            channel.finish()
+            self.assertEqual(channel.observation, {"status": "incomplete", "last_id": None})
+            channel.finish()
+        finally:
+            os.close(child)
+            channel.finish()
+
+    def test_writer_requires_explicit_write_only_nonblocking_fifo(self):
+        channel = self.reader()
+        try:
+            for argument in ("3x", "03", "-1", "0", "1", "2", "1048576", str(channel.reader), True):
+                with self.subTest(argument=argument), self.assertRaises((ValueError, OSError)):
+                    lab.EntryCheckpointWriter(argument)
+            with tempfile.TemporaryFile() as regular:
+                with self.assertRaises(ValueError):
+                    lab.EntryCheckpointWriter(str(regular.fileno()))
+            os.set_blocking(channel.writer, True)
+            with self.assertRaises(ValueError):
+                lab.EntryCheckpointWriter(str(channel.writer))
+            os.set_blocking(channel.writer, False)
+            writer = lab.EntryCheckpointWriter(str(os.dup(channel.writer)))
+            try:
+                self.assertFalse(os.get_inheritable(writer.fd))
+                for bad in (True, 0, 2, 18, "PRIVATE"):
+                    with self.subTest(code=bad), self.assertRaises(ValueError):
+                        writer.emit(bad)
+                writer.emit(1)
+                with self.assertRaises(ValueError):
+                    writer.emit(1)
+            finally:
+                writer.close()
+        finally:
+            channel.finish()
+
+    def test_real_child_inherits_nondefault_fd_but_exec_descendant_does_not(self):
+        channel = self.reader()
+        self.assertGreater(channel.writer, 3)
+        code = """
+import os, runpy, subprocess, sys
+module = runpy.run_path(sys.argv[1])
+def require(value):
+    if not value: raise ValueError("fixed rejection")
+module["EntryCheckpointWriter"].__init__.__globals__.update(require=require, os=os)
+writer = module["EntryCheckpointWriter"](sys.argv[2])
+assert not os.get_inheritable(writer.fd)
+child = "import os,sys\\ntry: os.fstat(int(sys.argv[1]))\\nexcept OSError: sys.exit(0)\\nsys.exit(1)"
+subprocess.run([sys.executable, "-I", "-S", "-B", "-c", child, str(writer.fd)],
+               close_fds=False, check=True, timeout=5)
+for code in range(1, 18): writer.emit(code)
+writer.close()
+"""
+        try:
+            process = subprocess.Popen([sys.executable, "-I", "-S", "-B", "-c", code,
+                                        str(ROOT / "scripts/engine_lab.py"), str(channel.writer)],
+                                       pass_fds=(channel.writer,), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            channel.observation["status"] = "open"
+            channel.close_writer()
+            stdout, stderr = process.communicate(timeout=10)
+            self.assertEqual((process.returncode, stdout, stderr), (0, b"", b""))
+            channel.finish()
+            self.assertEqual(channel.observation, {"status": "eof", "last_id": 17})
+        finally:
+            channel.finish()
+
+    def test_engine_boundaries_close_before_serve_and_preserve_first_failure(self):
+        for failure in (None, "parse", "validate", "check"):
+            channel = self.reader()
+            writer = lab.EntryCheckpointWriter(str(os.dup(channel.writer)))
+            channel.observation["status"] = "open"
+            channel.close_writer()
+            writer.emit(1)
+            writer.emit(2)
+            parser = mock.Mock()
+            parser.parse_args.return_value = object()
+            serve = mock.Mock()
+            def cmd(_):
+                self.assertIsNone(writer.fd)
+                channel.poll()
+                self.assertEqual(channel.observation, {"status": "eof", "last_id": 17})
+            serve.cmd.side_effect = cmd
+            check = mock.Mock()
+            if failure == "parse":
+                parser.parse_args.side_effect = ValueError("PRIVATE")
+            elif failure == "validate":
+                serve.validate.side_effect = ValueError("PRIVATE")
+            elif failure == "check":
+                check.side_effect = ValueError("PRIVATE")
+            def install(*args, checkpoint):
+                checkpoint("preconditions", None)
+                for index in range(4):
+                    checkpoint("setuptools-source", index)
+                for stage in ("vendor-root", "install", "complete"):
+                    checkpoint(stage, None)
+                return {"check": check}
+            fake_serve = types.ModuleType("vllm.entrypoints.cli.serve")
+            fake_serve.ServeSubcommand = lambda: serve
+            fake_parser = types.ModuleType("vllm.utils.argparse_utils")
+            fake_parser.FlexibleArgumentParser = lambda: parser
+            try:
+                with self.subTest(failure=failure), mock.patch.dict(sys.modules, {
+                        "engine_lab": lab, "vllm.entrypoints.cli.serve": fake_serve,
+                        "vllm.utils.argparse_utils": fake_parser}), \
+                        mock.patch.object(lab, "install_lab", install, create=True):
+                    if failure is None:
+                        lab.run_engine({"paths": ["/stdlib", "/dyn", "/selected"], "arguments": []}, writer)
+                        serve.cmd.assert_called_once()
+                    else:
+                        with self.assertRaises(ValueError):
+                            lab.run_engine({"paths": ["/stdlib", "/dyn", "/selected"], "arguments": []}, writer)
+                        serve.cmd.assert_not_called()
+            finally:
+                writer.close()
+                channel.finish()
+            self.assertEqual(channel.observation["last_id"],
+                             {None: 17, "parse": 14, "validate": 15, "check": 16}[failure])
+
+    @mock.patch.object(sys, "flags", types.SimpleNamespace(isolated=True, no_site=True))
+    @mock.patch.object(sys, "dont_write_bytecode", True)
+    def test_engine_entry_requires_exact_route_and_closes_on_early_failure(self):
+        for args in (["engine"], ["engine", "--checkpoint-fd"], ["engine", "3"],
+                     ["engine", "--checkpoint-fd", "3", "extra"]):
+            with self.subTest(args=args), mock.patch.object(sys, "argv", ["launch.py", "a" * 64, *args]), \
+                    self.assertRaises(ValueError):
+                lab.lab_entry()
+        for args in (["--checkpoint-fd", "4"], ["-c", "--checkpoint-fd", "4"]):
+            with self.assertRaises(ValueError):
+                helpers.route(args)
+        channel = self.reader()
+        child = os.dup(channel.writer)
+        channel.close_writer()
+        channel.observation["status"] = "open"
+        try:
+            with mock.patch.object(sys, "argv", ["launch.py", "a" * 64, "engine", "--checkpoint-fd", str(child)]), \
+                    mock.patch.object(lab, "lab_context", side_effect=ValueError("PRIVATE")):
+                with self.assertRaises(ValueError):
+                    lab.lab_entry()
+            with self.assertRaises(OSError):
+                os.fstat(child)
+            child = None
+            channel.finish()
+            self.assertEqual(channel.observation, {"status": "eof", "last_id": 1})
+        finally:
+            if child is not None:
+                try:
+                    os.close(child)
+                except OSError:
+                    pass
+            channel.finish()
+
+    def test_engine_entry_rejects_each_wrong_flag_before_claiming_fd(self):
+        for isolated, no_site, no_bytecode in ((False, True, True), (True, False, True), (True, True, False)):
+            with self.subTest(flags=(isolated, no_site, no_bytecode)), \
+                    mock.patch.object(sys, "flags", types.SimpleNamespace(isolated=isolated, no_site=no_site)), \
+                    mock.patch.object(sys, "dont_write_bytecode", no_bytecode), \
+                    mock.patch.object(sys, "argv", ["launch.py", "a" * 64, "engine", "--checkpoint-fd", "17"]), \
+                    mock.patch.object(lab, "EntryCheckpointWriter") as writer, \
+                    mock.patch.object(lab, "lab_context") as context:
+                with self.assertRaises(ValueError):
+                    lab.lab_entry()
+                writer.assert_not_called()
+                context.assert_not_called()
 
 
 class LifecycleTests(unittest.TestCase):
@@ -1074,9 +1283,14 @@ class LifecycleTests(unittest.TestCase):
                 return json.dumps(body).encode()
             with self.subTest(terminal=terminal), mock.patch.object(lab, "hardware", return_value={"fixed": True}), \
                     mock.patch.object(lab, "quiet_command"), mock.patch.object(lab, "http_request", side_effect=http), \
-                    mock.patch.object(lab.subprocess, "Popen", return_value=engine), mock.patch.object(lab.os, "killpg"):
+                    mock.patch.object(lab.subprocess, "Popen", return_value=engine) as start, mock.patch.object(lab.os, "killpg"):
                 row = lab.application_and_request({"operation": "functional"}, {},
                                                   [None, None, None, app], application, {})
+            argv = start.call_args.args[0]
+            self.assertEqual(argv[:3], [lab.ROOT + "/python", "engine", "--checkpoint-fd"])
+            self.assertEqual(start.call_args.kwargs["pass_fds"], (int(argv[3]),))
+            with self.assertRaises(OSError):
+                os.fstat(int(argv[3]))
             self.assertEqual(row["functional_pass"], terminal in (0, -signal.SIGTERM))
             self.assertNotIn("private upstream failure", json.dumps(row))
             self.assertNotIn("synthetic-private", json.dumps(row))
