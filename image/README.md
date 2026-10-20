@@ -20,6 +20,12 @@ Its fixed CPU-only runner rehearses the exact guest package plan without
 installation. Container execution awaits independent review and coordinated
 validation; the minimal APT root is not yet the complete mkosi tools tree.
 
+The separate [mkosi build-input preparer](../docs/tasks/p3-t1-mkosi-build-inputs.md)
+verifies the exact 27.1 source archive and a 203-package tools graph, then
+assembles their union with the guest packages without execution. Script review,
+expanded-tools APT/runtime checks and a reviewed Linux mount/namespace policy
+still block installation; its receipt cannot authorize a build.
+
 [P3.T1 prerequisite audit](../docs/tasks/p3-t1-guest-image-feasibility.md)
 records the source-backed build inputs and unresolved package/boot requirements.
 It is not a build recipe, an artifact lock or evidence of image readiness.
