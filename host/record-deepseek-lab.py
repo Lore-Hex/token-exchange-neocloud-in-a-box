@@ -469,7 +469,9 @@ def validate_result(row, bundle, contract, recorder):
             "failure": "bounded-smoke-stage-rejected",
             "phase_elapsed_ms": {"application-preflight": 0, "application": 0, "import-smoke": 0}},
             application, measured)
-        require(row["application"]["before_inventory_sha256"] == measured["packaging"]["inventory_sha256"])
+        # The writer hashes its complete pre-application report here, not only
+        # its files. The measured files-only digest is enforced by app.inspect
+        # before application; comparing these different domains rejects valid receipts.
     if row["completion"] is not None:
         value = row["completion"]
         require(type(value) is dict and set(value) == {"generated", "finish", "prompt_tokens", "completion_tokens",

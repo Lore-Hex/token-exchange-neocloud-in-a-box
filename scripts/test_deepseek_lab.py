@@ -929,10 +929,13 @@ class PayloadTests(unittest.TestCase):
             before = fixtures.app.inspect(fixtures.overlay, tree, application, measured, console)
             receipt = fixtures.app.apply(fixtures.overlay, tree, application,
                                          self.builder.checker.verify_stages(self.bundle), before, measured, console)
+        writer_hash = fixtures.overlay.digest(fixtures.overlay.json_bytes(before))
+        self.assertEqual(receipt["before_inventory_sha256"], writer_hash)
+        self.assertNotEqual(writer_hash, measured["packaging"]["inventory_sha256"])
         actual = json.loads(self.files["application/contract.json"])
         measured = self.builder.application.measurement(self.builder.overlay, self.files["application/measurement.json"])
         receipt.update(git_sha=actual["git_sha"], source_bundle_sha256=actual["source_bundle_sha256"],
-                       before_inventory_sha256=measured["packaging"]["inventory_sha256"], removed_bytecode_files=2879)
+                       removed_bytecode_files=2879)
         receipt["packaging"].update(removal_plan_sha256=measured["packaging"]["removal_plan_sha256"],
                                     removed_unlisted_bytecode_files=2879)
         row = {"schema": "nib.deepseek-lab-result/v1", "status": "BLOCKED", "deployable": False,
@@ -995,6 +998,24 @@ class PayloadTests(unittest.TestCase):
                 host.validate_result({**good, "correctness": failed}, root, contract, self.builder.recorder)
             host.validate_result({**good, "correctness": failed, "functional_pass": False},
                                  root, contract, self.builder.recorder)
+            # An engine startup failure must retain the real application receipt,
+            # not disappear behind the outer recorder's validation failure.
+            for operation, candidate, input_contract in (
+                    ("functional", row, self.contract), ("local-correctness", good, contract)):
+                startup_failed = {**candidate, "functional_pass": False, "stage": "startup",
+                                  "completion": None, "engine_stopped": True,
+                                  "startup": {"outcome": "child-exited", "wait_ms": 1,
+                                              "exit_code": 1, "health_probes": 0}}
+                if operation == "local-correctness":
+                    startup_failed["correctness"] = None
+                with self.subTest(operation=operation):
+                    host.validate_result(startup_failed, root, input_contract, self.builder.recorder)
+                    self.assertEqual(startup_failed["application"]["before_inventory_sha256"], writer_hash)
+                    for malformed in ("", "0" * 63, "private"):
+                        bad = copy.deepcopy(startup_failed)
+                        bad["application"]["before_inventory_sha256"] = malformed
+                        with self.assertRaises(ValueError):
+                            host.validate_result(bad, root, input_contract, self.builder.recorder)
 
 
 class LifecycleTests(unittest.TestCase):
