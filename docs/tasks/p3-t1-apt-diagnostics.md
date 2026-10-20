@@ -24,7 +24,8 @@ Docker policy, cleanup, timeouts, output caps or plan acceptance.
   shared deadline expiry and wrong APT version.
 - A completed process contributes its bounded exit code and stdout/stderr byte
   counts. Stderr contributes only counts of `E:`, `W:`, `N:` and other nonempty
-  lines. These prefixes are observations, not attribution of a root cause.
+  lines, plus the single exact warning classifier below. Prefix counts alone
+  are observations, not attribution of a root cause.
 - A collector exception has unavailable counts/exit code, not invented zeroes.
   Exception messages, command arguments and partial output are never serialized.
   Only the pinned collector's exact fixed output-limit exception is classified;
@@ -52,6 +53,37 @@ are not retroactively given new observations.
 Tests use fake APT outputs, producer-to-host validation, malformed/private
 sentinels, finite coverage, deadline cases and comparison with the original
 committed v1 plan validator. They do not run APT or containers.
+
+## Exact missing-preferences warning
+
+`stderr-missing-preferences-directory` identifies only this entire stderr byte
+string, including its trailing slash and single LF, at `resolve` with exit zero
+before the shared deadline:
+
+```text
+W: Unable to read /work/etc/preferences.d/ - DirectoryExists (2: No such file or directory)
+```
+
+This is derived from the exact official Ubuntu
+[`apt_2.8.3.tar.xz`](https://archive.ubuntu.com/ubuntu/pool/main/a/apt/apt_2.8.3.tar.xz),
+SHA-256 `088522b3613b28fdbcfa61f1f7e476bf6dc6b0120a8f74409e9527580c9f9d3b`:
+`apt-pkg/init.cc:158-159` sets the relative preferences defaults;
+`apt-pkg/contrib/configuration.cc:339-405` resolves the private parent and adds
+the directory slash; `apt-pkg/contrib/fileutl.cc:355-360` uses `stat`;
+`apt-pkg/policy.cc:382-391` calls `WarningE` with `DirectoryExists` and
+`Unable to read %s` on absence. `apt-pkg/contrib/error.cc:49-104,192-203,280-296`
+formats the errno suffix, warning prefix and newline. The same source's
+`test/integration/test-apt-get-update-unauth-warning:35` fixes the Linux C-locale
+missing-file errno rendering as `(2: No such file or directory)`. The entrypoint
+already fixes `LC_ALL=C`; these sources were read, not executed.
+
+The host requires the exact stderr byte count and exactly one warning, with
+zero errors/notices/other lines. The fixed reason is not raw stderr or a hash of
+it. Changed paths/errno/spacing, CRLF, extra lines, multiple warnings, private
+sentinels and every single-byte mutation retain the generic stderr rejection.
+Other stages/nonzero exits/deadline expiry do not gain this classification.
+All such results still fail; configuration and acceptance are unchanged.
+The historical run remains unattributed until new observations are available.
 
 ## Historical report preservation
 

@@ -27,6 +27,9 @@ sim, runner = fixtures.sim, fixtures.runner
 recorder = load("scripts/record_apt_report.py")
 SECRET = "PRIVATE_SENTINEL_unsupported_path_and_credential"
 HISTORICAL = ROOT / "evidence/p3/2026-10-20-apt-resolve-failure/output.log"
+MISSING_PREFERENCES_STDERR = (
+    b"W: Unable to read /work/etc/preferences.d/ - DirectoryExists "
+    b"(2: No such file or directory)\n")
 
 
 def historical():
@@ -77,6 +80,74 @@ class DiagnosticTests(unittest.TestCase):
         failure = resolve(values[0][0])["diagnostic"]
         self.assertEqual(failure["exit_code"], 100)
         self.assertEqual(failure["stderr_kinds"], {"error": 1, "warning": 0, "notice": 0, "other": 0})
+
+    def test_exact_missing_preferences_warning_is_identified_but_still_rejected(self):
+        self.assertEqual(sim.MISSING_PREFERENCES_STDERR, MISSING_PREFERENCES_STDERR)
+        row = resolve(result(error=MISSING_PREFERENCES_STDERR))
+        self.assertEqual((row["result"], row["stage"], row["plan"]), ("fail", "resolve", None))
+        self.assertEqual(row["diagnostic"], {
+            "reason": "stderr-missing-preferences-directory", "exit_code": 0,
+            "stdout_bytes": len(fixtures.plan()), "stderr_bytes": len(MISSING_PREFERENCES_STDERR),
+            "stderr_kinds": {"error": 0, "warning": 1, "notice": 0, "other": 0}, "plan": None})
+        self.assertNotIn("/work/etc/", json.dumps(row))
+        self.assertNotIn("Unable to read", json.dumps(row))
+        self.validate(row)
+        self.assertEqual(resolve(result())["result"], "pass")
+
+    def test_missing_preferences_near_matches_and_multiple_warnings_stay_generic(self):
+        raw = MISSING_PREFERENCES_STDERR
+        variants = [raw[:i] + bytes([raw[i] ^ 1]) + raw[i + 1:] for i in range(len(raw))]
+        variants += [raw[:-1], raw + b"\n", raw.replace(b"\n", b"\r\n"), raw * 2,
+                     b" " + raw, raw.replace(b".d/", b".d"), raw.replace(b"(2:", b"(13:"),
+                     raw.replace(b"/work/etc", SECRET.encode()), SECRET.encode() + raw,
+                     raw + ("W: " + SECRET + "\n").encode(), b"\x1b[33m" + raw]
+        for index, value in enumerate(variants):
+            with self.subTest(index=index):
+                row = resolve(result(error=value))
+                self.assertEqual(row["diagnostic"]["reason"], "stderr-nonempty")
+                self.assertEqual(row["result"], "fail")
+                self.assertNotIn(SECRET, json.dumps(row))
+                self.assertNotIn("Unable to read", json.dumps(row))
+                self.validate(row)
+
+    def test_missing_preferences_match_requires_resolve_exit_zero_before_deadline(self):
+        for status in (-9, 1, 100):
+            row = resolve(result(status=status, error=MISSING_PREFERENCES_STDERR))
+            self.assertEqual(row["diagnostic"]["reason"], "process-nonzero")
+            self.validate(row)
+        for prefix, stage in (([], "apt-version"),
+                              ([result(b"apt 2.8.3 (amd64)\n")], "local-index")):
+            execute = mock.Mock(side_effect=prefix + [result(error=MISSING_PREFERENCES_STDERR)])
+            row = sim.simulate(fixtures.inputs(), execute, setup_work=False)
+            self.assertEqual((row["stage"], row["diagnostic"]["reason"]), (stage, "stderr-nonempty"))
+            self.validate(row)
+        with mock.patch.object(sim.time, "monotonic", side_effect=[1024.] * 6 + [1144.]):
+            row = resolve(result(error=MISSING_PREFERENCES_STDERR))
+        self.assertEqual(row["diagnostic"]["reason"], "deadline")
+        self.validate(row)
+
+    def test_host_requires_exact_missing_preferences_diagnostic_shape(self):
+        original = resolve(result(error=MISSING_PREFERENCES_STDERR))
+        for stage in ("setup", "apt-version", "local-index", "complete"):
+            row = copy.deepcopy(original)
+            row["stage"] = stage
+            with self.subTest(stage=stage), self.assertRaises(ValueError):
+                self.validate(row)
+        changes = [("exit_code", None), ("exit_code", 1), ("exit_code", False),
+                   ("stderr_bytes", len(MISSING_PREFERENCES_STDERR) - 1),
+                   ("stderr_bytes", len(MISSING_PREFERENCES_STDERR) + 1),
+                   ("stderr_bytes", sim.MAX_STDERR + 1), ("stdout_bytes", sim.MAX_OUTPUT + 1),
+                   ("plan", {}),
+                   ("stderr_kinds", {"error": 0, "warning": 2, "notice": 0, "other": 0}),
+                   ("stderr_kinds", {"error": 0, "warning": True, "notice": 0, "other": 0}),
+                   ("stderr_kinds", {"error": 1, "warning": 1, "notice": 0, "other": 0}),
+                   ("stderr_kinds", {"error": 0, "warning": 1, "notice": 1, "other": 0}),
+                   ("stderr_kinds", {"error": 0, "warning": 1, "notice": 0, "other": 1})]
+        for key, value in changes:
+            row = copy.deepcopy(original)
+            row["diagnostic"][key] = value
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                self.validate(row)
 
     def test_timeout_overflow_os_unknown_errors_do_not_publish_exception_data(self):
         errors = [

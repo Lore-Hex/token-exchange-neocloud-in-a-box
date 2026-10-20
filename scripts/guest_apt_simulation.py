@@ -22,9 +22,15 @@ SECONDS = 120
 MAX_OUTPUT = 2 << 20
 MAX_STDERR = 65536
 ID_LIMIT = 16
+# APT 2.8.3 policy.cc + configuration.cc + error.cc, LC_ALL=C, Linux ENOENT.
+# This exact warning remains a rejection; see docs/tasks/p3-t1-apt-diagnostics.md.
+MISSING_PREFERENCES_STDERR = (
+    b"W: Unable to read /work/etc/preferences.d/ - DirectoryExists "
+    b"(2: No such file or directory)\n")
 PROCESS_REASONS = frozenset(("process-nonzero", "stderr-nonempty", "process-timeout",
                             "output-limit", "collector-error", "process-os-error",
-                            "deadline", "collector-result", "apt-version-mismatch"))
+                            "deadline", "collector-result", "apt-version-mismatch",
+                            "stderr-missing-preferences-directory"))
 PLAN_REASONS = frozenset(("plan-output-limit", "plan-utf8", "plan-control-character",
                          "plan-line-limit", "plan-forbidden-operation", "plan-record-syntax",
                          "plan-package-unexpected", "plan-version-mismatch", "plan-duplicate",
@@ -172,6 +178,10 @@ def validate_diagnostic(value, stage, targets):
         require(observed and value["exit_code"] != 0)
     if reason == "stderr-nonempty":
         require(observed and value["exit_code"] == 0 and value["stderr_bytes"] > 0)
+    if reason == "stderr-missing-preferences-directory":
+        require(stage == "resolve" and observed and value["exit_code"] == 0
+                and value["stderr_bytes"] == len(MISSING_PREFERENCES_STDERR)
+                and value["stderr_kinds"] == {"error": 0, "warning": 1, "notice": 0, "other": 0})
     if reason == "apt-version-mismatch" or reason in PLAN_REASONS:
         require(observed and value["exit_code"] == 0 and value["stderr_bytes"] == 0)
     plan = value["plan"]
@@ -289,7 +299,10 @@ def simulate(inputs, execute, *, setup_work=True):
             if time.monotonic() >= deadline:
                 raise Rejected("deadline")
             if value.stderr:
-                raise Rejected("stderr-nonempty")
+                reason = ("stderr-missing-preferences-directory"
+                          if report["stage"] == "resolve" and value.stderr == MISSING_PREFERENCES_STDERR
+                          else "stderr-nonempty")
+                raise Rejected(reason)
             return value.stdout
 
         report["stage"] = "apt-version"
