@@ -1,5 +1,9 @@
 # P2.T3 scripted single-trial integration
 
+The separate [bounded parent transport prerequisite](p2-t3-tau-parent-transport.md)
+tests pipe framing and sole parent accounting without changing this scripted
+CLI or enabling live dispatch.
+
 Depends on PR84, reviewed head
 `ffcb4f91d68337b5a6e5908294ca62e6d58517dd`, and its
 [source/wheel closure](p2-t3-tau-runtime.md). This is a **synthetic integration
