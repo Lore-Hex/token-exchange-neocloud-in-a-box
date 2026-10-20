@@ -28,8 +28,8 @@ DOMAINS = ("airline", "retail", "telecom")
 ROLES = ("candidate", "reference", "simulator", "evaluator")
 PACK = "models/deepseek-v4.1-flash-1017/1"
 WEIGHTS = "1bae0e1088993b9b82de08f59de5be5a34e42170"
-TOKENIZER = "c90dfa01249db1be4245780a052ede752e1361c612ac6d08e2bdada7d599476b"
-TOKENIZER_CONFIG = "6ac8c8dc065ed118161d02dd532749ae3f52c243deac27872134fae2f50d8547"
+VOCABULARY_DIGEST = "c90dfa01249db1be4245780a052ede752e1361c612ac6d08e2bdada7d599476b"
+VOCABULARY_CONFIG_DIGEST = "6ac8c8dc065ed118161d02dd532749ae3f52c243deac27872134fae2f50d8547"
 MAX_BYTES = 32 << 20
 MAX_SECONDS = 120
 RETAINED = ("task_ids", "seeds", "settings", "hashes", "numeric_observations")
@@ -141,7 +141,8 @@ def settings(value):
                 "tokenizer_sha256", "tokenizer_config_sha256", "chat_template_sha256", "precision_sha256"})
         for item in row.values():
             sha(item)
-        require(row["tokenizer_sha256"] == TOKENIZER and row["tokenizer_config_sha256"] == TOKENIZER_CONFIG)
+        require(row["tokenizer_sha256"] == VOCABULARY_DIGEST
+                and row["tokenizer_config_sha256"] == VOCABULARY_CONFIG_DIGEST)
     limits = value["limits"]
     require(type(limits) is dict and set(limits) == {"concurrency", "retries", "turns", "requests",
             "request_seconds", "trial_seconds", "run_seconds", "input_tokens_per_request",

@@ -36,7 +36,7 @@ def configuration():
             roles[role].update(model="deepseek-ai/DeepSeek-V4.1-Flash-1017", revision=tau.WEIGHTS)
     serving = {key: "2" * 64 for key in ("image_sha256", "overlay_sha256", "arguments_sha256",
                "tokenizer_sha256", "tokenizer_config_sha256", "chat_template_sha256", "precision_sha256")}
-    serving.update(tokenizer_sha256=tau.TOKENIZER, tokenizer_config_sha256=tau.TOKENIZER_CONFIG)
+    serving.update(tokenizer_sha256=tau.VOCABULARY_DIGEST, tokenizer_config_sha256=tau.VOCABULARY_CONFIG_DIGEST)
     return {"schema": "nib.tau-preflight-input/v1", "stage": "smoke", "seed": 42, "roles": roles,
             "serving": {"candidate": dict(serving), "reference": dict(serving)},
             "limits": {"concurrency": 1, "retries": 0, "turns": 10, "requests": 100,
@@ -166,6 +166,12 @@ class ManifestTests(unittest.TestCase):
 
 
 class InputTests(unittest.TestCase):
+    def test_vocabulary_digests_are_public_pack_file_hashes_not_credentials(self):
+        rows = [line.split() for line in (ROOT / tau.PACK / "files.sha256").read_text().splitlines()]
+        expected = {name: digest for digest, _, name in rows}
+        self.assertEqual(tau.VOCABULARY_DIGEST, expected["tokenizer.json"])
+        self.assertEqual(tau.VOCABULARY_CONFIG_DIGEST, expected["tokenizer_config.json"])
+
     def test_strict_public_settings_reject_overrides_and_unknown_provenance(self):
         for path, value in (
                 (("endpoint",), "https://PRIVATE"),
