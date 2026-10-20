@@ -31,15 +31,25 @@ FINDER_SPECS = (
     {"id": "six", "root": "selected", "installed": "six.py", "bytes": 34703,
      "sha256": "c51c91f703d3d4b3696c923cb5fec213e05e75d9215393befac7f2fa6a3904df",
      "sites": [{"id": "six", "qualname": "_SixMetaPathImporter.find_spec"}]},
+    {"id": "botocore-six", "root": "selected", "installed": "botocore/vendored/six.py", "bytes": 34549,
+     "sha256": "4ce39f422ee71467ccac8bed76beb05f8c321c7f0ceda9279ae2dfa3670106b3",
+     "sites": [{"id": "botocore-vendored-six", "qualname": "_SixMetaPathImporter.find_spec"}]},
+    {"id": "setuptools-metadata", "root": "selected",
+     "installed": "setuptools/_vendor/importlib_metadata/__init__.py", "bytes": 37734,
+     "sha256": "bbb130e3e524a73358fa46ba93e591903850652d5a9242cc7d6b367849d4986a",
+     "sites": [{"id": "setuptools-vendored-metadata", "qualname": "MetadataPathFinder.find_distributions"}]},
 )
-FINDER_MODULES = ("vllm.env_override", "_distutils_hack", "importlib_metadata", "six")
+FINDER_MODULES = ("vllm.env_override", "_distutils_hack", "importlib_metadata", "six",
+                  "botocore.vendored.six", "setuptools._vendor.importlib_metadata")
 FINDER_SOURCES = ("verified", "missing", "read-rejected", "source-mismatch", "compile-rejected", "selector-rejected")
 FINDER_IDS = ("builtin", "frozen", "sealed", "vllm-cpp", "vllm-pattern",
-              "setuptools-distutils", "metadata-backport", "six", "unknown")
+              "setuptools-distutils", "metadata-backport", "six",
+              "botocore-vendored-six", "setuptools-vendored-metadata", "unknown")
+FINDER_ID_SOURCES = {site["id"]: index for index, spec in enumerate(FINDER_SPECS) for site in spec["sites"]}
 PATTERN_STAGES = ("unavailable", "not-registered", "pending", "applying", "applied", "failed", "unknown")
 # State bitset plus fixed finder header and 32 one-byte categories. No strings
 # from the child are transported. Historical two-byte producers stay historical.
-STATE_PACKET_BYTES = 2 + 10 + FINDER_LIMIT
+STATE_PACKET_BYTES = 2 + 6 + len(FINDER_SPECS) + FINDER_LIMIT
 
 
 def finder_catalog(selected):
@@ -51,28 +61,29 @@ def finder_catalog(selected):
 
 
 def finder_packet(catalog):
-    header = [0, *([2] * 4), 0, 0, 0, 0, 0]
+    source_end = 1 + len(FINDER_SPECS)
+    header = [0, *([2] * len(FINDER_SPECS)), 0, 0, 0, 0, 0]
     entries = []
     try:
         if catalog is not None:
             sources, references, selected = catalog
-            header[1:5] = [FINDER_SOURCES.index(row["status"]) for row in sources]
+            header[1:source_end] = [FINDER_SOURCES.index(row["status"]) for row in sources]
         state = getattr(sys, "_nib_lab_bootstrap", None)
         if type(state) is not dict:
             return bytes(header + [255] * FINDER_LIMIT)
         stage = state.get("pattern_status")
-        header[9] = PATTERN_STAGES.index(stage) if type(stage) is str and stage in PATTERN_STAGES else 6
+        header[source_end + 4] = PATTERN_STAGES.index(stage) if type(stage) is str and stage in PATTERN_STAGES else 6
         expected, actual = state["finders"], sys.meta_path
         require(type(expected) is list and len(expected) == 3 and type(actual) is list)
         # Identity comparisons only: no finder equality, names, repr or lookup.
         header[0] = 1
-        header[5] = sum(int(not any(item is old for item in actual[:FINDER_LIMIT])) << i
-                        for i, old in enumerate(expected))
+        header[source_end] = sum(int(not any(item is old for item in actual[:FINDER_LIMIT])) << i
+                                 for i, old in enumerate(expected))
         order = [i for item in actual[:FINDER_LIMIT] for i, old in enumerate(expected) if item is old]
-        header[6] = (int(len(actual) > FINDER_LIMIT)
-                     | (int(order != sorted(order)) << 2)
-                     | (int(len(order) != len(set(order))) << 3))
-        header[8] = int(len(actual) == 3 and all(a is b for a, b in zip(actual, expected)))
+        header[source_end + 1] = (int(len(actual) > FINDER_LIMIT)
+                                  | (int(order != sorted(order)) << 2)
+                                  | (int(len(order) != len(set(order))) << 3))
+        header[source_end + 3] = int(len(actual) == 3 and all(a is b for a, b in zip(actual, expected)))
         for item in actual[:FINDER_LIMIT]:
             known = next((i for i, old in enumerate(expected) if item is old), None)
             if known is not None:
@@ -108,23 +119,25 @@ def finder_packet(catalog):
                             category = identifier
                             break
                 except Exception:
-                    header[6] |= 2
+                    header[source_end + 1] |= 2
             entries.append(FINDER_IDS.index(category))
-        header[7] = len(entries)
+        header[source_end + 2] = len(entries)
     except Exception:
         # Even observer failure must not mask the original entry rejection.
-        header[0], header[5:9], entries = 2, [0, 0, 0, 0], []
+        header[0], header[source_end:source_end + 4], entries = 2, [0, 0, 0, 0], []
     return bytes(header + entries + [255] * (FINDER_LIMIT - len(entries)))
 
 
 def decode_finders(raw):
     require(type(raw) is bytes and len(raw) == STATE_PACKET_BYTES - 2)
     status, *rest = raw
-    source_codes, missing, flags, count, same, stage = rest[:4], *rest[4:9]
+    source_count = len(FINDER_SPECS)
+    source_codes, missing, flags, count, same, stage = rest[:source_count], *rest[source_count:source_count + 5]
     require(status <= 2 and all(code < len(FINDER_SOURCES) for code in source_codes)
             and missing < 8 and flags < 16 and count <= FINDER_LIMIT and same <= 1 and stage < len(PATTERN_STAGES))
-    entries = rest[9:9 + count]
-    require(all(code < len(FINDER_IDS) for code in entries) and all(code == 255 for code in rest[9 + count:]))
+    entries = rest[source_count + 5:source_count + 5 + count]
+    require(all(code < len(FINDER_IDS) for code in entries)
+            and all(code == 255 for code in rest[source_count + 5 + count:]))
     require(status == 1 or (missing, flags, count, same) == (0, 0, 0, 0))
     require(not flags & 1 or count == FINDER_LIMIT)
     if status == 1:
@@ -134,9 +147,9 @@ def decode_finders(raw):
                 and bool(flags & 8) == (len(order) != len(set(order)))
                 and bool(same) == (entries == [0, 1, 2] and not flags & 1))
         for code in entries:
-            if 3 <= code < 8:
-                source = (0, 0, 1, 2, 3)[code - 3]
-                require(source_codes[source] == 0)
+            identifier = FINDER_IDS[code]
+            if identifier in FINDER_ID_SOURCES:
+                require(source_codes[FINDER_ID_SOURCES[identifier]] == 0)
     return {"status": ("unavailable", "observed", "failed")[status],
             "sources": [{"id": spec["id"], "status": FINDER_SOURCES[code]}
                         for spec, code in zip(FINDER_SPECS, source_codes)],
