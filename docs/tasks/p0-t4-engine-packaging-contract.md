@@ -1,6 +1,7 @@
 # Exact-Image Packaging Contract
 
-**Software-only, tested with synthetic files. No image execution or application.**
+**Software-only, tested with synthetic files; actual read-only plan observation
+recorded separately. No image application or engine execution.**
 This is an explicit experimental contract for the two packaging differences
 [measured by PR34](p0-t4-engine-record-diagnostic.md#recorded-outcome), not generic
 wheel acceptance or permission to execute the engine. Candidate status remains
@@ -37,8 +38,12 @@ Names, groups and targets are case-sensitive. Defaults (including an empty
 non-ASCII/control bytes and mismatched targets reject. This parses data only:
 no plugin discovery, import, invocation or console execution occurs. The existing
 partial launch plan retains `VLLM_PLUGINS=""`; the contract cannot change it.
-The recorded image evidence contains group counts only, not these target values;
-the targets above come from the independently hash-verified upstream source.
+The earlier PR34 evidence contains group counts only; these expected targets come
+from hash-verified upstream source. The subsequent
+[Python descriptor observation](p0-t4-engine-python-descriptor.md#recorded-outcome)
+confirms the exact installed map and a 2,879-file source-verified removal plan.
+That overall collection was partial, did not execute child canaries and did not
+remove bytecode or admit/apply an overlay.
 
 ## Unlisted Bytecode Only
 
