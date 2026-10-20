@@ -7,6 +7,7 @@ import sys
 if __name__ == "__main__" and not (sys.flags.isolated and sys.flags.no_site):
     sys.exit("Use python3 -I -S scripts/record-engine-cpu-entry.py")
 
+import datetime
 import hashlib
 import os
 from pathlib import Path
@@ -211,11 +212,14 @@ def run_container(payload, contract, config, env, execute=recorder.snapshot.exec
     return report
 
 
-def evidence_record(revision, slug, started, report):
+def evidence_record(revision, slug, started, report, host_kind="local"):
+    overlay.require(host_kind in ("local", "github-actions"))
+    suffix = "" if host_kind == "local" else " --host-kind github-actions"
     return {"schema": "nib.evidence/v1", "phase": "P2", "task": "T3", "git_sha": revision,
-            "command": "python3 -I -S scripts/record-engine-cpu-entry.py --slug " + slug,
+            "command": "python3 -I -S scripts/record-engine-cpu-entry.py --slug " + slug + suffix,
             "started_utc": started, "ended_utc": recorder.now(), "result": "fail", "execution": "software",
-            "hardware_validated": False, "host": {"provider": "local", "machine": "local-software-experiment",
+            "hardware_validated": False, "host": {"provider": host_kind, "machine": "local-software-experiment"
+                                                if host_kind == "local" else "linux-amd64-software-runner",
                                                 "gpus": "none", "driver": None, "cuda": None},
             "notes": "CPU-only pre-serve diagnostic, not the P0 deny-all import sandbox. "
                      "No model/weights/GPU runtime/ports/network/credentials; serve.cmd and worker routes never invoked. "
@@ -225,6 +229,50 @@ def evidence_record(revision, slug, started, report):
                      + report["provenance"]["payload_sha256"]}
 
 
+def check_evidence(record, report, revision, slug, payload, contract, host_kind, validator_sha):
+    """Recheck the same producer's evidence; a diagnostic pass is not admission."""
+    for key in ("started_utc", "ended_utc"):
+        value = record[key]
+        overlay.require(type(value) is str and re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", value))
+        datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    overlay.require(record["started_utc"] <= record["ended_utc"])
+    expected = evidence_record(revision, slug, record["started_utc"], report, host_kind)
+    expected["ended_utc"] = record["ended_utc"]
+    overlay.require(overlay.json_bytes(record) == overlay.json_bytes(expected))
+    overlay.require(set(report) == set(report_start()) | {"image", "experiment", "provenance"})
+    for key, value in report_start().items():
+        if key not in ("stage", "cleanup", "entry_pass"):
+            overlay.require(type(report.get(key)) is type(value) and report[key] == value)
+    overlay.require(report["stage"] == "completed" and report["cleanup"] == "confirmed"
+                    and type(report["entry_pass"]) is bool and "failure" not in report)
+    provenance = report["provenance"]
+    expected_provenance = {
+        "git_sha": revision, "source_bundle_sha256": contract["source_bundle_sha256"],
+        "payload_sha256": overlay.bundle_digest(payload), "requested_image": overlay.BASE_IMAGE,
+        "expected_config_sha256": contract["official_config"]["sha256"],
+        "measurement_sha256": contract["measurement_sha256"], "raw_oci_metadata_verified": True,
+        "validator_source_sha256": validator_sha,
+    }
+    overlay.require(overlay.json_bytes(provenance) == overlay.json_bytes(expected_provenance))
+    image = report["image"]
+    overlay.require(type(image["docker_reported_id"]) is str
+                    and re.fullmatch(r"sha256:[0-9a-f]{64}", image["docker_reported_id"]))
+    expected_image = {
+        "manifest_sha256": contract["base_image"].rsplit("sha256:", 1)[1],
+        "raw_config_sha256": contract["official_config"]["sha256"],
+        "docker_reported_id": image["docker_reported_id"], "platform": "linux/amd64",
+        "binding": "local-manifest-reference-platform-and-diffids",
+        "raw_config_link_verified": True, "local_config_bytes_rehashed": False,
+        "local_layers_rehashed": False, "daemon_os_interpreter_trusted": True,
+    }
+    overlay.require(overlay.json_bytes(image) == overlay.json_bytes(expected_image))
+    application = overlay.load_json(payload["application/contract.json"])
+    measured = builder.application.measurement(overlay, payload["application/measurement.json"])
+    passed = cpu.validate(overlay, report["experiment"], application, measured, base.smoke)
+    overlay.require(report["entry_pass"] == passed)
+    return passed
+
+
 def main():
     signal.signal(signal.SIGTERM, recorder.cancel)
     signal.signal(signal.SIGINT, recorder.cancel)
@@ -232,9 +280,26 @@ def main():
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument("--prepare", metavar="PRIVATE_OUTPUT", help="Offline preparation only.")
     action.add_argument("--slug", help="Explicit bounded local CPU-only execution; no qualification.")
+    action.add_argument("--check-result", metavar="EVIDENCE_DIRECTORY", help="Offline check against this exact producer.")
+    parser.add_argument("--host-kind", choices=("local", "github-actions"), default="local")
     args = parser.parse_args()
     revision, bundle, extra = inputs()
     payload, contract = prepare_files(revision, bundle, extra)
+    if args.check_result:
+        directory = Path(args.check_result).absolute()
+        match = re.fullmatch(r"\d{4}-\d{2}-\d{2}-([a-z0-9]+(?:-[a-z0-9]+)*)", directory.name)
+        overlay.require(match is not None and len(match[1]) <= 64)
+        record = overlay.load_json(read_source(directory / "run.json"))
+        report = overlay.load_json(read_source(directory / "output.log"))
+        overlay.require(directory.name[:10] == record["started_utc"][:10])
+        recorder.raw_metadata(ROOT / "bench/engine-cpu-entry/oci", contract)
+        with tempfile.TemporaryDirectory(prefix="nib-cpu-check-", dir="/private/tmp" if sys.platform == "darwin" else None) as temp:
+            work = Path(temp).resolve()
+            env = recorder.offline_environment(work / "control")
+            _, validator_sha = recorder.build_validator(ROOT, revision, work, env)
+            passed = check_evidence(record, report, revision, match[1], payload, contract, args.host_kind, validator_sha)
+        print(overlay.json_bytes({"record_valid": True, "entry_pass": passed, "confidential": False}).decode(), end="")
+        return 0 if passed else 1
     if args.prepare:
         recorder.prep.publish(args.prepare, payload)
         print(overlay.json_bytes({"git_sha": revision, "status": "BLOCKED", "deployable": False,
@@ -273,7 +338,7 @@ def main():
             "payload_sha256": overlay.bundle_digest(payload), "validator_source_sha256": validator_sha,
             "requested_image": overlay.BASE_IMAGE, "expected_config_sha256": contract["official_config"]["sha256"],
             "raw_oci_metadata_verified": verified, "measurement_sha256": contract["measurement_sha256"]}
-        record = evidence_record(revision, args.slug, started, report)
+        record = evidence_record(revision, args.slug, started, report, args.host_kind)
         recorder.publish_evidence(record, report, nib, work, destination, env)
     print(destination.relative_to(ROOT).as_posix())
     return 1
