@@ -1,4 +1,4 @@
-"""Preserve the original failed hardware-attempt recorder output."""
+"""Preserve original failed hardware and local diagnostic recorder output."""
 import hashlib
 import json
 from pathlib import Path
@@ -6,6 +6,37 @@ import unittest
 
 
 class CorrectnessEvidenceTests(unittest.TestCase):
+    def test_cpu_entry_failure_records_only_the_observed_import_boundary(self):
+        root = Path(__file__).resolve().parents[1] / "evidence/p2/2026-10-20-cpu-entry-125036c"
+        values = {}
+        for name, digest in (
+            ("run.json", "c5a60637849450294deea13af77ddffea9fe8bdfe850a1b4d4f2466885d87b15"),
+            ("output.log", "f4985fd5f781e0324cce4d4277970ad1a5e67c24aaa8d1395fe945c7f197d6c3"),
+        ):
+            raw = (root / name).read_bytes()
+            self.assertEqual(hashlib.sha256(raw).hexdigest(), digest)
+            values[name] = json.loads(raw)
+        run, output = values["run.json"], values["output.log"]
+        self.assertEqual(run["git_sha"], "125036cb61a9d15d624f5d1c8a0c65d69076574c")
+        self.assertEqual(run["git_sha"], output["provenance"]["git_sha"])
+        self.assertEqual(run["execution"], "software")
+        self.assertEqual(run["host"]["gpus"], "none")
+        self.assertFalse(run["hardware_validated"])
+        self.assertEqual(run["result"], "fail")
+        self.assertEqual(output["cleanup"], "confirmed")
+        self.assertEqual(output["stage"], "completed")
+        experiment = output["experiment"]
+        self.assertEqual(experiment["application"]["stages"], 5)
+        self.assertEqual(experiment["entry"]["checkpoints"], {"status": "eof", "last_id": 11})
+        self.assertEqual(experiment["entry"]["exit_code"], 1)
+        self.assertEqual(experiment["entry"]["state_observation"], "observed")
+        self.assertEqual({key for key, value in experiment["entry"]["state_mismatches"].items() if value},
+                         {"finders"})
+        self.assertEqual(len(experiment["entry"]["state_mismatches"]), 10)
+        for row in (output, experiment):
+            for key in ("entry_pass", "confidential", "deployable", "inference_started", "hardware_validated"):
+                self.assertFalse(row[key])
+
     def test_original_failure_is_preserved_without_inferred_runtime_success(self):
         root = Path(__file__).resolve().parents[1] / "evidence/p2/2026-10-20-correctness-recorder-failed"
         values = {}
