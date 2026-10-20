@@ -73,6 +73,46 @@ because it does not establish qualification; inspect committed
 `run.json`/`output.log`, `functional_pass`, stage and cleanup separately.
 Failed attempts remain evidence. Never rerun automatically.
 
+### Denial-Only Readiness Diagnostic
+
+A separately prepared diagnostic bundle uses the same pinned image, sealed
+`-I -S -B` startup, bootstrap source checks, Docker constraints and owned-container
+cleanup. It cannot enter weight verification, patch application or engine
+execution, and never emits functional or qualification success:
+
+```sh
+python3 -I -S host/record-deepseek-lab.py \
+  --prepare-hardware-diagnostic "$PRIVATE_DIAGNOSTIC_BUNDLE"
+```
+
+Run that bundle using the same `--run` invocation above, its own receipt digest,
+a separate existing empty private directory for `--weights`, and a **UTC cutoff
+at most five minutes away**, still before VM teardown. The existing probe child
+limit remains 15 seconds; its supervisor alarm is 60 seconds. Do not use or
+modify an active staging directory. The empty directory is mounted read-only
+but not inspected by this mode. This is a different input contract, not an
+automatic retry of a failed functional run.
+
+The report distinguishes child completion, timeout, failed exit and malformed
+output. A completed child reports invocation booleans, source-binding/bootstrap
+stage (including one of four fixed setuptools source indices), and bounded NVML
+observations if reached. Calls record only fixed stages, device indices 0-3,
+numeric return codes or null when no return was observed. The first failure
+is sticky; shutdown has its own call result and cannot overwrite it.
+Count, CC settings, readiness and memory observations are numeric; names,
+handles, UUIDs, exception text, paths and environment values are not recorded.
+Unknown/unreached observations stay null. A failure before the isolated child
+can emit its envelope is reported as a failed child, not attributed to NVML.
+
+The exact count-four, CC, readiness and memory policies are unchanged. Even
+`policy_checks_passed:true` is only the existing read-only policy observation:
+the enclosing report remains `BLOCKED`, `functional_pass:false`,
+`deployable:false`, `confidential:false`, and evidence `result:fail`. In
+particular a count mismatch must not be interpreted as proof that the toolkit
+selected the wrong devices or as permission to change access selection.
+Software regressions use fake NVML calls, bootstrap failures, bounded child
+failures and redaction sentinels. No actual diagnostic run is claimed here.
+
 ## Fixed Experiment
 
 The container has no external network, published ports, credentials, Docker

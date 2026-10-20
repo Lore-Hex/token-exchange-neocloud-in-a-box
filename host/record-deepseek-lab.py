@@ -93,7 +93,8 @@ def committed(builder, revision, name):
     return builder.checker.git(ROOT, "cat-file", "blob", row[2])
 
 
-def make_payload(builder, revision, bundle, extra, binary):
+def make_payload(builder, revision, bundle, extra, binary, operation="functional"):
+    require(operation in ("functional", "hardware-diagnostic"))
     files, _ = builder.prepare_files(revision, bundle, extra)
     app = builder.overlay.load_json(files["payload/contract.json"])
     measured = builder.application.measurement(builder.overlay, extra[builder.application.EVIDENCE])
@@ -108,6 +109,7 @@ def make_payload(builder, revision, bundle, extra, binary):
                     "nib": binary, "pack/pack.yaml": extra[PACK + "/pack.yaml"],
                     "pack/files.sha256": extra[PACK + "/files.sha256"]})
     contract = {"schema": "nib.deepseek-lab-input/v1", "status": "BLOCKED", "deployable": False, "confidential": False,
+                "operation": operation,
                 "git_sha": revision, "base_image": builder.overlay.BASE_IMAGE, "official_config": app["official_config"],
                 "source_bundle_sha256": builder.checker.bundle_digest({**bundle, **extra}),
                 "application_contract_sha256": digest(payload["application/contract.json"]),
@@ -123,7 +125,7 @@ def make_payload(builder, revision, bundle, extra, binary):
     return payload, contract
 
 
-def prepare(destination):
+def prepare(destination, operation="functional"):
     builder = load("lab_application_builder", ROOT / BUILDER, BUILDER_SHA)
     revision, bundle, extra = builder.inputs(ROOT)
     for name in (SCRIPT, HELPER, RUNTIME, LAB_BOOTSTRAP, PROBE, SMOKE, TEST, PACK + "/pack.yaml", PACK + "/files.sha256"):
@@ -134,7 +136,7 @@ def prepare(destination):
         work = Path(temporary).resolve()
         env = recorder.offline_environment(work / "control")
         binary, source_sha = recorder.build_validator(ROOT, revision, work, {**env, "GOOS": "linux", "GOARCH": "amd64"})
-        payload, contract = make_payload(builder, revision, bundle, extra, read(binary, MAX_BYTES))
+        payload, contract = make_payload(builder, revision, bundle, extra, read(binary, MAX_BYTES), operation)
         config = recorder.raw_metadata(ROOT / "build/engine-image-metadata", contract)
         runtime = load("lab_environment_constants", ROOT / RUNTIME, digest(extra[RUNTIME]))
         image_env = dict(item.split("=", 1) for item in config["config"]["Env"])
@@ -194,12 +196,14 @@ def bundle_inputs(path, expected):
                     receipt["files"]["support/scripts/record-engine-image.py"]["sha256"])
     contract = recorder.overlay.load_json(read(path / "payload/lab.json"))
     require(contract["git_sha"] == receipt["git_sha"] and contract["status"] == "BLOCKED"
-            and contract["deployable"] is False and contract["confidential"] is False)
+            and contract["deployable"] is False and contract["confidential"] is False
+            and contract["operation"] in ("functional", "hardware-diagnostic"))
     config = recorder.raw_metadata(path / "metadata", contract)
     return receipt, contract, config, recorder
 
 
 def create_command(name, owner, bundle, weights, contract, config):
+    require(contract["operation"] in ("functional", "hardware-diagnostic"))
     payload = str(Path(bundle) / "payload")
     command = ["docker", "container", "create", "--name", name, "--label", LABEL + "=" + owner,
                "--pull", "never", "--platform", "linux/amd64", "--runtime", "nvidia",
@@ -230,7 +234,8 @@ def create_command(name, owner, bundle, weights, contract, config):
                                           "NVIDIA_DRIVER_CAPABILITIES": "compute,utility"}.get(key, ""))]
     return command + [contract["base_image"], "-i", *[key + "=" + value for key, value in sorted(contract["environment"].items())],
                       "/usr/bin/python3.12", "-I", "-S", "-B", "/opt/nib/launch.py",
-                      digest(read(Path(bundle) / "payload/lab.json")), "apply"]
+                      digest(read(Path(bundle) / "payload/lab.json")),
+                      "diagnose-hardware" if contract["operation"] == "hardware-diagnostic" else "apply"]
 
 
 def check_container(info, name, owner, bundle, weights, contract, config, image_id):
@@ -376,6 +381,10 @@ def run_container(bundle, sha, weights, deadline, recorder, contract, config, en
 
 
 def validate_result(row, bundle, contract, recorder):
+    if contract.get("operation") == "hardware-diagnostic":
+        probe = load("lab_diagnostic_validation", Path(bundle) / "payload/probe.py", contract["sources"]["probe.py"])
+        probe.validate_diagnostic(row)
+        return
     require(type(row) is dict and set(row) == {"schema", "status", "deployable", "confidential", "functional_pass",
                                              "stage", "application", "hardware", "completion", "engine_stopped"}
             and row["schema"] == "nib.deepseek-lab-result/v1" and row["status"] == "BLOCKED"
@@ -447,15 +456,17 @@ def main():
     parser = QuietParser(description=__doc__)
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument("--prepare")
+    action.add_argument("--prepare-hardware-diagnostic")
     action.add_argument("--run", metavar="PRIVATE_BUNDLE")
     parser.add_argument("--receipt-sha256")
     parser.add_argument("--weights")
     parser.add_argument("--output")
     parser.add_argument("--deadline", help="Required UTC hard cutoff, YYYY-MM-DDTHH:MM:SSZ, at most 80 minutes away.")
     args = parser.parse_args()
-    if args.prepare:
+    if args.prepare or args.prepare_hardware_diagnostic:
         require(not any((args.receipt_sha256, args.weights, args.output, args.deadline)))
-        prepare(args.prepare)
+        prepare(args.prepare or args.prepare_hardware_diagnostic,
+                "hardware-diagnostic" if args.prepare_hardware_diagnostic else "functional")
         return 0
     require(sys.platform == "linux" and all((args.receipt_sha256, args.weights, args.output, args.deadline)))
     deadline = dt.datetime.strptime(args.deadline, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp()
@@ -465,6 +476,8 @@ def main():
             and not os.path.lexists(output) and not any(a == b or a in b.parents or b in a.parents
                                                        for a, b in ((bundle, weights), (bundle, output), (weights, output))))
     receipt, contract, config, recorder = bundle_inputs(bundle, args.receipt_sha256)
+    if contract["operation"] == "hardware-diagnostic":
+        require(deadline - time.time() <= 300)
     signal.signal(signal.SIGTERM, cancel)
     signal.signal(signal.SIGINT, cancel)
     started = recorder.now()
@@ -476,9 +489,11 @@ def main():
                             "image": contract["base_image"], "config_sha256": contract["official_config"]["sha256"],
                             "manifest_sha256": contract["manifest_sha256"], "pack_revision": contract["pack_revision"]}
     hardware_row = report.get("experiment", {}).get("hardware")
+    diagnostic = contract["operation"] == "hardware-diagnostic"
+    probe_row = ((report.get("experiment", {}).get("child") or {}).get("probe") or {}) if diagnostic else {}
     record = {"schema": "nib.evidence/v1", "phase": "P2", "task": "T3", "git_sha": receipt["git_sha"],
               "started_utc": started, "ended_utc": recorder.now(), "result": "fail",
-              "execution": "hardware" if hardware_row else "software", "hardware_validated": False,
+              "execution": "hardware" if hardware_row or probe_row.get("calls") else "software", "hardware_validated": False,
               "host": {"provider": "spheron", "machine": "approved-isolated-lab",
                        "gpus": "four-selected-B200" if hardware_row else "unobserved",
                        "driver": hardware_row["driver"] if hardware_row else None,
@@ -488,6 +503,11 @@ def main():
                        "Candidate BLOCKED; deployable=false; confidential=false; no attestation or ABI qualification. "
                        "Generated JIT code is private output, not verified native provenance. "
                        "CUDA field is the observed driver-supported CUDA API version, not a runtime measurement."}
+    if diagnostic:
+        record["notes"] = ("Denial-only read-only hardware diagnostic; no weights, application, engine or inference. "
+                           "Fixed call stages, return codes and bounded numeric observations only. "
+                           "All original CC/readiness policy checks retained; no settings changes. "
+                           "Candidate BLOCKED; deployable=false; confidential=false; not attestation or qualification.")
     with tempfile.TemporaryDirectory(prefix="nib-lab-evidence-") as temporary:
         recorder.publish_evidence(record, report, bundle / "payload/nib", Path(temporary).resolve(), output, env)
     print(json.dumps({"recorded": True, "functional_pass": report["functional_pass"],

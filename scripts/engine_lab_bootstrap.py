@@ -79,8 +79,10 @@ def vecisa_load(path, helpers):
         os.close(fd)
 
 
-def install_lab(layout, helpers):
+def install_lab(layout, helpers, checkpoint=None):
     """Install before engine imports or spawn unpickling; no subprocess sandbox."""
+    if checkpoint is not None:
+        checkpoint("preconditions", None)
     require = helpers.require
     require(sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode
             and sys.pycache_prefix is None and os.getcwd() == "/")
@@ -100,8 +102,12 @@ def install_lab(layout, helpers):
             and not any(name.split(".", 1)[0] in ("setuptools", "_distutils_hack", "distutils")
                         for name in sys.modules))
     # Verify before extending the path. Never execute .pth or load cached code.
-    for relative, expected in SETUPTOOLS_SOURCES.items():
+    for index, (relative, expected) in enumerate(SETUPTOOLS_SOURCES.items()):
+        if checkpoint is not None:
+            checkpoint("setuptools-source", index)
         require(hashlib.sha256(helpers.read_source(selected + "/" + relative, 32768)).hexdigest() == expected)
+    if checkpoint is not None:
+        checkpoint("vendor-root", None)
     fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
     try:
         for part in vendor.split("/")[1:]:
@@ -110,6 +116,8 @@ def install_lab(layout, helpers):
             fd = child
     finally:
         os.close(fd)
+    if checkpoint is not None:
+        checkpoint("install", None)
     import multiprocessing as mp
     import multiprocessing.context as contexts
     import multiprocessing.process as process
@@ -337,6 +345,8 @@ def install_lab(layout, helpers):
     state["check"] = check
     sys._nib_lab_bootstrap = state
     check()
+    if checkpoint is not None:
+        checkpoint("complete", None)
     return state
 
 
