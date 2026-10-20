@@ -215,6 +215,8 @@ Dir::Etc::main "/work/empty.conf";
 Dir::Etc::parts "/work/etc/parts";
 Dir::Etc::sourcelist "/work/sources.list";
 Dir::Etc::sourceparts "/work/etc/sources";
+Dir::Etc::preferences "/work/etc/preferences";
+Dir::Etc::preferencesparts "/work/etc/preferences.d";
 Dir::State "/work/state";
 Dir::State::status "/work/status";
 Dir::State::lists "/work/state/lists";
@@ -242,12 +244,12 @@ Acquire::Retries "0";
 def setup(work):
     require(work.is_absolute() and not work.is_symlink() and work.is_dir())
     require(not list(work.iterdir()))
-    for name in ("tmp", "etc/parts", "etc/sources", "state/lists/partial",
+    for name in ("tmp", "etc/parts", "etc/sources", "etc/preferences.d", "state/lists/partial",
                  "cache/archives/partial", "log"):
         (work / name).mkdir(mode=0o700, parents=True, exist_ok=True)
     for name, raw in {"apt.conf": configuration(),
                       "sources.list": b"deb [trusted=yes] file:/nib/repo ./\n",
-                      "status": b"", "empty.conf": b""}.items():
+                      "status": b"", "empty.conf": b"", "etc/preferences": b""}.items():
         fd = os.open(work / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "wb") as stream:
             stream.write(raw)

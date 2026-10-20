@@ -118,3 +118,7 @@ original failed report. A changed diagnostic run is not an unchanged-input retry
 it still cannot install packages or execute maintainer scripts. Installation,
 mkosi build, LKCA, boot, reproducibility and hardware qualification remain
 separate gates.
+
+A [separate private-preferences preparation](p3-t1-private-apt-preferences.md)
+adds explicit empty preference paths. It does not change the frozen diagnostic
+run source or attribute the historical failure.
