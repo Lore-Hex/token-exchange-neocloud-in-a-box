@@ -144,3 +144,8 @@ and no-overwrite. No upstream evaluator or API is exercised:
 ```sh
 python3 -B -m unittest discover -s scripts -p test_tau_runtime.py
 ```
+
+The separate [scripted single-trial integration](p2-t3-tau-single-trial.md)
+implements the next review-gated boundary. Its synthetic transport is not a
+live endpoint adapter or a claim that these source-only checks proved runtime
+compatibility.

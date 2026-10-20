@@ -1,0 +1,1972 @@
+{
+  "archive_bytes": 473225,
+  "archive_prefix": "mkosi-ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b/",
+  "archive_sha256": "3d38e848f9b1108ec76d873f2c378dfc7d4b536ad89deffe8c97504f7a8dff43",
+  "archive_url": "https://codeload.github.com/systemd/mkosi/tar.gz/ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b",
+  "build_verified": false,
+  "deployable": false,
+  "executed": false,
+  "git_sha": "ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b",
+  "license_files": [
+    "LICENSES/GPL-2.0-only.txt",
+    "LICENSES/LGPL-2.1-or-later.txt",
+    "LICENSES/OFL-1.1.txt",
+    "LICENSES/PSF-2.0.txt"
+  ],
+  "repository": "https://github.com/systemd/mkosi",
+  "required_python": ">=3.9",
+  "schema": "nib.mkosi-source/v1",
+  "source_files": {
+    ".codespellrc": {
+      "bytes": 67,
+      "git_blob": "26509d37f3e20a22a9a6907248f9b731c02f79b5",
+      "mode": "100644",
+      "sha256": "e0169d3706d822fceb9de8d92909a6d1779ab06c8e9dfb56294c512454654161"
+    },
+    ".dir-locals.el": {
+      "bytes": 873,
+      "git_blob": "e486726f868fc4d815e540b4d742bac1af5ae223",
+      "mode": "100644",
+      "sha256": "eaddb2550c2ec2f09ca265233378641dde0660904c6561a7f2c7e49ba45e8541"
+    },
+    ".editorconfig": {
+      "bytes": 214,
+      "git_blob": "a093b65ce6f3a5ae2c92f85eb284a8604b070779",
+      "mode": "100644",
+      "sha256": "44251160ab120a4122b61f96d457732485d4c775dee961402f9c5751c345be51"
+    },
+    ".github/ISSUE_TEMPLATE/bug_report.yml": {
+      "bytes": 2548,
+      "git_blob": "c3bad5b8cc48bb3d5e0f0ba3328610622bac56cc",
+      "mode": "100644",
+      "sha256": "417cd30f0eef06aaeb13f6ed721ca27a7386b06db66a5f7179490d4bfdf30a9e"
+    },
+    ".github/ISSUE_TEMPLATE/config.yml": {
+      "bytes": 277,
+      "git_blob": "8a8d609d11d7b08a402a3ae2899769c346f437ec",
+      "mode": "100644",
+      "sha256": "d20c2c13894c9c909b7ec9eac5f9e3507273fe2b202dbead7de7ba83c3bc4aae"
+    },
+    ".github/dependabot.yml": {
+      "bytes": 197,
+      "git_blob": "8533557df948bc8ca183cd781b4250e3526ad238",
+      "mode": "100644",
+      "sha256": "d19b33db032b94171e2514c060692c90a3816aa52266b923dc22dd7a06165d8f"
+    },
+    ".github/workflows/ci.yml": {
+      "bytes": 5136,
+      "git_blob": "5836e3ebb64d486384e8bb9a7b3de135218ccea9",
+      "mode": "100644",
+      "sha256": "b2b576df661e8fa4913553fe2376a4532b341583b24bdfed536d8e2f255998da"
+    },
+    ".github/workflows/claude-review.yml": {
+      "bytes": 33333,
+      "git_blob": "2e829d9d96f03295542dda8d4b4419082487e634",
+      "mode": "100644",
+      "sha256": "d38b887cda71738522bdeecb5c747a72de0d91ba16e6b24e3f3c953e21470441"
+    },
+    ".gitignore": {
+      "bytes": 666,
+      "git_blob": "adcd113f4376c650058e45db880258d6fa0906c0",
+      "mode": "100644",
+      "sha256": "7b631bfeae0db61b27674190f9230a89be32246d0973025f2aeddc4a65b73f75"
+    },
+    ".mailmap": {
+      "bytes": 143,
+      "git_blob": "89c800bd28d06abddb192e0c33e57fe1cb619856",
+      "mode": "100644",
+      "sha256": "7baaab4c8285a3e413e1464b6c367b8c47c28fa962f772a74e39bfe639ba2522"
+    },
+    ".obs/workflows.yml": {
+      "bytes": 666,
+      "git_blob": "420ca7aa349af0dcf5f2eae7af91d2231acf62e5",
+      "mode": "100644",
+      "sha256": "5a5cb8119706f4afad8c6942ce12b088e77db8982a91e74e3a07cba8c67a1038"
+    },
+    "AGENTS.md": {
+      "bytes": 1777,
+      "git_blob": "516b7c3595d992ad02f83cfadd5908dda197b92f",
+      "mode": "100644",
+      "sha256": "dbbaa0e19cb37a2136221071c0f74a1c106be1e74ec3b600b68ea04f6fa9bda5"
+    },
+    "CLAUDE.md": {
+      "bytes": 9,
+      "git_blob": "47dc3e3d863cfb5727b87d785d09abf9743c0a72",
+      "mode": "120000",
+      "sha256": "a54ff182c7e8acf56acfd6e4b9c3ff41e2c41a31c9b211b2deb9df75d9a478f9"
+    },
+    "LICENSES/GPL-2.0-only.txt": {
+      "bytes": 17987,
+      "git_blob": "d511905c1647a1e311e8b20d5930a37a9c2531cd",
+      "mode": "100644",
+      "sha256": "ab15fd526bd8dd18a9e77ebc139656bf4d33e97fc7238cd11bf60e2b9b8666c6"
+    },
+    "LICENSES/LGPL-2.1-or-later.txt": {
+      "bytes": 26530,
+      "git_blob": "4362b49151d7b34ef83b3067a8f9c9f877d72a0e",
+      "mode": "100644",
+      "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"
+    },
+    "LICENSES/OFL-1.1.txt": {
+      "bytes": 4474,
+      "git_blob": "79ed1e5a2cac187fe8fe7e86e67d15f61a050132",
+      "mode": "100644",
+      "sha256": "866747cbccae229433e946b90fcfc457b81c33ac89e593855770851354f9e6c3"
+    },
+    "LICENSES/PSF-2.0.txt": {
+      "bytes": 2427,
+      "git_blob": "8a38e525ca52c708f3e6be11a3ac63bb73170a2b",
+      "mode": "100644",
+      "sha256": "ab745c5061d1dea43a3885e5b4b6befc7e983954954775c5736debeefcdfd89b"
+    },
+    "MANIFEST.in": {
+      "bytes": 16,
+      "git_blob": "1aba38f67a2211cf5b09466d7b411206cb7223bf",
+      "mode": "100644",
+      "sha256": "ff7157a19d43c458aae5102117bdab1eb614ea7fde5fbeaa75d71988150c82c3"
+    },
+    "NEWS.md": {
+      "bytes": 35,
+      "git_blob": "f1aacbd5ea819f6bd4c4cd4407067d74d4cebfa1",
+      "mode": "120000",
+      "sha256": "5759a62fb1692f3aaca3ab093d760b189985e0796ee30c097d44a3f680705b13"
+    },
+    "README.md": {
+      "bytes": 8452,
+      "git_blob": "fa1f89d0a461e5f28dc7807b99213b09d4745373",
+      "mode": "100644",
+      "sha256": "5701092df369dbbcc7dd559d07e80bb4cb57487a0fa7d7e14da72e74515d8f64"
+    },
+    "REUSE.toml": {
+      "bytes": 1734,
+      "git_blob": "10324ff0523f193333867c353f874d5df170c352",
+      "mode": "100644",
+      "sha256": "e21ed95f5e82b498a71f5a4f03ece8a02d0e3341cfbd5b98f916fa92416cd68f"
+    },
+    "action.yaml": {
+      "bytes": 7059,
+      "git_blob": "e6180fcc90e0983e91d745a15fbd1501b4ffbc25",
+      "mode": "100644",
+      "sha256": "51a30fcd272fba02af0334e87a5466fcf657fc0913949107d69ff5917ce14b4d"
+    },
+    "bin/mkosi": {
+      "bytes": 1294,
+      "git_blob": "e2b6319b650df07a45022ce9bb1974641001cfba",
+      "mode": "100755",
+      "sha256": "4923bed4b32c7bf97e4035082f043d313a3d2568c2a2fa2aac75f58ac3abc3db"
+    },
+    "bin/mkosi-addon": {
+      "bytes": 5,
+      "git_blob": "b5f44fa8ef6ca993ec0255a3dde50c0b10a9a452",
+      "mode": "120000",
+      "sha256": "74e3e43cb6c00639d4d4dea5cf84ae14d112a85ae5e0850bd5fd85d2e0f854e3"
+    },
+    "bin/mkosi-initrd": {
+      "bytes": 5,
+      "git_blob": "b5f44fa8ef6ca993ec0255a3dde50c0b10a9a452",
+      "mode": "120000",
+      "sha256": "74e3e43cb6c00639d4d4dea5cf84ae14d112a85ae5e0850bd5fd85d2e0f854e3"
+    },
+    "bin/mkosi-sandbox": {
+      "bytes": 5,
+      "git_blob": "b5f44fa8ef6ca993ec0255a3dde50c0b10a9a452",
+      "mode": "120000",
+      "sha256": "74e3e43cb6c00639d4d4dea5cf84ae14d112a85ae5e0850bd5fd85d2e0f854e3"
+    },
+    "blog/content/a-reintroduction-to-mkosi.md": {
+      "bytes": 15781,
+      "git_blob": "0ec14de84d1397deb116d4b8a81b8727659ef5af",
+      "mode": "100644",
+      "sha256": "be846354f7f1425fa6074e39ea5c6edc63d0b4b2c548b60c72c278974af943b2"
+    },
+    "docs/CNAME": {
+      "bytes": 16,
+      "git_blob": "b57ccee6f558d4d24df6dce4386f1231cbd7e438",
+      "mode": "100644",
+      "sha256": "b6b249d21821d76f62236bab94a45a740cec515d8a69620a7d726d4f6417908e"
+    },
+    "docs/CODING_STYLE.md": {
+      "bytes": 1368,
+      "git_blob": "ea7b7f9178e4381283673a602e8791e8961e1764",
+      "mode": "100644",
+      "sha256": "5ec76397fee99b39c85d6e0b87bd21d0a3f223276ce2e6d0f435c9cd6ce11d50"
+    },
+    "docs/_data/documentation_page.json": {
+      "bytes": 190,
+      "git_blob": "2b4ee31b90ea1b1244dad6539b29151cfb88ce0a",
+      "mode": "100644",
+      "sha256": "250dd31df54a0307566e0c8ffe2e0e196d7b5727fc10ad64587dec27e34d3976"
+    },
+    "docs/_data/project_pages.json": {
+      "bytes": 504,
+      "git_blob": "eb7b39b6be03fc5b0e0d00de168682295e7b6f5a",
+      "mode": "100644",
+      "sha256": "e05e50559c6d467c58277501b2d82039e29ff6971905b993c3260996e8dae6d8"
+    },
+    "docs/_includes/footer.html": {
+      "bytes": 209,
+      "git_blob": "9b502a1c05d57a8a9415fa4395571ba859b2e845",
+      "mode": "100644",
+      "sha256": "4a9ccc8ab18b3951d328d2a5976448142e2925b9f257b0b9b4751566c3867794"
+    },
+    "docs/_includes/head.html": {
+      "bytes": 612,
+      "git_blob": "ae39a3c6aae44ec9f9b72fc86f15a51742b44a5c",
+      "mode": "100644",
+      "sha256": "5d1592873c390b696a9b9d78f38d84396faadc8283b554ab209de11a3a978f4b"
+    },
+    "docs/_includes/header.html": {
+      "bytes": 316,
+      "git_blob": "99c4b3aa8d3c0038e82afc4d403a40d509ac975e",
+      "mode": "100644",
+      "sha256": "fa20fe31f6d211a8fb7b0c1177a8f4f3ddb7dd252ae1615c13f9a9f125e8401c"
+    },
+    "docs/_layouts/default.html": {
+      "bytes": 257,
+      "git_blob": "989178db33f7cefe38ec6b10939b79fc7312f6c4",
+      "mode": "100644",
+      "sha256": "6949825ea80c9145bf2c06b1941bf98a2c50c59c4b95f8cf520972d97c283c1e"
+    },
+    "docs/_layouts/forward.html": {
+      "bytes": 900,
+      "git_blob": "5d3799b0680c9eefb4fe1525236aca576009ecd4",
+      "mode": "100644",
+      "sha256": "e192bb18b3301d9be0acd8d8d176e7e784b2186b35ad83e4a6d4cbb37124f664"
+    },
+    "docs/assets/systemd-logo.svg": {
+      "bytes": 3120,
+      "git_blob": "5885e7e766349357bedbc0d918137ee0e20ab682",
+      "mode": "100644",
+      "sha256": "423dc550526d36cc59679403b91e7a2725eddb98dfab0501fb4478af5ca59baa"
+    },
+    "docs/building-rpms-from-source.md": {
+      "bytes": 7235,
+      "git_blob": "ecd5257de6aa8463a28e2e47d15e56a150c111b0",
+      "mode": "100644",
+      "sha256": "8a613a101ff7136421cd5808d03d9c07c92746c9232079cc42d53edcded2b34c"
+    },
+    "docs/debugging.md": {
+      "bytes": 1530,
+      "git_blob": "f53bb4d661f05713f7db3f07e0a287191d71fed8",
+      "mode": "100644",
+      "sha256": "19ac83ced98660b5b98802b2904e18d5c708ac98ed705644116a3b19182e007d"
+    },
+    "docs/distribution-policy.md": {
+      "bytes": 2911,
+      "git_blob": "4aca057c359ec8b48be4ba5f50c52d52692c12fe",
+      "mode": "100644",
+      "sha256": "3c93b07874cb553ad9a7507d267b8fcb5f3dc380e70029d275709f435b3ced51"
+    },
+    "docs/favicon.png": {
+      "bytes": 394,
+      "git_blob": "f4b5cc146a8c07b679e75df01a55a10f8a3b7c8e",
+      "mode": "100644",
+      "sha256": "e085263128ada0a4d985e57800b08c1375d912736c97b885db12962ab3185395"
+    },
+    "docs/fonts/heebo-bold.woff": {
+      "bytes": 42844,
+      "git_blob": "1e45115e1e32079307c9e38ea54a1755febfcd34",
+      "mode": "100644",
+      "sha256": "10dc07bcd23b389b9769ac6c613df9af8612bdac6ec7737f4e75ee58f3fbfefe"
+    },
+    "docs/fonts/heebo-regular.woff": {
+      "bytes": 42672,
+      "git_blob": "484eae455569fb5a74897f312a31ec8183a4b025",
+      "mode": "100644",
+      "sha256": "2f2bd081521baaa23da11be72ce145aaef9f11a416323788cea5a36a22eec240"
+    },
+    "docs/index.md": {
+      "bytes": 781,
+      "git_blob": "36cb9db44c72793210a0d185b90879fe85a3f1fc",
+      "mode": "100644",
+      "sha256": "95eb5e927c9288b8e569268d840fa59a36374d2d544d3a84d37885f5f1d0d8b3"
+    },
+    "docs/initrd.md": {
+      "bytes": 1003,
+      "git_blob": "6e3bf52e2feec9079b62d2cf70c76122ea3f65e9",
+      "mode": "100644",
+      "sha256": "a5f7a355e80fdede738b94969bede61e993aac4482a167ac3ca09542e099189c"
+    },
+    "docs/root-verity.md": {
+      "bytes": 4176,
+      "git_blob": "da56cd36d9bbebee587eb10999fc6e2dcd556ced",
+      "mode": "100644",
+      "sha256": "86c7eab08f03da5be19eb4afd548c6eb6461df1aa8f32b62fc8de2ae2eea3373"
+    },
+    "docs/style.css": {
+      "bytes": 9314,
+      "git_blob": "6fb55ac27ca2f866da4fefbcb9b646cfa6424e2c",
+      "mode": "100644",
+      "sha256": "3b1a5b5ec3369f82d71e4b1a31327abb69464ca62c7b08054ef09c448be4e4d9"
+    },
+    "docs/sysext.md": {
+      "bytes": 2777,
+      "git_blob": "d4be3fe8cd0d2754c21ff6e96d8156acc8a21731",
+      "mode": "100644",
+      "sha256": "4437838d54fa1d75f46a9c90b3dcde1693e05c4b60d713a6af54b380746197c4"
+    },
+    "kernel-install/50-mkosi.install": {
+      "bytes": 3164,
+      "git_blob": "bff9e4c769c6ab228a2b1f6b4f7ed7c0d09a2bf1",
+      "mode": "100755",
+      "sha256": "37865d859501f206305122162363cf8d7ae4a989596e67d5fdec36f6a4ea336c"
+    },
+    "kernel-install/51-mkosi-addon.install": {
+      "bytes": 1533,
+      "git_blob": "d5367515c33e2f58145bb39f1e7b00a45c959056",
+      "mode": "100755",
+      "sha256": "0de656944cf5eb205872f74a1337b3215898f90c407de31e5f16eb12d1bb5a1e"
+    },
+    "mkosi-addon": {
+      "bytes": 27,
+      "git_blob": "c8442ca0217ae891e4cc595fa6fc698a687b20df",
+      "mode": "120000",
+      "sha256": "e5433d43c5338da2935cbb4104368f62075240b92b381560cf5e15fe26a92015"
+    },
+    "mkosi-initrd": {
+      "bytes": 28,
+      "git_blob": "73067aca7b9030ec775031bb11d9c4ba33c7113d",
+      "mode": "120000",
+      "sha256": "35582c3fb51d2af9f32d8d9ca703aa21715b248dbb6c75ce300f7cb4b6e7fb51"
+    },
+    "mkosi.conf": {
+      "bytes": 1149,
+      "git_blob": "a165cb8f3e649e45c9cda086dadc11257307ab72",
+      "mode": "100644",
+      "sha256": "09665bcb955946299bcc4d90c8f89f2b9c85b5e593953a377ccb582ca55de5c3"
+    },
+    "mkosi.conf.d/arch.conf": {
+      "bytes": 150,
+      "git_blob": "b3704b3aea3bf76112a005f6e843e62023ef255d",
+      "mode": "100644",
+      "sha256": "1802d73d2227629dbf10a4530af4392f1c77e8d42404aa2242071c795ad9cfd0"
+    },
+    "mkosi.conf.d/azure-centos-fedora/mkosi.conf": {
+      "bytes": 223,
+      "git_blob": "afba426c869c1d037be9fbbbc92ef1f52f9f45cf",
+      "mode": "100644",
+      "sha256": "3a9917436dda0790805ff0459abfb4a3936630726d46dc291408fcb2c2360514"
+    },
+    "mkosi.conf.d/azure-centos-fedora/mkosi.conf.d/arm64.conf": {
+      "bytes": 125,
+      "git_blob": "da610d0e0586a168b7bf4c5acb8be05ea5526dfc",
+      "mode": "100644",
+      "sha256": "3e3d56a9f87c06a8b8d3061ab25f7c4aecdb83dedb5edd42a13aeb42cd896b83"
+    },
+    "mkosi.conf.d/azure-centos-fedora/mkosi.conf.d/uefi.conf": {
+      "bytes": 124,
+      "git_blob": "fbae092e4f1a85e256c5f18b84255646c29dbab3",
+      "mode": "100644",
+      "sha256": "2a082931e31034b5d6abf3b5e7836e290955568156be42b4f1a7c8eeff7f2f53"
+    },
+    "mkosi.conf.d/azure-centos-fedora/mkosi.conf.d/x86-64.conf": {
+      "bytes": 164,
+      "git_blob": "3551c7558b9e9ecbb7909abba02f1891384844ef",
+      "mode": "100644",
+      "sha256": "ef94cc674c6025e1a391ae5f3eecdf5da5148a7f31be4e7b8e84e6ec6fa123d8"
+    },
+    "mkosi.conf.d/azure.conf": {
+      "bytes": 328,
+      "git_blob": "1229a0c7b730b6b933be5c7d3e204470d12420a6",
+      "mode": "100644",
+      "sha256": "0481b0056ade868235c257a5b24608082e50cb270e0f6318c960e9fc2460b0b6"
+    },
+    "mkosi.conf.d/bootable.conf": {
+      "bytes": 159,
+      "git_blob": "4d5e797771d4cb7957151cd93f83edca8a985f5b",
+      "mode": "100644",
+      "sha256": "71ce1e68b74609bfe28abe0784ac1885158858e962ee1b66b6962c5c6ae9659e"
+    },
+    "mkosi.conf.d/centos.conf": {
+      "bytes": 240,
+      "git_blob": "0a23ce4a3a4360f8acfd139ef0becdb59dbc6220",
+      "mode": "100644",
+      "sha256": "7ca3cc77a72f7ff389ef5c7e800a2f202cd5c29b683e8e26dd34f1a3dbf2ea34"
+    },
+    "mkosi.conf.d/debian-kali-ubuntu/mkosi.conf": {
+      "bytes": 222,
+      "git_blob": "5d3026ad74ba0d8494d9eed5bba76961c238b91c",
+      "mode": "100644",
+      "sha256": "75632ab5110ce889440472ceac69355bbb01fada5e9e3001bca04a0fa4e8006a"
+    },
+    "mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/efi.conf": {
+      "bytes": 226,
+      "git_blob": "bf4a250222b519bb472b4d05de077cc90a04e240",
+      "mode": "100644",
+      "sha256": "db6dc11dce903227062cc40e425f11353a6b3d41fc8ff77a1702a1c29d3ca7a8"
+    },
+    "mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/x86-64.conf": {
+      "bytes": 203,
+      "git_blob": "7c3bcfe4ad291b6551bdc316beb0b8bd87d29154",
+      "mode": "100644",
+      "sha256": "b6988b2ac209a3cfb3fbe0e071bdb45523579542be902788708bb6e5352b07ba"
+    },
+    "mkosi.conf.d/debian.conf": {
+      "bytes": 137,
+      "git_blob": "108a509a2897f4a65e575025221d5d07a1443e77",
+      "mode": "100644",
+      "sha256": "22cc9803a0bd86617524006cc12afeaca21a9be5fe4042c5473fd2778ebaf899"
+    },
+    "mkosi.conf.d/fedora/mkosi.conf": {
+      "bytes": 106,
+      "git_blob": "5ecb4d48d2d41141918f0562e9ef69aba5bfc31a",
+      "mode": "100644",
+      "sha256": "b05f8766ef16106692fbf5f2add301d3db30e25811eae1f5dfac5a178d0baecd"
+    },
+    "mkosi.conf.d/fedora/mkosi.conf.d/arm64-uki-signed.conf": {
+      "bytes": 459,
+      "git_blob": "ceffe1513bb7f3bf808ff17256bbda1d978867ff",
+      "mode": "100644",
+      "sha256": "9b844b99887b75e95a3ebd35d08ef61c6197b960e939daf94a6c24b7c73bb67c"
+    },
+    "mkosi.conf.d/fedora/mkosi.conf.d/arm64.conf": {
+      "bytes": 124,
+      "git_blob": "4f8c19b3546ad897cded817e57d542c3288b69fb",
+      "mode": "100644",
+      "sha256": "0691ad3800186a66a6c4232cfcdef5c0498d30e0a36c6ecadf5edf91ea3fe4a0"
+    },
+    "mkosi.conf.d/fedora/mkosi.conf.d/x86_64-uki-signed.conf": {
+      "bytes": 460,
+      "git_blob": "a65eeeb860cec5447c9ceff221512327d1d59bb4",
+      "mode": "100644",
+      "sha256": "9747ec1c21a41c482674c5bf452b7d7c1aad68e5147d4547767c8b6ebbb58ef9"
+    },
+    "mkosi.conf.d/fedora/mkosi.conf.d/x86_64.conf": {
+      "bytes": 148,
+      "git_blob": "1ffd9d4e21ab67359746418c9c0c6e2a60d4d1fd",
+      "mode": "100644",
+      "sha256": "6bc10f4d50622f6f63c31c675776519ffe64531c497233382f61b23e1c60ab47"
+    },
+    "mkosi.conf.d/kali.conf": {
+      "bytes": 119,
+      "git_blob": "b1f26cf949aad686b0cccba9d4fb7a7e97544934",
+      "mode": "100644",
+      "sha256": "c063734abfb747476eb75bb05af00cd6772a73560889c14a1b1b71709362a8c2"
+    },
+    "mkosi.conf.d/memory.conf": {
+      "bytes": 109,
+      "git_blob": "958fca11fba79463cf6525837bee4790b7500354",
+      "mode": "100644",
+      "sha256": "3ef1c4efb96e1b4dd515a482f745a29052fb25a6598da127b544c4dee3cbe6e9"
+    },
+    "mkosi.conf.d/metadata.conf": {
+      "bytes": 240,
+      "git_blob": "78e3fc738ff2ac5063d034019b37891e7612514d",
+      "mode": "100644",
+      "sha256": "3c18f786e2fa49ff1c529c9d26dce45c1832a01d27bbbae926cdf1280512900e"
+    },
+    "mkosi.conf.d/opensuse/mkosi.conf": {
+      "bytes": 254,
+      "git_blob": "84bda2b46053dcf1a2d68f3afba2d4866bccb2d0",
+      "mode": "100644",
+      "sha256": "f26b69598fe7369292f08a6699019b6fca46d2479a2ebbffa18fff6d7eef2546"
+    },
+    "mkosi.conf.d/opensuse/mkosi.conf.d/x86-64.conf": {
+      "bytes": 198,
+      "git_blob": "2d6345e1b0c0592836e3938161ff6263c8120302",
+      "mode": "100644",
+      "sha256": "b87f1a2e04ba0794d74f08e6b31476e23ee39e210872ed74166b4abbb241df8a"
+    },
+    "mkosi.conf.d/postmarketos.conf": {
+      "bytes": 271,
+      "git_blob": "25d3c7a4f0a6f36e4045a4c6ee2f717d3977683b",
+      "mode": "100644",
+      "sha256": "13a4fe8d7bfbc8929a86af2c03aae1949553afde833d08c1faaf16250f9429ef"
+    },
+    "mkosi.conf.d/rhel-ubi.conf": {
+      "bytes": 125,
+      "git_blob": "cc4940a0c5d05749c9e409758efe1a608a0048cf",
+      "mode": "100644",
+      "sha256": "c594e30c1c981e94ba2b8c9fa08c017e181b34814a7d3df9c12329e487a677fc"
+    },
+    "mkosi.conf.d/ubuntu.conf": {
+      "bytes": 126,
+      "git_blob": "b9584a669666c01f49177c5ab0ee1f820f0734ff",
+      "mode": "100644",
+      "sha256": "87065e9fa676542ae775d36f591a2b25999a2d5d6373c33677a20acb1d32f62e"
+    },
+    "mkosi.conf.d/x86-64.conf": {
+      "bytes": 132,
+      "git_blob": "c9aaa5a51edf0e4a0d295a3fb2db7884f7c1cfc7",
+      "mode": "100644",
+      "sha256": "daf284f69f1912191f2844d7a837e0637bccd3902662989199d980b85ed9e730"
+    },
+    "mkosi.credentials/userdb.group.mkosi": {
+      "bytes": 76,
+      "git_blob": "180f3fed0e0c9d01bef576b97272a5b09bb0d8d6",
+      "mode": "100644",
+      "sha256": "790901c4cd7034bc068ba6630120be8beb046779376c7eafe635c50e6dcbd360"
+    },
+    "mkosi.credentials/userdb.user.mkosi": {
+      "bytes": 229,
+      "git_blob": "82912fdc221802e27f4b03a06bad60521aec951a",
+      "mode": "100644",
+      "sha256": "9ee0c8ac7d40d3ba3c5bf93920d80fefe2725117f7751ce6da3e014b92a6f263"
+    },
+    "mkosi.extra/usr/lib/repart.d/root.conf": {
+      "bytes": 68,
+      "git_blob": "7612b246c5b0470d04c051a75bfcc3cd959386db",
+      "mode": "100644",
+      "sha256": "3aa8c7802a35087b541da19675d843fb53d5b038cbecb93e66f6f980a5865039"
+    },
+    "mkosi.extra/usr/lib/systemd/mkosi-check-and-shutdown.sh": {
+      "bytes": 398,
+      "git_blob": "bddb53ac431f2559316431bb07254e5d91056eb1",
+      "mode": "100755",
+      "sha256": "142578c1508a0cae9670f80adad8bf194a128b9595604b67755d4504afde0452"
+    },
+    "mkosi.extra/usr/lib/systemd/system-preset/00-mkosi.preset": {
+      "bytes": 866,
+      "git_blob": "42fb5fea0c9b1f9bf5271c9889d5956276ef310a",
+      "mode": "100644",
+      "sha256": "c32770a539678003bac6340c6926d87d87a127828a10da2236845661c4fbc308"
+    },
+    "mkosi.extra/usr/lib/systemd/system-preset/99-mkosi.preset": {
+      "bytes": 142,
+      "git_blob": "40873d345ae6defb2cf0e536cb12ab235e9893d5",
+      "mode": "100644",
+      "sha256": "68c676bd3f7546174e583e19a14f93d82032d820b0ec7a1618ff67eec31317d3"
+    },
+    "mkosi.extra/usr/lib/systemd/system/mkosi-check-and-shutdown.service": {
+      "bytes": 341,
+      "git_blob": "33058f2864c801a2de13dbffb56e4703b7414818",
+      "mode": "100644",
+      "sha256": "c770147a273e65ab95f1212cceb25a541df7ff0b31491ef5fbbbf8e0edece938"
+    },
+    "mkosi.md": {
+      "bytes": 30,
+      "git_blob": "775d5ce7a5d16dd4332f4487f24675fce02cd113",
+      "mode": "120000",
+      "sha256": "e740dded71aae5a3da66266c37ec7ba24a33f57c984550e84cadcb73ca6f66ce"
+    },
+    "mkosi.postinst": {
+      "bytes": 423,
+      "git_blob": "dd7b746818a078f00e7bbd8c7ff5b95543d58460",
+      "mode": "100755",
+      "sha256": "0f506f24ca44a328d93e38f86b5e4445a26fd3df6a8cb090bc6d81071c9f0f27"
+    },
+    "mkosi.profiles/mkosi-depends/mkosi.conf": {
+      "bytes": 73,
+      "git_blob": "990dda42a79162e43bcb714ed720708ea99d6773",
+      "mode": "100644",
+      "sha256": "47e30a67640049574652261c40fe3d8f7eb5ce6ffd3396a24e244a1b760dc9b7"
+    },
+    "mkosi.profiles/mkosi-depends/mkosi.prepare": {
+      "bytes": 235,
+      "git_blob": "8d62c883a77af6bc17bcedcbfbee39540d683e2c",
+      "mode": "100755",
+      "sha256": "61184b1364b40f9b878588e123f999fd2eff2162df64e85e805b3e4c4609e558"
+    },
+    "mkosi.profiles/rpm/mkosi.build.chroot": {
+      "bytes": 380,
+      "git_blob": "a15df21ad13b28c52838dc493a498415ad7577d6",
+      "mode": "100755",
+      "sha256": "5ce96347166699b349a9f9d541a3461015d5d7b20357fd78d75dfa5667ff0360"
+    },
+    "mkosi.profiles/rpm/mkosi.conf": {
+      "bytes": 213,
+      "git_blob": "4c4ad035cf17aa1bf144056592f4a966bd0cf5a7",
+      "mode": "100644",
+      "sha256": "608662c732ee08611c74789afdcabe85b7dea9f91e5511784d4d4d7aa92d293d"
+    },
+    "mkosi.profiles/rpm/mkosi.prepare": {
+      "bytes": 1063,
+      "git_blob": "e809926ba04aebfac03babd42bfea31008ded4e1",
+      "mode": "100755",
+      "sha256": "60ff5707d9cb75e3a4289b1b266d39b9b426d629351c2e4ebfdff1eb03ce764a"
+    },
+    "mkosi.tools.conf/mkosi.conf": {
+      "bytes": 121,
+      "git_blob": "5588be4a75d3670ec4f19e2a4cdbba2f4bdf0c1e",
+      "mode": "100644",
+      "sha256": "5ffa1b85384219194074c8797d4fb4cc7155a70732eb267c4ce48f7fa10437cf"
+    },
+    "mkosi.tools.conf/mkosi.conf.d/arch.conf": {
+      "bytes": 266,
+      "git_blob": "3a84ab16de025308c07f7e81e0fa6d2b40bd1df1",
+      "mode": "100644",
+      "sha256": "cdd07595336325edc79d3eb00cc5f8fe1b9543a60e1fd9583a0c43d4d44accd3"
+    },
+    "mkosi.tools.conf/mkosi.conf.d/azure-centos-fedora.conf": {
+      "bytes": 249,
+      "git_blob": "d0adb353029f52b7b60127d61753acb55c05a656",
+      "mode": "100644",
+      "sha256": "cdd5480249c6aef228b28ed7d595bfceca1af8dd0f903f6f554370bdf7df3f34"
+    },
+    "mkosi.tools.conf/mkosi.conf.d/debian-kali-ubuntu.conf": {
+      "bytes": 285,
+      "git_blob": "96b9284e0bee118421bc34f27fa42675fcc45229",
+      "mode": "100644",
+      "sha256": "2f2d0b93799afc5e3cf34433fa13d6088dc423b1ef5effc8c830495c4d509e45"
+    },
+    "mkosi.tools.conf/mkosi.conf.d/fedora.conf": {
+      "bytes": 181,
+      "git_blob": "44ebd0e0697b0edbc3413c35930f40401c89163a",
+      "mode": "100644",
+      "sha256": "2ed2891a38267b0c442f284805bb3f9c958e8b6128c4ad74ab78aa87aecdab9f"
+    },
+    "mkosi.tools.conf/mkosi.conf.d/ncdu.conf": {
+      "bytes": 175,
+      "git_blob": "31b6b3171a1064d95fb73e4e23983b5e85436f5f",
+      "mode": "100644",
+      "sha256": "edf1eae073ba8d47470e930f4bb414aee0edfdedc25adc646cd6cc0b32056956"
+    },
+    "mkosi.tools.conf/mkosi.conf.d/opensuse.conf": {
+      "bytes": 349,
+      "git_blob": "0456df4ce8095a6def9f01bb9f943994ca2d1721",
+      "mode": "100644",
+      "sha256": "e241e27e69512f2090f7f871616f99c027e0ec23341733ab434a8c3302fcb6d1"
+    },
+    "mkosi.tools.conf/mkosi.conf.d/postmarketos.conf": {
+      "bytes": 155,
+      "git_blob": "9963e433c193c914ce5295ab16ee4fe0aa018ccb",
+      "mode": "100644",
+      "sha256": "86ee2b2c76ad97d55a47306b8516b5d28f2b645f0617d015cd71d6dca37a3eb5"
+    },
+    "mkosi.tools.conf/mkosi.prepare.chroot": {
+      "bytes": 233,
+      "git_blob": "04606aff294e6fe6c76dd7304e4b2e1f155dbb80",
+      "mode": "100755",
+      "sha256": "e73bf6e4e26f6e8f5c16a269e7770135f2a1425e12de5eb3cba67c1da467498c"
+    },
+    "mkosi/__init__.py": {
+      "bytes": 201975,
+      "git_blob": "7f10e34d526fdf1f933c73cd55c7eefeac1b393a",
+      "mode": "100644",
+      "sha256": "7b01c5a3d72d1b368a8e94b8920edf57767c0be1c28fbd0405f423bba86084e0"
+    },
+    "mkosi/__main__.py": {
+      "bytes": 1327,
+      "git_blob": "57c082b69ec67ac683babf069e8db22d473c98b9",
+      "mode": "100644",
+      "sha256": "9f5c400b03ab9596ad05b5c850ba2e9eb9b6ed2fbcd485c4af104436d6dcad82"
+    },
+    "mkosi/addon.py": {
+      "bytes": 2607,
+      "git_blob": "98a1358b2c52d29f94e0a4aebdd6b37ac3dd6998",
+      "mode": "100644",
+      "sha256": "09f7f0e4af9fa41abdad62dcbc4fafbeaad3f5c1712000dc8fc20ea70a7051c1"
+    },
+    "mkosi/archive.py": {
+      "bytes": 4791,
+      "git_blob": "11707a1e0d0ff09ed491a588dc5eb79781342c84",
+      "mode": "100644",
+      "sha256": "7c20ae039641d634415b7ec2379a5e54dba233c66c4b5c3839db8db6b2ce8d5b"
+    },
+    "mkosi/bootloader.py": {
+      "bytes": 34693,
+      "git_blob": "3260de15feb58543dee77f1f277b447f8d19e7f4",
+      "mode": "100644",
+      "sha256": "6e2a2f811cc814aaa2d6cae81f0af904cbc6e580b09eb2d682b0dd36dbf43769"
+    },
+    "mkosi/burn.py": {
+      "bytes": 1417,
+      "git_blob": "d1233133f51b46a399b50415285cfeb3f37cf273",
+      "mode": "100644",
+      "sha256": "0aa2ca4fb200571f3974126eb3baee0501f129c1ff858dd432988783a293a0a7"
+    },
+    "mkosi/completion.py": {
+      "bytes": 8260,
+      "git_blob": "398edb2ca2a0e25bc745de38a25bc33f41474905",
+      "mode": "100644",
+      "sha256": "51fd0961ef1ab3c0caac0041c96c111c16d5c9e1254012201fb57213bbbb117a"
+    },
+    "mkosi/config.py": {
+      "bytes": 214312,
+      "git_blob": "a0bad22bb6ac49dbdcddc354ed79a0c11bdd605a",
+      "mode": "100644",
+      "sha256": "ce31fbfded39ccf0f7d393f3ef10e78c922175cf748eab2581f50eea64235392"
+    },
+    "mkosi/context.py": {
+      "bytes": 3015,
+      "git_blob": "665b75ec863404c67d881eab0f3ee0048d395b58",
+      "mode": "100644",
+      "sha256": "28bd99bfdeab3b3297929658af8b39c2d479fcec60341e642a320f1b5433a13c"
+    },
+    "mkosi/curl.py": {
+      "bytes": 1987,
+      "git_blob": "401199d7003aabea5d0162d8327b939e37d9257d",
+      "mode": "100644",
+      "sha256": "784e8cccf4cb982f70875ab4e16665f1083db75e7f7e5fca4c4d4595a41d4caa"
+    },
+    "mkosi/distribution/__init__.py": {
+      "bytes": 5448,
+      "git_blob": "e5f9848a141021e2f9cc119c5478292f82663d38",
+      "mode": "100644",
+      "sha256": "b804c9667c2da8d691b86ee0c77f8d560b5d686f82976d48a0cebe38e6edd5be"
+    },
+    "mkosi/distribution/alma.py": {
+      "bytes": 1427,
+      "git_blob": "0df6037ffcffff0919a2444e07bcff477d176a43",
+      "mode": "100644",
+      "sha256": "1bdbe341c713f6ab57762d56c9802c342803fd0b36fee552eb2362e86d96fd01"
+    },
+    "mkosi/distribution/arch.py": {
+      "bytes": 5897,
+      "git_blob": "9fee5fd19d8806efca629eb0154552451e50f17c",
+      "mode": "100644",
+      "sha256": "a7daf997693450008b86b7391f1872d50c0e3101c8fd4342441e08b6371dcce0"
+    },
+    "mkosi/distribution/azure.py": {
+      "bytes": 3549,
+      "git_blob": "fcc4bec2597ba2552196feaa4cfbc918306a1a78",
+      "mode": "100644",
+      "sha256": "46a781e55fd1adcffaeec4bc41f7574e015392756f6caac7d2a10d6226a563c8"
+    },
+    "mkosi/distribution/centos.py": {
+      "bytes": 20694,
+      "git_blob": "59387112fac6b220230643aa44defb305184b9a1",
+      "mode": "100644",
+      "sha256": "e4657b313ae3b9a90e51702ee2ea06d0aa0c6117cef7961305f471eda9680c31"
+    },
+    "mkosi/distribution/custom.py": {
+      "bytes": 757,
+      "git_blob": "f61354e53c327bf5f806a51d8d53beecfab1d5cf",
+      "mode": "100644",
+      "sha256": "51bc3ca9114fbcbf57e98e1502056c087fc77580c612af721ab0691166562dea"
+    },
+    "mkosi/distribution/debian.py": {
+      "bytes": 12636,
+      "git_blob": "a2ebff2b9e9bea1f3d6747367bdc46187df89166",
+      "mode": "100644",
+      "sha256": "568bf910caf9cba6cef2999fc92efadd225fbfaca6aace49e95a09e4cff0d7d9"
+    },
+    "mkosi/distribution/fedora.py": {
+      "bytes": 13960,
+      "git_blob": "1b996af2cede4925cb8d253bb2369d236dae3c2e",
+      "mode": "100644",
+      "sha256": "38d9f948b15422813b2117a6adf2b2ae270920f355e7644ace1c8f82acac2cb6"
+    },
+    "mkosi/distribution/kali.py": {
+      "bytes": 2011,
+      "git_blob": "d3dec56b7cffaefffe719850cb7acf7dab539de6",
+      "mode": "100644",
+      "sha256": "5907e4af35c7677cc4101c71c256aea538a0be5f25788c6d64e163016d30cc45"
+    },
+    "mkosi/distribution/mageia.py": {
+      "bytes": 2283,
+      "git_blob": "7e7286af97c8fa4522e1a26a8d0b33cc57e34612",
+      "mode": "100644",
+      "sha256": "926adb6aa2123c58be02ca272a41a4d7b93ad8745609b048595be400d5cb2544"
+    },
+    "mkosi/distribution/openmandriva.py": {
+      "bytes": 2050,
+      "git_blob": "ef87b20b7ac694d579780649c85333c85e8714cb",
+      "mode": "100644",
+      "sha256": "42c1e2c43d327534a410b2382932512fa798ae6a7c876893ca5482f5cdbad1cf"
+    },
+    "mkosi/distribution/opensuse.py": {
+      "bytes": 14437,
+      "git_blob": "434c22d39dcc0f8bafcd757147737475dddcd2f6",
+      "mode": "100644",
+      "sha256": "b93ede2c4788abf5ff3d87ae30798d5220d07893f2502f1607a3a0b93d8721cf"
+    },
+    "mkosi/distribution/postmarketos.py": {
+      "bytes": 6126,
+      "git_blob": "3c9a1a7b843060ffdce3314de02f146e42c6fe75",
+      "mode": "100644",
+      "sha256": "eb5f489b964a4676e8dc294adfc0cc5c7f511f0748172496b56876ba8fa76e4b"
+    },
+    "mkosi/distribution/rhel.py": {
+      "bytes": 4352,
+      "git_blob": "1e7ff294b3d53a805a0d2971a63c57a9d6f026f8",
+      "mode": "100644",
+      "sha256": "bcb7b7ebc4ecc743d3f87039b1b673b6697138066c58cdc232cf320d5de567d9"
+    },
+    "mkosi/distribution/rhel_ubi.py": {
+      "bytes": 2386,
+      "git_blob": "f03b64e4924a10160a89294445ef3adcdb404f2f",
+      "mode": "100644",
+      "sha256": "528187009f23203bf9013437621e6f6ab05b6f8503a401878a91b30b22d52f67"
+    },
+    "mkosi/distribution/rocky.py": {
+      "bytes": 1440,
+      "git_blob": "deaa73c46f913255f417884db9abe39dce8021e9",
+      "mode": "100644",
+      "sha256": "eeb255281b447caf4b8bff939d829ae79a4bf364a6858d863e46fb9661ce3336"
+    },
+    "mkosi/distribution/ubuntu.py": {
+      "bytes": 3889,
+      "git_blob": "c6a490fb60c20f243c8d881b153c5d0cd2d6679f",
+      "mode": "100644",
+      "sha256": "d8b4b3e171b561d82a6d21f41aee5cde00c068a9005ab330a91dc02c90d8dffa"
+    },
+    "mkosi/documentation.py": {
+      "bytes": 1982,
+      "git_blob": "f54cc41c4d6005c1328f460b8c5d3d30daa6bef6",
+      "mode": "100644",
+      "sha256": "33eedb92548a99ef3c903f4ba012470caaa838fee81c94f2ac760524bc6625f7"
+    },
+    "mkosi/initrd.py": {
+      "bytes": 14124,
+      "git_blob": "8314a0e14c68ae20e4b8298567b2485c87a163fc",
+      "mode": "100644",
+      "sha256": "8e6a3c39132d34d27695912c315ce71e3a62c01b776380f27ad0465c2e77c624"
+    },
+    "mkosi/installer/__init__.py": {
+      "bytes": 9520,
+      "git_blob": "c65ea612e33b00ba5ba00d4e8eb5f6e7e1fd93d8",
+      "mode": "100644",
+      "sha256": "5de9f2672f248a3a52fdd0c996f471a76bf9bec766b313e91c996e40a31ab6b1"
+    },
+    "mkosi/installer/apk.py": {
+      "bytes": 14261,
+      "git_blob": "038380dbb01b9991344329cdb4486333ee1a72e8",
+      "mode": "100644",
+      "sha256": "35be03dadf14ecaebbcbeca28ccf3272b6ab3d4cdc6def584365a5b4c3d14ac2"
+    },
+    "mkosi/installer/apt.py": {
+      "bytes": 12501,
+      "git_blob": "a6338dfd27f671b091252cd8274c94f4e8d0319f",
+      "mode": "100644",
+      "sha256": "5e41cd4b654ca26ec5316f0b74c728d42eb22a66d80ed7b07c525c369e7e2b87"
+    },
+    "mkosi/installer/dnf.py": {
+      "bytes": 12999,
+      "git_blob": "37d3a736cadfd18e9146dbfb19df1e525aefbe86",
+      "mode": "100644",
+      "sha256": "6be6ff68bce973f856243d59d65367a6e3c630140425063b4830b6df1ab49f5e"
+    },
+    "mkosi/installer/pacman.py": {
+      "bytes": 11450,
+      "git_blob": "3898c6f5ea90ad20c3be09ba745288359907d1cc",
+      "mode": "100644",
+      "sha256": "e72b75b0ba5d416a64a4ea2d99f352e6596a4b22504029e14f09d7765ea4b747"
+    },
+    "mkosi/installer/rpm.py": {
+      "bytes": 4510,
+      "git_blob": "65ab762d903d20118020bc3a830804faab8f9d0d",
+      "mode": "100644",
+      "sha256": "f7489d773c83d7ccab9b242e24fd3f0f04e07c5f37b9cf356a91c96084ae5651"
+    },
+    "mkosi/installer/zypper.py": {
+      "bytes": 6597,
+      "git_blob": "fcd4251d393b2555b0e9493e5f331b2816369831",
+      "mode": "100644",
+      "sha256": "1344874bc6762966170635f70bed75edbd2d23a892b4bc19980cde3df039ec5e"
+    },
+    "mkosi/kmod.py": {
+      "bytes": 19934,
+      "git_blob": "5c2dbfd0356fb56e65b596a24bbf6741080d4e95",
+      "mode": "100644",
+      "sha256": "88b2939789cf341e662e75569caa68e1348b8bcff3a405527df808aaeecebba3"
+    },
+    "mkosi/log.py": {
+      "bytes": 5432,
+      "git_blob": "d5f93b626a4a7a87bd1a9fe8c1b31516900187e7",
+      "mode": "100644",
+      "sha256": "ff7930fa209105be320896b25c75be53cf683dd909072b5ae825dcfa324ccfae"
+    },
+    "mkosi/manifest.py": {
+      "bytes": 10870,
+      "git_blob": "baca12614412953c3f1d35ae5f1f2b73899315df",
+      "mode": "100644",
+      "sha256": "b09b5fdfe1d4b0cb9eb32364782831926e5542559009d36218f81294a1639a74"
+    },
+    "mkosi/mounts.py": {
+      "bytes": 5239,
+      "git_blob": "f15791890347a1b234d334dce4f199d51467666e",
+      "mode": "100644",
+      "sha256": "6765a25dd7eb872e2058612d49f14f46b5a0fea1f23aad83a937abd4aad0b3c0"
+    },
+    "mkosi/pager.py": {
+      "bytes": 528,
+      "git_blob": "7077fb0a4ccce3a299a07babedb5e8cc216f5e61",
+      "mode": "100644",
+      "sha256": "36df659a84e549c1141baf4860d147d49bb11bf1d8956eb9c32b323adfb91d9e"
+    },
+    "mkosi/partition.py": {
+      "bytes": 2744,
+      "git_blob": "535b6cdd527db22df9a042558bffea35904ae07d",
+      "mode": "100644",
+      "sha256": "a6b77f263adb0828a6626267ae7983965b57aa4cd97a1ff1e4e74f5f4a91f3c9"
+    },
+    "mkosi/qemu.py": {
+      "bytes": 52865,
+      "git_blob": "3c4e6bd71a96437cfd3b7f53fde061fed4c034af",
+      "mode": "100644",
+      "sha256": "4bf8f88cef70c4956715785a09ce63e4fc150236a1431954c401729e16a5f0aa"
+    },
+    "mkosi/resources/__init__.py": {
+      "bytes": 2523,
+      "git_blob": "6d8d7238a765a901e69dccf569ef622241e11e71",
+      "mode": "100644",
+      "sha256": "705e80386ca7981578dff8648aba9ad329d5fb4978a0a7c6b7f6cf8bb2b38f70"
+    },
+    "mkosi/resources/completion.bash": {
+      "bytes": 2313,
+      "git_blob": "8e4fb07967fa93e91293c9b2471e426191d6a692",
+      "mode": "100644",
+      "sha256": "7523494b2d044a4630200c5a3b6219bd277a90dbde5b1d1c72c1fd00c907b2a9"
+    },
+    "mkosi/resources/completion.zsh": {
+      "bytes": 346,
+      "git_blob": "0cda8b5e3f76f1d15e917a5ffb7b8c3c9d90b209",
+      "mode": "100644",
+      "sha256": "60ee289915e07a02353f4c1e36d0b928f1522d00c06fc83d6fa543350c89ca4c"
+    },
+    "mkosi/resources/man/mkosi-addon.1.md": {
+      "bytes": 1397,
+      "git_blob": "414a958b2337b2099a03df63f2eb25170045939f",
+      "mode": "100644",
+      "sha256": "6558c98cc0142795c3de8b0b7316b7c36eac58b0f2d807a990a8bd50e38116ec"
+    },
+    "mkosi/resources/man/mkosi-initrd.1.md": {
+      "bytes": 2757,
+      "git_blob": "98dac871861a62f6a46e6988b4da29813379a06d",
+      "mode": "100644",
+      "sha256": "35870d16954f3539efb2d8dccbddc0cc865e8060a64922a84d33ac93d89b989c"
+    },
+    "mkosi/resources/man/mkosi-sandbox.1.md": {
+      "bytes": 7639,
+      "git_blob": "7fcab453d299b6b1800ec1242dd2db0507c9bba1",
+      "mode": "100644",
+      "sha256": "0645f46cdb4f8f484be541ad1a2eb90730554de19c4fe20e5e0acfb2392546e5"
+    },
+    "mkosi/resources/man/mkosi.1.md": {
+      "bytes": 179362,
+      "git_blob": "2e0fb00790fface73c048e319523b7f579db3481",
+      "mode": "100644",
+      "sha256": "6344028a599ad9dc354711a5bfd328abb1d0d0a81fe8e0defa248527da537d0c"
+    },
+    "mkosi/resources/man/mkosi.news.7.md": {
+      "bytes": 73258,
+      "git_blob": "cbe91d6ac0c600e862e646efef0362f099b81c24",
+      "mode": "100644",
+      "sha256": "cfeb0d9c7fdf009e505bcb01447a465c8acf4acc96aba7676a33735932810f22"
+    },
+    "mkosi/resources/mkosi-addon/mkosi.conf": {
+      "bytes": 1049,
+      "git_blob": "5cb3f5093d2eebd666278bc8e137092eaf0e2c6b",
+      "mode": "100644",
+      "sha256": "e105e37207438e9a85c81404c18b30a1b60b10c3f1f2f18822909b5daa06b54e"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.conf": {
+      "bytes": 3096,
+      "git_blob": "8d6ae06dcfbe6bc5da7349bc6383470ad6e07d72",
+      "mode": "100644",
+      "sha256": "6c84f574d95fb3d23f1be6663a0a7b03ce03296bcd48877ee829da7f12c4ffba"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.conf.d/arch.conf": {
+      "bytes": 964,
+      "git_blob": "b3247fcd8f893a5f6317c3be00192fdce3dcb187",
+      "mode": "100644",
+      "sha256": "4742af8f5beb07930ad5e113ebb5f6d6b2358ca58cc4aebc16d1cf482ab72f9c"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.conf.d/arm.conf": {
+      "bytes": 242,
+      "git_blob": "7794093ed00e5e503c9add260930aa418aa77919",
+      "mode": "100644",
+      "sha256": "3dc5d720f7b1ae7a6286703ed7956ae15b2aa23c1f379465a68ab7996bb0afe0"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.conf.d/azure-centos-fedora.conf": {
+      "bytes": 504,
+      "git_blob": "d9104bf4d4a01260d9bc15a275a5257427660127",
+      "mode": "100644",
+      "sha256": "d4ffd4885845a03dd062bbbb6fbc0eba057c3283ce36c8c0d53230912643dfbe"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.conf.d/azure.conf": {
+      "bytes": 133,
+      "git_blob": "976c81ec4cc5675f1fb6d1f94abc91bdf75f7687",
+      "mode": "100644",
+      "sha256": "7c76150bcfd5d333576344d6e3a9e410223adc004f63d9b34e74f6f9f0c23c0d"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.conf.d/centos/mkosi.conf": {
+      "bytes": 321,
+      "git_blob": "5b25c7e41a127f97c90166d31506b6dc9654d2da",
+      "mode": "100644",
+      "sha256": "24267316b1694c36e23972c70d3af56d414039c64daa17c66e130d0c68e0e7e3"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.conf.d/centos/mkosi.conf.d/epel.conf": {
+      "bytes": 113,
+      "git_blob": "1f73a64e99dff8cb6e78d9a5c0d24341d487ae7e",
+      "mode": "100644",
+      "sha256": "b8d2359cbe857f0e2db9dc34b4f718a4336ce5db5721b059a80dd2e5fa44ffc5"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf": {
+      "bytes": 670,
+      "git_blob": "8fd2fe06b99c24531f71f6ac15b6a1e768eecd8c",
+      "mode": "100644",
+      "sha256": "0fd12a15300b70b5c8302a17a471639970dd1449ac6bf0c55256f08f066e6213"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/dpkg.conf": {
+      "bytes": 308,
+      "git_blob": "bfe36320e1bdc91f3fe9521834843b251f1029e0",
+      "mode": "100644",
+      "sha256": "b9dfd1a44e7ce2f0fa5c4bf0070d7230e4a860394609d6a21a08b4ab093aded2"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/libtss.conf": {
+      "bytes": 450,
+      "git_blob": "06692c7393b3288333ca9345d22a019617a256f5",
+      "mode": "100644",
+      "sha256": "0b08838c563aa9211d27e06e9a3e2d4774f4c3bec4fd9cef50f24f4447d1f952"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/systemd-cryptsetup.conf": {
+      "bytes": 256,
+      "git_blob": "7ec70d2ea91b6a1f371daab16b126208d7c37e44",
+      "mode": "100644",
+      "sha256": "c286d2153677a91f58bc5ad9b7d353210e46e9e6b6d13eb21d739d1ee2feb2c5"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/systemd-repart.conf": {
+      "bytes": 222,
+      "git_blob": "67ffb47b5d60d69d1c632b4ed7989597c65b718a",
+      "mode": "100644",
+      "sha256": "22db8d52c1fd4d1427b13d4999f9c504081f368c574e4ab40ad36cf96ff2fcda"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/systemd-tpm.conf": {
+      "bytes": 283,
+      "git_blob": "7af235fe9e0c1cf5f8e417055fbeac9dec71a050",
+      "mode": "100644",
+      "sha256": "36912a6dc2b702cab95da9d175281d717e9d25abbf244525b00c96b066ad287f"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.conf.d/debian-ubuntu.conf": {
+      "bytes": 126,
+      "git_blob": "c98600bbb62fbccede12b060ab73be2db891c468",
+      "mode": "100644",
+      "sha256": "0060584f4e87c122d8bb3ffe750b561236690ff1581a61ec94e44ac82b0feb83"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.conf.d/fedora-stable.conf": {
+      "bytes": 251,
+      "git_blob": "acc547d253d26b7ebdb44b0326397d3d37787cdc",
+      "mode": "100644",
+      "sha256": "42735dbd947a555ae8475809ad0f320ce17d08b7a750d57b0a9f31cfbaaae1e6"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.conf.d/fedora.conf": {
+      "bytes": 156,
+      "git_blob": "ee9def3f9cb92b49683fb2a0b963cf60fc0e4fc0",
+      "mode": "100644",
+      "sha256": "9ca2e8ecf6c4d87272e907d57e74a1fffcc07402eb080d85be5b1d1d97fde9a9"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.conf.d/opensuse.conf": {
+      "bytes": 1020,
+      "git_blob": "367e9c705cf937d2c79ac40d5639a0075f8d96f6",
+      "mode": "100644",
+      "sha256": "b35df647b0eeceaeee36f4bf4391dcfb5d134aa78563ccc1c7114c4d6265431c"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.conf.d/postmarketos.conf": {
+      "bytes": 276,
+      "git_blob": "d890c65d49b1600973870f9305ea20478116108f",
+      "mode": "100644",
+      "sha256": "eb7c3672e2570eab8f51d4562d2c18b7a30e0c289d460a35c2488917b3b1dd07"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.conf.d/stub.conf": {
+      "bytes": 117,
+      "git_blob": "42b6b047812405bb8319e31df2bffeb8a88ce2a6",
+      "mode": "100644",
+      "sha256": "91ad4288a40649fc574df695fa9204bce3289711252b8a9821899425229811f0"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.extra/usr/lib/systemd/system-preset/99-mkosi.preset": {
+      "bytes": 137,
+      "git_blob": "710ee7c6f98c4caf959d5cfab1d9f59baac0d2a0",
+      "mode": "100644",
+      "sha256": "46eccfb769c9fbdca0a22bdc8ce227f32e5f5121a454d0c2692d001831e30eae"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.extra/usr/lib/systemd/system/systemd-cryptsetup@.service.d/credential.conf": {
+      "bytes": 296,
+      "git_blob": "afd53f16745ac6f74e165f2c73c1ecb291a2b9a3",
+      "mode": "100644",
+      "sha256": "b05ffeb6fb5794d553ae12ccc1e75151457e6fdba77cbcce0daddfd6f79b8f22"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.extra/usr/lib/udev/rules.d/10-mkosi-initrd-dm.rules": {
+      "bytes": 270,
+      "git_blob": "157c255aad48626534540ee12b7f538855197449",
+      "mode": "100644",
+      "sha256": "648496e7a2721592ef30cbb5f229811ead237f6b78c6f46a48406a9c0c596f2f"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/lvm/mkosi.conf": {
+      "bytes": 70,
+      "git_blob": "01d4155cb02dbd918f4c61555bd3ccb5d0ec1f3e",
+      "mode": "100644",
+      "sha256": "89dd7adabfb4e7f8b83e8a8ef689a1c41e8959411bce43d3015d3d866e519df1"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/network/mkosi.conf.d/systemd-container.conf": {
+      "bytes": 111,
+      "git_blob": "16563d8d8f60a4273eb781c7c0285adab111d854",
+      "mode": "100644",
+      "sha256": "a9f40c1a8dd01df1422657d718b058fd4be1ea1e5627a7ef8e01f3fad58759a2"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/network/mkosi.conf.d/systemd-imds.conf": {
+      "bytes": 284,
+      "git_blob": "ea2823f3a2f59f25476e1dc87be1f10a83505b80",
+      "mode": "100644",
+      "sha256": "5e74ca0b220078f684380ed5908ba3c52043ed7027d14384bfa15aea89c5dea2"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/network/mkosi.conf.d/systemd-networkd.conf": {
+      "bytes": 135,
+      "git_blob": "b81de4627a2158ea35e29a3de64efbab9dac77da",
+      "mode": "100644",
+      "sha256": "638366547ba39924ec05d70e6673a06a0e1070ecd5a281dd38fcc23b97c06abf"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/network/mkosi.conf.d/systemd-resolved.conf": {
+      "bytes": 110,
+      "git_blob": "4ecc6e5acbddddce291b7b28bd6d404be1209cc4",
+      "mode": "100644",
+      "sha256": "f43d0fcd3061e114c67fabfd6d881cde5acc6f6fc4a1eb6c60556cc39126faec"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/network/mkosi.postinst": {
+      "bytes": 205,
+      "git_blob": "c357aa4eb4a0cb7c442e7329bbd8e8693ec7780d",
+      "mode": "100755",
+      "sha256": "477980a915fc38ebbd2639acdcca8d8a200231c283fb02bd2d73b6e04540cf24"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/nfs/mkosi.conf": {
+      "bytes": 123,
+      "git_blob": "ad0fd92497c9160be9bfc653689f39a0388feed4",
+      "mode": "100644",
+      "sha256": "caf8b06f044ea213b909a45cbfb941e796c3bb4383d1b3278b71264df30437b4"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/nfs/mkosi.conf.d/arch.conf": {
+      "bytes": 102,
+      "git_blob": "2ab87316bf4e7d0045bef6fb1a4174c2aa0b8c77",
+      "mode": "100644",
+      "sha256": "2900c2cb2e4d82573456b498c437f4b894cfd672fe5407c084dc4638d93b47d1"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/nfs/mkosi.conf.d/debian-ubuntu.conf": {
+      "bytes": 127,
+      "git_blob": "6574c1753ef4603375c1344a6d6fa38233619252",
+      "mode": "100644",
+      "sha256": "ef3b29a29a4887975595b9b7173a48525279a9de842bfb9c2aab83ed81f7b8d7"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/nfs/mkosi.conf.d/fedora.conf": {
+      "bytes": 133,
+      "git_blob": "c493b19fb463bab4e100c5131a60862d32ab89de",
+      "mode": "100644",
+      "sha256": "d7841b0840fbd12b956b21ad4a9fdcdde4a1c76d3fe5f3c3211964a71e306583"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/nfs/mkosi.conf.d/opensuse.conf": {
+      "bytes": 137,
+      "git_blob": "fdfec7c3573b999123e44aa178ecbb0bb217dc69",
+      "mode": "100644",
+      "sha256": "32799fc650af7b97b69fc2bcc2209c7e9cd1268ff746d5962fcee37a32fd62f8"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/pkcs11/mkosi.conf": {
+      "bytes": 73,
+      "git_blob": "d6d473667c3c86da9b0eb46bb160c8860e87caad",
+      "mode": "100644",
+      "sha256": "6a96780282f268256bdea1372a3c53fbc7837555d9aa4cc65cffc9e8451f23c6"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/plymouth/mkosi.conf": {
+      "bytes": 74,
+      "git_blob": "35c404aafd5e460f091aa362b88a6a63051217f7",
+      "mode": "100644",
+      "sha256": "61298aec97cc9ff1f4f848f898f0b07c3dd9ca67d6c7d2e7d51e7ac4ebed216f"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/plymouth/mkosi.conf.d/debian-ubuntu.conf": {
+      "bytes": 153,
+      "git_blob": "7b43168de647a48e65a252c802bdc47c567eea2a",
+      "mode": "100644",
+      "sha256": "6276fce38e229f5be6dc3c09395cd67970dfe9d7758588791b13e6c4b86487b8"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/plymouth/mkosi.conf.d/debian.conf": {
+      "bytes": 197,
+      "git_blob": "c2d616ba70e8a39b97f0fa860baadcd0cdbec6c9",
+      "mode": "100644",
+      "sha256": "1bc0e0d1f8824b559794a2aac87327f737cfe41212892046c1f537b7dcf18203"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/plymouth/mkosi.conf.d/fedora.conf": {
+      "bytes": 157,
+      "git_blob": "96ecfa419155c2a2d6b3f4f663db486b291dd364",
+      "mode": "100644",
+      "sha256": "c9d391b14ae9e5075f9e27b52b6e146d43990cb21b2c7c2fbc21ec952aa33876"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/plymouth/mkosi.conf.d/opensuse.conf": {
+      "bytes": 203,
+      "git_blob": "b1411e969b02acaf01003e0404ca0ccfb2b4df94",
+      "mode": "100644",
+      "sha256": "9c47c226d57ebdea6e731a73f49129a6a2d05e2f48ca78bb52c684a0c783cd48"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/plymouth/mkosi.conf.d/ubuntu.conf": {
+      "bytes": 130,
+      "git_blob": "4ab0959c52693bfac8a69a7dea2c194c90147753",
+      "mode": "100644",
+      "sha256": "93875eb7b72057d65ca744b727a6cf68f979ce07d9346de15c9a142fa4360cf2"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/raid/mkosi.conf": {
+      "bytes": 71,
+      "git_blob": "9694a223129e528541d06870730c8bbfc9c103ff",
+      "mode": "100644",
+      "sha256": "f732822fb0279a71f00949648813343e525cd40614768ad078848cc091dfe423"
+    },
+    "mkosi/resources/mkosi-initrd/mkosi.profiles/raid/mkosi.extra/usr/lib/udev/rules.d/70-mkosi-initrd-md.rules": {
+      "bytes": 1003,
+      "git_blob": "c90d0f617edf0f1f023db82a0e29986f8a9ad706",
+      "mode": "100644",
+      "sha256": "c6826ceca470992746f35743c7413b97fa4661a7adcd24d159777aedb378d56c"
+    },
+    "mkosi/resources/mkosi-obs/mkosi.build": {
+      "bytes": 11699,
+      "git_blob": "81d0255c226a34e1a6fec0716697fc4a1d7f957d",
+      "mode": "100755",
+      "sha256": "5fe7bf234be2baab155583e77e5921d16a95359b96379882be1e5ea2bc8210f5"
+    },
+    "mkosi/resources/mkosi-obs/mkosi.conf": {
+      "bytes": 206,
+      "git_blob": "811ccb59891eacdfb954fea3fecb0bfd7bd49567",
+      "mode": "100644",
+      "sha256": "d81ef172995979a00eb992d3b81710931e84a0c39b895b75e92caf07b7511a3f"
+    },
+    "mkosi/resources/mkosi-obs/mkosi.conf.d/main.conf": {
+      "bytes": 544,
+      "git_blob": "cffcffb6b1f368a60efa68c77d2a1f8f6ab30622",
+      "mode": "100644",
+      "sha256": "79b45828e1edb9a4ad31042bfbe99e2de20e5dde1881e53ae17754bcde893565"
+    },
+    "mkosi/resources/mkosi-obs/mkosi.postoutput": {
+      "bytes": 5901,
+      "git_blob": "29f3273dc5d5937e92368d5f1d7095bd314264d2",
+      "mode": "100755",
+      "sha256": "eabe0600dc6296147f480bbfe684634e259b380cf5dcbb5923ce3342b4859048"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf": {
+      "bytes": 347,
+      "git_blob": "b597d0a0b4fe6d2982498cc07d35f66c193a3f97",
+      "mode": "100644",
+      "sha256": "59b11f2401144e9ade7a306dc10f58a079942f31c6bbfa7e615d68b15a3bc3e3"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/arch.conf": {
+      "bytes": 376,
+      "git_blob": "b27ac7e3a1aff86672fe4ae17091418486b6c0bb",
+      "mode": "100644",
+      "sha256": "819cb3f9f9519783eeeefca12bd037f1d54c7bfba4e7617dac2039372b37c2fa"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/azure-centos-fedora/mkosi.conf": {
+      "bytes": 410,
+      "git_blob": "3f0ea2a56a15a759fdba900b4e829e67f6ca8b25",
+      "mode": "100644",
+      "sha256": "5913992baa7c10620943ef6446d6c08ad1129c04a0f0fc2aee3b093d6926ffa5"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/azure-centos-fedora/mkosi.conf.d/efi.conf": {
+      "bytes": 113,
+      "git_blob": "24823cbe070aa4bfb20fb99e890ccb3197b7b697",
+      "mode": "100644",
+      "sha256": "17c28d53d69bf07539aacb25c22dcd728308a71dce3d36b64cabff21b0ec1293"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/azure-fedora/mkosi.conf": {
+      "bytes": 154,
+      "git_blob": "cbd3cf54f990416567db9ee0597c4648d509c64a",
+      "mode": "100644",
+      "sha256": "a589216af978ab87109d1df2bdeb21291a841431b6a6be4cacda629321ffc928"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/azure.conf": {
+      "bytes": 200,
+      "git_blob": "62baccf8e18156889df1a6eb1cb9fe00fad73a91",
+      "mode": "100644",
+      "sha256": "ce67d232e97f188f030d8b241bd4717c276948a5e662c8a5f1bcb2e7489278d6"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/centos/mkosi.conf": {
+      "bytes": 225,
+      "git_blob": "47a5551a38f96984094f5cb27931b8f536a6a113",
+      "mode": "100644",
+      "sha256": "c7422bbff603d26ed2e330d5d311be15f8914488b7dfb4f3775acde29dd0bc6f"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/centos/mkosi.conf.d/epel.conf": {
+      "bytes": 143,
+      "git_blob": "af653f6c204a4e9efef79b202bf3ab99506178e1",
+      "mode": "100644",
+      "sha256": "f09c87927ad8e22c89a5cfcd28d2e67cda8e24256612f3b2c1f3cb99b72e4e99"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/centos/mkosi.conf.d/erofs-utils.conf": {
+      "bytes": 148,
+      "git_blob": "ef45d2ad1cfc3eacfbb89a26262a504323d81138",
+      "mode": "100644",
+      "sha256": "53e6f327302239073f97a2162810f71e895aa65dc86e9086c375e1d9a77eb233"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/centos/mkosi.conf.d/hyperscale-experimental-packages.conf": {
+      "bytes": 179,
+      "git_blob": "4ddeff6f9d491fee39543cca5d7fce9b90cdad20",
+      "mode": "100644",
+      "sha256": "6d0a036eb54c8adb733adbeaf9e6c3bbb5397923f056e59251c5e379d6545bc9"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/centos/mkosi.conf.d/pkcs11-provider.conf": {
+      "bytes": 101,
+      "git_blob": "ef3ab6db5e56d56b5d59a8a767048a2a9939dee7",
+      "mode": "100644",
+      "sha256": "83cccab2e810b3dcc29577b112f5dd6fbf6e0c6b1ef82e95a89022ce55b2a7f5"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/centos/mkosi.conf.d/sbsigntools.conf": {
+      "bytes": 131,
+      "git_blob": "ca14ae34e441b35f6ae4786c43b310f94d6f2672",
+      "mode": "100644",
+      "sha256": "7f725990b093ad7a9c816c77279dc1b1464942ce4f1653d92bb9bfa844e896bc"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf": {
+      "bytes": 451,
+      "git_blob": "49afe6b400609cfe37de68fd8627e9d494544464",
+      "mode": "100644",
+      "sha256": "552965e4fc5342e6de84df7a529b76a170abc2476cc49d542dd2b83fb8e91e0c"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/efi.conf": {
+      "bytes": 251,
+      "git_blob": "a277bae441b36a1518d0749aabf90aae88b48146",
+      "mode": "100644",
+      "sha256": "9b99c4f2005dee578451fce17947d683cda3d16d63fbddbd18807827a1fd1e64"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/pkcs11-provider.conf": {
+      "bytes": 247,
+      "git_blob": "6cb9aa884c59267219c271384013ae604b853b52",
+      "mode": "100644",
+      "sha256": "63c829ed60296a565a915ecd78210e4912b5b3288e306254d19d496522dd3ff2"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/systemd-boot-tools.conf": {
+      "bytes": 256,
+      "git_blob": "a646c2a7e839589b65e1b4da497c790b904565e8",
+      "mode": "100644",
+      "sha256": "fd16182513248edad1550bd7e4476e9cc84300f2816a2b889bfe1c69142f7472"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/systemd-boot.conf": {
+      "bytes": 356,
+      "git_blob": "fcbec7304ce602c915f96ec0eeb8ee2206040fc5",
+      "mode": "100644",
+      "sha256": "0f4b10110a26a32dd1793a22bd0c3c8161c89c539d4d0027a1c88c410c3d92b5"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/systemd-repart.conf": {
+      "bytes": 222,
+      "git_blob": "67ffb47b5d60d69d1c632b4ed7989597c65b718a",
+      "mode": "100644",
+      "sha256": "22db8d52c1fd4d1427b13d4999f9c504081f368c574e4ab40ad36cf96ff2fcda"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/systemd-ukify.conf": {
+      "bytes": 236,
+      "git_blob": "6fb6d2014704e9b994fd17715cffe02f741a681a",
+      "mode": "100644",
+      "sha256": "7dc37ffe1dcfffad2c5ba5add775b9a39437c9078b0c59dacde95920fd2d7c3c"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/x86.conf": {
+      "bytes": 134,
+      "git_blob": "de0359054fff3da6a25af048e2c2a055558bb6ec",
+      "mode": "100644",
+      "sha256": "ae435c7b01b286778a083a1ed8c5dae81c8c7808c77f70e3f1eaf09dc3cd44b9"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/debian.conf": {
+      "bytes": 167,
+      "git_blob": "7998af7b1b77b43e557d7c7083d1670c5871b485",
+      "mode": "100644",
+      "sha256": "e28df4e95d64938ef6a97780d760bb66dc88645c02a03d5692c07210aa9a881b"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/fedora/mkosi.conf": {
+      "bytes": 246,
+      "git_blob": "bc2cc87bcfce91d6b12a6834a15260940c9c5261",
+      "mode": "100644",
+      "sha256": "a50003058f09cc273de7710b2f84a98592574131f06bea6266acde0b3345b4a8"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/kali.conf": {
+      "bytes": 122,
+      "git_blob": "4b7ee5c57564a731ea49898385f15f7e5b046b74",
+      "mode": "100644",
+      "sha256": "8c5c7c5cbf60fa8dadefc5c55aceb54222305050803557f3c1c13a5effb34cd0"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/opensuse/mkosi.conf": {
+      "bytes": 545,
+      "git_blob": "7077c05a0e0544b284d1ecf151bf51275b7fb9d6",
+      "mode": "100644",
+      "sha256": "6c99489c3f83e643b89aaf058342a43182b8b0394409f74f013c460b26954b71"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/opensuse/mkosi.conf.d/sbsigntools.conf": {
+      "bytes": 135,
+      "git_blob": "94a64945e1c06a35f4a73ab6ccac322f24d0b70a",
+      "mode": "100644",
+      "sha256": "a97164b07ea990d5fc4d2b8c240c3c932113db562a6014a44c252c2ecffdcac2"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/postmarketos.conf": {
+      "bytes": 550,
+      "git_blob": "cd96f1e19f0cf5d603a88af904411845a9bc619f",
+      "mode": "100644",
+      "sha256": "dab9b83d296f635106aa8e267b516bce3742b304e7dfc78377ce60ec49e9cb1c"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.conf.d/ubuntu.conf": {
+      "bytes": 190,
+      "git_blob": "b0ca1c3ced13a5a895299ae6ecf7ad919719edb3",
+      "mode": "100644",
+      "sha256": "f125addcafabbc9b5bc6072230951d92aa85c5783bf8b31d37941398bc88c9f1"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.prepare": {
+      "bytes": 163,
+      "git_blob": "f9e973afc2dad92ffba0791ff76193884839b665",
+      "mode": "100755",
+      "sha256": "fb0fa7f935dce8c88bad9cde7a1aabdfa5577d332a2a9d55e2cc8e45a176d8d6"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/debug/mkosi.conf": {
+      "bytes": 78,
+      "git_blob": "5a9aff0149322cc6c00de59dc0a1e211a864817a",
+      "mode": "100644",
+      "sha256": "918eadcf49679bb0d13d776937fb35e2ff8912cde623c25fd3773377b181b9e8"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/debug/mkosi.conf.d/arch.conf": {
+      "bytes": 106,
+      "git_blob": "baef55341cfed9a2115f5f9c47d00eb278b29e23",
+      "mode": "100644",
+      "sha256": "6497906012c3bcd51c2df24bc8067a6c1447300b3671e0a86b2ce8a83479b12c"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/debug/mkosi.conf.d/centos-fedora.conf": {
+      "bytes": 188,
+      "git_blob": "4d9b891a0bf5b9db6c6d4b5bdbf8a1ce8034bd28",
+      "mode": "100644",
+      "sha256": "a6bc6f69d18dcce0091ce268081e6b6b35b65986e5e91d998584538a3e0c2180"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/debug/mkosi.conf.d/debian-kali.conf": {
+      "bytes": 134,
+      "git_blob": "f849448fc45da33da6f77df392cbfff60cfa2323",
+      "mode": "100644",
+      "sha256": "e7ad85e9df786e776f3bbae134c61d3c5797a879587566cab81d89fb035dad04"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/debug/mkosi.conf.d/opensuse.conf": {
+      "bytes": 110,
+      "git_blob": "35b0c66585d129aa5880cd80ec6fd9b9d09ea993",
+      "mode": "100644",
+      "sha256": "22f330ba2e30934bc41e538a5e32392c968723bfe4353adf68f982aaad35ff89"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/devel/mkosi.conf": {
+      "bytes": 298,
+      "git_blob": "b3945f5b89e44aa0aed8778a2903feae1952284d",
+      "mode": "100644",
+      "sha256": "a01107f6d94908c170ac519bdf5f19c34d2aa2492900b452db4884916b769a00"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/gui/mkosi.conf.d/arch.conf": {
+      "bytes": 350,
+      "git_blob": "70f40b88782b6962a842d6ad6ce5f0524f7b286a",
+      "mode": "100644",
+      "sha256": "42cfc270dd0e81ad1b701680be906e5939f179f7fccde0655b91f94c2255ea8c"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/gui/mkosi.conf.d/debian-ubuntu-kali.conf": {
+      "bytes": 181,
+      "git_blob": "08c2e9853bdb93bafe9074c7e1f62087d0e199d8",
+      "mode": "100644",
+      "sha256": "fe835da6c4ebb37a4bbfc4e95e3fbd883d511f1681d96e46be2cbdc3189bb62c"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/gui/mkosi.conf.d/fedora.conf": {
+      "bytes": 345,
+      "git_blob": "e31e07c778f526875488ef55cb02e64a8d377519",
+      "mode": "100644",
+      "sha256": "ea2ebe030c549ecade172d2e9e6f874ad3713f02cb75020d3296ce93c2b5699a"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/misc/mkosi.conf": {
+      "bytes": 270,
+      "git_blob": "ac9777498980a1c6497b9e9711e5af6fd51fc361",
+      "mode": "100644",
+      "sha256": "054d750838eb12cc81888506e4be19e4cd371fb0b0f6c718e0476f8c6911531f"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/misc/mkosi.conf.d/arch.conf": {
+      "bytes": 183,
+      "git_blob": "c924bfe72fa758500a61dfed2dea38856a17810a",
+      "mode": "100644",
+      "sha256": "9786679cdf9a02e9467618632e6017b6612e535ed694e9da190c78662f2c3e27"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/misc/mkosi.conf.d/azure-centos-fedora.conf": {
+      "bytes": 253,
+      "git_blob": "4a14a46881e64d71c0169f88bcdb17cc7beade1e",
+      "mode": "100644",
+      "sha256": "bb9899bd29244401e0b5a223eea5753dbe389e5acf8148aea8ea76b042798dae"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/misc/mkosi.conf.d/debian-kali-ubuntu.conf": {
+      "bytes": 256,
+      "git_blob": "85c0cf43bc12a405fbcf9c9c7dd9f9dea8fc47a9",
+      "mode": "100644",
+      "sha256": "dacf403aa58b5dead42b8c44cc5e4a641371cf4ca2a75abee1ae6e4608d21f27"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/misc/mkosi.conf.d/opensuse.conf": {
+      "bytes": 244,
+      "git_blob": "86797c405f29f1638747ff182bae56ce7af431fd",
+      "mode": "100644",
+      "sha256": "cd759bb5f3852ba85ffc82c1c5f258ac54de5404d6322cfee0f3a18d103d32d9"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/misc/mkosi.conf.d/postmarketos.conf": {
+      "bytes": 181,
+      "git_blob": "888de19b1465f4ceb753de99c5ccc9736be8a130",
+      "mode": "100644",
+      "sha256": "43267528c01acc60c3618095f9b1326a6afb176d0408857dcf259aee04e50c69"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/package-manager/mkosi.conf.d/arch.conf": {
+      "bytes": 256,
+      "git_blob": "f702a448cdd914d701a6eb0204a4411ef3822987",
+      "mode": "100644",
+      "sha256": "7a4200546c7c8acacd30ba7fcf18793d54e2fa19f1a62376cfdc23245e58e443"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/package-manager/mkosi.conf.d/centos-epel-packages-9.conf": {
+      "bytes": 308,
+      "git_blob": "994ac41c673891341885706ded58f02dbcb582af",
+      "mode": "100644",
+      "sha256": "0ce103431deabf04e0f74e8d391c1fa1a4f7fb44de7e3d393900144290798721"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/package-manager/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf": {
+      "bytes": 361,
+      "git_blob": "99b254c95affc4ede2addb92f064ae655ab8432d",
+      "mode": "100644",
+      "sha256": "7c9034e51caff618ca585bf4a9248a84ba33181c7bed2d563bb77727f2284aed"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/package-manager/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/dnf.conf": {
+      "bytes": 214,
+      "git_blob": "3ae954b4a1f96a6dbddec7458c362c41e8aeaef9",
+      "mode": "100644",
+      "sha256": "d974c1e349e97cef2ca561b1e912d2ae731ddc9e195771fdae8876507275fec0"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/package-manager/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/dnf5.conf": {
+      "bytes": 213,
+      "git_blob": "96e8f948ffa32cdd4cc6f5513cbf85f0ad922ab0",
+      "mode": "100644",
+      "sha256": "5357670a79790dbaf5994115399e764136e32375342ce3bcde7f4aa2d03c1d31"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/package-manager/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/ubuntu-keyring.conf": {
+      "bytes": 139,
+      "git_blob": "a94ac4ab4da9273354184f5bb0aba738aeb2f1d8",
+      "mode": "100644",
+      "sha256": "575e58cdacb73f14a81c8c01bf768c1fc8e6b982e989a169db550108071ff113"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/package-manager/mkosi.conf.d/fedora.conf": {
+      "bytes": 236,
+      "git_blob": "c4f87930fe406b2347c61110d7319371600b524c",
+      "mode": "100644",
+      "sha256": "64754be456d421ded28a7e73abba2b7753163522a83e6702034e3362d245c733"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/package-manager/mkosi.conf.d/opensuse.conf": {
+      "bytes": 149,
+      "git_blob": "0c7279cfe638747961dd2aada828e73f89271d0e",
+      "mode": "100644",
+      "sha256": "82fc60430f5b467acaab11156f8bec07a8a5237daa3daf39cb21b1c9f48cdc0d"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/package-manager/mkosi.conf.d/postmarketos.conf": {
+      "bytes": 216,
+      "git_blob": "0d4b91f95b729e7d36bd024fc47931211d0d2296",
+      "mode": "100644",
+      "sha256": "280f1b72936e13c4a50a0657e034c92bd4d65f0cb6a4741cdecde77c0348c2e7"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/runtime/mkosi.conf": {
+      "bytes": 94,
+      "git_blob": "67af4d8831d948e43376d30c6a365cd69f3e1103",
+      "mode": "100644",
+      "sha256": "53fd75670ebd1aade7e736c042608c8810798387d6663edd8bc13d02661397b4"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/runtime/mkosi.conf.d/arch.conf": {
+      "bytes": 185,
+      "git_blob": "8b2390583dde138d4b8e0c02fbff846f32a7c2ad",
+      "mode": "100644",
+      "sha256": "8651247a90d3b30fe54e30deec1433d773f096e75a2ebc9f52f1688ebb58d65d"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/runtime/mkosi.conf.d/azure-centos-fedora/mkosi.conf": {
+      "bytes": 358,
+      "git_blob": "c5d915791e3e76224fd5dc996b651adfdcfd325b",
+      "mode": "100644",
+      "sha256": "482c5fdbbd9bb96916b6c1d9274aa2ebd675426bc407176e5f5d730bcccd361c"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/runtime/mkosi.conf.d/azure-centos-fedora/mkosi.conf.d/edk2-ovmf.conf": {
+      "bytes": 134,
+      "git_blob": "ff03125a926ab08a80e73399627e79dc4dada99b",
+      "mode": "100644",
+      "sha256": "65801b17e738beb2272152e56de5efde247c16cb2d6933b2c8cd37e0ed6e86b9"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/runtime/mkosi.conf.d/azure.conf": {
+      "bytes": 158,
+      "git_blob": "d7deda68363c515d0884f3d288253acf8518461f",
+      "mode": "100644",
+      "sha256": "044a0a6b9176b3c353c6ff0c6dcbf4644d755d8e75c9b8de0c903219718c50ac"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/runtime/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf": {
+      "bytes": 294,
+      "git_blob": "d4ee120521f9ac9b77b361c0c8d09908172130bf",
+      "mode": "100644",
+      "sha256": "7fe14746758bc606bf594914227c5b6fc5f467b2114f026b631223dd60c232a8"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/runtime/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/python3-virt-firmware.conf": {
+      "bytes": 253,
+      "git_blob": "82519a8498bcb3281de9fca7d030d4ec5bd34bcc",
+      "mode": "100644",
+      "sha256": "8391ccf52f68eebccdc05d447ceff3cf0dd9f7ebc77ad008c276511690b1fe61"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/runtime/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/virtiofsd.conf": {
+      "bytes": 334,
+      "git_blob": "3ef8b198e1aace50406b9ffa19b9fdd7d25c5dbb",
+      "mode": "100644",
+      "sha256": "14d80bc41f7eedcc11e2f7dd0222ca08f03b9f911cf6879c9fb985fb66498803"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/runtime/mkosi.conf.d/fedora.conf": {
+      "bytes": 188,
+      "git_blob": "49f44e1fdfaf533272a47269d54785d84e8432ed",
+      "mode": "100644",
+      "sha256": "605708c086256cef47182175ac606b0e1843c7a77eaf19f4e818b78fe3071df2"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/runtime/mkosi.conf.d/opensuse/mkosi.conf": {
+      "bytes": 240,
+      "git_blob": "a8e2a9e4456017dc4c1b49c9d3bad44dd597e487",
+      "mode": "100644",
+      "sha256": "238df3e99d64be5b603776f05a0d5c2889e5b7dd5b79699642b13f5459b1fc5f"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/runtime/mkosi.conf.d/opensuse/mkosi.conf.d/efi.conf": {
+      "bytes": 175,
+      "git_blob": "6909bedff68176fd426267adbd09e5394f35235d",
+      "mode": "100644",
+      "sha256": "4c4a102132dedd32508615ffee9f49118a5ef349760ddcaa967f908b32cb847c"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/runtime/mkosi.conf.d/postmarketos/mkosi.conf": {
+      "bytes": 665,
+      "git_blob": "a28690bf988b4bb50e11da950b279eb3ea3ed128",
+      "mode": "100644",
+      "sha256": "f21ea11bb21917ed6b6101b08b21b8b8bb7d30b0f3d8785990963e2ba822ac3b"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/runtime/mkosi.conf.d/postmarketos/mkosi.conf.d/arm64.conf": {
+      "bytes": 160,
+      "git_blob": "d60ecc3488197931097161da4390dfd3db5ba022",
+      "mode": "100644",
+      "sha256": "7b7eb699809e6f21c85f9610cee839fc432ae6a01e34320cd61fa3e639ba7f69"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.profiles/runtime/mkosi.conf.d/postmarketos/mkosi.conf.d/x86-64.conf": {
+      "bytes": 160,
+      "git_blob": "19783b9e587a6966efacd0eb609d47a9d97b42cc",
+      "mode": "100644",
+      "sha256": "fd06e1da8926a28dee32db548a2d688cebdfc43831923ae7bc2bcc62b597cd9f"
+    },
+    "mkosi/resources/mkosi-tools/mkosi.skeleton/etc/resolv.conf": {
+      "bytes": 0,
+      "git_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "mkosi/resources/mkosi-vm/mkosi.conf": {
+      "bytes": 284,
+      "git_blob": "ebdfc1d2af8d048ed5a15fbf3c618dfd8c1b768e",
+      "mode": "100644",
+      "sha256": "ffafeb753cc442262e78a1ef74f2bbbf598d6ea52243d30e6cf1373f500d535c"
+    },
+    "mkosi/resources/mkosi-vm/mkosi.conf.d/arch.conf": {
+      "bytes": 197,
+      "git_blob": "99a48a99125ac5002d955ca4f53220565c29b08f",
+      "mode": "100644",
+      "sha256": "6daddc1486dfb3ebedf0fdbb125154b4dc374b1077dfbc233209a8135b436fde"
+    },
+    "mkosi/resources/mkosi-vm/mkosi.conf.d/azure-centos-fedora/mkosi.conf": {
+      "bytes": 299,
+      "git_blob": "e3e5d89f7092d13fa758b1faa64399b73d540302",
+      "mode": "100644",
+      "sha256": "1f7c84d581b1d8d83fc008670cad12253ce475b25c2dc687271f7b0b05665f51"
+    },
+    "mkosi/resources/mkosi-vm/mkosi.conf.d/azure-centos-fedora/mkosi.conf.d/networkd.conf": {
+      "bytes": 141,
+      "git_blob": "e0d6205bdb1c68fc6b830595e1ddd6cd58578fe7",
+      "mode": "100644",
+      "sha256": "5831d7e09f72bcaa527f80d926f1b419857d40d0020f24fb409bfb97d5a03f16"
+    },
+    "mkosi/resources/mkosi-vm/mkosi.conf.d/azure-centos-fedora/mkosi.conf.d/uefi.conf": {
+      "bytes": 114,
+      "git_blob": "9299df0ed9f24d81e25edf198d0141eaa0dd3806",
+      "mode": "100644",
+      "sha256": "a6ced60f8f1490e38b877b41396b6f5e33ff4ad1b46665e2f8e3ae264f876980"
+    },
+    "mkosi/resources/mkosi-vm/mkosi.conf.d/bootloader.conf": {
+      "bytes": 219,
+      "git_blob": "2fd9dc328ca3320112c3c0caed0a384963561831",
+      "mode": "100644",
+      "sha256": "d63e665a49a3acec3acad2cdf45c930a5b9456463c3bca1d1a37eb3d532f4c1f"
+    },
+    "mkosi/resources/mkosi-vm/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf": {
+      "bytes": 318,
+      "git_blob": "7d42971b9732d7744676100ff04b2359ac8d0fb9",
+      "mode": "100644",
+      "sha256": "588bc6ec11d909dc239e6541d83dd45fdcf6fd1a6d8c436054b94a7311991f47"
+    },
+    "mkosi/resources/mkosi-vm/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/arm64.conf": {
+      "bytes": 271,
+      "git_blob": "01fc2b0b5c550c75dc6bd22418dd02de19ca1390",
+      "mode": "100644",
+      "sha256": "f7b0b662bfc93c9ff5773ee4d0848d1fc021cd666989bd1d31310c9e74b5ac50"
+    },
+    "mkosi/resources/mkosi-vm/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/kernel-generic.conf": {
+      "bytes": 164,
+      "git_blob": "6237c4c397b7b86a6db1a377428784924b70b056",
+      "mode": "100644",
+      "sha256": "2b81d1d4a1cc6f6182e38ba83e4bdf4e62b54e480af31dbd0e0c47b7fe642cc4"
+    },
+    "mkosi/resources/mkosi-vm/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/systemd-boot-signed.conf": {
+      "bytes": 220,
+      "git_blob": "b87f26edd3d9f0ec39705a69e02e24d2840b0967",
+      "mode": "100644",
+      "sha256": "44f75175fb63916dd2a648159d87f92c4f41f1e401810e6f636df271a217768d"
+    },
+    "mkosi/resources/mkosi-vm/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/systemd-boot.conf": {
+      "bytes": 278,
+      "git_blob": "081391273d7b2dc21bed9414556051816d9aa467",
+      "mode": "100644",
+      "sha256": "1e1c7aabeeac728a9678ba8f719d50725e0b5465b0f7852c6b61d641ca7315d3"
+    },
+    "mkosi/resources/mkosi-vm/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/systemd-resolved.conf": {
+      "bytes": 221,
+      "git_blob": "d028b048f9a57fb0e40777ef4b37b6bec1c740fe",
+      "mode": "100644",
+      "sha256": "b011d396dc66a1feacafb6f3d32520fc86c9fd8ed90c42e5dd7687cefbae7f55"
+    },
+    "mkosi/resources/mkosi-vm/mkosi.conf.d/debian-kali-ubuntu/mkosi.conf.d/systemd-tpm-imds-report.conf": {
+      "bytes": 336,
+      "git_blob": "f2ff3f06ecbf743ed42da998cee9f38894397e31",
+      "mode": "100644",
+      "sha256": "78941461c7b2a50020c5bb93b2ec622ebf47859a5519709d795894ea46983034"
+    },
+    "mkosi/resources/mkosi-vm/mkosi.conf.d/opensuse.conf": {
+      "bytes": 518,
+      "git_blob": "c56f696d36fc1eee5518a3aa1b2a5fe49df520e0",
+      "mode": "100644",
+      "sha256": "05fba96f289bb702defad5579d9694a53858109d19b5e6877e36bc419fbbe558"
+    },
+    "mkosi/resources/mkosi-vm/mkosi.conf.d/postmarketos.conf": {
+      "bytes": 449,
+      "git_blob": "2b7667c0bb11ba577076bb536831ab3322a4a07c",
+      "mode": "100644",
+      "sha256": "066c010adf3b89b5ff07ddeea1d3f41d6816efe444ae596e73fd28456fd899ad"
+    },
+    "mkosi/resources/mkosi-vm/mkosi.conf.d/ubuntu.conf": {
+      "bytes": 112,
+      "git_blob": "f76b107a0a5c534da89f438b76cc9d7880a530ff",
+      "mode": "100644",
+      "sha256": "22c81454d456b6cb3cd61fdae12245437c7f70c3ab31ebe407a9e54cceb0f0e5"
+    },
+    "mkosi/resources/pandoc/md2man.lua": {
+      "bytes": 272,
+      "git_blob": "ba6d56ded12d916ece3babb37883f7b54ffbd880",
+      "mode": "100644",
+      "sha256": "80d7478898647d24fa3b054ba540301e9917d02dd6145b1eec1f14a98624ec6b"
+    },
+    "mkosi/resources/repart/definitions/confext-unsigned.repart.d/10-root.conf": {
+      "bytes": 110,
+      "git_blob": "3ccd9090c92082bf01a67a3fd2cf007f6be861c6",
+      "mode": "100644",
+      "sha256": "60b8c1068a83345fa85957432fc8682873aed3d8b4d73ff71bcf873254a6298d"
+    },
+    "mkosi/resources/repart/definitions/confext.repart.d/10-root.conf": {
+      "bytes": 142,
+      "git_blob": "6b7b8f51102096890b16ea4608f83b938f47ec13",
+      "mode": "100644",
+      "sha256": "6ad9ba850a00908257e247c7de7b5b58b691cd1c86780dc9ad902f4079fdba89"
+    },
+    "mkosi/resources/repart/definitions/confext.repart.d/20-root-verity.conf": {
+      "bytes": 120,
+      "git_blob": "f8f5b8001b8c033aff0497d821eed8d0c9d39ee2",
+      "mode": "100644",
+      "sha256": "5b996adce7530936b287bc128baf0b63227af3bc981aa734e0a41a4a1bae26e8"
+    },
+    "mkosi/resources/repart/definitions/confext.repart.d/30-root-verity-sig.conf": {
+      "bytes": 115,
+      "git_blob": "19626791becb69960ef8083cbfd801268d77e7ca",
+      "mode": "100644",
+      "sha256": "51e25c9c07fe463ca0cc27d6a48869d3f2e502b55ea1145c6b472d3b745860f0"
+    },
+    "mkosi/resources/repart/definitions/portable-unsigned.repart.d/10-root.conf": {
+      "bytes": 106,
+      "git_blob": "904819806ea6b6f3d1953161f160b1bed14750d1",
+      "mode": "100644",
+      "sha256": "060744bc9c48107f66c0077f0ddb199608e76c2a27d01277626e4410157b589e"
+    },
+    "mkosi/resources/repart/definitions/portable.repart.d/10-root.conf": {
+      "bytes": 138,
+      "git_blob": "21534702adfe4400f0e6a6b899e43730a33cbd37",
+      "mode": "100644",
+      "sha256": "cb697b02b601f944ed330a76e586773000a56ae8a80120e9676e4fbcfed3ee40"
+    },
+    "mkosi/resources/repart/definitions/portable.repart.d/20-root-verity.conf": {
+      "bytes": 120,
+      "git_blob": "f8f5b8001b8c033aff0497d821eed8d0c9d39ee2",
+      "mode": "100644",
+      "sha256": "5b996adce7530936b287bc128baf0b63227af3bc981aa734e0a41a4a1bae26e8"
+    },
+    "mkosi/resources/repart/definitions/portable.repart.d/30-root-verity-sig.conf": {
+      "bytes": 115,
+      "git_blob": "19626791becb69960ef8083cbfd801268d77e7ca",
+      "mode": "100644",
+      "sha256": "51e25c9c07fe463ca0cc27d6a48869d3f2e502b55ea1145c6b472d3b745860f0"
+    },
+    "mkosi/resources/repart/definitions/sysext-unsigned.repart.d/10-root.conf": {
+      "bytes": 126,
+      "git_blob": "40743a12b6811f72216735103cf40271864587f3",
+      "mode": "100644",
+      "sha256": "facf95d097032d496625c2d6236e197ea832a7c2cbe8a7a5d02c14726e9b775a"
+    },
+    "mkosi/resources/repart/definitions/sysext.repart.d/10-root.conf": {
+      "bytes": 158,
+      "git_blob": "22116cccbf123777b203c76104fc0d49fac2ba0e",
+      "mode": "100644",
+      "sha256": "a742ab9c4f0f6a4fbfc4b85dfdcf8f3718f3fde4998493bc63ad667ed79153f7"
+    },
+    "mkosi/resources/repart/definitions/sysext.repart.d/20-root-verity.conf": {
+      "bytes": 120,
+      "git_blob": "f8f5b8001b8c033aff0497d821eed8d0c9d39ee2",
+      "mode": "100644",
+      "sha256": "5b996adce7530936b287bc128baf0b63227af3bc981aa734e0a41a4a1bae26e8"
+    },
+    "mkosi/resources/repart/definitions/sysext.repart.d/30-root-verity-sig.conf": {
+      "bytes": 115,
+      "git_blob": "19626791becb69960ef8083cbfd801268d77e7ca",
+      "mode": "100644",
+      "sha256": "51e25c9c07fe463ca0cc27d6a48869d3f2e502b55ea1145c6b472d3b745860f0"
+    },
+    "mkosi/resources/tmpfiles.d/mkosi.conf": {
+      "bytes": 67,
+      "git_blob": "fdb74f7aabbe5b39c9c2b98fff0a985e10cd5d94",
+      "mode": "100644",
+      "sha256": "b63d58bf03d11c0195eab4a6c10be3f5474b492fea6444c9d0fee514e9ac0327"
+    },
+    "mkosi/run.py": {
+      "bytes": 30221,
+      "git_blob": "3e94c5ac446581dd4d71d363d7738678c9a7f567",
+      "mode": "100644",
+      "sha256": "d02256def6c6d5a16a2ab8859829c2261b4846785568ca6041b4d661d3162462"
+    },
+    "mkosi/sandbox.py": {
+      "bytes": 59643,
+      "git_blob": "4867ded501b42d579121b1832f0eca31d13a30b5",
+      "mode": "100755",
+      "sha256": "b8d943a23b80158f96925e1ddee2ccbab6834cb3e15a3e3224172962292cb4a1"
+    },
+    "mkosi/sysupdate.py": {
+      "bytes": 4151,
+      "git_blob": "ddfd0b3c239d49626a414eba11b13cf61b4e17d0",
+      "mode": "100644",
+      "sha256": "12e104f2a75608e85bcae1fa1f45f04e999184a71d5c39663f0e20a04f89f5d4"
+    },
+    "mkosi/tree.py": {
+      "bytes": 8465,
+      "git_blob": "ee66b5b16870adb9c97349d4c6d872b97ce0784c",
+      "mode": "100644",
+      "sha256": "c752056d94225a439c30a78c18d2c6b625821593efefeb16c30a2c4b166e4808"
+    },
+    "mkosi/user.py": {
+      "bytes": 1938,
+      "git_blob": "7182604ac7a549a351f5d84de5375458e7e372ce",
+      "mode": "100644",
+      "sha256": "05b56782f54b77a4171f6744afc0f80a1c0f77226b7407f4f86bf5485ec84d9c"
+    },
+    "mkosi/util.py": {
+      "bytes": 7980,
+      "git_blob": "b6218a02f367b9f2779b759e222d67784d3f3fd1",
+      "mode": "100644",
+      "sha256": "43de452fdc4ef2773780a507ee6cdde7758149c6df416047dfc66664634bcfbe"
+    },
+    "mkosi/versioncomp.py": {
+      "bytes": 7111,
+      "git_blob": "a0662e5e404a043ef7c7fc979fe9049edf006ae1",
+      "mode": "100644",
+      "sha256": "17ddfb196085b095a4a22646b679840d77a6a0e07ad3c3c4136ae5f993f74b54"
+    },
+    "mkosi/vmspawn.py": {
+      "bytes": 6805,
+      "git_blob": "8a4b364c9bbabaed7cee7fd7fa9e1eee1758f861",
+      "mode": "100644",
+      "sha256": "49b0499ccb74083752b2006a71cf8b18006d9d48336645acb2d62b3074b58761"
+    },
+    "pyproject.toml": {
+      "bytes": 2365,
+      "git_blob": "88a8f11669e7e340b5e8dd2a10b8c66877eb2be9",
+      "mode": "100644",
+      "sha256": "c5f68212f0c097fe0250789fc575b263457df8fc76d868eeaff7e82e867a9e12"
+    },
+    "tests/.gitignore": {
+      "bytes": 7,
+      "git_blob": "a74b07aee47bc7f175e5d4b01a7d52cf1c833f0e",
+      "mode": "100644",
+      "sha256": "88831df3bfe2562ae1b3aff1c93846d9ae269641336ff0e2056877316ae395f4"
+    },
+    "tests/__init__.py": {
+      "bytes": 6186,
+      "git_blob": "440d90a7c3a7fb23fde6596f2b89763e0b4dea77",
+      "mode": "100644",
+      "sha256": "d21f1d651fab9defb705773165324d48ce85ba9098336f7c9e629249a079c7d5"
+    },
+    "tests/conftest.py": {
+      "bytes": 2567,
+      "git_blob": "0e5e118f74a9d9e57be701edceb928cc2bc4cc81",
+      "mode": "100644",
+      "sha256": "3213ed00cfb5959ba86ec5948e57b7349c6880437f3a64ae9aa7cd02d6f0b203"
+    },
+    "tests/test_boot.py": {
+      "bytes": 3262,
+      "git_blob": "5f5d48fecc70024fe44019a6e3095171a586d3d5",
+      "mode": "100644",
+      "sha256": "1d04c05979fa805bc83e26c13be25f6c521b391f76536f1839916a3896c0d885"
+    },
+    "tests/test_config.py": {
+      "bytes": 55744,
+      "git_blob": "3c8da90a3d11fc3b429e95935889a757c299ebee",
+      "mode": "100644",
+      "sha256": "d01dc95e384f74a64dbe41f7e7a14729225e2ac41d503be4129bf63cafad554c"
+    },
+    "tests/test_extension.py": {
+      "bytes": 929,
+      "git_blob": "b205390ecccc66d67ffcde5a60cc3524f71b99a7",
+      "mode": "100644",
+      "sha256": "06c260642c61ccc5a568e67a5f46dc8834779d4c64769baf23019cf927bac3a0"
+    },
+    "tests/test_initrd.py": {
+      "bytes": 8710,
+      "git_blob": "ef77c48065df496c9366723c4fcaa8a36068f063",
+      "mode": "100644",
+      "sha256": "bbeadd9c0493837c377463c28032163ba9b105644cff1e22e8a0ea95492afee8"
+    },
+    "tests/test_install.py": {
+      "bytes": 2026,
+      "git_blob": "d588b6542acdd1314e2c1f7666c42e562d097da5",
+      "mode": "100644",
+      "sha256": "e562a73063821b53c8f0420f0ca912a51f74a88efeb6acd4ae11aee618bbba64"
+    },
+    "tests/test_json.py": {
+      "bytes": 20794,
+      "git_blob": "907104ce26f07589e4b39f942fddba8139018817",
+      "mode": "100644",
+      "sha256": "2ccabfb3e590c6519d3c051dc122594194dbbf65c17402bb71590df81c323a90"
+    },
+    "tests/test_kmod.py": {
+      "bytes": 3780,
+      "git_blob": "e8f2a5e4b4443f96dadbbe9dccdc67a32cc29814",
+      "mode": "100644",
+      "sha256": "871af4921d706c1902e10164d07a87875d37cdd86f2d22b22f6541f3131d7341"
+    },
+    "tests/test_linters.py": {
+      "bytes": 3467,
+      "git_blob": "f1d6464af66ad3a078671499f18fe05ba774e115",
+      "mode": "100644",
+      "sha256": "8a4a018ea2f9a19021c9f5c438165e164a54c9d4488d4524fbe7c00559ba1c4b"
+    },
+    "tests/test_run.py": {
+      "bytes": 1850,
+      "git_blob": "0d588a3af833d9564e07fd7a9f44e753a313423a",
+      "mode": "100644",
+      "sha256": "e986716ba3fa05b0533eb5d822b22e51adc0e7a8a646d0a06d26063f224a28af"
+    },
+    "tests/test_signing.py": {
+      "bytes": 2426,
+      "git_blob": "2ded84191aa9c3791e5696e0282e339dcef27ca4",
+      "mode": "100644",
+      "sha256": "dbddbe9f1f63a7f99f6877d607f9e862d3536f943050b3924d0aab86db02573f"
+    },
+    "tests/test_util.py": {
+      "bytes": 1629,
+      "git_blob": "4b684416e3596ba439adb9a4a57cfefcb06ea75c",
+      "mode": "100644",
+      "sha256": "4fad6dce0fdcbda12991a5195a82117a2a6ad481f6c97f72709739c279bc84bf"
+    },
+    "tests/test_versioncomp.py": {
+      "bytes": 9465,
+      "git_blob": "e23f7d340b6681a8e9ea3f66aa4cc8565d6a9f12",
+      "mode": "100644",
+      "sha256": "15104035b783786c7757604319a284a71a1ae83c38c6060292f7aca0e1dbd0d6"
+    },
+    "tools/do-a-release.sh": {
+      "bytes": 715,
+      "git_blob": "d1f52ec838e098a1711e92733c2e443de9d99f02",
+      "mode": "100755",
+      "sha256": "7853385676b45bf750ec801ddc69a755bbc173ede727e88ebd5c11ceda9342c1"
+    },
+    "tools/generate-zipapp.sh": {
+      "bytes": 286,
+      "git_blob": "e8e4ddd985c4961fb06b5cb7150324737a86fb2c",
+      "mode": "100755",
+      "sha256": "de560b2ce8ded69e19f28169e2bd86845ab98d94f80a6a5f22cb90f7b404ffd8"
+    },
+    "tools/integration-test-setup.sh": {
+      "bytes": 3475,
+      "git_blob": "e7a321530d9fdba8599e12a99f65a083db7bfda5",
+      "mode": "100755",
+      "sha256": "1ca186730ca48e9052767642020f42d67552b6f8a803eefeb297e0e82ef391ed"
+    },
+    "tools/make-man-page.sh": {
+      "bytes": 315,
+      "git_blob": "22ab34bf34e3d5456a0359e6e850b0f11677f6e4",
+      "mode": "100755",
+      "sha256": "4d674b930f993bb7a8895d5c0d73f1593710f718774181618253590580761b07"
+    }
+  },
+  "version": "27.1"
+}
