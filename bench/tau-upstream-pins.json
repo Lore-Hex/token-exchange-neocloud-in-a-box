@@ -1,0 +1,301 @@
+{
+  "files": {
+    "LICENSE": {
+      "bytes": 1072,
+      "git_blob": "f0323a32227c1327820da33d2fb9d3338a27ac84",
+      "sha256": "e67c5aa0074dfcaefd3c3a1aedb94cb539234aecd15d5a972574e3200e6252fe"
+    },
+    "data/tau2/domains/airline/db.json": {
+      "bytes": 7042725,
+      "git_blob": "c6a1e817aa9102c5822e83affb3595acbc312701",
+      "sha256": "1af9fea6e03ca7ca15a22bb3fcaf3e351393e3fc9070b6777947da8996f7531b"
+    },
+    "data/tau2/domains/airline/policy.md": {
+      "bytes": 7676,
+      "git_blob": "8098be7db3f47de943fad39d1e057ede6cc6cd04",
+      "sha256": "10dc0525421521208be39cee235bba84a16e2bcba9899eb93d92cd81d2f62fc4"
+    },
+    "data/tau2/domains/airline/split_tasks.json": {
+      "bytes": 1443,
+      "git_blob": "c83cce155671e66a6bf07450fd2845fe0eb1f229",
+      "sha256": "b22ced4d9a9850ac9aea31c53bdcb6d6009058140bd9acc7db37c1d36222ba8b"
+    },
+    "data/tau2/domains/airline/tasks.json": {
+      "bytes": 155528,
+      "git_blob": "ea4ff5e3f5e3d97ca391846a6e8dd9eb3437dc80",
+      "sha256": "ccd8ba737b4cc371415af70151187788f728d6108d0916e73bb4317b40542052"
+    },
+    "data/tau2/domains/retail/db.json": {
+      "bytes": 2811616,
+      "git_blob": "4d67b03b2d39ade5a7ab6facb2edd7ab3e013d48",
+      "sha256": "413a65160adbdb5fde0ffc0015c49b6d70250b10c18128de169b597af7766765"
+    },
+    "data/tau2/domains/retail/policy.md": {
+      "bytes": 6699,
+      "git_blob": "d127e6b074654926f337d0d98b0e669ebe90d19e",
+      "sha256": "2c9652afbce57d6e087768d37cda64d31c53d50b3e3225cfdb791bac66466467"
+    },
+    "data/tau2/domains/retail/split_tasks.json": {
+      "bytes": 3263,
+      "git_blob": "8b20704a17aa1940b1e58668f89dcef2ddaeeea3",
+      "sha256": "ed0580ec52575b63fbf76568af42490da6ee7783ecb4aa81af46961291358f20"
+    },
+    "data/tau2/domains/retail/tasks.json": {
+      "bytes": 345982,
+      "git_blob": "e95a9f898b2d1f6568ea8faec78edc3767ce747d",
+      "sha256": "8e03ebce7901bd6218e7a7dc3105faa9324091a68058f7fe61c65262868812e8"
+    },
+    "data/tau2/domains/telecom/db.toml": {
+      "bytes": 9628,
+      "git_blob": "6c8a639d85896a049a5daf87332107a840a55aac",
+      "sha256": "562d647ef9d7df8df91eafd8ee76036e707c8f9e32aaedc4a7fde06975aea2c0"
+    },
+    "data/tau2/domains/telecom/main_policy.md": {
+      "bytes": 5699,
+      "git_blob": "c55f5bd10c49a3d0b48f6e83a3168e6242fb2be7",
+      "sha256": "95943844a0cf11fdf0e2842b483b81d9f9338aa53235712ed131db075d086ed7"
+    },
+    "data/tau2/domains/telecom/split_tasks.json": {
+      "bytes": 356149,
+      "git_blob": "a5b01687eaaa5c669f792bff33c0d6ec13be36fd",
+      "sha256": "605b488bb9a6acb3c7f4505240a855fdc8681d09aadb16a8f38b2efcfc5c3aec"
+    },
+    "data/tau2/domains/telecom/tasks.json": {
+      "bytes": 13977063,
+      "git_blob": "6f41a5e3489e187fa247d729706509d8250a31c1",
+      "sha256": "37e562e1ae3242577407e1303b1548bc64e7ea68e37d36173e6747990ceaf8a4"
+    },
+    "data/tau2/domains/telecom/tech_support_manual.md": {
+      "bytes": 17589,
+      "git_blob": "b64a9f1433bfb62bdaf9e5c1d90c10e833b26c17",
+      "sha256": "015a3ee49ec8c199c5e1a059c922081937b92cf3a5ea74fedbc4357816f389ba"
+    },
+    "data/tau2/domains/telecom/tech_support_workflow.md": {
+      "bytes": 16390,
+      "git_blob": "36104c70ea1caf5adfbbc8b26b61e29a1da72a7c",
+      "sha256": "64f3ccd13875d14f358b21b9af221dab09e0e7bf5690d0e4322fb91855a43a4d"
+    },
+    "data/tau2/domains/telecom/user_db.toml": {
+      "bytes": 933,
+      "git_blob": "1def9a98eabf1d4a5fc95a67387ec294f56196d8",
+      "sha256": "4886107ea0c16f8e16d74bef91cfb557de61822afe9361f5a9b241806aea2e4c"
+    },
+    "data/tau2/user_simulator/simulation_guidelines.md": {
+      "bytes": 1449,
+      "git_blob": "b55a28a1d5eaf81e72bdc263307d9f512fe49a99",
+      "sha256": "740a29dfa64d7bc08eea3bf7493575b914a63f744acbaf7f199ee07eddaf72d3"
+    },
+    "data/tau2/user_simulator/simulation_guidelines_tools.md": {
+      "bytes": 2747,
+      "git_blob": "a7235b1ddf8d0d1e2edc9b1708916f37b0aac045",
+      "sha256": "cbf3d8a4d8642fd04e559862f1afef55d7dd4e6a7e727ca49e239023c599de0c"
+    },
+    "pyproject.toml": {
+      "bytes": 2417,
+      "git_blob": "55a9d9cf6ebd8bf2326798f4923988917e431086",
+      "sha256": "23d59670b4ad7bbc0f57420fd9643a8d9188c24abe4f29c9c965544d8cc4cb8d"
+    },
+    "src/tau2/agent/base_agent.py": {
+      "bytes": 6331,
+      "git_blob": "47f95ccb77e59ddd9ed0a7d1774932ce3d6c7de2",
+      "sha256": "97f1033723d03da99f3338ff7a12ed60114a55ed293928ff4ca0bdace6851b4d"
+    },
+    "src/tau2/agent/llm_agent.py": {
+      "bytes": 18019,
+      "git_blob": "652974ff98edb652c582453687977cff1742b7bd",
+      "sha256": "d13412ff502859f0ef0492af0128f1b2666be32640057ba8e076d2602af084d8"
+    },
+    "src/tau2/config.py": {
+      "bytes": 9952,
+      "git_blob": "d8a8acea4fb7c140705719d0e5050260c66b7865",
+      "sha256": "1f3589ff61392778079d688ad18b680ce13275a84462b2383b258614b665eb46"
+    },
+    "src/tau2/data_model/simulation.py": {
+      "bytes": 58699,
+      "git_blob": "edc805ee2e645d62edd6e8b1c20b24a12b175d74",
+      "sha256": "518a4eda9af783f25243e1bd2c714f4617cf86188878a0bb584fe73c9528a35a"
+    },
+    "src/tau2/data_model/tasks.py": {
+      "bytes": 22764,
+      "git_blob": "28f37885f0282bd3b82eed18bfe8aa2350fba2b7",
+      "sha256": "0243a6454b2e9c8a14b8364c38ff95dc1dd7512105b69fada9bf9295fc8170fa"
+    },
+    "src/tau2/domains/airline/data_model.py": {
+      "bytes": 10402,
+      "git_blob": "1b65884c10349950a1fc31c8ad96a8d804e093a1",
+      "sha256": "a8083e2f590e4b9b66a65d7cd50b7a0247e4fa33d6961aaeb02e4d92488b3cff"
+    },
+    "src/tau2/domains/airline/environment.py": {
+      "bytes": 1612,
+      "git_blob": "e1cabffe7ed4ad895904aa5248319dd307e77a97",
+      "sha256": "64589faffbcb75c8ac7c95d2c94ad27f4bd70e23b9856a6928fa678a0f7fcc8d"
+    },
+    "src/tau2/domains/airline/tools.py": {
+      "bytes": 28123,
+      "git_blob": "adc5c09a155d82d91e2f0647682023419eaca2ea",
+      "sha256": "3987f21c286314cb48764f97052934ff4fd60e27a0b2e4a43423911adf8eaa26"
+    },
+    "src/tau2/domains/airline/utils.py": {
+      "bytes": 256,
+      "git_blob": "055548ffd07f82343645c79e6ea9bacf08501047",
+      "sha256": "9da26327af3d7fa94e05d48869d8b06cd8110313fc24d308993a750106b11f06"
+    },
+    "src/tau2/domains/retail/data_model.py": {
+      "bytes": 8799,
+      "git_blob": "e8cedd4c73c3c3865e86ef7dd9202ad2468d685b",
+      "sha256": "f5ad09590953855cc49d2ab2ad5c0594be408cae74d1500fb278e5a6bf2c50d6"
+    },
+    "src/tau2/domains/retail/environment.py": {
+      "bytes": 1615,
+      "git_blob": "a403300c800a06c314260c6215b0c39e175b4cdc",
+      "sha256": "5b819fb895a4ef49df71404c3d9678ab09e8578eec841b8ec9229c8f51e32405"
+    },
+    "src/tau2/domains/retail/tools.py": {
+      "bytes": 29202,
+      "git_blob": "eba01ab32dca0d4ef33328c22358b794d859f2b6",
+      "sha256": "34f4fe9702d36f0dd4697700fbcd63d0cf5386e6eb8e7499aaa336243bad8750"
+    },
+    "src/tau2/domains/retail/utils.py": {
+      "bytes": 248,
+      "git_blob": "f4d0fa552bab03a2a3c2b4c6dbd66c77f7845c49",
+      "sha256": "a385b085b63d0e5921c15f7e2201b00df1d984990f4dbb7b24a867e3bf7cb648"
+    },
+    "src/tau2/domains/telecom/data_model.py": {
+      "bytes": 9418,
+      "git_blob": "54e95d47c9e73da268bc7ac4d7969d4f8a03f013",
+      "sha256": "f868cbbd344cadf6c376f21976edfa38b8cfe199922748e31eee666f791a0628"
+    },
+    "src/tau2/domains/telecom/environment.py": {
+      "bytes": 7286,
+      "git_blob": "a408c9bd5cdfb0c09eeeb438301459356b51d088",
+      "sha256": "7bc335d717a8cb6bda54551fa2b5c12ff073f6287878d215f4181572e551abcd"
+    },
+    "src/tau2/domains/telecom/tools.py": {
+      "bytes": 26442,
+      "git_blob": "c531b4c717233285271f3c4039961a6a8e562ed6",
+      "sha256": "388552434d1b8225e33e7958bdb6efccfe92b49e11d1838568d9b559514e9d01"
+    },
+    "src/tau2/domains/telecom/user_data_model.py": {
+      "bytes": 15172,
+      "git_blob": "78288cfc3f27cef39b4f7016d6b4646480338ecf",
+      "sha256": "27be0006694e9a740dd378f42099d6d1afecbd445f7906aedcd1f800087377c2"
+    },
+    "src/tau2/domains/telecom/user_tools.py": {
+      "bytes": 48531,
+      "git_blob": "a79447b0af1abbe23caeaaefa79b34432279f942",
+      "sha256": "03fa751eeea3734313a3f5274223d42750fd5c1a28f2624265a678f271ac309d"
+    },
+    "src/tau2/domains/telecom/utils.py": {
+      "bytes": 1260,
+      "git_blob": "15ddf884b4592f290c3a7ab5396398956c45582e",
+      "sha256": "9195707fca3d96b41d78de661bd2408cfaab75793769c9a739a7521b690fc6dd"
+    },
+    "src/tau2/evaluator/evaluator.py": {
+      "bytes": 14218,
+      "git_blob": "76c95a83e9049d70a5570b93989797c0626974b6",
+      "sha256": "204d95a82812402f2fee989250392d3c66de702a8bcc20258c7e2a8153a1ea8d"
+    },
+    "src/tau2/evaluator/evaluator_action.py": {
+      "bytes": 8150,
+      "git_blob": "861784876aab7f0f2bf16685b8607b50f9873fd5",
+      "sha256": "4347ec90fd09db73b9f7e46515220363f91f0c3b12aeddf7ece83346f49227f8"
+    },
+    "src/tau2/evaluator/evaluator_base.py": {
+      "bytes": 665,
+      "git_blob": "4dc118ddf10549fa6b2a1017aba2251991024af4",
+      "sha256": "1f79c11e5cb5c8cabc26cdaad7ff3a3a1687380f4d7fb1f9fbd9b6f9ab18e1ff"
+    },
+    "src/tau2/evaluator/evaluator_communicate.py": {
+      "bytes": 7462,
+      "git_blob": "1bac18fd8830304894da767d2e6b7efe6e779e89",
+      "sha256": "7a082f91c746b84cc37c6994eb6ff78f297222fd067503a4cc86d45750696507"
+    },
+    "src/tau2/evaluator/evaluator_env.py": {
+      "bytes": 14100,
+      "git_blob": "a2e0a1a07cffd9394cc462376799289b1e9fbedd",
+      "sha256": "b53ebfe6b0b06d7a2071b5f9dd03ee6ca8ac6000b0ef44f3bd345b346c30d8ac"
+    },
+    "src/tau2/evaluator/evaluator_nl_assertions.py": {
+      "bytes": 8843,
+      "git_blob": "1f5397c5b8f8b105bf3d76027518d3bc3eb3e0f7",
+      "sha256": "cb6b3758cdceb02a726732b4ee1af618affcc08f8ab84b44f060146b8f3ad90a"
+    },
+    "src/tau2/metrics/agent_metrics.py": {
+      "bytes": 18374,
+      "git_blob": "f6959b005e9653f1858f463d4c73c321d6d26eef",
+      "sha256": "136b5ebcc0c115b5817a4f6d6b485a871aba199ddedf56458f35f339569a54dc"
+    },
+    "src/tau2/orchestrator/modes.py": {
+      "bytes": 808,
+      "git_blob": "c14599db0624a714a183f625c0a3d08cd0cfe100",
+      "sha256": "b2d131cef3f15b1558568b1e4b0b316aeea26ae7fbe1e1092d79febbb7d74553"
+    },
+    "src/tau2/orchestrator/orchestrator.py": {
+      "bytes": 40843,
+      "git_blob": "eaf9537a78310f9d1e3446c388e4dab3d179f85b",
+      "sha256": "6c689e5d1037dd08aef8834b46f58efa14359824cbebf7084de0172e5f580cba"
+    },
+    "src/tau2/registry.py": {
+      "bytes": 13109,
+      "git_blob": "86a97a1deeea8a8e09cafeac4dfcff171b6454d4",
+      "sha256": "d170c1f4b7323a75e26b2ead6754ed423b17a3deb91fe2c89e7e8ec78c6bf12a"
+    },
+    "src/tau2/run.py": {
+      "bytes": 10098,
+      "git_blob": "7a15803220eb9e44a598cc9aa330ce51c83d52eb",
+      "sha256": "5a32c35582b8070e8d50c135508d436859392bf2db179a52711a3c53fb108dc9"
+    },
+    "src/tau2/runner/batch.py": {
+      "bytes": 33414,
+      "git_blob": "d109df1dd0ad4aa6461659e19c55f960bf6243ed",
+      "sha256": "649a73d5cd4b373abfaca2bacfcc97693a43da4ef1dbb6b9098f673c7a0161db"
+    },
+    "src/tau2/runner/build.py": {
+      "bytes": 21425,
+      "git_blob": "0eb6bdcb2d599d74d7020834eff6ea11f4f24a12",
+      "sha256": "2c4b61b83d4108bb9a2b46724a7b9cc0823548cfd866ca0f415bc536269d964b"
+    },
+    "src/tau2/runner/helpers.py": {
+      "bytes": 6851,
+      "git_blob": "fd15027ddbab10368c7f0e34764ea69702d30265",
+      "sha256": "39f804b325b8bb73893fc75ba422a70d5bacd258bc64ebaf1c0fe71b2fa93b66"
+    },
+    "src/tau2/runner/simulation.py": {
+      "bytes": 3240,
+      "git_blob": "25330c9d831f548b72edfd959757faefb901da9a",
+      "sha256": "1b98532199a05d87dcc14aead9d59c320d20f11d3d8e4c8458663ed5964eafef"
+    },
+    "src/tau2/user/user_simulator.py": {
+      "bytes": 9350,
+      "git_blob": "51ef4bba88e2565532ce02da1f36ab3021028178",
+      "sha256": "bfe1defe73bce25450b2be697c249d6cec2f3ba25a70e32e2452ba75a53a630c"
+    },
+    "src/tau2/user/user_simulator_base.py": {
+      "bytes": 6622,
+      "git_blob": "1daa1f6d8aa630f73c744dd44a5888ff6700239e",
+      "sha256": "e6c4bae08fb7ae6fa6ee5ee29624bc35e0dd6c6fe8ffeab065592c7b51fa32f2"
+    },
+    "src/tau2/utils/io_utils.py": {
+      "bytes": 5890,
+      "git_blob": "16edf0e8af54adee8118206cb64baeb6058795b0",
+      "sha256": "ce66fb275b9bbf09a17be2cb2092bf2e696ab07655bf7571fe53ba8db4ed3015"
+    },
+    "src/tau2/utils/llm_utils.py": {
+      "bytes": 16869,
+      "git_blob": "e9d8156a720ea7019b2aebca0d428b0388417127",
+      "sha256": "8c1f1c297e879b2a2d48ac65394cdd497bbd10f42fefa0ce770e7a65ce42bf95"
+    },
+    "src/tau2/utils/utils.py": {
+      "bytes": 2957,
+      "git_blob": "0e6878e34c3c1c18aa5789d0ab278c64cacbf51e",
+      "sha256": "e0c39544b01700e60a3a26c7cf2c2d17e37e3852d5f0fa466b8517f82b83622b"
+    },
+    "uv.lock": {
+      "bytes": 466363,
+      "git_blob": "09f0b4a86b4aaf82bf87511df1ff970ff23ec6bd",
+      "sha256": "62d3a8c4807b89e85703b3c03f2c21048a2da9736ca83d9af6f61adc74ac5314"
+    }
+  },
+  "repository": "sierra-research/tau2-bench",
+  "revision": "fc0055dc4e0a316c3f83133267fbd6faaa770992"
+}

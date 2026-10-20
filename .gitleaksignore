@@ -1,0 +1,6 @@
+# Historical false positives only: public model-file SHA-256s, not credentials.
+# Both digests are also pinned in models/deepseek-v4.1-flash-1017/1/files.sha256.
+# Exact commit/file/rule/line fingerprints preserve history without exempting
+# this file, these variable names, other commits, or future credential findings.
+dd3095d8acecfb3bc9081faf4a86801c03bc8a2a:scripts/tau_preflight.py:generic-api-key:31
+dd3095d8acecfb3bc9081faf4a86801c03bc8a2a:scripts/tau_preflight.py:generic-api-key:32
