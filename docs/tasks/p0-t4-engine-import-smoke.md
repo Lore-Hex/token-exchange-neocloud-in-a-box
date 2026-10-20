@@ -49,6 +49,10 @@ the exact paths, own main file, argv, cwd and `spawn` method. The ordinary Pytho
 entrypoint, fork/forkserver, NUMA executable replacement, external shells,
 `site.main`, `addsitedir`, startup customization imports and changed paths/env
 are rejected. Caught guard errors still prevent a passing import result.
+Distribution metadata discovery delegates to the stdlib metadata finder with
+a copied, validated subset of the sealed roots. It preserves version and
+entrypoint enumeration, not entrypoint loading; outside-root, alias and malformed
+contexts reject with fixed diagnostics. Unrestricted `PathFinder` is not restored.
 
 Primary source for these boundaries:
 
@@ -59,6 +63,10 @@ Primary source for these boundaries:
   and [resource tracker](https://github.com/python/cpython/blob/v3.12.3/Lib/multiprocessing/resource_tracker.py).
   Its `_stop` discards `waitpid` status; this smoke instead checks a bounded,
   owned tracker PID exit and rejects nonzero exit, restart or unknown ownership.
+- [CPython 3.12.3 distribution discovery](https://github.com/python/cpython/blob/v3.12.3/Lib/importlib/metadata/__init__.py):
+  `Distribution._discover_resolvers`, `DistributionFinder.Context` and
+  `MetadataPathFinder.find_distributions`; replacing the path finder without
+  `find_distributions` would silently hide installed package metadata.
 - [Pinned worker creation](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/executor/multiproc_executor.py):
   context Process followed by `configure_subprocess` and `proc.start`.
 - [Pinned NUMA wrapper](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/utils/numa_utils.py):
@@ -87,33 +95,82 @@ unchanged non-executable launch plan; no engine configuration is instantiated
 here. Software CC selection is not attestation. Unsupported upstream imports
 or environment/process changes fail this experiment, not silently relax it.
 
+### Import Environment Sources
+
+The sealed environment also preconfigures the exact four values used by
+[vLLM env_override](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/env_override.py#L164):
+`PYTORCH_NVML_BASED_CUDA_CHECK=1`, `TORCHINDUCTOR_COMPILE_THREADS=1`,
+`TRITON_CACHE_AUTOTUNING=1`, `TILELANG_CLEANUP_TEMP_FILES=1`.
+[vLLM initialization](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/__init__.py#L14)
+imports that module early. Preconfiguration makes those assignments idempotent;
+the exact-environment guard still rejects any changed value or new variable.
+
+`TORCH_DEVICE_BACKEND_AUTOLOAD=0` disables PyTorch's separate out-of-tree backend
+entrypoint autoload, which defaults on in
+[PyTorch initialization](https://github.com/pytorch/pytorch/blob/cf30153c4c131c8164ee7798e5022d810682e2cb/torch/__init__.py#L3040).
+`VLLM_PLUGINS` alone does not control that loader. The single compile thread also
+makes [AsyncCompile.warm_pool](https://github.com/pytorch/pytorch/blob/cf30153c4c131c8164ee7798e5022d810682e2cb/torch/_inductor/async_compile.py#L341)
+return before pool setup. No compiler-pool/process exception is added, and no
+conditional CUPTI variables are guessed or enabled.
+
+Public source observations, retrieved through GitHub's contents API and checked
+against its Git blob IDs, are bound into `smoke.json` as
+`import_environment_sources`. PyTorch v2.13.0 resolved to immutable commit
+`cf30153c4c131c8164ee7798e5022d810682e2cb`; vLLM uses the commit above.
+
+| Upstream File | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `vllm/__init__.py` | 3662 | `087e15875e49ba50f4969c2229d450bb8397302ea9344b3a3bd06ee400263ebd` |
+| `vllm/env_override.py` | 37970 | `8a22650f862565a9ce2ba4441d39a99afbcecc2b60664be2272dd18e2df1cd1d` |
+| `torch/__init__.py` | 111841 | `cf40c075c95864036e835795756d69b8cccfafa76f3bcde5eba9d06065ccd3d1` |
+| `torch/_inductor/async_compile.py` | 34432 | `401933b518592b8958bb137ddd963c8dd623f4c63b9de215c933424ccc296c7d` |
+
+These are upstream observations, not new measurements of installed files or
+proof that all imports succeed. The existing full measured inventory, installed
+dependency pins and source checks remain mandatory. Local fake imports exercise
+these environment actions without importing upstream engine/dependency code.
+
 ## Bounds And Failure
 
 There is no image pull/build/commit/publication. The already-cached exact base
 is used in one owned container: network none, no devices/GPUs/ports/secrets,
 all capabilities dropped, no-new-privileges, private IPC (16 MiB), 128 PIDs,
-8 GiB memory/no extra swap, two CPUs, 512 MiB noexec tmpfs and a 900-second
+8 GiB memory/no extra swap, two CPUs, 512 MiB noexec tmpfs and a 1080-second
 outer deadline. The read-only source payload is the only host mount. Root is
 used to patch the ephemeral container layer; this layer is not a read-only
 filesystem or an adversarial-native-code sandbox. No independent disk quota
 for that layer is claimed. Home/cache scratch is directed to the bounded tmpfs.
 
 The generic inspector retains its 300-second deadline. Only this exact-image
-application gets **one shared 540-second deadline**, including its layout
+application gets **one shared 720-second deadline**, including its layout
 preflight and eight full inventory passes: initial inspection, before apply,
 after deletion, and five after-stage checks. No stage renews it. The measured
 inventory has 19,176,556,448 logical bytes; eight passes read approximately
 153.4 GB before small metadata overhead. The budget is a finite operational
-allowance, **not a measured application throughput guarantee**. Controlled-clock
-tests cover completion after 300 seconds and rejection at the shared deadline.
-The import process group has a separate 300-second cap within the outer limit.
+allowance, **not a measured application throughput guarantee**. The planning
+**estimate** is eight times the historical 84-second read-only collection:
+`8 * 84 = 672` seconds, leaving 48 seconds in the application budget. That
+collection was not a timed inventory pass; this arithmetic is an allowance
+estimate, not a measurement of eight application passes. Controlled-clock tests
+exercise all eight inventories completing at 672 seconds and rejecting at the
+single shared 720-second deadline, without resetting it between phases.
+The import process group has a separate 300-second cap. The 1080-second outer
+attach bound leaves `1080 - 720 - 300 = 60` seconds: the unchanged process helper
+allows up to 25 seconds for TERM/KILL/group-absence cleanup, leaving 35 seconds
+for startup/report overhead. Neither allowance has been validated in an actual
+application/import run. The outer bound still stops an overrun.
 All entry/byte/depth/link/native checks and exact-image 225,000-entry policy stay
 unchanged. A slower host fails safely; nothing skips rehashes to finish on time.
 
 Both raw import streams go to `/dev/null`. Only fixed module identifiers,
 statuses, guard counters, hashes and reviewed application receipts can leave
 the payload; host validation rejects extra/arbitrary fields. Partial failures
-remain failed evidence. Cleanup removes only the uniquely named, correctly
+remain failed evidence. `phase_elapsed_ms` has exactly three fixed keys:
+`application-preflight`, `application`, and `import-smoke`. Integer monotonic
+elapsed milliseconds include a failed phase; `null` means not started. Import
+timing includes process-group cleanup. These are observations, not renewed
+deadlines, and do not include initial payload bootstrap or Docker startup.
+Cleanup removes only the uniquely named, correctly
 labelled container and confirms absence; an uncertain create/run completion
 stays `completion-unknown` even if a current listing is empty. The base image
 is retained, and no other Docker resource is removed.

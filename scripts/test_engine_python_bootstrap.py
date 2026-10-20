@@ -19,12 +19,22 @@ ROOT = Path(__file__).resolve().parent.parent
 SOURCE = (ROOT / "scripts/engine_python_bootstrap.py").read_bytes()
 bootstrap = types.ModuleType("bootstrap_test")
 exec(compile(SOURCE, "bootstrap_test", "exec"), bootstrap.__dict__)
+smoke = types.ModuleType("smoke_contract_test")
+exec(compile((ROOT / "scripts/engine_import_smoke.py").read_bytes(), "smoke_contract_test", "exec"), smoke.__dict__)
 
 # This fixture is deliberately real subprocess code, not an AST assertion.
 DRIVER = r'''
 ARGS = sys.argv[1:]
 LAYOUT = json.loads(read_source(os.path.dirname(__file__) + "/layout.json"))
+from importlib import metadata
+METADATA_BEFORE = [d.version for d in metadata.distributions(path=[LAYOUT["paths"][-1]], name="review-fake")]
 STATE = install(LAYOUT)
+
+def distribution_observation():
+    points = metadata.entry_points(group="review.test")
+    return {"before": METADATA_BEFORE, "version": metadata.version("review-fake"),
+            "points": [[p.name, p.value] for p in points], "plugin_loaded": "never_load_plugin" in sys.modules,
+            "pathfinder_restored": importlib.machinery.PathFinder in sys.meta_path}
 
 def before_unpickle():
     return observation(sys._nib_smoke_guard)
@@ -35,7 +45,8 @@ class Prepared:
 
 def target(writer, prepared, depth):
     import fake_engine
-    result = {"before": prepared, "after": observation(STATE), "imported": fake_engine.VALUE}
+    result = {"before": prepared, "after": observation(STATE), "imported": fake_engine.VALUE,
+              "metadata": distribution_observation()}
     if depth:
         result["grandchild"] = child(0)
     writer.send_bytes(json.dumps(result).encode())
@@ -69,7 +80,7 @@ def main():
     import site
     from multiprocessing import context, resource_tracker, spawn
     if ARGS == ["fresh"]:
-        print(json.dumps(observation(STATE)))
+        print(json.dumps({"state": observation(STATE), "metadata": distribution_observation()}))
         return
     if ARGS == ["positive"]:
         try:
@@ -79,6 +90,7 @@ def main():
             fresh = subprocess.run([LAYOUT["wrapper"], "fresh"], check=True, capture_output=True, timeout=10)
             result["fresh"] = json.loads(fresh.stdout)
             result["parent"] = observation(STATE)
+            result["metadata_parent"] = distribution_observation()
         finally:
             del lock
             result["tracker"] = stop_tracker(STATE)
@@ -102,6 +114,13 @@ def main():
             elif name == "usercustomize": __import__("usercustomize")
             elif name == "path": sys.path.append("/private"); __import__("fake_engine")
             elif name == "env": os.environ["NUMACTL_PYTHON"] = "private"; __import__("fake_engine")
+            elif name == "env-known": os.environ["TORCHINDUCTOR_COMPILE_THREADS"] = "2"; __import__("fake_engine")
+            elif name == "metadata-outside": list(metadata.distributions(path=["/private"]))
+            elif name == "metadata-mixed": list(metadata.distributions(path=LAYOUT["paths"] + ["/private"]))
+            elif name == "metadata-relative": list(metadata.distributions(path=["."]))
+            elif name == "metadata-string": list(metadata.distributions(path=LAYOUT["paths"][-1]))
+            elif name == "metadata-extra": list(metadata.distributions(path=LAYOUT["paths"], private="private"))
+            elif name == "metadata-alias": list(metadata.distributions(path=[LAYOUT["paths"][-1] + "/../packages"]))
             elif name == "preparation":
                 data = spawn.get_preparation_data("test")
                 data["sys_path"] = ["/private"]
@@ -135,11 +154,16 @@ class BootstrapTests(unittest.TestCase):
         package = self.root / "packages"
         package.mkdir()
         (package / "fake_engine.py").write_text("VALUE = 'synthetic-only'\n")
+        distribution = package / "review_fake-1.0.dist-info"
+        distribution.mkdir()
+        (distribution / "METADATA").write_text("Metadata-Version: 2.1\nName: review-fake\nVersion: 1.0\n")
+        (distribution / "entry_points.txt").write_text("[review.test]\nfixture = never_load_plugin:entry\n")
+        (package / "never_load_plugin.py").write_text("raise AssertionError('entrypoint must not be loaded')\n")
         for name in ("sitecustomize", "usercustomize"):
             (package / (name + ".py")).write_text("raise AssertionError('private hook must never run')\n")
         (package / "unknown.pth").write_text("import sitecustomize\n")
         stdlib = [sysconfig.get_path("stdlib"), sysconfig.get_config_var("DESTSHARED")]
-        self.env = {"PATH": "/usr/bin:/bin", "HOME": str(self.root), "LC_ALL": "C.UTF-8",
+        self.env = {**smoke.IMPORT_ENVIRONMENT, "PATH": "/usr/bin:/bin", "HOME": str(self.root), "LC_ALL": "C.UTF-8",
                     "VLLM_WORKER_MULTIPROC_METHOD": "spawn", "VLLM_PLUGINS": ""}
         # macOS may add its fixed per-account text encoding at interpreter start.
         # Observe this local test interpreter only; production has a fixed Linux env.
@@ -172,10 +196,24 @@ class BootstrapTests(unittest.TestCase):
             self.assertEqual(stage["imported"], "synthetic-only")
             self.assert_state(stage["before"])
             self.assert_state(stage["after"])
-        self.assert_state(row["fresh"])
+        self.assert_state(row["fresh"]["state"])
         self.assert_state(row["parent"])
         self.assertEqual(row["tracker"], {"launched": True, "exit_zero": True})
         self.assertFalse(list(self.root.rglob("*.pyc")))
+
+    def test_metadata_discovery_parent_spawn_grandchild_and_fresh_without_plugin_load(self):
+        row = self.run_fixture("positive")
+        expected = {"before": ["1.0"], "version": "1.0", "points": [["fixture", "never_load_plugin:entry"]],
+                    "plugin_loaded": False, "pathfinder_restored": False}
+        for observation in (row["metadata_parent"], row["metadata"], row["grandchild"]["metadata"], row["fresh"]["metadata"]):
+            self.assertEqual(observation, expected)
+        for name in ("metadata-outside", "metadata-mixed", "metadata-relative", "metadata-string", "metadata-extra", "metadata-alias"):
+            with self.subTest(name=name):
+                rejected = self.run_fixture("reject", name)
+                self.assertTrue(rejected["rejected"])
+                self.assertEqual(rejected["message"], "sealed Python operation rejected")
+                self.assertGreater(rejected["failures"]["import"], 0)
+                self.assertNotIn("private", json.dumps(rejected))
 
     def test_real_smoke_child_functions_import_only_fake_package_after_bootstrap(self):
         runtime = (ROOT / "scripts/engine_import_smoke.py").read_bytes()
@@ -195,6 +233,29 @@ class BootstrapTests(unittest.TestCase):
             self.assert_state(stage["state"])
             self.assertEqual(stage["imports"], [{"module": "fake_engine", "status": "pass"}])
             self.assertFalse(any(stage["guard_rejections"].values()))
+
+    def test_pinned_import_environment_actions_do_not_mutate_sealed_state(self):
+        # Synthetic import actions matching the four pinned vLLM assignments;
+        # no upstream module, plugin, CUDA code or compiler is executed.
+        (self.root / "packages/fake_engine.py").write_text(
+            "import os\n"
+            "before = dict(os.environ)\n"
+            "os.environ['PYTORCH_NVML_BASED_CUDA_CHECK'] = '1'\n"
+            "os.environ['TORCHINDUCTOR_COMPILE_THREADS'] = '1'\n"
+            "os.environ.setdefault('TRITON_CACHE_AUTOTUNING', '1')\n"
+            "os.environ.setdefault('TILELANG_CLEANUP_TEMP_FILES', '1')\n"
+            "assert dict(os.environ) == before\n"
+            "assert os.getenv('TORCH_DEVICE_BACKEND_AUTOLOAD', '1') != '1'\n"
+            "assert int(os.environ['TORCHINDUCTOR_COMPILE_THREADS']) <= 1\n"
+            "VALUE = 'synthetic-only'\n")
+        row = self.run_fixture("positive")
+        for stage in (row, row["grandchild"]):
+            self.assertEqual(stage["imported"], "synthetic-only")
+            self.assert_state(stage["after"])
+        rejected = self.run_fixture("reject", "env-known")
+        self.assertTrue(rejected["rejected"])
+        self.assertEqual(rejected["message"], "sealed Python operation rejected")
+        self.assertGreater(rejected["failures"]["state"], 0)
 
     def test_launch_state_and_import_rejections_are_fixed(self):
         for name in ("fork", "forkserver", "direct-fork", "direct-forkserver", "method", "numa", "ordinary-python",

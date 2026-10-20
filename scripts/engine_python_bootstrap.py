@@ -199,6 +199,30 @@ def install(layout):
 
     class Finder:
         @staticmethod
+        def find_distributions(context=None):
+            check()
+            from importlib import metadata
+            if context is None:
+                context = metadata.DistributionFinder.Context()
+            if (type(context) is not metadata.DistributionFinder.Context
+                    or set(vars(context)) - {"name", "path"}):
+                reject("import")
+            paths, name = context.path, context.name
+            if (type(paths) not in (list, tuple)
+                    or not all(type(p) is str and p in layout["paths"] for p in paths)
+                    or not (name is None or type(name) is str)):
+                reject("import")
+            paths = tuple(paths)
+            # Copy the validated search roots; neither lazy discovery nor an
+            # explicit context may widen them. Enumeration never loads entries.
+            sealed = metadata.DistributionFinder.Context(path=paths, name=name)
+            for distribution in metadata.MetadataPathFinder.find_distributions(sealed):
+                check()
+                if not any(os.path.realpath(distribution._path).startswith(root + os.sep) for root in paths):
+                    reject("import")
+                yield distribution
+
+        @staticmethod
         def find_spec(fullname, path=None, target=None):
             check()
             if fullname.split(".", 1)[0] in ("sitecustomize", "usercustomize"):

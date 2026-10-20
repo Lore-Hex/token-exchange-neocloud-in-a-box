@@ -2,6 +2,7 @@
 """Real fake-tree application, local bootstrap and mocked Docker; no image run."""
 
 import copy
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -68,6 +69,7 @@ class SmokeTests(unittest.TestCase):
         grandchild = {**copy.deepcopy(row), "before_unpickle": state}
         report = {"schema": "nib.engine-import-smoke/v1", "status": "BLOCKED", "deployable": False, "image": None,
                 "abi_validated": False, "hardware_validated": False, "inference_started": False, "stage": "complete",
+                "phase_elapsed_ms": {"application-preflight": 1000, "application": 672000, "import-smoke": 2000},
                 "application": self.application_receipt(), "smoke": {"parent": state, "fresh": row,
                     "tracker": {"launched": True, "exit_zero": True},
                     "spawn": {**copy.deepcopy(grandchild), "grandchild": grandchild}}}
@@ -88,6 +90,14 @@ class SmokeTests(unittest.TestCase):
             self.assertEqual(tool.environment(), contract["environment"])
         self.assertEqual(contract["environment"]["VLLM_PLUGINS"], "")
         self.assertEqual(contract["environment"]["VLLM_WORKER_MULTIPROC_METHOD"], "spawn")
+        self.assertEqual({key: contract["environment"][key] for key in smoke.IMPORT_ENVIRONMENT}, {
+            "PYTORCH_NVML_BASED_CUDA_CHECK": "1", "TORCHINDUCTOR_COMPILE_THREADS": "1",
+            "TRITON_CACHE_AUTOTUNING": "1", "TILELANG_CLEANUP_TEMP_FILES": "1", "TORCH_DEVICE_BACKEND_AUTOLOAD": "0"})
+        self.assertEqual(contract["import_environment_sources"], list(smoke.ENVIRONMENT_SOURCES))
+        self.assertEqual([p["revision"] for p in contract["import_environment_sources"]],
+                         ["5df63a7203cdb9328d824a27b682e77c7b9928be"] * 2 + ["cf30153c4c131c8164ee7798e5022d810682e2cb"] * 2)
+        self.assertNotIn("DISABLE_CUPTI_LAZY_REINIT", contract["environment"])
+        self.assertNotIn("TEARDOWN_CUPTI", contract["environment"])
         self.assertIn(b"/usr/bin/env -i", self.files["python"])
         self.assertFalse(contract["deployable"])
 
@@ -129,13 +139,16 @@ class SmokeTests(unittest.TestCase):
             report.update(stage=stage, smoke=None, failure="bounded-smoke-stage-rejected")
             if stage != "import-smoke":
                 report["application"] = None
+            phases = list(report["phase_elapsed_ms"])
+            for name in phases[phases.index(stage) + 1:]:
+                report["phase_elapsed_ms"][name] = None
             self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
             report["failure"] = "private raw error"
             with self.assertRaises(ValueError):
                 smoke.validate(overlay, report, self.application, self.measured)
 
     def test_application_budget_is_one_shared_deadline_for_all_eight_passes(self):
-        for seconds, succeeds in ((40, True), (70, False)):
+        for seconds, succeeds in ((84, True), (90, False)):
             fixture = fixtures.ApplicationTests()
             with fixture.wheel() as (_, tree, console, contract, measured):
                 start = time.monotonic()
@@ -147,7 +160,7 @@ class SmokeTests(unittest.TestCase):
                     clock[0] += seconds
                     return inventory()
                 with mock.patch.object(fixtures.overlay.time, "monotonic", side_effect=lambda: clock[0]):
-                    smoke.application_budget(fixtures.overlay, fixtures.app, contract, tree, console, start + 540)
+                    smoke.application_budget(fixtures.overlay, fixtures.app, contract, tree, console, start + 720)
                     with mock.patch.object(tree, "inventory", side_effect=counted):
                         if succeeds:
                             before = fixtures.app.inspect(fixtures.overlay, tree, contract, measured, console)
@@ -157,17 +170,25 @@ class SmokeTests(unittest.TestCase):
                             with self.assertRaises(ValueError):
                                 before = fixtures.app.inspect(fixtures.overlay, tree, contract, measured, console)
                                 fixtures.app.apply(fixtures.overlay, tree, contract, tool.checker.verify_stages(self.bundle), before, measured, console)
-                    self.assertEqual(set(calls), {start + 540})
-                    self.assertEqual(console[1].deadline, start + 540)
+                    self.assertEqual(len(calls), 8)
+                    self.assertGreater(clock[0] - start, 300)
+                    self.assertEqual(set(calls), {start + 720})
+                    self.assertEqual(console[1].deadline, start + 720)
+        (self.root / "inventory-input").write_bytes(b"synthetic")
         with overlay.directory(self.root) as fd:
             start = time.monotonic()
-            self.assertLessEqual(overlay.Tree(fd).deadline - start, 301)
+            tree = overlay.Tree(fd)
+            self.assertGreaterEqual(tree.deadline - start, 300)
+            self.assertLessEqual(tree.deadline - start, 301)
+            with mock.patch.object(overlay.time, "monotonic", return_value=tree.deadline):
+                with self.assertRaises(ValueError):
+                    tree.inventory()
 
     def test_budget_rejects_unknown_image_or_unbounded_extension(self):
         fixture = fixtures.ApplicationTests()
         with fixture.wheel() as (_, tree, console, contract, _):
             deadline = tree.deadline
-            for value in (0, time.monotonic() + 541, float("inf")):
+            for value in (0, time.monotonic() + 721, float("inf")):
                 with self.assertRaises(ValueError):
                     smoke.application_budget(fixtures.overlay, fixtures.app, contract, tree, console, value)
                 self.assertEqual(tree.deadline, deadline)
@@ -175,6 +196,113 @@ class SmokeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 smoke.application_budget(fixtures.overlay, fixtures.app, contract, tree, console, time.monotonic() + 500)
             self.assertEqual(tree.deadline, deadline)
+
+    def test_fixed_phase_timings_reject_arbitrary_or_inconsistent_values(self):
+        original = self.valid_report()
+        for timings in (None, {}, {**original["phase_elapsed_ms"], "private": "synthetic-secret"},
+                        *({**original["phase_elapsed_ms"], "application": value}
+                          for value in (True, -1, 1.5, "1", None, 720001, 1080001)),
+                        {"application-preflight": 1000, "application": 672000, "import-smoke": 408000}):
+            report = copy.deepcopy(original)
+            report["phase_elapsed_ms"] = timings
+            with self.subTest(timings=timings), self.assertRaises(ValueError):
+                smoke.validate(overlay, report, self.application, self.measured)
+
+    def test_phase_timings_and_cleanup_headroom_on_every_stage_failure(self):
+        original = self.valid_report()
+        for failure in (None, "application-preflight", "application", "import-smoke"):
+            with self.subTest(failure=failure):
+                clock = [0.0]
+                def advance(phase, seconds):
+                    clock[0] += seconds
+                    if phase == failure:
+                        raise ValueError("synthetic-private")
+                def verify(*args):
+                    advance("application-preflight", 1)
+                def apply(*args):
+                    advance("application", 672)
+                    return original["application"]
+                tree = types.SimpleNamespace(deadline=0)
+                console = ("unused", types.SimpleNamespace(deadline=0))
+                @contextmanager
+                def selected(*args):
+                    yield tree, console
+                app = types.SimpleNamespace(verify_layout=verify, selected_tree=selected,
+                    inspect=lambda *args: {}, apply=apply, require_contract=lambda *args: None)
+                def execute(*args, **kwargs):
+                    self.assertEqual(kwargs["timeout"], 300)
+                    # Model the exact shared helper's 10s TERM + 10s KILL wait
+                    # + 5s group-absence bound after an import timeout.
+                    advance("import-smoke", 300 + 10 + 10 + 5)
+                    return subprocess.CompletedProcess(args, 0, overlay.json_bytes(original["smoke"]), b"")
+                processes = types.SimpleNamespace(execute_process_group=execute)
+                with mock.patch("time.monotonic", side_effect=lambda: clock[0]), \
+                     mock.patch.object(smoke, "load_module", return_value=processes), \
+                     mock.patch.object(smoke, "require", overlay.require, create=True):
+                    report = smoke.apply_and_smoke(self.contract, {"processes.py": b"unused"},
+                        (overlay, None, None, app), {"files": []}, self.measured)
+                reached = {None: 3, "application-preflight": 1, "application": 2, "import-smoke": 3}[failure]
+                self.assertEqual(list(report["phase_elapsed_ms"].values()),
+                    [1000, 672000, 325000][:reached] + [None] * (3 - reached))
+                self.assertEqual(report["stage"], failure or "complete")
+                self.assertEqual(smoke.validate(overlay, report, self.application, self.measured), failure is None)
+                self.assertNotIn("synthetic-private", json.dumps(report))
+                self.assertLess(clock[0], smoke.ATTACH_SECONDS)
+        self.assertEqual((smoke.APPLICATION_SECONDS, smoke.IMPORT_SECONDS, smoke.ATTACH_SECONDS), (720, 300, 1080))
+        self.assertEqual(smoke.ATTACH_SECONDS - smoke.APPLICATION_SECONDS - smoke.IMPORT_SECONDS - 25, 35)
+
+    def test_actual_process_helper_cleanup_fits_outer_attach_budget(self):
+        helper = tool.recorder.snapshot
+        clock, waits = [float(smoke.APPLICATION_SECONDS)], []
+        process = types.SimpleNamespace(pid=300000, stdout=None, stderr=None)
+        def wait(*, timeout):
+            waits.append(timeout)
+            clock[0] += timeout
+            if len(waits) == 1:
+                raise subprocess.TimeoutExpired("synthetic", timeout)
+            return 0
+        process.wait = wait
+        def output(*args):
+            self.assertEqual(args[2], smoke.IMPORT_SECONDS)
+            clock[0] += args[2]
+            raise subprocess.TimeoutExpired("synthetic", args[2])
+        def killpg(pid, signal):
+            self.assertEqual(pid, process.pid)
+            if signal == 0 and clock[0] >= 1045:
+                raise ProcessLookupError()
+        with mock.patch.object(helper.subprocess, "Popen", return_value=process) as popen, \
+             mock.patch.object(helper, "bounded_output", side_effect=output), \
+             mock.patch.object(helper.os, "killpg", side_effect=killpg), \
+             mock.patch.object(helper.time, "monotonic", side_effect=lambda: clock[0]), \
+             mock.patch.object(helper.time, "sleep", side_effect=lambda seconds: clock.__setitem__(0, clock[0] + seconds)):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                helper.execute_process_group(["synthetic"], env={}, timeout=smoke.IMPORT_SECONDS, max_output_bytes=65536)
+        self.assertTrue(popen.call_args.kwargs["start_new_session"])
+        self.assertEqual(waits, [10, 10])
+        self.assertAlmostEqual(clock[0], 1045, delta=0.051)
+        self.assertLess(clock[0], smoke.ATTACH_SECONDS)
+
+    def test_preflight_and_post_apply_cannot_reset_or_overrun_deadline(self):
+        for preflight, application_seconds, expected in ((720, 0, "application-preflight"), (719, 2, "application")):
+            clock = [0.0]
+            tree, console_tree = types.SimpleNamespace(deadline=0), types.SimpleNamespace(deadline=0)
+            @contextmanager
+            def selected(*args):
+                yield tree, ("unused", console_tree)
+            def verify(*args):
+                clock[0] += preflight
+            def apply(*args):
+                self.assertEqual(tree.deadline, 720)
+                clock[0] += application_seconds
+                return {}
+            app = types.SimpleNamespace(verify_layout=verify, selected_tree=selected, inspect=lambda *args: {},
+                                        apply=apply, require_contract=lambda *args: None)
+            with mock.patch("time.monotonic", side_effect=lambda: clock[0]), mock.patch.object(smoke, "load_module") as launch:
+                report = smoke.apply_and_smoke({}, {}, (overlay, None, None, app), {"files": []}, self.measured)
+            launch.assert_not_called()
+            self.assertEqual(report["stage"], expected)
+            self.assertIsNone(report["application"])
+            self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
 
     def test_publish_no_overwrite_and_source_reader_special_files(self):
         destination = self.root / "payload"
@@ -255,9 +383,9 @@ class SmokeTests(unittest.TestCase):
                 data = overlay.json_bytes(value)
             elif args[1:3] == ["container", "start"]:
                 state["started"] = True
-                self.assertEqual(kwargs["timeout"], 900)
+                self.assertEqual(kwargs["timeout"], 1080)
                 self.assertEqual(kwargs["max_output_bytes"], 65536)
-                if failure == "runtime-timeout": raise subprocess.TimeoutExpired(args, 900)
+                if failure == "runtime-timeout": raise subprocess.TimeoutExpired(args, 1080)
                 if failure == "interrupt": raise InterruptedError("synthetic-private")
                 data = b"{bad private" if failure == "malformed" else overlay.json_bytes(result)
             elif args[1:3] == ["container", "rm"]:

@@ -1,14 +1,38 @@
 # SPDX-License-Identifier: Apache-2.0
 """Appended to the reviewed bootstrap by the preparer; no generic Python CLI."""
 
+from contextlib import contextmanager
+
 # read_source/install/dispatch/observation are from the exact concatenated
 # engine_python_bootstrap.py, not an import search through installed packages.
 
 MODULES = ("vllm.entrypoints.launchers.api_server.entry", "vllm.entrypoints.openai.api_server",
            "vllm.v1.engine.async_llm", "vllm.v1.executor.multiproc_executor")
 ROOT = "/opt/nib"
-APPLICATION_SECONDS = 540
+APPLICATION_SECONDS = 720
 IMPORT_SECONDS = 300
+ATTACH_SECONDS = 1080
+# Public source observations, not a claim that these upstream files were
+# independently measured in the installed wheel. See the task's source table.
+IMPORT_ENVIRONMENT = {
+    "PYTORCH_NVML_BASED_CUDA_CHECK": "1", "TORCHINDUCTOR_COMPILE_THREADS": "1",
+    "TRITON_CACHE_AUTOTUNING": "1", "TILELANG_CLEANUP_TEMP_FILES": "1",
+    "TORCH_DEVICE_BACKEND_AUTOLOAD": "0",
+}
+ENVIRONMENT_SOURCES = (
+    {"repository": "vllm-project/vllm", "revision": "5df63a7203cdb9328d824a27b682e77c7b9928be",
+     "path": "vllm/__init__.py", "bytes": 3662, "git_blob": "16101ca245f661a4a03f7bc9c91feefed19b7704",
+     "sha256": "087e15875e49ba50f4969c2229d450bb8397302ea9344b3a3bd06ee400263ebd"},
+    {"repository": "vllm-project/vllm", "revision": "5df63a7203cdb9328d824a27b682e77c7b9928be",
+     "path": "vllm/env_override.py", "bytes": 37970, "git_blob": "bfcdfa7af2369faefe3f7a13a9a07475dcfedaaa",
+     "sha256": "8a22650f862565a9ce2ba4441d39a99afbcecc2b60664be2272dd18e2df1cd1d"},
+    {"repository": "pytorch/pytorch", "revision": "cf30153c4c131c8164ee7798e5022d810682e2cb",
+     "path": "torch/__init__.py", "bytes": 111841, "git_blob": "629122af795c92b734143f0ee0999f28fab8d7d2",
+     "sha256": "cf40c075c95864036e835795756d69b8cccfafa76f3bcde5eba9d06065ccd3d1"},
+    {"repository": "pytorch/pytorch", "revision": "cf30153c4c131c8164ee7798e5022d810682e2cb",
+     "path": "torch/_inductor/async_compile.py", "bytes": 34432, "git_blob": "0962f6b89dbe99e0c64f147f75292cb5acd9dd99",
+     "sha256": "401933b518592b8958bb137ddd963c8dd623f4c63b9de215c933424ccc296c7d"},
+)
 
 
 def json_bytes(value):
@@ -70,6 +94,8 @@ def context(expected):
     require(contract["paths"] == measured["proposed_paths"] and application["import_contract"] == app.import_contract(overlay, measured))
     require(contract["environment"]["VLLM_WORKER_MULTIPROC_METHOD"] == "spawn"
             and contract["environment"]["VLLM_PLUGINS"] == "" and "NUMACTL_PYTHON" not in contract["environment"])
+    require(contract["import_environment_sources"] == list(ENVIRONMENT_SOURCES)
+            and all(contract["environment"].get(key) == value for key, value in IMPORT_ENVIRONMENT.items()))
     return contract, sources, modules, application, measured
 
 
@@ -143,30 +169,45 @@ def child(depth):
             process.close()
 
 
+@contextmanager
+def timed_phase(result, name):
+    import time
+    result["stage"] = name
+    started = time.monotonic()
+    try:
+        yield
+    finally:
+        result["phase_elapsed_ms"][name] = int((time.monotonic() - started) * 1000)
+
+
 def apply_and_smoke(contract, sources, modules, application, measured):
-    import subprocess
     import time
     overlay, diagnostic, descriptor, app = modules
     result = {"schema": "nib.engine-import-smoke/v1", "status": "BLOCKED", "deployable": False,
               "image": None, "abi_validated": False, "hardware_validated": False, "inference_started": False,
-              "stage": "application-preflight", "application": None, "smoke": None}
+              "stage": "application-preflight", "application": None, "smoke": None,
+              "phase_elapsed_ms": dict.fromkeys(("application-preflight", "application", "import-smoke"))}
     try:
         deadline = time.monotonic() + APPLICATION_SECONDS
-        app.verify_layout(overlay, descriptor, diagnostic, application, measured)
-        stages = [{item["path"]: sources[f"application/stages/{n}/" + item["path"]] for item in application["files"]}
-                  for n in range(1, 6)]
-        result["stage"] = "application"
-        with app.selected_tree(overlay, application, measured) as (tree, console):
-            application_budget(overlay, app, application, tree, console, deadline)
-            before = app.inspect(overlay, tree, application, measured, console)
-            result["application"] = app.apply(overlay, tree, application, stages, before, measured, console)
-        result["stage"] = "import-smoke"
-        processes = load_module("smoke_processes", sources["processes.py"], ROOT + "/processes.py")
-        completed = processes.execute_process_group([ROOT + "/python", "smoke"], env=contract["environment"],
-                                                     timeout=IMPORT_SECONDS, max_output_bytes=65536)
-        completed.check_returncode()
-        require(not completed.stderr)
-        result["smoke"] = overlay.load_json(completed.stdout)
+        with timed_phase(result, "application-preflight"):
+            app.verify_layout(overlay, descriptor, diagnostic, application, measured)
+            stages = [{item["path"]: sources[f"application/stages/{n}/" + item["path"]] for item in application["files"]}
+                      for n in range(1, 6)]
+            overlay.require(time.monotonic() < deadline)
+        with timed_phase(result, "application"):
+            with app.selected_tree(overlay, application, measured) as (tree, console):
+                application_budget(overlay, app, application, tree, console, deadline)
+                before = app.inspect(overlay, tree, application, measured, console)
+                applied = app.apply(overlay, tree, application, stages, before, measured, console)
+            overlay.require(time.monotonic() < deadline)
+            result["application"] = applied
+        with timed_phase(result, "import-smoke"):
+            processes = load_module("smoke_processes", sources["processes.py"], ROOT + "/processes.py")
+            completed = processes.execute_process_group([ROOT + "/python", "smoke"], env=contract["environment"],
+                                                         timeout=IMPORT_SECONDS, max_output_bytes=65536)
+            completed.check_returncode()
+            require(not completed.stderr)
+            result["smoke"] = overlay.load_json(completed.stdout)
         result["stage"] = "complete"
     except (Exception, SystemExit):
         result["failure"] = "bounded-smoke-stage-rejected"
@@ -253,9 +294,19 @@ def validate(overlay, report, application, measured):
     def same(actual, expected):
         return overlay.json_bytes(actual) == overlay.json_bytes(expected)
     overlay.require(type(report) is dict and all(same(report.get(key), value) for key, value in fixed.items())
-                    and set(report) <= set(fixed) | {"stage", "application", "smoke", "failure"}
-                    and {"stage", "application", "smoke"} <= set(report)
+                    and set(report) <= set(fixed) | {"stage", "application", "smoke", "failure", "phase_elapsed_ms"}
+                    and {"stage", "application", "smoke", "phase_elapsed_ms"} <= set(report)
                     and report["stage"] in {"application-preflight", "application", "import-smoke", "complete"})
+    phases = ("application-preflight", "application", "import-smoke")
+    timings = report["phase_elapsed_ms"]
+    reached = 3 if report["stage"] == "complete" else phases.index(report["stage"]) + 1
+    overlay.require(type(timings) is dict and set(timings) == set(phases))
+    for i, name in enumerate(phases):
+        value = timings[name]
+        overlay.require((type(value) is int and 0 <= value <= ATTACH_SECONDS * 1000) if i < reached else value is None)
+    overlay.require(sum(value for value in timings.values() if value is not None) <= ATTACH_SECONDS * 1000)
+    if reached == 3:
+        overlay.require(timings["application-preflight"] + timings["application"] <= APPLICATION_SECONDS * 1000)
     if "failure" in report:
         overlay.require(report["failure"] == "bounded-smoke-stage-rejected" and report["stage"] != "complete")
     else:

@@ -26,8 +26,8 @@ BOOTSTRAP_FILE = "scripts/engine_python_bootstrap.py"
 SMOKE = "scripts/engine_import_smoke.py"
 TESTS = ("scripts/test_engine_python_bootstrap.py", "scripts/test_engine_import_smoke.py")
 BUILDER_SHA = "4821dfc601f8a8f25985dc84b0c5f40c83f3ef5f153383277b91e2513fa0fc98"
-BOOTSTRAP_SHA = "9f2bdc24dad4e346d9f3c12e188a0596bcf54970f93c080d0d58aee231d489d9"
-SMOKE_SHA = "bfa26cf6e5d04a254a63f4d0387cc53a2306ee2b1def9ee699293e36e3c46809"
+BOOTSTRAP_SHA = "d595cf86cabac692a4f8bbd445c3e42999286a31c16ebf4c7c130b2a4071f2b0"
+SMOKE_SHA = "4f81464600ddad530a7cadbd749a34dc561a0183023d240820aa4b04628db940"
 
 
 def read_source(path):
@@ -92,7 +92,8 @@ def inputs(root=ROOT):
 
 
 def environment():
-    return {**recorder.prep.launch_plan()["fixed_engine_environment"], "VLLM_WORKER_MULTIPROC_METHOD": "spawn",
+    return {**recorder.prep.launch_plan()["fixed_engine_environment"], **smoke.IMPORT_ENVIRONMENT,
+            "VLLM_WORKER_MULTIPROC_METHOD": "spawn",
             "PATH": "/usr/bin:/bin", "HOME": "/tmp", "TMPDIR": "/tmp", "LC_ALL": "C.UTF-8"}
 
 
@@ -113,6 +114,7 @@ def prepare_files(revision, bundle, extra):
                 "python": measured["runtime"]["python"], "paths": measured["proposed_paths"],
                 "interpreter": {key: measured["files"][0][key] for key in ("resolved", "bytes", "sha256")},
                 "modules": list(smoke.MODULES), "environment": environment(),
+                "import_environment_sources": list(smoke.ENVIRONMENT_SOURCES),
                 "sources": {name: overlay.digest(data) for name, data in payload.items()}}
     payload["smoke.json"] = overlay.json_bytes(contract)
     payload["python"] = smoke.wrapper_bytes(contract["interpreter"]["resolved"], environment(), overlay.digest(payload["smoke.json"]))
@@ -189,7 +191,8 @@ def run_container(payload, contract, config, env, execute=recorder.snapshot.exec
         overlay.require(info["Id"] == created and info["State"]["Status"] == "created")
         report["stage"] = "application-and-import"
         runtime_started = True
-        raw = recorder.call(["docker", "container", "start", "--attach", name], env, execute=execute, timeout=900, limit=65536)
+        raw = recorder.call(["docker", "container", "start", "--attach", name], env, execute=execute,
+                            timeout=smoke.ATTACH_SECONDS, limit=65536)
         result = overlay.load_json(raw)
         application = overlay.load_json(read_source(payload / "application/contract.json"))
         measured = builder.application.measurement(overlay, read_source(payload / "application/measurement.json"))
