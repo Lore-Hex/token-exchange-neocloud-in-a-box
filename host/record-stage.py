@@ -26,7 +26,16 @@ import types
 ROOT = Path(__file__).absolute().parent.parent
 SCRIPT = "host/record-stage.py"
 BUILDER = "scripts/record-engine-image.py"
+BUILDER_REVISION = "45e7a09039a312429a73b605021b8d18828af4b3"
 BUILDER_SHA256 = "af5b2a1d9f880f1677650c25ba146cbfe673b06b216a0e47440d6f2b5ca71af2"
+BUILDER_FILES = {
+    BUILDER: BUILDER_SHA256,
+    "scripts/prepare-engine-overlay.py": "84ad218c21117432175f3aefa54b1d3820bb269bb7ad0b7c46765b7d6e3deec3",
+    "scripts/check-engine-candidate.py": "a295d3ec5ccda0794e3d830570d1d78c1b562e3cdb49ceb42aef37e6b25fd266",
+    "scripts/engine_overlay.py": "077980a3e82a7cb0b7a44bd8df506b3dea8802c2a37ad3344fe56414a0801d01",
+    "scripts/e2e/snapshot.py": "b7f5753ecacde3cda2bf5fdc673b6f2af239875f2a9468e34a5219a797b78b3a",
+    "scripts/engine_image_diagnostic.py": "e97285260e589d4d7cb6405529275a49a88be72778977fb34f03394dea2b2a48",
+}
 PACK = "models/deepseek-v4.1-flash-1017/1"
 SMALL = 2 << 20
 MAX_BINARY = 128 << 20
@@ -35,6 +44,9 @@ GRACE = 30
 INTERVAL = 30
 SHA = r"[0-9a-f]{64}"
 ENV = {"PATH": "/usr/bin:/bin", "HOME": "/nonexistent", "LANG": "C", "LC_ALL": "C"}
+GIT_ENV = {**ENV, "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+           "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_NO_REPLACE_OBJECTS": "1",
+           "GIT_NO_LAZY_FETCH": "1", "GIT_ALLOW_PROTOCOL": "", "GIT_TERMINAL_PROMPT": "0"}
 CANCELLED = False
 
 
@@ -131,11 +143,34 @@ def new_directory(path):
 
 
 def load_builder():
-    data = read(ROOT / BUILDER)
-    require(digest(data) == BUILDER_SHA256)
-    module = types.ModuleType("committed_stage_builder")
-    module.__file__ = str(ROOT / BUILDER)
-    exec(compile(data, module.__file__, "exec"), module.__dict__)
+    # Pin the reviewed helper closure, not today's unrelated image descriptor.
+    # All six blobs are verified before any compilation; no lazy fetch/import.
+    with tempfile.TemporaryDirectory(prefix="nib-stage-helper-") as temporary:
+        root = Path(temporary).resolve()
+        def git(*args):
+            code, data = execute(["git", "-c", "core.hooksPath=" + os.devnull, "-C", str(ROOT), *args],
+                                 30, env={**GIT_ENV, "TMPDIR": str(root)}, allow_stderr=True)
+            require(code == 0)
+            return data
+        files = {}
+        for name, expected in BUILDER_FILES.items():
+            row = git("ls-tree", BUILDER_REVISION, "--", name).decode("ascii").split()
+            require(len(row) == 4 and row[:2] == ["100644", "blob"] and row[3] == name
+                    and re.fullmatch(r"[0-9a-f]{40}", row[2]))
+            require(0 < int(git("cat-file", "-s", row[2])) <= 60000)
+            data = git("cat-file", "blob", row[2])
+            require(digest(data) == expected)
+            files[name] = data
+        for name, data in files.items():
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with directory(path.parent) as fd:
+                write(fd, path.name, data)
+        module = types.ModuleType("committed_stage_builder")
+        module.__file__ = str(root / BUILDER)
+        exec(compile(files[BUILDER], module.__file__, "exec"), module.__dict__)
+    # These loaded functions take an explicit source root; helper temp paths
+    # are never used for source selection or later imports.
     return module
 
 
@@ -157,11 +192,11 @@ def validate_plan(plan):
 
 
 def prepare(destination):
+    require(not CANCELLED)
     builder = load_builder()
     revision = builder.checker.git(ROOT, "rev-parse", "--verify", "HEAD^{commit}").decode().strip()
     require(re.fullmatch(r"[0-9a-f]{40}", revision))
-    require(committed(builder, revision, SCRIPT) == BOOTSTRAP
-            and digest(committed(builder, revision, BUILDER)) == BUILDER_SHA256)
+    require(committed(builder, revision, SCRIPT) == BOOTSTRAP)
     files = {"record-stage.py": BOOTSTRAP, "pack.yaml": committed(builder, revision, PACK + "/pack.yaml"),
              "files.sha256": committed(builder, revision, PACK + "/files.sha256")}
     with tempfile.TemporaryDirectory(prefix="nib-stage-build-") as temporary:
@@ -180,9 +215,11 @@ def prepare(destination):
         require(target_hash == source_hash and plan["manifest_sha256"] == digest(files["files.sha256"]))
         files["nib"] = read(binary, MAX_BINARY)
         receipt = {"schema": "nib.stage-bundle/v1", "git_sha": revision, "build_source_sha256": source_hash,
-                   "builder_sha256": BUILDER_SHA256, "toolchain": builder.GO_TOOLCHAIN, "platform": "linux/amd64",
+                   "builder_sha256": BUILDER_SHA256, "builder_git_sha": BUILDER_REVISION,
+                   "toolchain": builder.GO_TOOLCHAIN, "platform": "linux/amd64",
                    "plan": plan, "files": {name: {"sha256": digest(data), "bytes": len(data)} for name, data in files.items()},
                    "scope": "trusted-offline-builder-receipt-not-reproducibility-or-attestation"}
+        require(not CANCELLED)
         with new_directory(destination) as fd:
             for name, data in files.items():
                 write(fd, name, data, 0o500 if name == "nib" else 0o600)
@@ -202,9 +239,10 @@ def bundle(root, expected):
     data = read(root / "receipt.json")
     require(digest(data) == expected)
     receipt = parse(data)
-    require(set(receipt) == {"schema", "git_sha", "build_source_sha256", "builder_sha256", "toolchain", "platform", "plan", "files", "scope"}
+    require(set(receipt) == {"schema", "git_sha", "build_source_sha256", "builder_sha256", "builder_git_sha", "toolchain", "platform", "plan", "files", "scope"}
             and receipt["schema"] == "nib.stage-bundle/v1" and receipt["platform"] == "linux/amd64"
             and receipt["toolchain"] == "go1.27.2" and receipt["builder_sha256"] == BUILDER_SHA256
+            and receipt["builder_git_sha"] == BUILDER_REVISION
             and receipt["scope"] == "trusted-offline-builder-receipt-not-reproducibility-or-attestation"
             and re.fullmatch(r"[0-9a-f]{40}", receipt["git_sha"]) and re.fullmatch(SHA, receipt["build_source_sha256"]))
     validate_plan(receipt["plan"])
@@ -308,8 +346,8 @@ finally:
 """
 
 
-def execute(argv, timeout, progress=None, state=None):
-    require(0 < timeout <= MAX_SECONDS)
+def execute(argv, timeout, progress=None, state=None, *, env=None, allow_stderr=False):
+    require(0 < timeout <= MAX_SECONDS and not CANCELLED)
     reader, writer = os.pipe()
     try:
         life_reader, life_writer = os.pipe()
@@ -318,8 +356,9 @@ def execute(argv, timeout, progress=None, state=None):
         os.close(writer)
         raise
     try:
+        require(not CANCELLED)
         child = subprocess.Popen([sys.executable, "-I", "-S", "-B", "-c", SUPERVISOR, str(writer), str(life_reader), str(GRACE), *argv],
-            env=ENV, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env=ENV if env is None else env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             pass_fds=(writer, life_reader), start_new_session=True)
     except BaseException:
         os.close(reader)
@@ -362,10 +401,12 @@ def execute(argv, timeout, progress=None, state=None):
                     else:
                         stderr_seen = True
         code = bytes(buffers["status"])
-        if reason is not None:
+        if reason is not None or CANCELLED:
             raise ValueError("staging interrupted")
         require(code in (b"0", b"1", b"2"))
-        require(code != b"0" or not stderr_seen)
+        # Only bounded read-only Git bootstrap operations may discard platform
+        # launcher warnings; their returned source still requires exact hashes.
+        require(code != b"0" or not stderr_seen or allow_stderr)
         return int(code), bytes(buffers["stdout"])
     finally:
         if life_writer is not None:
@@ -407,6 +448,10 @@ def run(root, expected, destination, evidence, seconds, budget, download):
     require(sys.platform == "linux" and os.uname().machine == "x86_64")
     require(type(seconds) is int and 0 < seconds <= MAX_SECONDS and type(budget) is int and budget > 0)
     require(destination.is_absolute() and destination.name not in ("", ".", "..") and ".." not in destination.parts)
+    paths = (root, destination, evidence)
+    require(all(path.is_absolute() and str(path) == os.path.normpath(path) and ".." not in path.parts for path in paths))
+    require(all(left != right and left not in right.parents and right not in left.parents
+                for index, left in enumerate(paths) for right in paths[index + 1:]))
     receipt, files = bundle(root, expected)
     plan = receipt["plan"]
     require(budget == plan["minimum_budget_bytes"])
@@ -423,6 +468,7 @@ def run(root, expected, destination, evidence, seconds, budget, download):
               "runtime_ready": False, "confidential_qualified": False}
     with new_directory(evidence) as output:
         try:
+            require(not CANCELLED)
             disk = capacity(destination, plan)
             report["disk"] = disk
             require(disk["sufficient"])

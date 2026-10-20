@@ -41,7 +41,21 @@ it is not accepted without its final receipt.
 
 The preparation reads the wrapper, fixed pack and Go inputs from the exact Git
 commit, excluding untracked/ignored files and Git replacement/lazy-fetch inputs.
-The loaded wrapper must match that commit. It reuses source-snapshot building,
+The loaded wrapper must match that commit. Separately, the six-file builder
+helper closure is fixed to reviewed commit
+`45e7a09039a312429a73b605021b8d18828af4b3`, with an explicit SHA-256 per file.
+All six regular Git blobs must exist locally and match before any helper code
+is compiled in a private temporary source tree. The receipt records that helper
+revision as `builder_git_sha`; its main module remains SHA-256
+`af5b2a1d9f880f1677650c25ba146cbfe673b06b216a0e47440d6f2b5ca71af2`.
+This avoids loading later unrelated image/descriptor changes or checkout hooks.
+Missing historical objects fail offline, including partial clones: both lazy
+fetch and Git transports are disabled, with no prompt or replacement objects.
+The bounded Git bootstrap discards platform launcher warnings; nonzero exits,
+unexpected metadata or any source hash mismatch still fail. Actual staging
+commands continue to reject unexpected stderr even on a zero exit.
+
+It reuses source-snapshot building,
 the selected exact cached toolchain, disabled/private Go telemetry, controlled
 flags, CGO disabled and `GOPROXY=off`/`GOSUMDB=off`. Missing prerequisites fail
 offline; there is no install/resolver/download fallback. Ambient Go overlays,
@@ -69,7 +83,9 @@ On an approved Linux x86_64 host, select actual operator-owned private paths:
 - `PRIVATE_LOG`: new private progress log outside both directories.
 
 No provider-specific mount, hostname or cloud flag is assumed. Confirm the
-paths on the actual host before using them. First run the no-download preflight:
+paths on the actual host before using them. Bundle, destination and evidence
+paths must be disjoint: equality or nesting in either direction rejects before
+any directory creation or child execution. First run the no-download preflight:
 
 ```sh
 python3 -I -S "$BUNDLE/record-stage.py" run \
@@ -119,7 +135,9 @@ Long hashing phases can show unchanged counts. There is no heuristic idle kill
 that mistakes final verification for a stalled transfer.
 
 SIGINT, SIGTERM, timeout, output-limit and parser failures trigger owned process
-cleanup. A supervising process keeps the group identity alive and detects a
+cleanup. A cancellation already observed before launch starts no child; a
+cancelled explicit run records failure, not a staging proof. A supervising
+process keeps the group identity alive and detects a
 closed parent liveness pipe. The downloader gets up to 30 seconds to handle
 TERM and remove its own temporary file; then the owned group is killed, reaped
 and checked for absence within bounded waits. Plan verification has a separate
@@ -152,7 +170,9 @@ uv run --project tools --frozen python -I -m unittest discover -s scripts -p 'te
 
 Tests use synthetic bundles/files, a fake stage CLI result, local stdlib child
 processes and the real offline evidence-schema validator. They cover receipt
-and source tamper, FIFO/link/size failures, correct destination-filesystem disk
+and source tamper, checkout/FIFO replacement, missing-promisor offline rejection
+with a local transport positive control, path overlap, pre-cancellation,
+FIFO/link/size failures, correct destination-filesystem disk
 checks, plan-only/insufficient-space no-execution, malformed/failed proofs,
 private no-overwrite publication, bounded metadata-only progress, process-tree
 timeout/cancellation and pinned-builder environment reuse. No actual weight

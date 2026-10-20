@@ -34,7 +34,8 @@ class StageRecorderTests(unittest.TestCase):
         self.plan = dict(hf_repo="synthetic/model", hf_revision="a" * 40, manifest_sha256=stage.digest(self.files["files.sha256"]),
                          files=2, total_bytes=10, minimum_budget_bytes=12)
         self.receipt = dict(schema="nib.stage-bundle/v1", git_sha="b" * 40, build_source_sha256="c" * 64,
-            builder_sha256=stage.BUILDER_SHA256, toolchain="go1.27.2", platform="linux/amd64", plan=self.plan,
+            builder_sha256=stage.BUILDER_SHA256, builder_git_sha=stage.BUILDER_REVISION,
+            toolchain="go1.27.2", platform="linux/amd64", plan=self.plan,
             files={name: dict(sha256=stage.digest(data), bytes=len(data)) for name, data in self.files.items()},
             scope="trusted-offline-builder-receipt-not-reproducibility-or-attestation")
         with stage.new_directory(self.bundle) as fd:
@@ -189,6 +190,32 @@ class StageRecorderTests(unittest.TestCase):
         self.assertEqual(result.stdout, b"")
         self.assertEqual(result.stderr, b"Use python3 -I -S host/record-stage.py\n")
 
+    def test_overlapping_paths_reject_before_writes_or_execution(self):
+        for destination, evidence in ((self.bundle, self.evidence), (self.bundle / "weights", self.evidence),
+            (self.root, self.evidence), (self.destination, self.bundle / "evidence"),
+            (self.destination, self.root), (self.destination, self.destination),
+            (self.destination, self.destination / "evidence"), (self.evidence / "weights", self.evidence)):
+            with self.subTest(destination=destination, evidence=evidence), \
+                    mock.patch.object(stage.sys, "platform", "linux"), \
+                    mock.patch.object(stage.os, "uname", return_value=types.SimpleNamespace(machine="x86_64")), \
+                    mock.patch.object(stage, "execute") as execute, \
+                    mock.patch.object(stage, "new_directory") as create, self.assertRaises(ValueError):
+                stage.run(self.bundle, self.receipt_hash, destination, evidence, 60, 12, True)
+            execute.assert_not_called()
+            create.assert_not_called()
+
+    def test_precancelled_operation_never_spawns_and_records_failure(self):
+        with mock.patch.object(stage, "CANCELLED", True), mock.patch.object(stage.subprocess, "Popen") as spawn:
+            with self.assertRaises(ValueError):
+                stage.execute([sys.executable, "-I", "-S", "-c", "raise SystemExit(0)"], 5)
+            code, _, calls = self.run_fixture()
+        spawn.assert_not_called()
+        calls.assert_not_called()
+        self.assertEqual(code, 1)
+        report = json.loads((self.evidence / "output.log").read_bytes())
+        self.assertEqual((report["result"], report["cleanup"]), ("fail", "not-started"))
+        self.assertIsNone(report["proof"])
+
     def test_progress_is_metadata_only_bounded_and_not_integrity(self):
         self.assertEqual(stage.observation(self.destination, self.plan)["observed_bytes"], 0)
         self.destination.mkdir(mode=0o700)
@@ -224,16 +251,19 @@ class StageRecorderTests(unittest.TestCase):
         state = {}
         with mock.patch.object(stage, "GRACE", 0.2):
             for cancelled in (False, True):
-                with mock.patch.object(stage, "CANCELLED", cancelled), self.assertRaises(ValueError):
-                    stage.execute([sys.executable, "-I", "-S", "-c", code], 0.2, state=state)
+                def progress(_):
+                    if cancelled:
+                        stage.cancel(None, None)
+                with mock.patch.object(stage, "CANCELLED", False), self.assertRaises(ValueError):
+                    stage.execute([sys.executable, "-I", "-S", "-c", code], 0.2, progress, state)
                 self.assertEqual(state["cleanup"], "confirmed")
         time.sleep(1.1)
         self.assertFalse(marker.exists())
 
     def test_prepare_reuses_offline_builder_and_binds_binary_and_pack(self):
         builder = stage.load_builder()
-        self.assertEqual(stage.digest(stage.read(ROOT / stage.BUILDER)), stage.BUILDER_SHA256)
-        source = {stage.SCRIPT: stage.BOOTSTRAP, stage.BUILDER: stage.read(ROOT / stage.BUILDER),
+        self.assertEqual(stage.digest(builder.BOOTSTRAP), stage.BUILDER_SHA256)
+        source = {stage.SCRIPT: stage.BOOTSTRAP,
                   stage.PACK + "/pack.yaml": self.files["pack.yaml"], stage.PACK + "/files.sha256": self.files["files.sha256"]}
         builds = []
         def build(root, revision, work, env):
@@ -251,12 +281,90 @@ class StageRecorderTests(unittest.TestCase):
         received = json.loads(printed.getvalue())
         receipt, files = stage.bundle(destination, received["receipt_sha256"])
         self.assertEqual(receipt["git_sha"], "b" * 40)
+        self.assertEqual(receipt["builder_git_sha"], stage.BUILDER_REVISION)
         self.assertEqual(files["nib"], b"fixture compiler output")
         self.assertEqual((builds[1]["GOOS"], builds[1]["GOARCH"]), ("linux", "amd64"))
         for env in builds:
             self.assertEqual((env["GOPROXY"], env["GOSUMDB"], env["GOWORK"], env["GOENV"]), ("off", "off", "off", "off"))
             self.assertEqual(env["GO_TELEMETRY_CHILD"], "2")
         self.assertEqual((destination / "nib").stat().st_mode & 0o777, 0o500)
+
+    def test_builder_uses_only_pinned_git_bytes_not_checkout_or_replacements(self):
+        repo = self.root / "source"
+        repo.mkdir()
+        env = {**stage.GIT_ENV, "GIT_AUTHOR_NAME": "Fixture", "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+               "GIT_COMMITTER_NAME": "Fixture", "GIT_COMMITTER_EMAIL": "fixture@example.invalid"}
+        def git(*args, root=repo):
+            return subprocess.run(["git", "-C", str(root), *args], env=env, capture_output=True, check=True, timeout=10).stdout
+        git("init", "-q")
+        for name, expected in stage.BUILDER_FILES.items():
+            data = git("show", stage.BUILDER_REVISION + ":" + name, root=ROOT)
+            self.assertEqual(stage.digest(data), expected)
+            path = repo / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        git("add", ".")
+        git("commit", "-qm", "reviewed helper fixture")
+        revision = git("rev-parse", "HEAD").decode().strip()
+        path = repo / stage.BUILDER
+        path.write_bytes(b"raise RuntimeError('SYNTHETIC_PRIVATE_VALUE')\n")
+        git("add", ".")
+        git("commit", "-qm", "forged helper")
+        forged = git("rev-parse", "HEAD").decode().strip()
+        git("replace", revision, forged)
+        ordinary = subprocess.run(["git", "-C", str(repo), "show", revision + ":" + stage.BUILDER],
+                                  env={k: v for k, v in env.items() if k != "GIT_NO_REPLACE_OBJECTS"},
+                                  capture_output=True, check=True, timeout=10).stdout
+        self.assertIn(b"SYNTHETIC_PRIVATE_VALUE", ordinary)
+        path.unlink()
+        os.mkfifo(path)
+        with mock.patch.object(stage, "ROOT", repo), mock.patch.object(stage, "BUILDER_REVISION", revision):
+            builder = stage.load_builder()
+        self.assertEqual(stage.digest(builder.BOOTSTRAP), stage.BUILDER_SHA256)
+        self.assertFalse(Path(builder.__file__).exists())
+        self.assertEqual(builder.GO_TOOLCHAIN, "go1.27.2")
+        oid = git("rev-parse", revision + ":" + stage.BUILDER).decode().strip()
+        (repo / ".git/objects" / oid[:2] / oid[2:]).unlink()
+        marker, helper = repo / "transport-called", repo / "transport.py"
+        helper.write_text("from pathlib import Path\nPath(" + repr(str(marker)) + ").touch()\nraise SystemExit(1)\n")
+        git("config", "remote.origin.url", "ext::" + sys.executable + " " + str(helper))
+        git("config", "remote.origin.promisor", "true")
+        git("config", "remote.origin.partialclonefilter", "blob:none")
+        git("config", "protocol.ext.allow", "always")
+        for ignored in (None, "GIT_NO_LAZY_FETCH"):
+            with mock.patch.object(stage, "ROOT", repo), mock.patch.object(stage, "BUILDER_REVISION", revision), \
+                    mock.patch.object(stage, "GIT_ENV", {k: v for k, v in stage.GIT_ENV.items() if k != ignored}), \
+                    self.assertRaises(ValueError):
+                stage.load_builder()
+            self.assertFalse(marker.exists())
+        # Local positive control only; this helper never contacts a server.
+        result = subprocess.run(["git", "-C", str(repo), "cat-file", "-s", oid],
+                                env={k: v for k, v in env.items() if k not in ("GIT_NO_LAZY_FETCH", "GIT_ALLOW_PROTOCOL")},
+                                capture_output=True, timeout=10)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertTrue(marker.exists())
+
+    def test_builder_missing_or_tampered_history_never_loads_and_disables_transports(self):
+        with mock.patch.object(stage, "BUILDER_REVISION", "0" * 40), self.assertRaises(ValueError):
+            stage.load_builder()
+        original = stage.execute
+        seen = []
+        def tampered(argv, timeout, **kwargs):
+            env = kwargs["env"]
+            seen.append(dict(env))
+            for key, value in (("GIT_ALLOW_PROTOCOL", ""), ("GIT_NO_LAZY_FETCH", "1"),
+                               ("GIT_NO_REPLACE_OBJECTS", "1"), ("GIT_TERMINAL_PROMPT", "0"),
+                               ("GIT_CONFIG_NOSYSTEM", "1"), ("GIT_CONFIG_GLOBAL", os.devnull)):
+                self.assertEqual(env[key], value)
+            self.assertNotIn("SYNTHETIC_PRIVATE_VALUE", str(env))
+            code, data = original(argv, timeout, **kwargs)
+            if argv[-3:-1] == ["cat-file", "blob"]:
+                data += b"# SYNTHETIC_PRIVATE_VALUE\n"
+            return code, data
+        with mock.patch.dict(os.environ, {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "SYNTHETIC_PRIVATE_VALUE"}), \
+                mock.patch.object(stage, "execute", side_effect=tampered), self.assertRaises(ValueError):
+            stage.load_builder()
+        self.assertTrue(seen)
 
     def test_published_records_use_authoritative_offline_schema(self):
         self.run_fixture()
