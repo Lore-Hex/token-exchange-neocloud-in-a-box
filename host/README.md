@@ -1,8 +1,17 @@
 # Host setup
 
 Reserved for version-pinned BIOS, TDX, GPU CC and QEMU launch procedures.
-Host commands require the hardware gates in PLAN.md. No host mutation or
+Host commands require the hardware gates in PLAN.md. No BIOS/GPU settings or
 confidential launch procedure is implemented here yet.
+
+## Approved weight staging
+
+The [bounded staging wrapper](../docs/tasks/p0-t4-host-weight-staging.md) prepares
+a source-bound CLI bundle, checks actual free storage, records content-free
+progress and private evidence, and supervises an explicitly approved transfer.
+It does not launch an engine, qualify hardware or stop rental billing. The
+510.31 GB DeepSeek pack needs at least 561.35 GB free under its conservative
+full-pack-plus-overhead policy; a 500 GB disk is insufficient.
 
 ## Read-only inventory
 
