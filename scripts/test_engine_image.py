@@ -26,6 +26,7 @@ INTEGRITY_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-record-diagnos
 PYTHON_RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-python-layout"
 PREREQUISITES_RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-python-prerequisites"
 PREREQUISITES_SECOND = ROOT / "evidence/p0/2026-10-20-official-vllm-python-prerequisites-2"
+CHAIN_RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-python-chain"
 
 
 def source(name, relative):
@@ -1345,7 +1346,7 @@ class ImageTests(unittest.TestCase):
         binary, source_hash = recorder.build_validator(ROOT, revision, self.work, env)
         self.assertRegex(source_hash, r"^[0-9a-f]{64}$")
         for index, source_directory in enumerate((RECORDED, CENSUS_RECORDED, BOUNDED_RECORDED, STUBS_RECORDED, INTEGRITY_RECORDED,
-                                                  PYTHON_RECORDED, PREREQUISITES_RECORDED, PREREQUISITES_SECOND)):
+                                                  PYTHON_RECORDED, PREREQUISITES_RECORDED, PREREQUISITES_SECOND, CHAIN_RECORDED)):
             recorded = self.work / "recorded/evidence/p0" / ("official-image-" + str(index))
             recorded.mkdir(parents=True)
             (recorded / "run.json").write_bytes(recorder.prep.read_source(source_directory / "run.json"))
@@ -1756,6 +1757,65 @@ class ImageTests(unittest.TestCase):
         self.assertEqual(recorder.descriptor.canaries(overlay, child["runtime"], child["scans"], child["files"][0],
                          processes, Path("/opt/nib")), child["canaries"])
         processes.execute_process_group.assert_not_called()
+
+    def test_recorded_interpreter_chain_complete_collection_is_not_qualification(self):
+        revision = "d033d2198866f7fdbd509e56329702942f22de14"
+        original_git = recorder.checker.git
+        def source_git(root, *args, **kwargs):
+            if args == ("rev-parse", "--verify", "HEAD^{commit}"):
+                return (revision + "\n").encode()
+            return original_git(root, *args, **kwargs)
+        with mock.patch.object(recorder.checker, "git", side_effect=source_git):
+            files, contract = recorder.payload_files(*recorder.inputs(), mode="python-descriptor")
+        payload = overlay.bundle_digest(files)
+        self.assertEqual(payload, "864ebf136e71eafc570677378547990140f1ace563f1d7a8ddf21fe4b672ff1e")
+        documents = []
+        for name, expected in (("run.json", "263c5454ed01385925bedbd6f0c466448e8749fdd1a7a9aa439dc53f76c2322d"),
+                               ("output.log", "52a15aafc3044821740c5d408e5fc44f6635bea36c30f5af51f5866120810440")):
+            data = recorder.prep.read_source(CHAIN_RECORDED / name)
+            self.assertLessEqual(len(data), recorder.descriptor.LIMITS["report_bytes"])
+            self.assertEqual(overlay.digest(data), expected)
+            documents.append(overlay.load_json(data))
+        run, report = documents
+        self.assertEqual((run["git_sha"], run["result"], run["execution"]), (revision, "fail", "software"))
+        self.assertFalse(run["hardware_validated"])
+        self.assertEqual((run["started_utc"], run["ended_utc"]), ("2026-10-20T02:11:53Z", "2026-10-20T02:13:17Z"))
+        self.assertEqual(run["command"], "python3 -I -S scripts/record-engine-image.py --python-descriptor --slug official-vllm-python-chain")
+        self.assertEqual((report["result"], report["stage"], report["cleanup"]), ("fail", "python-descriptor-complete", "confirmed"))
+        provenance = report["provenance"]
+        self.assertEqual(provenance["git_sha"], revision)
+        self.assertEqual(provenance["payload_sha256"], payload)
+        self.assertEqual(provenance["source_bundle_sha256"], contract["source_bundle_sha256"])
+        self.assertEqual(provenance["validator_source_sha256"], "c18f7f7028758f683f01a67806cbe5db9d44f503c6f58357393329b01a243232")
+        self.assertTrue(provenance["raw_oci_metadata_verified"])
+        self.assertEqual(provenance["requested_image"], overlay.BASE_IMAGE)
+        self.assertEqual(provenance["expected_config_sha256"], contract["official_config"]["sha256"])
+        self.assertTrue(report["image"]["raw_config_link_verified"])
+        self.assertFalse(report["image"]["local_layers_rehashed"])
+        self.assertFalse(report["image"]["local_config_bytes_rehashed"])
+        child = report["diagnostic"]
+        recorder.descriptor.validate_report(overlay, child, contract)
+        self.assertEqual((child["collection"], child["overlay_admission"]), ("pass", "not-evaluated"))
+        self.assertEqual(child["preparation"], contract["descriptor_preparation"])
+        for row in child["files"][:2]:
+            self.assertEqual((row["path"], row["resolved"], row["status"]), ("/usr/bin/python3", "/usr/bin/python3.12", "read"))
+            self.assertEqual(row["links"], recorder.descriptor.interpreter_links())
+            self.assertEqual(row["sha256"], "e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f")
+            self.assertEqual(row["bytes"], 8020928)
+        canaries = child["canaries"]
+        self.assertEqual(canaries["status"], "pass")
+        self.assertEqual(canaries["blockers"], [])
+        expected = "ecf3cf1ec68e98d1e5aca0ea5d79b2645d24746714e824b839a6a42bda96dd77"
+        self.assertEqual(canaries["path_sha256"], expected)
+        for name in ("fresh", "fork", "spawn", "forkserver", "grandchild"):
+            recorder.descriptor.validate_canary(overlay, canaries[name], expected)
+        previous = overlay.load_json(recorder.prep.read_source(PREREQUISITES_SECOND / "output.log"))
+        self.assertEqual(child["packaging"], previous["diagnostic"]["packaging"])
+        self.assertEqual(len(child["worker_sources"]), 14)
+        self.assertTrue(all(row["status"] == "read" and row["matches"] for row in child["worker_sources"]))
+        for item in (child, report):
+            self.assertEqual(item["candidate_status"], "BLOCKED")
+            self.assertTrue(all(item[key] is False for key in ("deployable", "abi_validated", "hardware_validated")))
 
     def test_validator_toolchain_resolution_is_cache_only_and_exact(self):
         env = recorder.offline_environment(self.work / "control")

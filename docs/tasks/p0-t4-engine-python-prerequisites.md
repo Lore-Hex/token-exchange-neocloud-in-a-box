@@ -123,4 +123,5 @@ is authorized by passing these software tests.
 
 The separate [exact interpreter-chain diagnostic](p0-t4-engine-python-chain.md)
 tests the source-backed alternatives hypothesis without changing this recorded
-result or generic path/admission policy. It is not an installed-chain measurement.
+result or generic path/admission policy. Its later collection is a separate
+installed-chain observation, not a reinterpretation of this failed run.
