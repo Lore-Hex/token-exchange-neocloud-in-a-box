@@ -767,6 +767,22 @@ class ContractTests(unittest.TestCase):
         self.assertIn("label=nib.cpu-entry", steps[6]["run"])
         self.assertNotIn("secrets.", json.dumps(workflow))
 
+    def test_native_workflow_cleanup_requires_successful_empty_query(self):
+        workflow = yaml.load((ROOT / ".github/workflows/engine-cpu-entry.yml").read_text(),
+                             Loader=yaml.BaseLoader)
+        cleanup = workflow["jobs"]["diagnostic"]["steps"][-1]["run"].split("set --", 1)[0]
+        fake_docker = ('docker() {\n'
+                       '  test "$*" = "container ls --all --quiet --filter label=nib.cpu-entry" || exit 127\n'
+                       '  printf "%s" "$QUERY_OUTPUT"\n'
+                       '  return "$QUERY_STATUS"\n'
+                       '}\n')
+        for status, output, expected in ((0, "", 0), (1, "", 1), (0, "owned", 1), (1, "owned", 1)):
+            with self.subTest(status=status, output=output):
+                result = subprocess.run(["bash", "-c", fake_docker + cleanup],
+                                        env={**os.environ, "QUERY_STATUS": str(status), "QUERY_OUTPUT": output},
+                                        capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, expected)
+
     def test_cleanup_and_isolation_failures_never_grant_entry_pass(self):
         for failure in ("network", "runtime", "devices", "ports", "weights", "create-timeout",
                         "timeout", "oom", "malformed", "ownership", "cleanup"):

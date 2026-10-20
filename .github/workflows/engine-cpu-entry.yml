@@ -59,7 +59,8 @@ jobs:
       - name: Require diagnostic success and owned-container cleanup
         if: always()
         run: |
-          test -z "$(docker container ls --all --quiet --filter label=nib.cpu-entry)"
+          remaining="$(docker container ls --all --quiet --filter label=nib.cpu-entry)" || exit 1
+          test -z "$remaining" || exit 1
           set -- evidence/p2/*-"$SLUG"
           test "$#" -eq 1
           python3 -I -S scripts/record-engine-cpu-entry.py --check-result "$1" --host-kind github-actions
