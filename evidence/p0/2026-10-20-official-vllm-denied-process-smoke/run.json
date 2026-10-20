@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S scripts/record-engine-import-smoke.py --slug official-vllm-denied-process-smoke",
+  "ended_utc": "2026-10-20T05:36:04Z",
+  "execution": "software",
+  "git_sha": "b72f7a0a62ea0e4cf9540fa0ef832dcc6c69ace3",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "local-software-experiment",
+    "provider": "local"
+  },
+  "notes": "Non-qualifying application/import experiment; candidate stays BLOCKED even if smoke_pass is true. Writable owned container layer, read-only payload, no network/GPU/ports/model/inference/build/pull/publication. Imports execute pinned engine/dependency code; not an adversarial Python sandbox or ABI/confidential proof. Docker/OS/interpreter trusted. Payload SHA-256: 09e233ab1fb334849456967332ab58fcf9fb90ea00667b2f3029a4e5502844b3",
+  "phase": "P0",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-20T05:27:39Z",
+  "task": "T4"
+}

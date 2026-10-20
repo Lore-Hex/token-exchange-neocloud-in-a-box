@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-import-smoke"
 RECORDED_SOURCE = "4b6b90613cfcd806ea0d40bf0b1aa7a415880313"
 NUMPY_RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-numpy-startup-smoke"
+DENIED_RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-denied-process-smoke"
 
 
 def load(name, relative):
@@ -532,7 +533,7 @@ class SmokeTests(unittest.TestCase):
         binary, _ = tool.recorder.build_validator(ROOT, record["git_sha"], self.root, env)
         tool.recorder.publish_evidence(record, report, binary, self.root, self.root / "evidence", env)
         self.assertEqual(json.loads((self.root / "evidence/run.json").read_bytes()), record)
-        for directory in (RECORDED, NUMPY_RECORDED):
+        for directory in (RECORDED, NUMPY_RECORDED, DENIED_RECORDED):
             recorded = self.root / "recorded/evidence/p0" / directory.name
             recorded.mkdir(parents=True)
             (recorded / "run.json").write_bytes(tool.read_source(directory / "run.json"))
@@ -556,8 +557,18 @@ class SmokeTests(unittest.TestCase):
             timestamps=("2026-10-20T04:47:36Z", "2026-10-20T04:56:00Z"),
             elapsed={"application-preflight": 8142, "application": 480489, "import-smoke": 6149}, guard=("process", 1))
 
+    def test_recorded_denied_process_attempt_preserves_other_categories_without_cause_claim(self):
+        self.assert_recorded_attempt(DENIED_RECORDED, "b72f7a0a62ea0e4cf9540fa0ef832dcc6c69ace3",
+            run_sha="82b399c97e0bee0ccc3840cc08d61e2b7ac1555e1c3a191ee0056d750d28ba8a",
+            output_sha="e7c486ad51a451b2ff2d15e5c069fcf4912c34461f2b38c63804ca9187565d9c",
+            recorder_sha="cb40ae7f14ed503d04ab6bbc9e4b90d56d5cce2d13980ef7a3eb54312073873b",
+            payload_sha="09e233ab1fb334849456967332ab58fcf9fb90ea00667b2f3029a4e5502844b3",
+            timestamps=("2026-10-20T05:27:39Z", "2026-10-20T05:36:04Z"),
+            elapsed={"application-preflight": 8146, "application": 482321, "import-smoke": 6036}, guard=("process", 1),
+            denied={"event": "subprocess.Popen", "command": "other", "caller": "other"})
+
     def assert_recorded_attempt(self, directory, revision, *, run_sha, output_sha, recorder_sha, payload_sha,
-                                timestamps, elapsed, guard):
+                                timestamps, elapsed, guard, denied=None):
         documents = []
         for name, expected in (("run.json", run_sha), ("output.log", output_sha)):
             raw = tool.read_source(directory / name)
@@ -627,6 +638,10 @@ class SmokeTests(unittest.TestCase):
             self.assertEqual(row["guard_rejections"], {key: guard[1] if key == guard[0] else 0 for key in row["guard_rejections"]})
             if guard[0] == "process":
                 self.assertIsNone(row["first_state_mismatch"])
+            if denied is None:
+                self.assertNotIn("first_denied_process", row)
+            else:
+                self.assertEqual(row["first_denied_process"], denied)
             self.assertEqual(row["dependency_entrypoint_loads"], 0)
             self.assertEqual(row["imports"], [{"module": name, "status": "rejected" if i == 0 else "not-run",
                                                "error_category": "guard" if i == 0 else None}

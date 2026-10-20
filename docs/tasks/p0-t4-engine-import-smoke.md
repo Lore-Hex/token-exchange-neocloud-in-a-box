@@ -73,11 +73,38 @@ authorized by this evidence. The outer stage remains `smoke-rejected`,
 inference, ABI, hardware or confidentiality qualification occurred. The first
 failed-run artifacts remain unchanged.
 
+### Denied-Process Attempt
+
+The unchanged [run metadata](../../evidence/p0/2026-10-20-official-vllm-denied-process-smoke/run.json)
+and [sanitized output](../../evidence/p0/2026-10-20-official-vllm-denied-process-smoke/output.log)
+record source `b72f7a0a62ea0e4cf9540fa0ef832dcc6c69ace3`, from
+2026-10-20 05:27:39 through 05:36:04 UTC. Payload SHA-256 is
+`09e233ab1fb334849456967332ab58fcf9fb90ea00667b2f3029a4e5502844b3`.
+
+All five application stages completed, with native inventory unchanged and
+2,879 bytecode removals. Phase durations were 8,146 ms preflight, 482,321 ms
+application and 6,036 ms imports. Fresh, spawn and grandchild each rejected the
+first API-entry import with `first_denied_process` event `subprocess.Popen`,
+command `other` and caller `other`. Each recorded process count 1, all other
+guard counts zero, `first_state_mismatch:null`, and no permitted dependency
+entrypoint loads. The remaining three imports were not run. Bootstrap and
+pre-unpickle observations passed; the owned tracker exited zero.
+
+This identifies a denied Popen event, **not the executable, command, caller or
+root cause**. Both `other` categories are bounded classifier results, not
+complete attribution or justification for a compatibility exception. The
+recorder reports `cleanup:confirmed`; the parent independently reported an
+empty Docker label query, whose transcript is not in the artifact. The result
+remains `smoke-rejected`, `smoke_pass:false`, `result:fail`, `deployable:false`.
+No GPU, weights, model inference, ABI, hardware or confidentiality qualification
+occurred. Both prior failed-run artifacts remain unchanged. Any next source
+change belongs to a separate reviewed task; do not repeat this unchanged run.
+
 ### Denied-Process Diagnostics
 
-The next recorder change is diagnostic only and has **not had an actual image
-run**. It preserves every existing process denial and the exact permitted
-spawn/resource-tracker/fresh reentry paths. It adds `first_denied_process` to
+The recorder diagnostics were exercised in the attempt above, which remained
+non-qualifying. The change preserves every existing process denial and the
+exact permitted spawn/resource-tracker/fresh reentry paths. It adds `first_denied_process` to
 each fresh/spawn/grandchild report: `null` before any process rejection,
 otherwise a sticky object containing only fixed `event`, `command` and `caller`
 categories. Caught denials still increment the process counter and prevent
@@ -108,7 +135,7 @@ These upstream command forms are **candidates**, not proof of the first
 process rejection in the NumPy startup attempt. Synthetic tests show they can
 produce the same old process-counter-only result. No actual executable identity,
 compiler behavior, JIT safety or engine compatibility is established, and no
-subprocess is newly permitted. The next actual changed-source run remains
+subprocess is newly permitted. Any subsequent actual changed-source run remains
 parent-owned and gated on independent review and tests.
 
 Primary source observations (read without executing upstream packages):
