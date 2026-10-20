@@ -23,8 +23,11 @@ import types
 
 ROOT = Path(__file__).absolute().parent.parent
 EXTRA = ("scripts/prepare_mkosi_inputs.py", "image/inputs/mkosi-27.1.json",
-         "image/inputs/mkosi-tools-ubuntu2404.json")
+         "image/inputs/mkosi-tools-ubuntu2404.json",
+         "image/patches/mkosi-27.1-service-denial.patch",
+         "image/inputs/mkosi-27.1-service-denial.json")
 COMMIT = "ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b"
+PATCH_TARGET = "mkosi/installer/apt.py"
 MAX_SOURCE = 8 << 20
 MAX_PACKAGES = 320
 MAX_BYTES = 640 << 20
@@ -120,9 +123,42 @@ def verify_source(raw, pin):
             and pin["license_files"] == sorted(n for n in expected if n.startswith("LICENSES/"))
             and "LICENSES/LGPL-2.1-or-later.txt" in pin["license_files"]
             and "pyproject.toml" in found and "mkosi/__main__.py" in found)
-    return {"git_sha": COMMIT, "files": len(found), "source_bytes": sum(map(len, found.values())),
-            "archive_sha256": base.digest(raw), "git_blob_correspondence": True,
-            "upstream_executed": False, "license_files_preserved": True}
+    return ({"git_sha": COMMIT, "files": len(found), "source_bytes": sum(map(len, found.values())),
+             "archive_sha256": base.digest(raw), "git_blob_correspondence": True,
+             "upstream_executed": False, "license_files_preserved": True}, found)
+
+
+def service_denial_patch(members, source_pin, patch, pin):
+    """Apply this one pinned insertion at its exact line; no patch tool or fuzzy search."""
+    require(set(pin) == {"schema", "mkosi_git_sha", "source_path", "source_url", "license",
+                         "patch_path", "patch_bytes", "patch_sha256", "input_bytes", "input_sha256",
+                         "result_bytes", "result_sha256"}
+            and pin["schema"] == "nib.mkosi-service-denial-patch/v1"
+            and pin["mkosi_git_sha"] == COMMIT
+            and pin["source_path"] == PATCH_TARGET
+            and pin["source_url"] == "https://github.com/systemd/mkosi/blob/" + COMMIT + "/" + PATCH_TARGET
+            and pin["license"] == "LGPL-2.1-or-later" and pin["patch_path"] == EXTRA[3]
+            and len(patch) == pin["patch_bytes"] <= 4096
+            and base.digest(patch) == pin["patch_sha256"])
+    original = members[PATCH_TARGET]
+    row = source_pin["source_files"][PATCH_TARGET]
+    require(row["mode"] == "100644" and len(original) == row["bytes"] == pin["input_bytes"]
+            and base.digest(original) == row["sha256"] == pin["input_sha256"]
+            and original.startswith(b"# SPDX-License-Identifier: LGPL-2.1-or-later\n"))
+    lines = patch.splitlines(keepends=True)
+    require(lines[:3] == [b"--- a/mkosi/installer/apt.py\n", b"+++ b/mkosi/installer/apt.py\n",
+                          b"@@ -259,5 +259,6 @@\n"]
+            and len(lines) == 9 and all(line[:1] in (b" ", b"+") for line in lines[3:])
+            and [line for line in lines[3:] if line.startswith(b"+")]
+            == [b"+        policyrcd.chmod(0o755)\n"])
+    before = [line[1:] for line in lines[3:] if line.startswith(b" ")]
+    after = [line[1:] for line in lines[3:]]
+    original_lines = original.splitlines(keepends=True)
+    require(original_lines[258:263] == before)
+    result = b"".join(original_lines[:258] + after + original_lines[263:])
+    require(len(result) == pin["result_bytes"] <= 2 << 20
+            and base.digest(result) == pin["result_sha256"])
+    return result
 
 
 def validate_tools_lock(lock, metadata):
@@ -152,6 +188,7 @@ def build_contract(guest, revision):
             "matching-apt-rehearsal-pass",
             "complete-maintainer-and-hook-review",
             "reviewed-user-namespace-mount-policy",
+            "verified-local-service-denial-overlay-used-for-every-apt-transaction",
             "verified-tools-runtime-and-elf-linkage",
             "explicit-target-kernel-compiler-and-job-controls",
             "independent-source-review-and-green-ci",
@@ -170,7 +207,9 @@ def build_contract(guest, revision):
 def prepare(metadata, archives, source_archive, revision, sources):
     pin, lock, guest = (json.loads(sources[p]) for p in
                         (EXTRA[1], EXTRA[2], tools.FILES[-1]))
-    source = verify_source(source_archive, pin)
+    source, members = verify_source(source_archive, pin)
+    patch_pin = json.loads(sources[EXTRA[4]])
+    patched = service_denial_patch(members, pin, sources[EXTRA[3]], patch_pin)
     validate_tools_lock(lock, metadata)
     base.inputs.check(guest, metadata)
     require(len(lock["packages"]) <= 256 and lock["archive_bytes"] <= 128 << 20)
@@ -206,6 +245,9 @@ def prepare(metadata, archives, source_archive, revision, sources):
     files.update({
         "mkosi-source.tar.gz": source_archive,
         "mkosi-source.json": sources[EXTRA[1]],
+        "mkosi-service-denial.patch": sources[EXTRA[3]],
+        "mkosi-service-denial.json": sources[EXTRA[4]],
+        "mkosi-overlay/" + PATCH_TARGET: patched,
         "mkosi-tools-inputs.json": sources[EXTRA[2]],
         "guest-inputs.json": sources[tools.FILES[-1]],
         "mkosi.conf.candidate": base.recipe(guest),
@@ -219,6 +261,8 @@ def prepare(metadata, archives, source_archive, revision, sources):
     report = {
         "schema": "nib.mkosi-input-preparation/v1", "result": "pass", "git_sha": revision,
         "scope": "verified-source-package-and-script-inputs", "mkosi": source,
+        "local_patch": {"pin": patch_pin, "result_path": "mkosi-overlay/" + PATCH_TARGET,
+                        "applied_in_memory": True, "executed": False},
         "source_hashes": {p: base.digest(raw) for p, raw in sources.items()},
         "tools_packages": len(lock["packages"]), "guest_packages": len(guest["packages"]),
         "unique_archives": len(rows),
