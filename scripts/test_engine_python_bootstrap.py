@@ -36,7 +36,8 @@ def distribution_observation():
     points = metadata.entry_points(group="review.test")
     return {"before": METADATA_BEFORE, "version": metadata.version("review-fake"),
             "points": [[p.name, p.value] for p in points], "plugin_loaded": "never_load_plugin" in sys.modules,
-            "pathfinder_restored": importlib.machinery.PathFinder in sys.meta_path}
+            "pathfinder_restored": importlib.machinery.PathFinder in sys.meta_path,
+            "first_denied_process": STATE["first_denied_process"]}
 
 def before_unpickle():
     return observation(sys._nib_smoke_guard)
@@ -136,7 +137,8 @@ def main():
             forbidden()
         except ValueError as exc:
             print(json.dumps({"rejected": True, "message": str(exc), "failures": STATE["failures"],
-                              "first_state_mismatch": STATE["first_state_mismatch"]}))
+                              "first_state_mismatch": STATE["first_state_mismatch"],
+                              "first_denied_process": STATE["first_denied_process"]}))
             return
         raise AssertionError("accepted forbidden operation")
     dispatch(ARGS, STATE)
@@ -313,7 +315,7 @@ class BootstrapTests(unittest.TestCase):
     def test_metadata_discovery_parent_spawn_grandchild_and_fresh_without_plugin_load(self):
         row = self.run_fixture("positive")
         expected = {"before": ["1.0"], "version": "1.0", "points": [["fixture", "never_load_plugin:entry"]],
-                    "plugin_loaded": False, "pathfinder_restored": False}
+                    "plugin_loaded": False, "pathfinder_restored": False, "first_denied_process": None}
         for observation in (row["metadata_parent"], row["metadata"], row["grandchild"]["metadata"], row["fresh"]["metadata"]):
             self.assertEqual(observation, expected)
         for name in ("metadata-outside", "metadata-mixed", "metadata-relative", "metadata-string", "metadata-extra", "metadata-alias"):
@@ -555,6 +557,130 @@ class BootstrapTests(unittest.TestCase):
                 self.assertEqual(row["message"], "sealed Python operation rejected")
                 self.assertGreater(sum(row["failures"].values()), 0)
                 self.assertNotIn("private", json.dumps(row))
+
+    def test_process_command_classes_require_exact_bounded_plain_values(self):
+        class Hostile:
+            def __str__(self): raise AssertionError("must not stringify")
+            def __eq__(self, other): raise AssertionError("must not compare")
+        class String(str):
+            def __eq__(self, other): raise AssertionError("must not compare subclass")
+        for shape, expected in bootstrap.PROCESS_SHAPES.items():
+            for args in (list(shape), shape, [s.encode() for s in shape]):
+                self.assertEqual(bootstrap.process_command(args[0], args), expected)
+            executable, flag = shape
+            for args in ([executable, flag, "synthetic-private"], [executable, flag + " "],
+                         [executable, flag.upper()], ["/private/" + executable, flag],
+                         [executable + "-private", flag], [executable, "private"],
+                         [executable, flag, ""], [], shape[0] + " " + flag,
+                         [Hostile(), flag], [String(executable), flag],
+                         [executable, b"\xff"], [executable, "x" * 10000]):
+                with self.subTest(args_type=type(args).__name__):
+                    self.assertEqual(bootstrap.process_command(executable, args), "other")
+            self.assertEqual(bootstrap.process_command("synthetic-private", list(shape)), "other")
+            self.assertEqual(bootstrap.process_command(Hostile(), list(shape)), "other")
+        for executable in ("/usr/bin/uname", "./uname", "UNAME", "/private/../uname"):
+            self.assertEqual(bootstrap.process_command(executable, [executable, "-p"]), "other")
+
+    def process_fixture(self, operation):
+        driver = DRIVER.replace('            if name == "fork":',
+            '            if name == "diagnostic":\n' +
+            ''.join('                ' + line + '\n' for line in operation.splitlines()) +
+            '            elif name == "fork":')
+        self.launcher.write_bytes(SOURCE + driver.encode())
+        return self.run_fixture("reject", "diagnostic")
+
+    def test_process_diagnostics_cover_audit_spawnv_and_do_not_execute_denied_commands(self):
+        for shape, expected in bootstrap.PROCESS_SHAPES.items():
+            row = self.process_fixture(f"subprocess.run({list(shape)!r}, check=True)")
+            self.assertEqual(row["first_denied_process"],
+                             {"event": "subprocess.Popen", "command": expected, "caller": "other"})
+            self.assertEqual(row["failures"], {key: int(key == "process") for key in row["failures"]})
+            self.assertIsNone(row["first_state_mismatch"])
+            self.assertEqual(row["message"], "sealed Python operation rejected")
+        cases = {
+            "os.exec": "sys.audit('os.exec', 'g++', ['g++', '--version'], {'PRIVATE': 'private'})",
+            "os.posix_spawn": "sys.audit('os.posix_spawn', 'g++', ['g++', '--version'], {'PRIVATE': 'private'})",
+            "os.fork": "sys.audit('os.fork')",
+            "os.forkpty": "sys.audit('os.forkpty')",
+            "os.system": "sys.audit('os.system', b'private --secret')",
+            "multiprocessing.spawnv_passfds": "from multiprocessing import util\nutil.spawnv_passfds(LAYOUT['wrapper'], [LAYOUT['wrapper'], '-c', 'private'], [])",
+        }
+        for event, operation in cases.items():
+            row = self.process_fixture(operation)
+            self.assertEqual(row["first_denied_process"], {"event": event,
+                "command": "gxx-version" if event in ("os.exec", "os.posix_spawn") else "other", "caller": "other"})
+            self.assertEqual(row["failures"]["process"], 1)
+            self.assertNotIn("private", json.dumps(row))
+        sentinel = self.root / "sentinel"
+        executable = self.root / "private-executable"
+        executable.write_text("#!/bin/sh\ntouch " + shlex.quote(str(sentinel)) + "\n")
+        executable.chmod(0o700)
+        row = self.process_fixture(f"subprocess.run([{str(executable)!r}, '--version'], env={{'PRIVATE': 'private'}})")
+        self.assertEqual(row["first_denied_process"]["command"], "other")
+        self.assertFalse(sentinel.exists())
+        self.assertNotIn(str(self.root), json.dumps(row))
+        self.assertNotIn("private", json.dumps(row))
+
+    def test_process_diagnostics_keep_first_event_even_after_caught_rejection(self):
+        row = self.process_fixture('''try:
+    subprocess.run(['uname', '-p'])
+except ValueError:
+    pass
+STATE['check']()
+sys.audit('os.system', b'private')''')
+        self.assertEqual(row["first_denied_process"],
+                         {"event": "subprocess.Popen", "command": "uname-processor", "caller": "other"})
+        self.assertEqual(row["failures"]["process"], 2)
+        self.assertEqual(row["failures"]["state"], 0)
+        self.assertNotIn("private", json.dumps(row))
+        row = self.process_fixture('''try:
+    sys.audit('os.system', b'private')
+except ValueError:
+    pass
+subprocess.run(['uname', '-p'])''')
+        self.assertEqual(row["first_denied_process"],
+                         {"event": "os.system", "command": "other", "caller": "other"})
+        self.assertEqual(row["failures"]["process"], 2)
+        self.assertNotIn("private", json.dumps(row))
+
+    def test_process_caller_is_bounded_exact_module_hint_never_authorization(self):
+        for module in (*bootstrap.PROCESS_CALLERS, "private.module", "platform.private", "x" * 10000):
+            operation = (f"namespace = {{'__name__': {module!r}, 'subprocess': subprocess}}\n"
+                         "exec(compile(\"def call(): subprocess.run(['g++', '--version'])\", '/private/source.py', 'exec'), namespace)\n"
+                         "namespace['call']()")
+            row = self.process_fixture(operation)
+            self.assertEqual(row["first_denied_process"]["caller"], bootstrap.PROCESS_CALLERS.get(module, "other"))
+            self.assertEqual(row["first_denied_process"]["command"], "gxx-version")
+            self.assertEqual(row["failures"]["process"], 1)
+            self.assertNotIn("private", json.dumps(row))
+        # A recognized outer frame cannot defeat the fixed scan bound; neither
+        # frame filenames nor locals are observed. Unknown inner frames skipped.
+        for depth, expected in ((2, "stdlib-platform"), (64, "other")):
+            operation = ("unknown = {'__name__': 'private', 'subprocess': subprocess}\n"
+                         "exec(\"def nested(n):\\n    if n: return nested(n-1)\\n    subprocess.run(['uname', '-p'])\", unknown)\n"
+                         "known = {'__name__': 'platform', 'nested': unknown['nested']}\n"
+                         f"exec('nested({depth})', known)")
+            row = self.process_fixture(operation)
+            self.assertEqual(row["first_denied_process"]["caller"], expected)
+
+    def test_process_diagnostics_parent_spawn_grandchild_fresh_and_tracker(self):
+        self.launcher.write_bytes(SOURCE + DRIVER.encode())
+        row = self.run_fixture("positive")
+        for observed in (row["metadata_parent"], row["metadata"], row["grandchild"]["metadata"], row["fresh"]["metadata"]):
+            self.assertIsNone(observed["first_denied_process"])
+        self.assertEqual(row["tracker"], {"launched": True, "exit_zero": True})
+        # Child construction remains allowed; synthetic imports then exercise
+        # the same denied operation independently in each process, not vLLM.
+        (self.root / "packages/fake_engine.py").write_text(
+            "import subprocess\ntry:\n    subprocess.run(['g++', '--version'])\nexcept ValueError:\n    pass\nVALUE = 'synthetic-only'\n")
+        driver = DRIVER.replace('    points = metadata.entry_points(group="review.test")',
+                                '    import fake_engine\n    points = metadata.entry_points(group="review.test")')
+        self.launcher.write_bytes(SOURCE + driver.encode())
+        row = self.run_fixture("positive")
+        for observed in (row["metadata_parent"], row["metadata"], row["grandchild"]["metadata"], row["fresh"]["metadata"]):
+            self.assertEqual(observed["first_denied_process"],
+                             {"event": "subprocess.Popen", "command": "gxx-version", "caller": "other"})
+        self.assertEqual(row["tracker"], {"launched": True, "exit_zero": True})
 
     def test_only_exact_spawn_and_tracker_forms_parse(self):
         good = ["-B", "-S", "-I", "-c", "from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=3, pipe_handle=4)", "--multiprocessing-fork"]

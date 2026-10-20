@@ -156,6 +156,7 @@ def child_target(writer, prepared, depth):
     result["imports"] = imports()
     result["guard_rejections"] = dict(sys._nib_smoke_guard["failures"])
     result["first_state_mismatch"] = sys._nib_smoke_guard["first_state_mismatch"]
+    result["first_denied_process"] = sys._nib_smoke_guard["first_denied_process"]
     result["dependency_entrypoint_loads"] = sys._nib_smoke_guard["entrypoint_loads"]
     writer.send_bytes(json_bytes(result))
     writer.close()
@@ -263,6 +264,7 @@ def entry():
             if args[1:] == ["fresh"]:
                 result = {"state": current(), "imports": imports(), "guard_rejections": dict(state["failures"]),
                           "first_state_mismatch": state["first_state_mismatch"],
+                          "first_denied_process": state["first_denied_process"],
                           "dependency_entrypoint_loads": state["entrypoint_loads"]}
             elif args[1:] == ["smoke"]:
                 import multiprocessing as mp
@@ -373,13 +375,22 @@ def validate(overlay, report, application, measured):
     rows = []
     for key in ("spawn", "grandchild", "fresh"):
         row = smoke["spawn"]["grandchild"] if key == "grandchild" else smoke[key]
-        keys = {"state", "imports", "guard_rejections", "first_state_mismatch", "dependency_entrypoint_loads"} | ({"before_unpickle"} if key != "fresh" else set()) | ({"grandchild"} if key == "spawn" else set())
+        keys = {"state", "imports", "guard_rejections", "first_state_mismatch", "first_denied_process", "dependency_entrypoint_loads"} | ({"before_unpickle"} if key != "fresh" else set()) | ({"grandchild"} if key == "spawn" else set())
         overlay.require(type(row) is dict and set(row) == keys and same(row["state"], expected_state)
                         and (key == "fresh" or same(row["before_unpickle"], expected_state)))
         overlay.require(type(row["guard_rejections"]) is dict and set(row["guard_rejections"]) == set(failures)
                         and all(type(value) is int and 0 <= value <= 1000000 for value in row["guard_rejections"].values()))
         overlay.require(row["first_state_mismatch"] in {None, "env", "paths", "finders", "argv", "cwd", "executable", "method", "pycache"}
                         and (row["first_state_mismatch"] is None) == (row["guard_rejections"]["state"] == 0))
+        denied = row["first_denied_process"]
+        overlay.require((denied is None) == (row["guard_rejections"]["process"] == 0))
+        if denied is not None:
+            overlay.require(type(denied) is dict and set(denied) == {"event", "command", "caller"}
+                            and denied["event"] in ("subprocess.Popen", "multiprocessing.spawnv_passfds", "os.exec",
+                                "os.posix_spawn", "os.system", "os.fork", "os.forkpty")
+                            and denied["command"] in ("uname-processor", "gxx-version", "ptxas-version", "other")
+                            and denied["caller"] in ("stdlib-platform", "torch-cpp-builder", "triton-nvidia-compiler", "triton-knobs", "other")
+                            and (denied["command"] == "other" or denied["event"] in ("subprocess.Popen", "os.exec", "os.posix_spawn")))
         overlay.require(type(row["dependency_entrypoint_loads"]) is int and 0 <= row["dependency_entrypoint_loads"] <= 1000000)
         overlay.require(type(row["imports"]) is list and len(row["imports"]) == len(MODULES))
         seen_failure = False

@@ -73,6 +73,61 @@ authorized by this evidence. The outer stage remains `smoke-rejected`,
 inference, ABI, hardware or confidentiality qualification occurred. The first
 failed-run artifacts remain unchanged.
 
+### Denied-Process Diagnostics
+
+The next recorder change is diagnostic only and has **not had an actual image
+run**. It preserves every existing process denial and the exact permitted
+spawn/resource-tracker/fresh reentry paths. It adds `first_denied_process` to
+each fresh/spawn/grandchild report: `null` before any process rejection,
+otherwise a sticky object containing only fixed `event`, `command` and `caller`
+categories. Caught denials still increment the process counter and prevent
+success; later events cannot overwrite the first observation. Host validation
+requires the field and consistency with that counter. Historical evidence is
+validated using its original committed producer/validator, not rewritten to
+contain new observations.
+
+- Event classes are `subprocess.Popen`, `multiprocessing.spawnv_passfds`,
+  `os.exec`, `os.posix_spawn`, `os.system`, `os.fork` and `os.forkpty`.
+- Command classes are `uname-processor`, `gxx-version`, `ptxas-version` and
+  `other`. Known classes require exactly two arguments and executable equality
+  with argv[0]: `uname -p`, `g++ --version`, or `--version` for exactly
+  `/usr/local/lib/python3.12/dist-packages/triton/backends/nvidia/bin/ptxas`
+  or its `ptxas-blackwell` sibling. No basename/path normalization, shell
+  interpretation or private-path matching occurs. Extra arguments, alternate
+  executables, malformed/non-plain values and near misses yield `other`.
+- Caller categories are `stdlib-platform`, `torch-cpp-builder`,
+  `triton-nvidia-compiler`, `triton-knobs` and `other`. At most 32 frames are
+  examined for the nearest exact public module name in the source table below.
+  This is an untrusted module-name hint, not source identity, complete stack
+  attribution or authorization. Unknown/deeper frames remain `other`.
+- Reports contain no raw executable, argv, environment, cwd, arbitrary module
+  name, frame path, locals, traceback or exception text. Only bounded plain
+  string/byte arguments are compared; arbitrary object conversion is not used.
+
+These upstream command forms are **candidates**, not proof of the first
+process rejection in the NumPy startup attempt. Synthetic tests show they can
+produce the same old process-counter-only result. No actual executable identity,
+compiler behavior, JIT safety or engine compatibility is established, and no
+subprocess is newly permitted. The next actual changed-source run remains
+parent-owned and gated on independent review and tests.
+
+Primary source observations (read without executing upstream packages):
+
+| Exact public module | Pinned source and observation |
+|---|---|
+| `platform` | [CPython 3.12.3 platform.py](https://github.com/python/cpython/blob/v3.12.3/Lib/platform.py): processor fallback invokes `uname -p`. |
+| `torch._inductor.cpp_builder` | [PyTorch cf30153 cpp_builder.py](https://github.com/pytorch/pytorch/blob/cf30153c4c131c8164ee7798e5022d810682e2cb/torch/_inductor/cpp_builder.py): compiler search probes the selected compiler with `--version`; this classifier recognizes only literal `g++`, not arbitrary configured compilers. |
+| `triton.backends.nvidia.compiler` | [Triton f797708 compiler.py](https://github.com/triton-lang/triton/blob/f797708c0626e5f9840ca5b0a98790e2c7cb09ad/third_party/nvidia/backend/compiler.py): version probing uses the selected PTXAS path. |
+| `triton.knobs` | [Triton f797708 knobs.py](https://github.com/triton-lang/triton/blob/f797708c0626e5f9840ca5b0a98790e2c7cb09ad/python/triton/knobs.py): version probe, default `backends/nvidia/bin` location, and tool declarations naming both PTXAS variants. Absolute diagnostic paths combine that source layout with the already measured selected root; they are not independent installed-tool verification. |
+
+[CPython's Popen audit call](https://github.com/python/cpython/blob/v3.12.3/Lib/subprocess.py)
+precedes child execution. The existing guard observes it without permitting
+external tools. The separate
+[spawnv_passfds path](https://github.com/python/cpython/blob/v3.12.3/Lib/multiprocessing/util.py)
+calls the low-level process helper; the existing route rejection is retained
+and now classified separately. No later vLLM finder adapter is added, and
+Inductor-lowering reachability is still not established by these observations.
+
 ## Exact Inputs
 
 The [application contract](p0-t4-engine-application-contract.md) and its unchanged

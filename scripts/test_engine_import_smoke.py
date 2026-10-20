@@ -68,7 +68,8 @@ class SmokeTests(unittest.TestCase):
         failures = dict.fromkeys(("state", "method", "executable", "preparation", "process", "import", "site"), 0)
         state = {"isolated": True, "no_site": True, "dont_write_bytecode": True, "before_unpickle": True,
                  "path_sha256": overlay.digest(overlay.json_bytes(self.measured["proposed_paths"])), "rejections": failures}
-        row = {"state": state, "guard_rejections": failures, "first_state_mismatch": None, "dependency_entrypoint_loads": 1,
+        row = {"state": state, "guard_rejections": failures, "first_state_mismatch": None,
+               "first_denied_process": None, "dependency_entrypoint_loads": 1,
                "imports": [{"module": name, "status": "pass", "error_category": None} for name in smoke.MODULES]}
         grandchild = {**copy.deepcopy(row), "before_unpickle": state}
         report = {"schema": "nib.engine-import-smoke/v1", "status": "BLOCKED", "deployable": False, "image": None,
@@ -150,7 +151,42 @@ class SmokeTests(unittest.TestCase):
             self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
         report = copy.deepcopy(original)
         report["smoke"]["fresh"]["guard_rejections"]["process"] = 1
+        report["smoke"]["fresh"]["first_denied_process"] = {
+            "event": "subprocess.Popen", "command": "other", "caller": "other"}
         self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
+
+    def test_process_diagnostics_are_required_bounded_and_counter_consistent(self):
+        original = self.valid_report()
+        for key in ("fresh", "spawn", "grandchild"):
+            report = copy.deepcopy(original)
+            row = report["smoke"]["spawn"]["grandchild"] if key == "grandchild" else report["smoke"][key]
+            row["guard_rejections"]["process"] = 1
+            for event in tool.bootstrap.PROCESS_EVENTS:
+                for command in tool.bootstrap.PROCESS_COMMANDS:
+                    for caller in (*tool.bootstrap.PROCESS_CALLERS.values(), "other"):
+                        row["first_denied_process"] = {"event": event, "command": command, "caller": caller}
+                        if command != "other" and event not in ("subprocess.Popen", "os.exec", "os.posix_spawn"):
+                            with self.assertRaises(ValueError):
+                                smoke.validate(overlay, report, self.application, self.measured)
+                        else:
+                            # A caught denial must fail even if all imports claim pass.
+                            self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
+            valid = {"event": "subprocess.Popen", "command": "gxx-version", "caller": "torch-cpp-builder"}
+            for invalid in (None, {}, [], "private", True, {**valid, "args": ["private"]},
+                            {"event": "subprocess.Popen", "command": "gxx-version"},
+                            *({**valid, field: value} for field in valid for value in (None, True, [], {}, "private"))):
+                row["first_denied_process"] = invalid
+                with self.subTest(key=key, invalid_type=type(invalid).__name__), self.assertRaises((ValueError, TypeError)):
+                    smoke.validate(overlay, report, self.application, self.measured)
+            row["first_denied_process"] = valid
+            for count in (0, True, -1, 1000001):
+                row["guard_rejections"]["process"] = count
+                with self.assertRaises(ValueError):
+                    smoke.validate(overlay, report, self.application, self.measured)
+            row["guard_rejections"]["process"] = 1
+            del row["first_denied_process"]
+            with self.assertRaises(ValueError):
+                smoke.validate(overlay, report, self.application, self.measured)
 
     def test_state_diagnostics_are_fixed_and_consistent_with_failure_counters(self):
         for field in ("env", "paths", "finders", "argv", "cwd", "executable", "method", "pycache"):
