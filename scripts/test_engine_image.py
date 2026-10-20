@@ -1674,6 +1674,10 @@ class ImageTests(unittest.TestCase):
 
     def test_recorded_prerequisites_preserve_setup_failure_and_unattempted_canaries(self):
         revision = "8ceec40b867460f9273a321a16798bb36bbfe1fa"
+        historical_recorder = recorder.checker.git(ROOT, "show", revision + ":" + recorder.SCRIPT)
+        historical_descriptor = recorder.checker.git(ROOT, "show", revision + ":" + recorder.DESCRIPTOR)
+        self.assertEqual(overlay.digest(historical_recorder), "bfe76a51bba24b73dbe727e41a1f70c3972120ee450b040e900bce199e703dfd")
+        self.assertEqual(overlay.digest(historical_descriptor), "5330337b9e12650a964136b2b5497d6c6dc64cd632899a6e2a302511128f89b5")
         original_git = recorder.checker.git
         def source_git(root, *args, **kwargs):
             if args == ("rev-parse", "--verify", "HEAD^{commit}"):
@@ -1681,7 +1685,9 @@ class ImageTests(unittest.TestCase):
             return original_git(root, *args, **kwargs)
         # Reconstruct all five stages and the payload from the recorded commit,
         # not today's test/doc/artifact bytes. No image or upstream import.
-        with mock.patch.object(recorder.checker, "git", side_effect=source_git):
+        with mock.patch.object(recorder.checker, "git", side_effect=source_git), \
+                mock.patch.object(recorder, "BOOTSTRAP", historical_recorder), \
+                mock.patch.object(recorder, "DESCRIPTOR_SOURCE", historical_descriptor):
             files, contract = recorder.payload_files(*recorder.inputs(), mode="python-descriptor")
         payload = overlay.bundle_digest(files)
         self.assertEqual(payload, "2142fd5e894744adb1f92749f0a9d61f99615ee90562c64e22726f685592ac8b")

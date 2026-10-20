@@ -120,3 +120,7 @@ rewritten to claim the new diagnostics were measured.
 Independent final-source review and parent validation must precede a new approved
 read-only image collection. No image run, application or production activation
 is authorized by passing these software tests.
+
+The separate [exact interpreter-chain diagnostic](p0-t4-engine-python-chain.md)
+tests the source-backed alternatives hypothesis without changing this recorded
+result or generic path/admission policy. It is not an installed-chain measurement.

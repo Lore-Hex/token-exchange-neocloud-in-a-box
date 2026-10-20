@@ -30,12 +30,34 @@ FILE_NAMES = ("executable", "base_executable", *SOURCES, "distutils-precedence.p
 SCAN_NAMES = ("stdlib", "selected", "cutlass", "dynload")
 ERRORS = (OSError, ValueError, KeyError, TypeError, AttributeError, UnicodeError)
 SHA = r"[0-9a-f]{64}"
+# Pinned Dockerfile vllm-runtime-base installs Python 3.12 with update-alternatives.
+# This is a source-backed expectation, not a measured chain or import policy.
+# See docs/tasks/p0-t4-engine-python-chain.md for immutable source/config pins.
+INTERPRETER_CHAIN = (("/usr/bin/python3", "/etc/alternatives/python3"),
+                     ("/etc/alternatives/python3", "/usr/bin/python3.12"))
+INTERPRETER_POLICY = {
+    "base_image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d",
+}
 FILE_REASON_STAGES = {"unsafe-path": "resolution", "resolution-failed": "resolution", "time-limit": "resolution",
     "stat-failed": "stat", "confirmed-absent": "stat", "ancestor-absent": "stat", "absence-unconfirmed": "stat",
     "dangling-link": "stat", "link-limit": "resolution", "link-read-failed": "resolution", "unsafe-target": "resolution",
     "identity-changed": "identity", "ancestor-not-directory": "resolution", "directory-open-failed": "resolution",
     "not-regular": "type", "link-count": "link-count", "file-size-limit": "size-budget", "total-size-limit": "size-budget",
-    "read-rejected": "read", "read-failed": "read", "identity-recheck-failed": "identity"}
+    "read-rejected": "read", "read-failed": "read", "identity-recheck-failed": "identity",
+    "interpreter-chain-mismatch": "resolution", "interpreter-chain-ancestor": "resolution",
+    "interpreter-chain-unavailable": "stat"}
+
+
+def interpreter_policy(overlay, contract):
+    return (type(contract) is dict and contract.get("diagnostic_mode") == "python-descriptor"
+            and contract.get("base_image") == overlay.BASE_IMAGE == INTERPRETER_POLICY["base_image"]
+            and type(contract.get("official_config")) is dict
+            and contract["official_config"].get("sha256") == INTERPRETER_POLICY["config_sha256"])
+
+
+def interpreter_links():
+    return [{"path": path, "target": target} for path, target in INTERPRETER_CHAIN]
 
 
 def observed_stat(info=None):
@@ -77,10 +99,11 @@ def file_report(name, path):
 class Filesystem:
     """Descriptor-only anchored link resolution; overlay admission is unchanged."""
 
-    def __init__(self, overlay, fd):
+    def __init__(self, overlay, fd, contract=None):
         self.overlay, self.fd = overlay, fd
         self.deadline = time.monotonic() + LIMITS["seconds"]
         self.spent = 0
+        self.interpreter_policy = interpreter_policy(overlay, contract)
 
     def resolve(self, path):
         if not public_path(path):
@@ -161,10 +184,63 @@ class Filesystem:
         with tree.parent(resolved[1:]) as (fd, leaf):
             return os.open(leaf, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
 
+    def interpreter_nodes(self):
+        # Never follow a link. Only these two literal targets may cross /etc;
+        # the terminal file and all ancestors are separately opened no-follow.
+        if not self.interpreter_policy:
+            raise ObservationRejected("resolution", "unsafe-path")
+        identities = {}
+        def remember(path, info):
+            value = self.overlay.identity(info) + (info.st_nlink,)
+            if path in identities and identities[path] != value:
+                raise ObservationRejected("identity", "identity-changed")
+            identities[path] = value
+        for path, expected in (*INTERPRETER_CHAIN, (INTERPRETER_CHAIN[-1][1], None)):
+            if time.monotonic() >= self.deadline:
+                raise ObservationRejected("resolution", "time-limit")
+            fd = os.dup(self.fd)
+            try:
+                remember("/", os.fstat(fd))
+                parts, done = path[1:].split("/"), []
+                for part in parts[:-1]:
+                    try:
+                        info = os.stat(part, dir_fd=fd, follow_symlinks=False)
+                        if not stat.S_ISDIR(info.st_mode):
+                            raise ObservationRejected("resolution", "interpreter-chain-ancestor")
+                        remember("/" + "/".join(done + [part]), info)
+                        child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                    except OSError:
+                        raise ObservationRejected("resolution", "interpreter-chain-ancestor") from None
+                    done.append(part)
+                    os.close(fd)
+                    fd = child
+                    remember("/" + "/".join(done), os.fstat(fd))
+                try:
+                    info = os.stat(parts[-1], dir_fd=fd, follow_symlinks=False)
+                    remember(path, info)
+                    if expected is not None:
+                        if (not stat.S_ISLNK(info.st_mode) or info.st_nlink != 1 or info.st_size != len(expected)
+                                or os.readlink(parts[-1], dir_fd=fd) != expected):
+                            raise ObservationRejected("resolution", "interpreter-chain-mismatch", info)
+                        remember(path, os.stat(parts[-1], dir_fd=fd, follow_symlinks=False))
+                    elif stat.S_ISLNK(info.st_mode):
+                        raise ObservationRejected("resolution", "interpreter-chain-mismatch", info)
+                except OSError:
+                    raise ObservationRejected("stat", "interpreter-chain-unavailable") from None
+            finally:
+                os.close(fd)
+        return info, identities
+
     def file(self, name, path):
         row = file_report(name, path if public_path(path) else None)
         try:
-            resolved, links, info = self.resolve(path)
+            chain = None
+            if (self.interpreter_policy and name in ("executable", "base_executable")
+                    and path == INTERPRETER_CHAIN[0][0]):
+                info, chain = self.interpreter_nodes()
+                resolved, links = INTERPRETER_CHAIN[-1][1], interpreter_links()
+            else:
+                resolved, links, info = self.resolve(path)
             row["observed"] = observed_stat(info)
             if not stat.S_ISREG(info.st_mode):
                 raise ObservationRejected("type", "not-regular", info)
@@ -184,9 +260,14 @@ class Filesystem:
                 raise ObservationRejected("read", "read-failed", info) from None
             row.update(stage="identity", reason="identity-recheck-failed")
             try:
-                final = self.resolve(path)[2]
+                if chain is None:
+                    final = self.resolve(path)[2]
+                else:
+                    final, after = self.interpreter_nodes()
             except ERRORS:
                 raise ObservationRejected("identity", "identity-recheck-failed", info) from None
+            if chain is not None and after != chain:
+                raise ObservationRejected("identity", "identity-changed", final)
             if item["bytes"] != info.st_size or self.overlay.identity(info) != self.overlay.identity(final):
                 raise ObservationRejected("identity", "identity-changed", info)
             row.update(resolved=resolved, links=links, status="read", sha256=item["sha256"],
@@ -475,7 +556,7 @@ def collect(overlay, diagnostic, contract, *, filesystem_root="/", processes=Non
     def join(key, suffix):
         return paths[key] + "/" + suffix if paths.get(key) else None
     with overlay.directory(filesystem_root) as fd:
-        fs = Filesystem(overlay, fd)
+        fs = Filesystem(overlay, fd, contract)
         files = [(key, paths.get(key)) for key in ("executable", "base_executable")]
         files += [(name, join("stdlib", name)) for name in SOURCES]
         files += [(name, join("purelib", name)) for name in diagnostic.HOOKS]
@@ -590,9 +671,14 @@ def validate_report(overlay, report, contract):
             paths[key] + "/" + suffix if paths[key] else None)
         require(row["path"] == expected_path)
         require(type(row["links"]) is list and len(row["links"]) <= LIMITS["links"])
+        exact_chain = (interpreter_policy(overlay, contract) and row["name"] in ("executable", "base_executable")
+                       and row["path"] == INTERPRETER_CHAIN[0][0] and row["resolved"] == INTERPRETER_CHAIN[-1][1]
+                       and row["links"] == interpreter_links())
         for link in row["links"]:
-            require(set(link) == {"path", "target"} and all(public_path(value) for value in link.values()))
+            require(set(link) == {"path", "target"} and (exact_chain or all(public_path(value) for value in link.values())))
         if row["status"] == "read":
+            if interpreter_policy(overlay, contract) and row["name"] in ("executable", "base_executable") and row["path"] == INTERPRETER_CHAIN[0][0]:
+                require(exact_chain)
             require(public_path(row["resolved"]) and re.fullmatch(SHA, row["sha256"])
                     and type(row["bytes"]) is int and 0 <= row["bytes"] <= LIMITS["file_bytes"]
                     and type(row["mode"]) is int and 0 <= row["mode"] <= 0o7777)
