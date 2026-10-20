@@ -98,7 +98,7 @@ under `evidence/p2/<date>-<slug>/`, through the authoritative evidence schema.
 The implementation alone claims no image execution or actual diagnostic result.
 Recorded attempts are listed separately below.
 
-## Recorded Local Attempt
+## Recorded Local Attempts
 
 The [2026-10-20 attempt](../../evidence/p2/2026-10-20-cpu-entry-125036c/README.md)
 ran reviewed source `125036cb61a9d15d624f5d1c8a0c65d69076574c` after green CI.
@@ -109,3 +109,11 @@ containing the `ServeSubcommand` import. The final observation reports only
 The responsible dependency and exact first exception remain unproven by this
 observation. This is a local software failure, not a new GPU attempt, and it
 does not establish the cause of the previous hardware startup failure.
+
+The [second attempt](../../evidence/p2/2026-10-20-cpu-entry-732fe9f/README.md)
+ran reviewed source `732fe9fd77e5e2b877fdfa04ac18547d4e437f25` after green CI,
+including the pinned pattern-matcher adapter. All five application stages
+again passed, but the child still exited 1 at checkpoint 11 with only
+`finders=true`. Cleanup is confirmed. The adapter therefore does not resolve
+the observed startup failure. This result does not identify the remaining
+finder or prove which adapter paths executed; no serving or GPU run occurred.

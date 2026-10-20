@@ -7,17 +7,26 @@ import unittest
 
 class CorrectnessEvidenceTests(unittest.TestCase):
     def test_cpu_entry_failure_records_only_the_observed_import_boundary(self):
-        root = Path(__file__).resolve().parents[1] / "evidence/p2/2026-10-20-cpu-entry-125036c"
-        values = {}
-        for name, digest in (
-            ("run.json", "c5a60637849450294deea13af77ddffea9fe8bdfe850a1b4d4f2466885d87b15"),
-            ("output.log", "f4985fd5f781e0324cce4d4277970ad1a5e67c24aaa8d1395fe945c7f197d6c3"),
+        for suffix, source, run_digest, output_digest in (
+            ("125036c", "125036cb61a9d15d624f5d1c8a0c65d69076574c",
+             "c5a60637849450294deea13af77ddffea9fe8bdfe850a1b4d4f2466885d87b15",
+             "f4985fd5f781e0324cce4d4277970ad1a5e67c24aaa8d1395fe945c7f197d6c3"),
+            ("732fe9f", "732fe9fd77e5e2b877fdfa04ac18547d4e437f25",
+             "a45e523ef0bef472c6ade2878019aa8a6ce237f84192d51c0b7547cfa5edf6fa",
+             "d0bc25522652f61e63e258bef3c47688400d88cbc8cf68948c372043b7874035"),
         ):
+            with self.subTest(source=source):
+                self.check_cpu_entry_failure(suffix, source, run_digest, output_digest)
+
+    def check_cpu_entry_failure(self, suffix, source, run_digest, output_digest):
+        root = Path(__file__).resolve().parents[1] / ("evidence/p2/2026-10-20-cpu-entry-" + suffix)
+        values = {}
+        for name, digest in (("run.json", run_digest), ("output.log", output_digest)):
             raw = (root / name).read_bytes()
             self.assertEqual(hashlib.sha256(raw).hexdigest(), digest)
             values[name] = json.loads(raw)
         run, output = values["run.json"], values["output.log"]
-        self.assertEqual(run["git_sha"], "125036cb61a9d15d624f5d1c8a0c65d69076574c")
+        self.assertEqual(run["git_sha"], source)
         self.assertEqual(run["git_sha"], output["provenance"]["git_sha"])
         self.assertEqual(run["execution"], "software")
         self.assertEqual(run["host"]["gpus"], "none")
