@@ -1,6 +1,11 @@
 # Guest image
 
 Reserved for the measured UKI and dm-verity guest image in PLAN.md P3/P5.
+
+The [R595 input audit](../docs/tasks/p3-t1-r595-package-inputs.md) pins the
+`595.91.07` kernel/driver build dependency graph from authenticated metadata.
+Its offline checker proves declared dependency coverage, not installability,
+LKCA compilation, a complete guest rootfs, bootability or hardware qualification.
 No release or debug image has been built or validated yet.
 
 [P3.T1 prerequisite audit](../docs/tasks/p3-t1-guest-image-feasibility.md)
