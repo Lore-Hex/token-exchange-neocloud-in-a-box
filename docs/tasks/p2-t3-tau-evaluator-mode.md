@@ -27,3 +27,18 @@ Verification: `python -I -S -B scripts/test_tau_trial.py` (38 tests). These are
 local software tests, not model quality, GPU, ABI, attestation, or P2 acceptance.
 The trial remains scripted, network-disabled and credential-free. A real
 candidate/reference benchmark is still required.
+
+## Recorded Corrected Trial
+
+The exact committed fix `b6c203d` completed the pinned upstream trial locally:
+[`run.json`](../../evidence/p2/2026-10-20-tau-explicit-evaluator-b6c203d/run.json),
+[`output.log`](../../evidence/p2/2026-10-20-tau-explicit-evaluator-b6c203d/output.log).
+One agent call, two simulator calls and one evaluator call completed; all four
+had known synthetic usage, and cleanup was confirmed. The integration result
+is `pass`, while `quality_accepted`, `live_transport`, and `confidential` remain
+false. The upstream reward is a scripted fixture result, not an LLM score.
+
+The corrected trial used the unchanged network-disabled container, pinned
+Python image, source archive, wheelhouse, manifest, task and seed. Only the
+toolkit revision and its bound payload digest changed. No credentials or model
+endpoints were used. The exact command and times are in the evidence record.
