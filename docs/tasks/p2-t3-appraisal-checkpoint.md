@@ -1,8 +1,10 @@
 # P2.T3: GPU Appraisal Checkpoint
 
-This records unsuccessful GPU setup checks on October 20, 2026, after the
-[verified weight download](p2-t3-verified-weights-checkpoint.md).
-It is not a successful attestation, inference result or phase exit.
+This preserves unsuccessful setup checks and subsequent source-bound GPU
+appraisal/readiness observations on October 20, 2026, after the
+[verified weight download](p2-t3-verified-weights-checkpoint.md). The later
+eight-GPU appraisal passed; no inference result, full confidential qualification
+or phase exit follows from it.
 
 ## Preserved Reports
 
@@ -47,14 +49,45 @@ claims. That is a candidate compatibility issue, not a diagnosis of this
 run: see the
 [GPU serializer](https://github.com/NVIDIA/attestation-sdk/blob/11b2bfeb42a1158aa08744603ecb239ccb3d2265/nv-attestation-sdk-cpp/src/gpu/claims.cpp)
 and [claims deserializer](https://github.com/NVIDIA/attestation-sdk/blob/11b2bfeb42a1158aa08744603ecb239ccb3d2265/nv-attestation-sdk-cpp/src/claims.cpp).
-The next diagnostic must name only fixed rejection categories, never emit
-tokens, nonces or device identifiers, and preserve fail-closed behavior.
+Those reports predate the source-bound diagnostic below. They are not
+retrospectively rewritten or assigned its exact cause.
+
+## Source-bound Appraisal and Readiness
+
+The following directories are unchanged recorder output, including each original
+`run.json` and `output.log`. Their four source-file hashes were checked against
+the recorded Git commit; regression tests reconstruct the corresponding original
+report validator. No raw JWT, nonce, device identifier, host address or access key
+is included.
+
+| UTC interval on 2026-10-20 | Committed source | Record | Observation |
+|---|---|---|---|
+| 12:02:01.396352 to 12:02:05.314939 | `a23e66b49acf62a8f8547a276f05fd9fec096297` | [run](../../evidence/p2/2026-10-20-gpu-appraisal-120201396352/run.json), [output](../../evidence/p2/2026-10-20-gpu-appraisal-120201396352/output.log) | Audit-only FAIL: `claims-policy`, `claim-missing`, signed-token field `x-nvidia-device-type`. Eight persistence flags enabled, readiness before zero, no setter requested, NVML shutdown succeeded. |
+| 12:14:47.763215 to 12:15:00.191921 | `12914b4d7f576e0c0abd66d4915763dbbb68f0b5` | [run](../../evidence/p2/2026-10-20-gpu-appraisal-121447763215/run.json), [output](../../evidence/p2/2026-10-20-gpu-appraisal-121447763215/output.log) | PASS: fresh appraisal accepted eight distinct locally bound GPU identities; all recorded nonce, measurement, certificate/revocation, secure-boot and debug-disabled checks passed. Existing persistence count eight; readiness changed 0 to 1 with verified readback; NVML shutdown succeeded. |
+
+The later source contains the independently reviewed
+[raw-token serialization compatibility](p2-t3-nvidia-attestation.md#raw-token-serialization-compatibility):
+four documented derived/empty fields may be absent from an already authenticated
+raw GPU payload. It does not default security assertions or accept conflicting
+present fields. The failed record remains a failure.
+
+The successful report proves only the helper's eight-GPU appraisal and
+point-in-time readiness transition contract. It does not prove readiness after
+shutdown indefinitely, GPU memory coherence, engine execution, inference,
+correctness, performance, CPU or fabric attestation. Both records intentionally
+retain `execution:software`, `hardware_validated:false`, `runtime_ready:false`,
+`confidential_qualified:false` and `deployable:false`. The driver/CUDA fields
+remain null rather than being invented.
+
+No completed bounded local correctness result is recorded in this PR. That
+operation's outcome must be preserved separately before any model-working or
+quality claim.
 
 ## Remaining Gates
 
-- Authenticate and bind all eight GPU results with a fresh nonce before any
-  readiness transition; never import a previous success or bypass appraisal.
-- Start the bounded local engine and correctness suite only after admission.
+- Future readiness transitions still require fresh eight-GPU appraisal; this
+  point-in-time success is not reusable authorization or a saved-token bypass.
+- Obtain completed bounded engine and correctness evidence after runtime admission.
 - Measure actual inference and quality before asserting model compatibility.
   The local fixed-case suite is not tau and cannot substitute for it.
 - The current AMD SEV-SNP lab does not satisfy the plan's Intel TDX,

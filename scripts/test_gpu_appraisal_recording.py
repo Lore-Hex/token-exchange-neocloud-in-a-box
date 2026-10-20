@@ -262,5 +262,87 @@ class AppraisalRecordingTests(unittest.TestCase):
                     builder.call([str(binary), "lint", str(root)], env, timeout=20)
 
 
+class RecordedAppraisalEvidenceTests(unittest.TestCase):
+    def check_record(self, slug, revision, hashes, *, passed):
+        directory = ROOT / "evidence/p2" / slug
+        self.assertEqual({path.name for path in directory.iterdir()}, {"run.json", "output.log"})
+        raw = {name: (directory / name).read_bytes() for name in hashes}
+        for name, digest in hashes.items():
+            self.assertEqual(shared.digest(raw[name]), digest)
+        run, output = (json.loads(raw[name]) for name in ("run.json", "output.log"))
+        self.assertEqual(run["git_sha"], revision)
+        self.assertEqual(output["source"]["git_sha"], revision)
+        self.assertEqual(run["result"], "pass" if passed else "fail")
+        self.assertEqual(output["result"], run["result"])
+        self.assertEqual(run["execution"], "software")
+        self.assertFalse(run["hardware_validated"])
+        self.assertIsNone(run["host"]["driver"])
+        self.assertIsNone(run["host"]["cuda"])
+        self.assertLess(run["started_utc"], run["ended_utc"])
+        self.assertEqual(run["command"], "python3 -I -S -B host/record-gpu-appraisal.py --attest"
+                         + (" --enable-readiness" if passed else ""))
+        names = {tool.RECORDER, tool.APPRAISAL, tool.PROBE, tool.SHARED}
+        self.assertEqual(set(output["source"]["files"]), names)
+        source = {name: shared.git(ROOT, "show", revision + ":" + name) for name in names}
+        for name, data in source.items():
+            self.assertEqual(shared.digest(data), output["source"]["files"][name])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / "host").mkdir()
+            for name, data in source.items():
+                (root / name).write_bytes(data)
+            historical = tool.load(source[tool.RECORDER], root / tool.RECORDER,
+                                   "recorded_appraisal_" + revision)
+            _, original_appraiser, _ = historical.helpers(root)
+            checked = historical.validate(json.dumps(output["appraisal"]).encode(),
+                                          original_appraiser,
+                                          output["source"]["files"][tool.APPRAISAL],
+                                          attest=True, enable=passed)
+        self.assertEqual(checked, output["appraisal"])
+        for flag in ("runtime_ready", "confidential_qualified", "deployable"):
+            self.assertFalse(output[flag])
+            self.assertFalse(checked[flag])
+        self.assertFalse(output["hardware_validated"])
+        self.assertEqual(checked["persistence_enabled_count"], 8)
+        self.assertTrue(checked["nvml_shutdown"])
+        self.assertFalse(checked["installation_completed"])
+        return checked
+
+    def test_source_bound_failed_audit_is_preserved(self):
+        checked = self.check_record(
+            "2026-10-20-gpu-appraisal-120201396352",
+            "a23e66b49acf62a8f8547a276f05fd9fec096297",
+            {"run.json": "193e7fdb131a0ff8ac25f5607025d93d9cf3b24023ad5e2e3ff9d13e5c4a0eb3",
+             "output.log": "e2b7d153a16fc18951e43f88d564991f42597944bb54634d1fd6cbcb2673c187"},
+            passed=False)
+        self.assertEqual(checked["stage"], "claims-policy")
+        self.assertEqual(checked["claim_failure"],
+                         {"code": "claim-missing", "source": "signed-token",
+                          "field": "x-nvidia-device-type"})
+        self.assertIsNone(checked["claims"])
+        self.assertFalse(checked["gpu_appraisal_verified"])
+        self.assertFalse(checked["readiness_requested"])
+        self.assertEqual(checked["ready_before"], 0)
+        self.assertIsNone(checked["ready_after"])
+        self.assertEqual(checked["readiness_transition"], "unverified")
+
+    def test_source_bound_eight_gpu_appraisal_and_transition_are_not_qualification(self):
+        checked = self.check_record(
+            "2026-10-20-gpu-appraisal-121447763215",
+            "12914b4d7f576e0c0abd66d4915763dbbb68f0b5",
+            {"run.json": "675d3ff523b084e513fb52135636e448eaf77a35c28427a58a24ead1eaa88c3b",
+             "output.log": "ceab5d04d12014c1f1d441f20d76a985261cf4b4655315ab8d9b16c65517dcc5"},
+            passed=True)
+        self.assertEqual(checked["stage"], "complete")
+        self.assertIsNone(checked["claim_failure"])
+        self.assertTrue(checked["gpu_appraisal_verified"])
+        self.assertTrue(checked["readiness_requested"])
+        self.assertEqual((checked["ready_before"], checked["ready_after"]), (0, 1))
+        self.assertEqual(checked["readiness_transition"], "enabled-readback-verified")
+        self.assertEqual(checked["claims"]["authenticated_gpu_count"], 8)
+        self.assertTrue(all(value is True for name, value in checked["claims"].items()
+                            if name != "authenticated_gpu_count"))
+
+
 if __name__ == "__main__":
     unittest.main()
