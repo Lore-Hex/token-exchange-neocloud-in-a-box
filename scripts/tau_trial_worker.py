@@ -298,6 +298,7 @@ def run_upstream(root, manifest, selection, bridge):
     from tau2.runner.helpers import get_tasks
     from tau2.data_model.simulation import TextRunConfig
     from tau2.evaluator import evaluator_nl_assertions
+    from tau2.evaluator.evaluator import EvaluationType
     from litellm import ModelResponse
     llm_utils.set_llm_log_dir(None)
     llm_utils._write_llm_log = lambda *args, **kwargs: None
@@ -324,7 +325,8 @@ def run_upstream(root, manifest, selection, bridge):
         verbose_logs=False, seed=selection["seed"], save_to=None)
     try:
         simulation = run_single_task(config, task, seed=selection["seed"], save_dir=None,
-                                     verbose_logs=False, audio_debug=False, audio_taps=False, auto_review=False)
+                                     verbose_logs=False, audio_debug=False, audio_taps=False, auto_review=False,
+                                     evaluation_type=EvaluationType.ALL_WITH_NL_ASSERTIONS)
         reason = simulation.termination_reason.value
         if reason not in ("user_stop", "agent_stop"):
             raise Abort({"max_steps": "truncated", "context_window_exceeded": "truncated",
