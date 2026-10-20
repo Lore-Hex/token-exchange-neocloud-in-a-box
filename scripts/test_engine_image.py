@@ -24,6 +24,8 @@ BOUNDED_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-bounded-integrit
 STUBS_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-cutlass-stubs"
 INTEGRITY_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-record-diagnosis"
 PYTHON_RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-python-layout"
+PREREQUISITES_RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-python-prerequisites"
+PREREQUISITES_SECOND = ROOT / "evidence/p0/2026-10-20-official-vllm-python-prerequisites-2"
 
 
 def source(name, relative):
@@ -1342,7 +1344,8 @@ class ImageTests(unittest.TestCase):
         env = recorder.offline_environment(self.work / "control")
         binary, source_hash = recorder.build_validator(ROOT, revision, self.work, env)
         self.assertRegex(source_hash, r"^[0-9a-f]{64}$")
-        for index, source_directory in enumerate((RECORDED, CENSUS_RECORDED, BOUNDED_RECORDED, STUBS_RECORDED, INTEGRITY_RECORDED, PYTHON_RECORDED)):
+        for index, source_directory in enumerate((RECORDED, CENSUS_RECORDED, BOUNDED_RECORDED, STUBS_RECORDED, INTEGRITY_RECORDED,
+                                                  PYTHON_RECORDED, PREREQUISITES_RECORDED, PREREQUISITES_SECOND)):
             recorded = self.work / "recorded/evidence/p0" / ("official-image-" + str(index))
             recorded.mkdir(parents=True)
             (recorded / "run.json").write_bytes(recorder.prep.read_source(source_directory / "run.json"))
@@ -1601,6 +1604,12 @@ class ImageTests(unittest.TestCase):
         self.assertFalse(report["image"]["local_layers_rehashed"])
 
     def test_recorded_python_layout_preserves_partial_and_unattempted_children(self):
+        # Validate the unchanged v1 artifact with its exact reviewed producer,
+        # not a compatibility bypass in the current v2 recorder.
+        historical_source = recorder.checker.git(ROOT, "show", "af35ad100e1c9a0522b13211daa780dfeb8eddcc:scripts/engine_python_descriptor.py")
+        self.assertEqual(overlay.digest(historical_source), "352ef1903cc306bf15429b9d29810cf040a19e00dfd471dd34453b3a8f461d1b")
+        historical = types.ModuleType("recorded_python_descriptor_v1")
+        exec(compile(historical_source, "recorded_python_descriptor_v1", "exec"), historical.__dict__)
         hashes = {"run.json": "beeddd0b1f86a97e822589861fe548274d74495134492e357bec106343e2a0f5",
                   "output.log": "259e57d317b64d750b251a8940f3de0dcd51dc220cec6c4e19e818e3cf56cb18"}
         files = {}
@@ -1618,7 +1627,7 @@ class ImageTests(unittest.TestCase):
         contract = {**self.contract, "diagnostic_mode": "python-descriptor", "descriptor_preparation": preparation,
                     "descriptor_source_pins": {"revision": pins["revision"],
                         "files": {name: item["sha256"] for name, item in pins["files"].items()}}}
-        recorder.descriptor.validate_report(overlay, child, contract)
+        historical.validate_report(overlay, child, contract)
         self.assertEqual(run["git_sha"], "af35ad100e1c9a0522b13211daa780dfeb8eddcc")
         self.assertEqual(provenance["git_sha"], run["git_sha"])
         self.assertEqual(provenance["payload_sha256"], "87535c54124f5186710961bb8c303343708c1f63bff982c82da261917f2771d5")
@@ -1651,7 +1660,7 @@ class ImageTests(unittest.TestCase):
         # The recorded prerequisites reject before any child launch; the fixed
         # reason is not evidence of a subprocess failure.
         processes = mock.Mock()
-        self.assertEqual(recorder.descriptor.canaries(overlay, child["runtime"], child["scans"], child["files"][0],
+        self.assertEqual(historical.canaries(overlay, child["runtime"], child["scans"], child["files"][0],
             processes, Path("/opt/nib")), child["canaries"])
         processes.execute_process_group.assert_not_called()
         self.assertTrue(all(child["canaries"][key] is None for key in ("path_sha256", "fresh", "fork", "spawn", "grandchild", "forkserver")))
@@ -1662,6 +1671,85 @@ class ImageTests(unittest.TestCase):
         self.assertTrue(report["image"]["raw_config_link_verified"])
         self.assertFalse(report["image"]["local_config_bytes_rehashed"])
         self.assertFalse(report["image"]["local_layers_rehashed"])
+
+    def test_recorded_prerequisites_preserve_setup_failure_and_unattempted_canaries(self):
+        revision = "8ceec40b867460f9273a321a16798bb36bbfe1fa"
+        original_git = recorder.checker.git
+        def source_git(root, *args, **kwargs):
+            if args == ("rev-parse", "--verify", "HEAD^{commit}"):
+                return (revision + "\n").encode()
+            return original_git(root, *args, **kwargs)
+        # Reconstruct all five stages and the payload from the recorded commit,
+        # not today's test/doc/artifact bytes. No image or upstream import.
+        with mock.patch.object(recorder.checker, "git", side_effect=source_git):
+            files, contract = recorder.payload_files(*recorder.inputs(), mode="python-descriptor")
+        payload = overlay.bundle_digest(files)
+        self.assertEqual(payload, "2142fd5e894744adb1f92749f0a9d61f99615ee90562c64e22726f685592ac8b")
+        pairs = ((PREREQUISITES_RECORDED, "c29e8217b4ef21584061a3906075d8da120eaf29a41eb1f761963509c1d420f0",
+                  "0bc8bb5067de253754dc7d86c1fbb3e887e41e173885d287f50f49c7f2287704"),
+                 (PREREQUISITES_SECOND, "3bec632c2d4ae59e5881d126b7c318a56477188b6a7b0640a67f500255d123c5",
+                  "c2d41a0ca5747a5617075f289720f8066df9cfacc56d6d86a437178ba879fa04"))
+        reports = []
+        for directory, run_hash, output_hash in pairs:
+            documents = []
+            for name, expected in (("run.json", run_hash), ("output.log", output_hash)):
+                data = recorder.prep.read_source(directory / name)
+                self.assertLessEqual(len(data), recorder.descriptor.LIMITS["report_bytes"])
+                self.assertEqual(overlay.digest(data), expected)
+                documents.append(overlay.load_json(data))
+            run, report = documents
+            reports.append(report)
+            self.assertEqual(run["git_sha"], revision)
+            self.assertEqual(run["result"], "fail")
+            self.assertEqual(run["execution"], "software")
+            self.assertFalse(run["hardware_validated"])
+            provenance = report["provenance"]
+            self.assertEqual(provenance["git_sha"], revision)
+            self.assertEqual(provenance["payload_sha256"], payload)
+            self.assertEqual(provenance["source_bundle_sha256"], contract["source_bundle_sha256"])
+            self.assertEqual(provenance["validator_source_sha256"], "c18f7f7028758f683f01a67806cbe5db9d44f503c6f58357393329b01a243232")
+            self.assertEqual(provenance["requested_image"], overlay.BASE_IMAGE)
+            self.assertEqual(provenance["expected_config_sha256"], contract["official_config"]["sha256"])
+            self.assertEqual(provenance["diagnostic_mode"], "python-descriptor")
+            self.assertEqual(report["result"], "fail")
+            self.assertEqual(report["candidate_status"], "BLOCKED")
+            self.assertTrue(all(report[key] is False for key in ("deployable", "abi_validated", "hardware_validated")))
+        setup, report = reports
+        self.assertEqual((setup["stage"], setup["cleanup"], setup["failure"]), ("raw-oci-metadata", "not-created", "preflight-failed"))
+        self.assertFalse(setup["provenance"]["raw_oci_metadata_verified"])
+        self.assertNotIn("diagnostic", setup)
+        self.assertNotIn("image", setup)
+        self.assertEqual((report["stage"], report["cleanup"]), ("python-descriptor-partial", "confirmed"))
+        self.assertTrue(report["provenance"]["raw_oci_metadata_verified"])
+        self.assertTrue(report["image"]["raw_config_link_verified"])
+        self.assertFalse(report["image"]["local_config_bytes_rehashed"])
+        self.assertFalse(report["image"]["local_layers_rehashed"])
+        child = report["diagnostic"]
+        recorder.descriptor.validate_report(overlay, child, contract)
+        self.assertEqual((child["collection"], child["overlay_admission"]), ("partial", "not-evaluated"))
+        self.assertEqual(child["preparation"], contract["descriptor_preparation"])
+        for row in child["files"][:2]:
+            self.assertEqual((row["path"], row["status"], row["stage"], row["reason"]),
+                             ("/usr/bin/python3", "rejected", "resolution", "unsafe-target"))
+            self.assertEqual(row["observed"], dict(type="symlink", mode=0o777, size=25, nlink=1))
+            self.assertEqual(row["links"], [])
+            self.assertTrue(all(row[key] is None for key in ("resolved", "sha256", "bytes", "mode")))
+        self.assertTrue(all(row["status"] == "read" for row in child["files"][2:-1]))
+        self.assertEqual(child["files"][-1]["status"], "absent")
+        self.assertEqual(len(child["worker_sources"]), 14)
+        self.assertTrue(all(row["status"] == "read" and row["matches"] for row in child["worker_sources"]))
+        self.assertTrue(all(recorder.descriptor.scan_acceptable(row, child["scans"], child["runtime"]) for row in child["scans"]))
+        missing = child["scans"][-1]
+        self.assertEqual((missing["path"], missing["status"], missing["reason"]),
+                         ("/usr/lib/python3.12/dist-packages", "absent", "confirmed-absent"))
+        previous = overlay.load_json(recorder.prep.read_source(PYTHON_RECORDED / "output.log"))
+        self.assertEqual(child["packaging"], previous["diagnostic"]["packaging"])
+        self.assertEqual(child["canaries"]["blockers"], ["executable-unverified"])
+        self.assertEqual(child["canaries"]["status"], "not-run")
+        processes = mock.Mock()
+        self.assertEqual(recorder.descriptor.canaries(overlay, child["runtime"], child["scans"], child["files"][0],
+                         processes, Path("/opt/nib")), child["canaries"])
+        processes.execute_process_group.assert_not_called()
 
     def test_validator_toolchain_resolution_is_cache_only_and_exact(self):
         env = recorder.offline_environment(self.work / "control")

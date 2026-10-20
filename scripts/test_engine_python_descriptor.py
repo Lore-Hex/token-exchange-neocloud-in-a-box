@@ -145,6 +145,206 @@ class DescriptorTests(unittest.TestCase):
             with mock.patch.dict(descriptor.LIMITS, file_bytes=1), mock.patch.object(overlay.Tree, "read", side_effect=AssertionError("must reject before read")):
                 self.assertEqual(fs.file("test", self.stdlib + "/site.py")["status"], "rejected")
 
+    def test_file_rejection_stages_observe_only_bounded_stat_fields(self):
+        self.write("/usr/lib/plain", b"plain")
+        os.mkfifo(self.root / "usr/lib/pipe")
+        os.link(self.root / "usr/lib/plain", self.root / "usr/lib/hardlink")
+        for name, target in (("dangling", "missing"), ("loop", "loop"), ("escape", "/home/SYNTHETIC_PRIVATE_VALUE")):
+            (self.root / "usr/lib" / name).symlink_to(target)
+        cases = {"/home/SYNTHETIC_PRIVATE_VALUE": "unsafe-path", "/usr/lib/missing": "confirmed-absent",
+                 "/usr/missing/child": "ancestor-absent", "/usr/lib/dangling": "dangling-link",
+                 "/usr/lib/loop": "link-limit", "/usr/lib/escape": "unsafe-target",
+                 "/usr/lib/pipe": "not-regular", "/usr/lib": "not-regular",
+                 "/usr/lib/plain": "link-count", "/usr/lib/plain/child": "ancestor-not-directory"}
+        with overlay.directory(self.root) as fd, mock.patch.object(overlay.Tree, "read", side_effect=AssertionError("no rejected-file read")):
+            fs = descriptor.Filesystem(overlay, fd)
+            for path, reason in cases.items():
+                with self.subTest(reason=reason, path=path):
+                    row = fs.file("test", path)
+                    self.assertEqual(row["reason"], reason)
+                    self.assertEqual(row["stage"], descriptor.FILE_REASON_STAGES[reason])
+                    self.assertEqual(row["status"], "absent" if reason == "confirmed-absent" else "rejected")
+                    self.assertIsNone(row["sha256"])
+                    self.assertNotIn("SYNTHETIC_PRIVATE_VALUE", json.dumps(row))
+                    self.assertEqual(set(row["observed"]), {"type", "mode", "size", "nlink"})
+            self.assertEqual(fs.file("test", "/usr/lib/pipe")["observed"]["type"], "fifo")
+            self.assertEqual(fs.file("test", "/usr/lib/plain")["observed"]["nlink"], 2)
+            self.assertEqual(fs.file("test", "/usr/lib/missing")["observed"], descriptor.observed_stat())
+            path = self.stdlib + "/site.py"
+            for limits, reason in (({"file_bytes": 1}, "file-size-limit"), ({"hashed_bytes": 1}, "total-size-limit")):
+                with mock.patch.dict(descriptor.LIMITS, limits):
+                    row = fs.file("test", path)
+                    self.assertEqual(row["reason"], reason)
+                    self.assertEqual(row["observed"]["type"], "regular")
+            fs.deadline = 0
+            self.assertEqual(fs.file("test", path)["reason"], "time-limit")
+
+    def test_file_syscall_failures_and_identity_races_keep_fixed_reasons(self):
+        secret = "SYNTHETIC_PRIVATE_VALUE"
+        with overlay.directory(self.root) as fd:
+            path = self.stdlib + "/site.py"
+            fs = descriptor.Filesystem(overlay, fd)
+            original_stat, original_open = descriptor.os.stat, descriptor.os.open
+            def denied(part, **kwargs):
+                if part == "site.py":
+                    raise PermissionError(secret)
+                return original_stat(part, **kwargs)
+            def open_denied(part, *args, **kwargs):
+                if part == "usr":
+                    raise PermissionError(secret)
+                return original_open(part, *args, **kwargs)
+            def check(reason, patch, target=path):
+                with patch:
+                    row = descriptor.Filesystem(overlay, fd).file("test", target)
+                self.assertEqual(row["reason"], reason)
+                self.assertEqual(row["stage"], descriptor.FILE_REASON_STAGES[reason])
+                self.assertNotIn(secret, json.dumps(row))
+                self.assertIsNone(row["sha256"])
+                return row
+            check("stat-failed", mock.patch.object(descriptor.os, "stat", side_effect=denied))
+            check("directory-open-failed", mock.patch.object(descriptor.os, "open", side_effect=open_denied))
+            check("link-read-failed", mock.patch.object(descriptor.os, "readlink", side_effect=OSError(secret)), "/usr/bin/python3")
+            check("resolution-failed", mock.patch.object(descriptor.Filesystem, "resolve", side_effect=OSError(secret)))
+            for exception, reason in ((ValueError(secret), "read-rejected"), (OSError(secret), "read-failed")):
+                row = check(reason, mock.patch.object(overlay.Tree, "read", side_effect=exception))
+                self.assertEqual(row["observed"]["type"], "regular")
+            first = fs.resolve(path)
+            check("identity-recheck-failed", mock.patch.object(descriptor.Filesystem, "resolve", side_effect=[first, OSError(secret)]))
+            other = fs.resolve("/usr/bin/python3.12")
+            check("identity-changed", mock.patch.object(descriptor.Filesystem, "resolve", side_effect=[first, other]))
+            hits = 0
+            def appeared(part, **kwargs):
+                nonlocal hits
+                if part == "site.py":
+                    hits += 1
+                    if hits == 1:
+                        raise FileNotFoundError(secret)
+                return original_stat(part, **kwargs)
+            check("absence-unconfirmed", mock.patch.object(descriptor.os, "stat", side_effect=appeared))
+
+    def test_optional_absence_is_role_and_path_based_not_site_index(self):
+        optional = self.stdlib + "/dist-packages"
+        self.facts["locations"].append(descriptor.location("site_root_0", optional))
+        report = self.collect()
+        row = report["scans"][-1]
+        self.assertEqual((row["status"], row["reason"]), ("absent", "confirmed-absent"))
+        self.assertTrue(descriptor.scan_acceptable(row, report["scans"], self.facts))
+        self.assertNotIn("scan:site_root_0", report["canaries"]["blockers"])
+        for change in ({"resolved": optional}, {"mode": 0o755}, {"regular_bytes": 1}):
+            changed = copy.deepcopy(report)
+            changed["scans"][-1].update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                descriptor.validate_report(overlay, changed, self.contract)
+        for role, path in (("selected", self.selected), ("stdlib", self.stdlib), ("dynload", self.stdlib + "/lib-dynload"), ("cutlass", self.dsl)):
+            absent = {**descriptor.scan_report(role, path), "status": "absent", "reason": "confirmed-absent"}
+            self.assertFalse(descriptor.scan_acceptable(absent, [absent], self.facts))
+            facts = copy.deepcopy(self.facts)
+            facts["locations"][-1]["path"] = path
+            alias = {**absent, "name": "site_root_0"}
+            self.assertFalse(descriptor.scan_acceptable(alias, [alias], facts))
+        for path in ("/usr", "/usr/lib", self.selected):
+            facts = copy.deepcopy(self.facts)
+            facts["locations"][-1]["path"] = path
+            self.assertFalse(descriptor.scan_acceptable({**row, "path": path}, [], facts))
+        contradiction = {**report["scans"][0], "resolved": optional}
+        self.assertFalse(descriptor.scan_acceptable(row, [row, contradiction], self.facts))
+        for reason in ("dangling-link", "ancestor-absent", "absence-unconfirmed", "stat-failed"):
+            self.assertFalse(descriptor.scan_acceptable({**row, "status": "rejected", "reason": reason}, [], self.facts))
+        (self.root / optional[1:]).symlink_to("missing")
+        report = self.collect()
+        self.assertEqual(report["scans"][-1]["reason"], "dangling-link")
+        self.assertIn("scan:site_root_0", report["canaries"]["blockers"])
+
+    def test_all_prerequisite_blockers_prevent_any_execution(self):
+        self.facts["status"] = "rejected"
+        self.facts["flags"]["no_site"] = False
+        for row in self.facts["locations"]:
+            if row["name"] == "pycache_prefix":
+                row.update(path="/usr/cache", status="observed")
+            if row["name"] == "platlib":
+                row["path"] = "/usr/other"
+            if row["name"] == "dynload":
+                row.update(path=None, status="rejected")
+        executable = self.root / "usr/bin/python3.12"
+        executable.unlink()
+        os.mkfifo(executable)
+        report = self.collect()
+        expected = ["executable-unverified", "location:dynload", "proposed-paths", "pycache-prefix", "runtime-flags",
+                    "runtime-unobserved", "scan:dynload", "split-library-roots", "unavailable:payload", "unavailable:processes"]
+        self.assertEqual(report["canaries"]["blockers"], sorted(expected))
+        processes = mock.Mock()
+        result = descriptor.canaries(overlay, self.facts, report["scans"], report["files"][0], processes, self.root)
+        processes.execute_process_group.assert_not_called()
+        self.assertEqual(result["blockers"], sorted(expected[:-2]))
+        self.assertEqual(result["status"], "not-run")
+        self.assertIsNone(result["path_sha256"])
+        report["canaries"] = result
+        descriptor.validate_report(overlay, report, self.contract)
+        for mutate in (lambda r: r["canaries"]["blockers"].pop(),
+                       lambda r: r["canaries"]["attempts"]["fresh"].update(status="failed"),
+                       lambda r: r["canaries"].update(path_sha256="0" * 64)):
+            changed = copy.deepcopy(report)
+            mutate(changed)
+            with self.assertRaises(ValueError):
+                descriptor.validate_report(overlay, changed, self.contract)
+
+    def test_canary_attempts_preserve_success_without_inferred_child_results(self):
+        base = self.collect()
+        digest = overlay.digest(overlay.json_bytes(descriptor.proposed_paths(self.facts)))
+        state = {"flags": dict.fromkeys(("isolated", "no_site", "dont_write_bytecode", "ignore_environment"), True),
+                 "path_sha256": digest, "before_unpickle": True, "no_engine_modules": True}
+        children = {key: copy.deepcopy(state) for key in ("fork", "spawn", "forkserver")}
+        children["spawn"]["grandchild"] = copy.deepcopy(state)
+        good = [subprocess.CompletedProcess([], 0, overlay.json_bytes(data), b"") for data in (state, children)]
+        secret = b"SYNTHETIC_PRIVATE_VALUE"
+        failures = [(OSError(secret.decode()), "launch-or-io-failed"),
+                    (subprocess.TimeoutExpired(secret.decode(), 45, output=secret), "time-limit"),
+                    (ValueError(secret.decode()), "execution-rejected"),
+                    (subprocess.CompletedProcess([], 1, secret, secret), "nonzero-exit"),
+                    (subprocess.CompletedProcess([], 0, secret, b""), "output-rejected"),
+                    (subprocess.CompletedProcess([], 0, b"{}", b""), "output-rejected"),
+                    (subprocess.CompletedProcess([], 0, good[1].stdout, secret), "output-rejected")]
+        for failure, reason in failures:
+            for failed in (0, 1):
+                with self.subTest(reason=reason, failed=failed):
+                    outputs = list(good)
+                    outputs[failed] = failure
+                    processes = mock.Mock()
+                    processes.execute_process_group.side_effect = outputs
+                    result = descriptor.canaries(overlay, self.facts, base["scans"], base["files"][0], processes, self.root)
+                    self.assertEqual(processes.execute_process_group.call_count, 2)
+                    self.assertEqual(result["status"], "failed")
+                    key = ("fresh", "children")[failed]
+                    self.assertEqual(result["attempts"][key], dict(status="failed", reason=reason))
+                    self.assertEqual(result["fresh"], None if failed == 0 else state)
+                    for key in ("fork", "spawn", "grandchild", "forkserver"):
+                        self.assertEqual(result[key], None if failed == 1 else state)
+                    self.assertNotIn(secret.decode(), json.dumps(result))
+                    report = {**base, "canaries": result}
+                    descriptor.validate_report(overlay, report, self.contract)
+                    result[("fresh", "fork")[failed]] = state
+                    with self.assertRaises(ValueError):
+                        descriptor.validate_report(overlay, report, self.contract)
+        processes = mock.Mock()
+        processes.execute_process_group.side_effect = good
+        result = descriptor.canaries(overlay, self.facts, base["scans"], base["files"][0], processes, self.root)
+        self.assertEqual(result["status"], "pass")
+        descriptor.validate_report(overlay, {**base, "canaries": result}, self.contract)
+        for call in processes.execute_process_group.call_args_list:
+            self.assertEqual(call.args[0][1:4], ["-I", "-S", "-B"])
+            self.assertEqual((call.kwargs["timeout"], call.kwargs["max_output_bytes"]), (45, 8192))
+
+    def test_file_observation_validator_rejects_forged_stages_and_metadata(self):
+        report = self.collect()
+        for change in ({"stage": "read"}, {"reason": "SYNTHETIC_PRIVATE_VALUE"},
+                       {"observed": {"type": "regular", "mode": 0o644, "size": -1, "nlink": 1}},
+                       {"observed": {"type": None, "mode": 0o644, "size": 1, "nlink": 1}},
+                       {"observed": {"type": "regular", "mode": 0o644, "size": 1, "nlink": 1, "inode": 42}}):
+            modified = copy.deepcopy(report)
+            modified["files"][0].update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                descriptor.validate_report(overlay, modified, self.contract)
+
     def test_source_failure_preserves_other_sections_and_rejects_complete_claim(self):
         path = self.root / (self.stdlib + "/site.py")[1:]
         path.unlink()
@@ -217,7 +417,10 @@ class DescriptorTests(unittest.TestCase):
             state = {"flags": dict.fromkeys(("isolated", "no_site", "dont_write_bytecode", "ignore_environment"), True),
                      "path_sha256": overlay.digest(overlay.json_bytes(proposed)), "before_unpickle": True, "no_engine_modules": True}
             children = {**descriptor.canary_report(), "status": "pass", "reason": None, "path_sha256": state["path_sha256"],
+                        "available": {"processes": True, "payload": True},
+                        "attempts": {key: {"status": "pass", "reason": None} for key in ("fresh", "children")},
                         **{key: copy.deepcopy(state) for key in ("fresh", "fork", "spawn", "grandchild", "forkserver")}}
+            self.facts["locations"].append(descriptor.location("site_root_0", self.stdlib + "/dist-packages"))
             with mock.patch.object(descriptor, "canaries", return_value=children):
                 complete = self.collect()
             self.assertEqual(complete["collection"], "pass")
