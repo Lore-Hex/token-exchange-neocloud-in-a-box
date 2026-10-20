@@ -579,12 +579,21 @@ def inspect_integrity(tree, contract, *, console=None, inventory=None, packaging
 
 
 def apply_overlay(tree, contract, stages, before, *, console=None, packaging=False):
+    require(inspect(tree, contract, console=console, packaging=packaging) == before)
+    return apply_verified_stages(tree, contract, stages, before, console=console, packaging=packaging)
+
+
+def apply_verified_stages(tree, contract, stages, before, *, console=None, packaging=False):
+    """Shared writer, called only after the caller's complete admission/recheck.
+
+    The generic CLI always uses apply_overlay. The separate exact-image
+    experiment supplies its own measured preflight; this is not an admission API.
+    """
     require(len(stages) == 5)
     for index, stage in enumerate(stages, 1):
         require(set(stage) == {item["path"] for item in contract["files"]})
         for item in contract["files"]:
             require(digest(stage[item["path"]]) == item["sha256"][index])
-    require(inspect(tree, contract, console=console, packaging=packaging) == before)
     expected = dict(before["files"])
     removed = {p for p in expected if any(bytecode_for(p, item["path"]) for item in contract["files"])}
     planned = before["packaging_removals"] if packaging else []
