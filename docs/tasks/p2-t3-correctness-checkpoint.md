@@ -26,3 +26,40 @@ observations and content-free startup outcomes, while correcting the invalid
 digest comparison separately. Neither a software fix nor successful GPU
 appraisal establishes full CPU, fabric, application, model or TLS attestation.
 The candidate remains BLOCKED and non-deployable.
+
+## Validated Startup Failure
+
+The next source-bound attempt used
+`bac13b0fac39096a0990417f3cfcf4e623e911ac`, from 12:46:35 to 12:54:21 UTC.
+Its original [run envelope](../../evidence/p2/2026-10-20-correctness-startup-failed/run.json)
+and [output](../../evidence/p2/2026-10-20-correctness-startup-failed/output.log)
+are preserved unchanged. The corrected recorder retained and validated the
+inner result:
+
+- Four selected B200 GPUs reported readiness enabled, production CC,
+  devtools off and NVLE.
+- Full weight validation and all five exact-image application stages
+  completed before startup.
+- The engine exited with code 1 after 8,003 milliseconds and eight health
+  probes, before becoming ready.
+- The outer container exited 0 and Docker reported `OOMKilled=false`.
+  Container cleanup was confirmed.
+- Completion and correctness results are null; functional pass is false.
+
+This is a genuine engine-startup failure, not a successful model run. The
+report narrows the boundary but does not identify the failing import, parser
+or internal check. No exception text or engine log was retained. The next
+fixed-ID checkpoint diagnostic was not executed on this hardware.
+
+## Rental Teardown
+
+Operator observation through the Spheron UI on 2026-10-20 at approximately
+13:04 UTC confirmed the disposable test instance terminated, zero running
+or reserved instances, and zero storage volumes. Reported total usage was
+$445.53 over 5.62 hours, within the six-hour/$480 authorization. The dedicated
+test SSH registration and local key pair were removed after evidence retrieval.
+
+These teardown and billing figures are operator observations from the provider
+UI, not measurements from the model recorder or invoice reconciliation. They
+do not alter either original evidence envelope. No test resource remains
+available for further hardware runs under this authorization.
