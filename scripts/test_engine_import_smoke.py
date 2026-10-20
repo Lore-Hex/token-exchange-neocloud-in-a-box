@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-import-smoke"
 RECORDED_SOURCE = "4b6b90613cfcd806ea0d40bf0b1aa7a415880313"
 NUMPY_RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-numpy-startup-smoke"
+DENIED_RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-denied-process-smoke"
 
 
 def load(name, relative):
@@ -68,7 +69,8 @@ class SmokeTests(unittest.TestCase):
         failures = dict.fromkeys(("state", "method", "executable", "preparation", "process", "import", "site"), 0)
         state = {"isolated": True, "no_site": True, "dont_write_bytecode": True, "before_unpickle": True,
                  "path_sha256": overlay.digest(overlay.json_bytes(self.measured["proposed_paths"])), "rejections": failures}
-        row = {"state": state, "guard_rejections": failures, "first_state_mismatch": None, "dependency_entrypoint_loads": 1,
+        row = {"state": state, "guard_rejections": failures, "first_state_mismatch": None,
+               "first_denied_process": None, "dependency_entrypoint_loads": 1,
                "imports": [{"module": name, "status": "pass", "error_category": None} for name in smoke.MODULES]}
         grandchild = {**copy.deepcopy(row), "before_unpickle": state}
         report = {"schema": "nib.engine-import-smoke/v1", "status": "BLOCKED", "deployable": False, "image": None,
@@ -150,7 +152,42 @@ class SmokeTests(unittest.TestCase):
             self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
         report = copy.deepcopy(original)
         report["smoke"]["fresh"]["guard_rejections"]["process"] = 1
+        report["smoke"]["fresh"]["first_denied_process"] = {
+            "event": "subprocess.Popen", "command": "other", "caller": "other"}
         self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
+
+    def test_process_diagnostics_are_required_bounded_and_counter_consistent(self):
+        original = self.valid_report()
+        for key in ("fresh", "spawn", "grandchild"):
+            report = copy.deepcopy(original)
+            row = report["smoke"]["spawn"]["grandchild"] if key == "grandchild" else report["smoke"][key]
+            row["guard_rejections"]["process"] = 1
+            for event in tool.bootstrap.PROCESS_EVENTS:
+                for command in tool.bootstrap.PROCESS_COMMANDS:
+                    for caller in (*tool.bootstrap.PROCESS_CALLERS.values(), "other"):
+                        row["first_denied_process"] = {"event": event, "command": command, "caller": caller}
+                        if command != "other" and event not in ("subprocess.Popen", "os.exec", "os.posix_spawn"):
+                            with self.assertRaises(ValueError):
+                                smoke.validate(overlay, report, self.application, self.measured)
+                        else:
+                            # A caught denial must fail even if all imports claim pass.
+                            self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
+            valid = {"event": "subprocess.Popen", "command": "gxx-version", "caller": "torch-cpp-builder"}
+            for invalid in (None, {}, [], "private", True, {**valid, "args": ["private"]},
+                            {"event": "subprocess.Popen", "command": "gxx-version"},
+                            *({**valid, field: value} for field in valid for value in (None, True, [], {}, "private"))):
+                row["first_denied_process"] = invalid
+                with self.subTest(key=key, invalid_type=type(invalid).__name__), self.assertRaises((ValueError, TypeError)):
+                    smoke.validate(overlay, report, self.application, self.measured)
+            row["first_denied_process"] = valid
+            for count in (0, True, -1, 1000001):
+                row["guard_rejections"]["process"] = count
+                with self.assertRaises(ValueError):
+                    smoke.validate(overlay, report, self.application, self.measured)
+            row["guard_rejections"]["process"] = 1
+            del row["first_denied_process"]
+            with self.assertRaises(ValueError):
+                smoke.validate(overlay, report, self.application, self.measured)
 
     def test_state_diagnostics_are_fixed_and_consistent_with_failure_counters(self):
         for field in ("env", "paths", "finders", "argv", "cwd", "executable", "method", "pycache"):
@@ -496,7 +533,7 @@ class SmokeTests(unittest.TestCase):
         binary, _ = tool.recorder.build_validator(ROOT, record["git_sha"], self.root, env)
         tool.recorder.publish_evidence(record, report, binary, self.root, self.root / "evidence", env)
         self.assertEqual(json.loads((self.root / "evidence/run.json").read_bytes()), record)
-        for directory in (RECORDED, NUMPY_RECORDED):
+        for directory in (RECORDED, NUMPY_RECORDED, DENIED_RECORDED):
             recorded = self.root / "recorded/evidence/p0" / directory.name
             recorded.mkdir(parents=True)
             (recorded / "run.json").write_bytes(tool.read_source(directory / "run.json"))
@@ -520,8 +557,18 @@ class SmokeTests(unittest.TestCase):
             timestamps=("2026-10-20T04:47:36Z", "2026-10-20T04:56:00Z"),
             elapsed={"application-preflight": 8142, "application": 480489, "import-smoke": 6149}, guard=("process", 1))
 
+    def test_recorded_denied_process_attempt_preserves_other_categories_without_cause_claim(self):
+        self.assert_recorded_attempt(DENIED_RECORDED, "b72f7a0a62ea0e4cf9540fa0ef832dcc6c69ace3",
+            run_sha="82b399c97e0bee0ccc3840cc08d61e2b7ac1555e1c3a191ee0056d750d28ba8a",
+            output_sha="e7c486ad51a451b2ff2d15e5c069fcf4912c34461f2b38c63804ca9187565d9c",
+            recorder_sha="cb40ae7f14ed503d04ab6bbc9e4b90d56d5cce2d13980ef7a3eb54312073873b",
+            payload_sha="09e233ab1fb334849456967332ab58fcf9fb90ea00667b2f3029a4e5502844b3",
+            timestamps=("2026-10-20T05:27:39Z", "2026-10-20T05:36:04Z"),
+            elapsed={"application-preflight": 8146, "application": 482321, "import-smoke": 6036}, guard=("process", 1),
+            denied={"event": "subprocess.Popen", "command": "other", "caller": "other"})
+
     def assert_recorded_attempt(self, directory, revision, *, run_sha, output_sha, recorder_sha, payload_sha,
-                                timestamps, elapsed, guard):
+                                timestamps, elapsed, guard, denied=None):
         documents = []
         for name, expected in (("run.json", run_sha), ("output.log", output_sha)):
             raw = tool.read_source(directory / name)
@@ -591,6 +638,10 @@ class SmokeTests(unittest.TestCase):
             self.assertEqual(row["guard_rejections"], {key: guard[1] if key == guard[0] else 0 for key in row["guard_rejections"]})
             if guard[0] == "process":
                 self.assertIsNone(row["first_state_mismatch"])
+            if denied is None:
+                self.assertNotIn("first_denied_process", row)
+            else:
+                self.assertEqual(row["first_denied_process"], denied)
             self.assertEqual(row["dependency_entrypoint_loads"], 0)
             self.assertEqual(row["imports"], [{"module": name, "status": "rejected" if i == 0 else "not-run",
                                                "error_category": "guard" if i == 0 else None}

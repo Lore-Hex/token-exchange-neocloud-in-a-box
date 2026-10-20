@@ -19,6 +19,56 @@ METADATA_SOURCES = {
 CONTEXT_ENTRYPOINT = ("opentelemetry_context", "contextvars_context",
                      "opentelemetry.context.contextvars_context:ContextVarsRuntimeContext")
 CONTEXT_MODULE = "opentelemetry.context.contextvars_context"
+PROCESS_EVENTS = ("subprocess.Popen", "multiprocessing.spawnv_passfds", "os.exec",
+                  "os.posix_spawn", "os.system", "os.fork", "os.forkpty")
+PROCESS_COMMANDS = ("uname-processor", "gxx-version", "ptxas-version", "other")
+# Classification only, never authorization. No basename matching, path
+# resolution, shell parsing or arbitrary string conversion. Sources in task doc.
+PROCESS_SHAPES = {
+    ("uname", "-p"): "uname-processor",
+    ("g++", "--version"): "gxx-version",
+    ("/usr/local/lib/python3.12/dist-packages/triton/backends/nvidia/bin/ptxas", "--version"): "ptxas-version",
+    ("/usr/local/lib/python3.12/dist-packages/triton/backends/nvidia/bin/ptxas-blackwell", "--version"): "ptxas-version",
+}
+PROCESS_CALLERS = {
+    "platform": "stdlib-platform",
+    "torch._inductor.cpp_builder": "torch-cpp-builder",
+    "triton.backends.nvidia.compiler": "triton-nvidia-compiler",
+    "triton.knobs": "triton-knobs",
+}
+PROCESS_CALLER_FRAMES = 32
+
+
+def process_command(executable, argv):
+    def text(value):
+        if type(value) not in (str, bytes) or len(value) > 256:
+            return None
+        if type(value) is bytes:
+            try:
+                return value.decode("ascii")
+            except UnicodeDecodeError:
+                return None
+        return value
+    if type(argv) not in (list, tuple) or len(argv) != 2:
+        return "other"
+    command = (text(argv[0]), text(argv[1]))
+    return PROCESS_SHAPES.get(command, "other") if text(executable) == command[0] else "other"
+
+
+def process_caller():
+    """Nearest recognized module within a finite scan, not a trusted identity."""
+    frame = sys._getframe(1)
+    try:
+        for _ in range(PROCESS_CALLER_FRAMES):
+            if frame is None:
+                break
+            name = frame.f_globals.get("__name__")
+            if type(name) is str and len(name) <= 128 and name in PROCESS_CALLERS:
+                return PROCESS_CALLERS[name]
+            frame = frame.f_back
+        return "other"
+    finally:
+        del frame
 
 
 def require(value):
@@ -127,11 +177,18 @@ def install(layout):
     state = {"layout": layout, "failures": failures, "before_unpickle": True, "spawn_entry": False,
              "finders": None, "tracker_pids": [], "backport_context": None, "backport_delegate": None,
              "backport_loading": False, "backport_class": None, "entrypoint_loads": 0,
-             "context_module": None, "context_entrypoint": None, "first_state_mismatch": None}
+             "context_module": None, "context_entrypoint": None, "first_state_mismatch": None,
+             "first_denied_process": None}
 
     def reject(kind):
         failures[kind] += 1
         raise ValueError("sealed Python operation rejected")
+
+    def reject_process(event, executable=None, argv=None):
+        if state["first_denied_process"] is None:
+            state["first_denied_process"] = {"event": event, "command": process_command(executable, argv),
+                                             "caller": process_caller()}
+        reject("process")
 
     def state_check(field, matches):
         if not matches:
@@ -214,7 +271,7 @@ def install(layout):
         try:
             kind, _ = route([os.fsdecode(arg) for arg in args[1:]])
         except (ValueError, OSError, SyntaxError, TypeError):
-            reject("process")
+            reject_process("multiprocessing.spawnv_passfds", path, args)
         pid = original_spawn(path, args, passfds)
         if kind == "tracker":
             state["tracker_pids"].append(pid)
@@ -360,7 +417,8 @@ def install(layout):
 
     def audit(event, args):
         if event in ("os.exec", "os.posix_spawn", "os.system", "os.fork", "os.forkpty"):
-            reject("process")
+            executable, argv = args[:2] if event in ("os.exec", "os.posix_spawn") and len(args) >= 2 else (None, None)
+            reject_process(event, executable, argv)
         if event == "subprocess.Popen":
             check()
             executable, argv, cwd, env = args
@@ -368,7 +426,7 @@ def install(layout):
             # never ordinary Python, arbitrary code, NUMA, or an external shell.
             if not (executable == layout["wrapper"] and argv == [layout["wrapper"], "fresh"]
                     and cwd in (None, "/") and (env is None or env == layout["environment"])):
-                reject("process")
+                reject_process(event, executable, argv)
     sys.addaudithook(audit)
     state["check"] = check
     sys._nib_smoke_guard = state
