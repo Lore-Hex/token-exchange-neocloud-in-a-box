@@ -41,11 +41,19 @@ ENVIRONMENT_SOURCES = (
 
 # Diagnostic references only. Installed bytes must match before compilation;
 # these source observations do not assert installed coverage or permit a process.
+DISTRO_SOURCES = (
+    {"id": "ctypes-util", "repository": "ubuntu/python3.12", "revision": "3.12.3-1ubuntu0.17",
+     "path": "usr/lib/python3.12/ctypes/util.py", "root": "stdlib", "installed": "ctypes/util.py", "bytes": 14584,
+     "sha256": "9cddec0d3640c812f023cf850107e38705a040fb22213181a8cd30cdd49ea0d1",
+     "package": "libpython3.12-stdlib_3.12.3-1ubuntu0.17_amd64.deb", "package_bytes": 2070530,
+     "package_sha256": "45d3f530ba1f9d6e879ad46b92046fabab13fe50a82450e4f65557a3bbad1489"},
+    {"id": "platform", "repository": "ubuntu/python3.12", "revision": "3.12.3-1ubuntu0.17",
+     "path": "usr/lib/python3.12/platform.py", "root": "stdlib", "installed": "platform.py", "bytes": 43331,
+     "sha256": "ed0defe8ff7c116710493ffd099b566d3de686ab1b431a3d5401056798e59341",
+     "package": "libpython3.12-minimal_3.12.3-1ubuntu0.17_amd64.deb", "package_bytes": 838536,
+     "package_sha256": "d646ad7112b5adec21ba0e1af015f04ae8ca7f5efdc619622547dd6673c4c14b"},
+)
 CALLSITE_ADDITIONS = (
-    ("ctypes-util", "python/cpython", "f6650f9ad73359051f3e558c2431a109bc016664", "Lib/ctypes/util.py", "stdlib", "ctypes/util.py", 13959,
-     "a54310b64a080b0103f3de5df86b21d884bc2985760f3596ab85d458eae8cba5"),
-    ("platform", "python/cpython", "f6650f9ad73359051f3e558c2431a109bc016664", "Lib/platform.py", "stdlib", "platform.py", 43331,
-     "df2625b046c8aec56d87f0f46544ef879bdb899dced0b1d94dabbd4830bad60a"),
     ("triton-nvidia", "triton-lang/triton", "f797708c0626e5f9840ca5b0a98790e2c7cb09ad", "third_party/nvidia/backend/driver.py", "packages", "triton/backends/nvidia/driver.py", 13312,
      "992ba21e12ee170a904f3a1caca24a78ce3dd66b661087faea5973b995480f63"),
     ("triton-amd", "triton-lang/triton", "f797708c0626e5f9840ca5b0a98790e2c7cb09ad", "third_party/amd/backend/driver.py", "packages", "triton/backends/amd/driver.py", 18168,
@@ -77,18 +85,58 @@ CALLSITE_FUNCTIONS = {
     "torch-builder": ("cpp_compiler_search", "get_cpp_compiler", "get_compiler_version_info", "_run_compile_cmd"),
     "torch-vec": ("VecISA._probe_load", "VecISA.check_build", "VecISA.__bool__", "valid_vec_isa_list"),
 }
+# Every module-code IMPORT_NAME in the pinned Torch source. IDs describe fixed
+# source statements, not the dynamically imported dependency or its authority.
+# The thirty-name from-list executes inside IMPORT_NAME: report the whole block.
+TORCH_IMPORT_PHASES = (
+    ("builtins", 13, "builtins"), ("ctypes", 14, "ctypes"), ("functools", 15, "functools"),
+    ("glob", 16, "glob"), ("importlib", 17, "importlib"), ("inspect", 18, "inspect"),
+    ("math", 19, "math"), ("os", 20, "os"), ("platform", 21, "platform"), ("sys", 22, "sys"),
+    ("textwrap", 23, "textwrap"), ("threading", 24, "threading"), ("warnings", 25, "warnings"),
+    ("collections", 26, "collections.abc"), ("typing", 27, "typing"), ("typing-extensions", 35, "typing_extensions"),
+    ("utils", 49, "torch._utils"), ("utils-internal", 54, "torch._utils_internal"),
+    ("version", 61, "torch.torch_version"), ("typecheck-dynamic-spec", 65, "torch.fx.experimental.dynamic_spec"),
+    ("typecheck-types", 66, "torch.types"), ("rocm", 159, ""),
+    ("C-global", 428, "torch._C"), ("C-local", 445, "torch._C"),
+    ("C-extension", 1050, "torch._C"), ("C-compiled-check", 1052, "torch._C"), ("C-alias", 1075, "torch"),
+    ("math-constants", 1920, "math"), ("tensor", 1931, "torch._tensor"),
+    ("storage-alias", 1934, "torch"), ("storage", 1935, "torch.storage"),
+    ("amp-random-serialization", 2159, "torch"), ("tensor-str", 2160, "torch._tensor_str"),
+    ("amp", 2161, "torch.amp"), ("random", 2162, "torch.random"), ("serialization", 2170, "torch.serialization"),
+    ("typecheck-variable-functions", 2201, "torch._C._VariableFunctions"), ("self", 2232, "torch"),
+    ("compile", 2247, "torch._compile"), ("VF-functional", 2254, "torch"), ("functional", 2255, "torch.functional"),
+    ("autograd", 2291, "torch.autograd"), ("thirty-submodules", 2298, "torch"),
+    ("signal", 2330, "torch.signal"), ("ao", 2335, "torch"), ("nn-intrinsic", 2338, "torch.nn.intrinsic"),
+    ("nn-qat", 2339, "torch.nn.qat"), ("nn-quantizable", 2340, "torch.nn.quantizable"),
+    ("nn-quantized", 2341, "torch.nn.quantized"), ("doc-registration", 2347, "torch"),
+    ("library-ops", 2358, "torch"), ("ops", 2362, "torch._ops"), ("classes", 2363, "torch._classes"),
+    ("quantization", 2370, "torch"), ("quasirandom", 2373, "torch"),
+    ("atfork", 2381, "torch.multiprocessing._atfork"), ("lobpcg", 2389, "torch._lobpcg"),
+    ("masked", 2401, "torch"), ("linalg", 2404, "torch._linalg_utils"), ("dlpack", 2411, "torch.utils.dlpack"),
+    ("export-func-library-return-types", 2868, "torch"), ("higher-order-ops", 2874, "torch._higher_order_ops"),
+    ("func", 2875, "torch.func"), ("distributed-meta", 2882, "torch.distributed._meta_registrations"),
+    ("meta", 2885, "torch"), ("cuda-sanitizer", 2889, "torch.cuda._sanitizer"),
+    ("sym-node", 2894, "torch.fx.experimental.sym_node"), ("compiler-fx", 2895, "torch"),
+    ("typecheck-dynamo-inductor", 2924, "torch"), ("logging", 3079, "torch"), ("native", 3087, "torch._native"),
+)
 CALLSITE_PHASES = {
     "vllm-init": (("vllm-init-env-import", "<module>", 14, "IMPORT_NAME", "vllm.env_override"),),
     "vllm-env": (("vllm-env-torch-import", "<module>", 150, "IMPORT_NAME", "torch"),
                  ("vllm-env-lowering-import", "_patch_inductor_fallback_allow_list", 894, "IMPORT_NAME", "torch._inductor"),
                  ("vllm-env-graph-import", "_patch_inductor_fallback_allow_list", 909, "IMPORT_NAME", "torch._inductor"),
                  ("vllm-env-fallback-call", "<module>", 917, "LOAD_NAME", "_patch_inductor_fallback_allow_list")),
+    "torch-init": tuple(("torch-init-import-" + label, "<module>", line, "IMPORT_NAME", name)
+                        for label, line, name in TORCH_IMPORT_PHASES) + (
+        ("torch-init-global-deps-call", "<module>", 444, "LOAD_NAME", "_load_global_deps"),
+        ("torch-init-extension-call", "<module>", 2189, "LOAD_ATTR", "_initExtension"),
+        ("torch-init-logging-call", "<module>", 3084, "LOAD_ATTR", "_init_logs")),
 }
 
 
 def callsite_specs():
     sources = [{**source, "id": identifier, "root": "packages", "installed": source["path"]}
                for identifier, source in zip(("vllm-init", "vllm-env", "torch-init"), ENVIRONMENT_SOURCES[:3])]
+    sources += [dict(source) for source in DISTRO_SOURCES]
     sources += [dict(zip(("id", "repository", "revision", "path", "root", "installed", "bytes", "sha256"), row))
                 for row in CALLSITE_ADDITIONS]
     for source in sources:
@@ -280,6 +328,14 @@ def timed_phase(result, name):
         result["phase_elapsed_ms"][name] = int((time.monotonic() - started) * 1000)
 
 
+def verify_stdlib_sources(stdlib):
+    # Bounded anchored no-follow reads, before any expensive application pass.
+    # Package revision is public byte correspondence, not a dpkg observation.
+    for source in DISTRO_SOURCES:
+        raw = read_source(stdlib + "/" + source["installed"], 256 << 10)
+        require(len(raw) == source["bytes"] and hashlib.sha256(raw).hexdigest() == source["sha256"])
+
+
 def apply_and_smoke(contract, sources, modules, application, measured):
     import time
     overlay, diagnostic, descriptor, app = modules
@@ -290,6 +346,7 @@ def apply_and_smoke(contract, sources, modules, application, measured):
     try:
         deadline = time.monotonic() + APPLICATION_SECONDS
         with timed_phase(result, "application-preflight"):
+            verify_stdlib_sources(contract["paths"][0])
             app.verify_layout(overlay, descriptor, diagnostic, application, measured)
             stages = [{item["path"]: sources[f"application/stages/{n}/" + item["path"]] for item in application["files"]}
                       for n in range(1, 6)]
@@ -474,7 +531,7 @@ def validate(overlay, report, application, measured):
             overlay.require(type(denied) is dict and set(denied) == {"event", "command", "caller", "callsites"}
                             and denied["event"] in ("subprocess.Popen", "multiprocessing.spawnv_passfds", "os.exec",
                                 "os.posix_spawn", "os.system", "os.fork", "os.forkpty")
-                            and denied["command"] in ("uname-processor", "gxx-version", "ptxas-version", "other")
+                            and denied["command"] in ("uname-processor", "gxx-version", "ptxas-version", "ldconfig-cache", "other")
                             and denied["caller"] in ("stdlib-platform", "torch-cpp-builder", "triton-nvidia-compiler", "triton-knobs", "other")
                             and (denied["command"] == "other" or denied["event"] in ("subprocess.Popen", "os.exec", "os.posix_spawn")))
             validate_callsites(overlay.require, denied["callsites"])
