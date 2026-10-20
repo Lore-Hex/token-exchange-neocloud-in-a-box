@@ -18,6 +18,35 @@ an exact Git blob ID, SHA-256, size and Git mode; the original archive and
 license files remain intact. The checker reads the archive in memory and never
 extracts, imports, compiles or executes upstream code.
 
+### Local service-denial correction
+
+The [local LGPL-2.1-or-later patch](../../image/patches/README.md) makes the
+installer's denial file executable before every APT install transaction. Pinned
+upstream `mkosi/installer/apt.py:259-274` writes `policy-rc.d` under a `0644`
+umask, then removes it after installation. Pinned `init-system-helpers`
+`1.66ubuntu1` checks executability before using it: data members
+`usr/sbin/invoke-rc.d:138-140` and `usr/bin/deb-systemd-invoke:71-86` in the
+archive bound by the [guest lock](../../image/inputs/r595-ubuntu2404.json), SHA-256
+`8eb801f9ce084dab9bf4cbc3ec0ee5ac75516a4cc1f25e3f92298c632e75b700`.
+The finding is from source inspection, not an observed service start.
+
+A one-time executable skeleton file is insufficient: essential-package
+installation in `mkosi/distribution/debian.py:213-218` removes it, and later
+requested-package installation at `mkosi/__init__.py:299-300` recreates it.
+The local insertion calls `policyrcd.chmod(0o755)` after the unchanged deny-101
+body is written and before APT invocation. Failed chmod aborts before invocation.
+Success cleanup remains unchanged; no new exception handling is introduced.
+
+The preparer binds original/patch/result bytes using the
+[patch manifest](../../image/inputs/mkosi-27.1-service-denial.json), requires the
+exact hunk position and context, and emits only the changed file in
+`mkosi-overlay/mkosi/installer/apt.py`. The original archive, licenses and source
+manifest are retained unchanged. The receipt records in-memory application,
+not execution or build authorization. Synthetic tests execute only a reviewed
+fixture with fake APT invocation; they cover absent/prior `0644` files, repeat
+transactions, failure/retry and integrity rejection. No upstream module or
+package program is executed by these tests.
+
 The pinned [pyproject](https://github.com/systemd/mkosi/blob/ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b/pyproject.toml)
 requires Python >=3.9 and declares `pefile` for bootable-image support. Source
 preparation does not invoke setuptools, pip, a resolver, or Ubuntu's older mkosi.
@@ -83,7 +112,8 @@ python3 -I scripts/prepare_mkosi_inputs.py \
 Output is owner-only, no-overwrite, with `receipt.json` written last. It contains
 the original mkosi archive, both package locks, exact local repository/index
 bytes, the existing **nonbootable** candidate configuration, a hashed control
-member inventory and a build prerequisite contract. Verification recomputes
+member inventory, the exact local patch/pin/overlay and a build prerequisite
+contract. Verification recomputes
 every expected output byte and rejects extra/missing/changed files.
 Git reads disable replacement objects, lazy fetching, network protocols and
 prompts; the producer and all loaded repository helpers must match the commit.
@@ -118,6 +148,9 @@ an OS memory sandbox; host Python, Git and bounded host zstd remain trusted.
    installs skeleton trees before distribution installation, but later scripts
    do not replace pre-install controls. `WithNetwork=no` is not a universal
    process network boundary.
+   A future runner must verify and use the local service-denial overlay for
+   every APT install transaction; merely verifying the original archive is not
+   enough. This patch does not replace outer service, PID or network isolation.
 5. Only after those checks, source review and CI, add a bounded installation
    runner with two fresh workspaces, fixed epoch, no shared incremental cache,
    actual package/configuration checks and independent cleanup. The contract's

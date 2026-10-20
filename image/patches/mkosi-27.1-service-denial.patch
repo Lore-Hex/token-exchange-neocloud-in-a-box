@@ -1,0 +1,9 @@
+--- a/mkosi/installer/apt.py
++++ b/mkosi/installer/apt.py
+@@ -259,5 +259,6 @@
+         policyrcd = context.root / "usr/sbin/policy-rc.d"
+         with umask(~0o755):
+             policyrcd.parent.mkdir(parents=True, exist_ok=True)
+         with umask(~0o644):
+             policyrcd.write_text("#!/bin/sh\nexit 101\n")
++        policyrcd.chmod(0o755)
