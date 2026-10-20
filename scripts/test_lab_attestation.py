@@ -12,6 +12,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -149,14 +150,18 @@ class AttestationTests(unittest.TestCase):
     def test_actual_cli_contract_exact_versions_and_required_help(self):
         metadata = "".join(name + "\t" + lab.VERSION + "\tamd64\tii \n"
                            for name in lab.PACKAGES).encode()
-        helps = [b"  -f,--format TEXT\n  -l,--log-level TEXT\n",
-                 b"  -d,--device TEXT\n  --nonce TEXT\n  --verifier TEXT\n"
+        # The pinned installed binary pads short aliases with spaces.
+        helps = [b"  -f,     --format TEXT\n  -l,     --log-level TEXT\n",
+                 b"  -d,     --device TEXT\n  --nonce TEXT\n  --verifier TEXT\n"
                  b"  --gpu-evidence-source TEXT\n  --nras-url TEXT\n",
                  b"  --token-file TEXT\n  --nonce TEXT\n  --nras-url TEXT\n"
                  b"  --token-type TEXT\n"]
         capture = mock.Mock(side_effect=[metadata, *helps])
         lab.cli_contract(capture, "/private-fixture", clock=lambda: 1024.0)
         self.assertEqual(capture.call_count, 4)
+        for spacing in (b"", b"\t"):
+            variants = [text.replace(b",     --", b"," + spacing + b"--") for text in helps]
+            lab.cli_contract(mock.Mock(side_effect=[metadata, *variants]), "/private-fixture")
         for call in capture.call_args_list:
             self.assertEqual(call.kwargs["timeout"], 30)
             self.assertEqual(call.kwargs["limit"], 65536)
@@ -366,6 +371,30 @@ class AttestationTests(unittest.TestCase):
         with mock.patch.object(lab, "read_regular", return_value=b"raise Exception('PRIVATE')"):
             with self.assertRaises(ValueError):
                 lab.load_capture()
+
+    def test_alias_read_atime_change_is_not_identity_change(self):
+        with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as temporary:
+            root = Path(temporary)
+            alias = root / lab.LIB_ALIAS.lstrip("/")
+            alias.parent.mkdir(parents=True)
+            alias.symlink_to("libnvat.so.2.0.0")
+            actual = alias.lstat()
+            fields = ("st_dev", "st_ino", "st_mode", "st_nlink", "st_size",
+                      "st_mtime_ns", "st_ctime_ns", "st_atime", "st_atime_ns")
+            before = types.SimpleNamespace(**{name: getattr(actual, name) for name in fields})
+            after = copy.copy(before)
+            after.st_atime += 1
+            after.st_atime_ns += 1000000000
+            with mock.patch.object(lab, "FILES", {}), \
+                 mock.patch.object(Path, "lstat", side_effect=[before, after]):
+                lab.verify_installation(root)
+            for name in fields[:7]:
+                changed = copy.copy(after)
+                setattr(changed, name, getattr(changed, name) + 1)
+                with self.subTest(field=name), mock.patch.object(lab, "FILES", {}), \
+                     mock.patch.object(Path, "lstat", side_effect=[before, changed]):
+                    with self.assertRaises(ValueError):
+                        lab.verify_installation(root)
 
     def test_certificate_serial_prefix_is_bounded(self):
         def pem(serial, version=b"\xa0\x03\x02\x01\x02"):
