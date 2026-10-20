@@ -153,6 +153,50 @@ again and checks the exact authenticated token's fields, not solely the CLI's
 reserialized compatibility defaults. No missing OCSP nonce field is represented
 as an independently observed OCSP nonce check.
 
+### Raw-token serialization compatibility
+
+The exact SDK source at `11b2bfeb42a1158aa08744603ecb239ccb3d2265` distinguishes
+raw signed device claims from its serialized `SerializableGpuClaimsV4` output.
+In [`src/gpu/claims.cpp`](https://github.com/NVIDIA/attestation-sdk/blob/11b2bfeb42a1158aa08744603ecb239ccb3d2265/nv-attestation-sdk-cpp/src/gpu/claims.cpp),
+`to_json` emits device type `gpu` and GPU schema version `4.0`;
+`from_json` assigns the latter rather than requiring it from NRAS. Both mismatch
+record members initialize to null. Measurement records use the optional-pointer
+helper; opaque records are read only when present and non-null.
+[`deserialize_optional_shared_ptr`](https://github.com/NVIDIA/attestation-sdk/blob/11b2bfeb42a1158aa08744603ecb239ccb3d2265/nv-attestation-sdk-cpp/include/nv_attestation/utils.h)
+maps an absent or null field to a null pointer, which serialization emits as null.
+
+Only after the exact detached EAT passes `verify-token`, the helper copies each
+raw GPU payload and fills these four absent serialization fields:
+
+| Absent raw field | Derived serialization value |
+| --- | --- |
+| `x-nvidia-device-type` | `gpu` |
+| `x-nvidia-gpu-claims-version` | `4.0` |
+| `x-nvidia-mismatch-measurement-records` | null |
+| `x-nvidia-mismatch-opaque-data-records` | null |
+
+Present values are never replaced. Wrong/null type or version, malformed or
+nonempty mismatch records still fail. This is not an assertion that these fields
+were explicitly signed. The original payload is not modified, and serialized
+CLI claim checks still require their fields. Missing nonce, identity, secure
+boot, measurements, debug state, any required security boolean or certificate/
+revocation/expiry field still fails. All eight raw claims must satisfy the full
+GPU-specific structure and bind to the local certificate inventory. No security
+positive is supplied by a default.
+
+The SDK's
+[`src/claims.cpp`](https://github.com/NVIDIA/attestation-sdk/blob/11b2bfeb42a1158aa08744603ecb239ccb3d2265/nv-attestation-sdk-cpp/src/claims.cpp)
+selects GPU claims by their GPU certificate structure and notes that one overall
+EAT can contain device claims of different versions. Consequently the GPU
+serialization value above does not establish an overall-envelope version.
+This change adds no guessed `x-nvidia-ver == 4.0` constraint or exception to the
+pinned verifier's signature, nonce, digest or overall-result checks.
+
+Regression fixtures cover all 16 omission combinations, explicit conflicts,
+input immutability, every required security field missing/false, duplicate or
+wrong identities, nonce/revocation/expiry tampering and failed verification
+preventing normalization or readiness. These fixtures are not real JWT proof.
+
 Only fixed stages, booleans, counts, public source/artifact hashes and
 readiness values are emitted. No UUID, UEID, nonce value, certificate, token,
 claim body, environment, service response, raw exception or host path is emitted.

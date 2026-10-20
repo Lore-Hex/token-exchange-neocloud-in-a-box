@@ -54,7 +54,11 @@ process-group limits are unchanged. No new service endpoint, credentials, raw
 exceptions, UUIDs, device paths or arbitrary strings enter the report.
 Claims-policy failures include only an allowlisted failure code, source
 (`verified-cli`, `signed-token`, `attested-cli` or comparison) and known public
-claim-field name. Missing, malformed, false and expired claims still reject.
+claim-field name. Missing security claims, malformed, false and expired claims
+still reject. Only the documented
+[four raw serialization fields](p2-t3-nvidia-attestation.md#raw-token-serialization-compatibility)
+can be absent after successful signature verification; no security assertion is
+defaulted.
 No rejected value, identity, nonce or token is returned; a shutdown error does
 not replace the original claim rejection.
 
