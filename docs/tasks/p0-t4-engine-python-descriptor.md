@@ -8,8 +8,9 @@ overlay admission rule or runtime profile changes.
 
 The subsequent [v2 prerequisite diagnostics](p0-t4-engine-python-prerequisites.md)
 add fixed file rejection reasons and distinguish unattempted from failed canaries.
-The v1 artifact below remains unchanged; the new implementation has no actual-image
-measurement yet and does not resolve its executable-file rejection.
+The v1 artifact below remains unchanged. The [v2 recorded outcome](p0-t4-engine-python-prerequisites.md#recorded-outcome)
+identifies `resolution/unsafe-target` and safe symlink metadata without exposing
+the target or resolving the rejection; its canaries also did not execute.
 
 ## Recorded Outcome
 

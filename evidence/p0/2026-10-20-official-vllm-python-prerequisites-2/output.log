@@ -1,0 +1,1115 @@
+{
+  "abi_validated": false,
+  "candidate_status": "BLOCKED",
+  "cleanup": "confirmed",
+  "deployable": false,
+  "diagnostic": {
+    "abi_validated": false,
+    "canaries": {
+      "attempts": {
+        "children": {
+          "reason": "prerequisite",
+          "status": "not-run"
+        },
+        "fresh": {
+          "reason": "prerequisite",
+          "status": "not-run"
+        }
+      },
+      "available": {
+        "payload": true,
+        "processes": true
+      },
+      "blockers": [
+        "executable-unverified"
+      ],
+      "fork": null,
+      "forkserver": null,
+      "fresh": null,
+      "grandchild": null,
+      "path_sha256": null,
+      "reason": "prerequisite",
+      "spawn": null,
+      "status": "not-run"
+    },
+    "candidate_status": "BLOCKED",
+    "collection": "partial",
+    "collisions": [
+      {
+        "count": 0,
+        "names_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "roots": [
+          "stdlib",
+          "selected"
+        ],
+        "sample": []
+      },
+      {
+        "count": 0,
+        "names_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "roots": [
+          "stdlib",
+          "cutlass"
+        ],
+        "sample": []
+      },
+      {
+        "count": 0,
+        "names_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "roots": [
+          "selected",
+          "cutlass"
+        ],
+        "sample": []
+      }
+    ],
+    "deployable": false,
+    "files": [
+      {
+        "bytes": null,
+        "links": [],
+        "mode": null,
+        "name": "executable",
+        "observed": {
+          "mode": 511,
+          "nlink": 1,
+          "size": 25,
+          "type": "symlink"
+        },
+        "path": "/usr/bin/python3",
+        "reason": "unsafe-target",
+        "resolved": null,
+        "sha256": null,
+        "stage": "resolution",
+        "status": "rejected"
+      },
+      {
+        "bytes": null,
+        "links": [],
+        "mode": null,
+        "name": "base_executable",
+        "observed": {
+          "mode": 511,
+          "nlink": 1,
+          "size": 25,
+          "type": "symlink"
+        },
+        "path": "/usr/bin/python3",
+        "reason": "unsafe-target",
+        "resolved": null,
+        "sha256": null,
+        "stage": "resolution",
+        "status": "rejected"
+      },
+      {
+        "bytes": 23903,
+        "links": [],
+        "mode": 420,
+        "name": "site.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 23903,
+          "type": "regular"
+        },
+        "path": "/usr/lib/python3.12/site.py",
+        "reason": null,
+        "resolved": "/usr/lib/python3.12/site.py",
+        "sha256": "619436355cbe91c3b29681ab486ee63f5f2e0a7d6274dfae747bdb94e60bca55",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 88725,
+        "links": [],
+        "mode": 420,
+        "name": "subprocess.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 88725,
+          "type": "regular"
+        },
+        "path": "/usr/lib/python3.12/subprocess.py",
+        "reason": null,
+        "resolved": "/usr/lib/python3.12/subprocess.py",
+        "sha256": "baa9f9138d8d20df6284f67e7d2e790f847f65e2c5370de322d54cccd737f2d9",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 57056,
+        "links": [],
+        "mode": 420,
+        "name": "importlib/_bootstrap.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 57056,
+          "type": "regular"
+        },
+        "path": "/usr/lib/python3.12/importlib/_bootstrap.py",
+        "reason": null,
+        "resolved": "/usr/lib/python3.12/importlib/_bootstrap.py",
+        "sha256": "9653944363a4773cc32bbb34426024597a9d2ee4cd42e7912b4daf8cadfb53ed",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 69197,
+        "links": [],
+        "mode": 420,
+        "name": "importlib/_bootstrap_external.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 69197,
+          "type": "regular"
+        },
+        "path": "/usr/lib/python3.12/importlib/_bootstrap_external.py",
+        "reason": null,
+        "resolved": "/usr/lib/python3.12/importlib/_bootstrap_external.py",
+        "sha256": "97c6211750d63067712ad2cd74d50be33337f1fb1cd2c769022ced9b401edd92",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 916,
+        "links": [],
+        "mode": 420,
+        "name": "multiprocessing/__init__.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 916,
+          "type": "regular"
+        },
+        "path": "/usr/lib/python3.12/multiprocessing/__init__.py",
+        "reason": null,
+        "resolved": "/usr/lib/python3.12/multiprocessing/__init__.py",
+        "sha256": "a5a42976033c7d63ee2740acceef949a3582dcb0e0442845f9717e1be771c68b",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 11673,
+        "links": [],
+        "mode": 420,
+        "name": "multiprocessing/context.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 11673,
+          "type": "regular"
+        },
+        "path": "/usr/lib/python3.12/multiprocessing/context.py",
+        "reason": null,
+        "resolved": "/usr/lib/python3.12/multiprocessing/context.py",
+        "sha256": "63f15d3169f4453eb80af4ce673a193a0670941206673ab5192ea16a17e8419f",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 9644,
+        "links": [],
+        "mode": 420,
+        "name": "multiprocessing/spawn.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 9644,
+          "type": "regular"
+        },
+        "path": "/usr/lib/python3.12/multiprocessing/spawn.py",
+        "reason": null,
+        "resolved": "/usr/lib/python3.12/multiprocessing/spawn.py",
+        "sha256": "ebf9fa40eb622384c37690d8c78e7208744df031155ab4ceedab0fc791a1669b",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 12134,
+        "links": [],
+        "mode": 420,
+        "name": "multiprocessing/forkserver.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 12134,
+          "type": "regular"
+        },
+        "path": "/usr/lib/python3.12/multiprocessing/forkserver.py",
+        "reason": null,
+        "resolved": "/usr/lib/python3.12/multiprocessing/forkserver.py",
+        "sha256": "e99f0aa2e4dc41af9d259f220c5eb2632e2ace89b6851e712223bf2682016f29",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 10332,
+        "links": [],
+        "mode": 420,
+        "name": "multiprocessing/resource_tracker.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 10332,
+          "type": "regular"
+        },
+        "path": "/usr/lib/python3.12/multiprocessing/resource_tracker.py",
+        "reason": null,
+        "resolved": "/usr/lib/python3.12/multiprocessing/resource_tracker.py",
+        "sha256": "b0099f5e2285fe2462b77c47bbf29220b57c778741a34f386c10c1e9940884c8",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 2029,
+        "links": [],
+        "mode": 420,
+        "name": "multiprocessing/popen_spawn_posix.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 2029,
+          "type": "regular"
+        },
+        "path": "/usr/lib/python3.12/multiprocessing/popen_spawn_posix.py",
+        "reason": null,
+        "resolved": "/usr/lib/python3.12/multiprocessing/popen_spawn_posix.py",
+        "sha256": "97b5d25aa479516894489877e6a7921252ee35f51e118c2f1f91f32919e7caa8",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 2230,
+        "links": [],
+        "mode": 420,
+        "name": "multiprocessing/popen_forkserver.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 2230,
+          "type": "regular"
+        },
+        "path": "/usr/lib/python3.12/multiprocessing/popen_forkserver.py",
+        "reason": null,
+        "resolved": "/usr/lib/python3.12/multiprocessing/popen_forkserver.py",
+        "sha256": "0588ad0e5a36718b4377dc2a2a97864a10986c25a33dc3bfed12595711b0cdab",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 14261,
+        "links": [],
+        "mode": 420,
+        "name": "multiprocessing/util.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 14261,
+          "type": "regular"
+        },
+        "path": "/usr/lib/python3.12/multiprocessing/util.py",
+        "reason": null,
+        "resolved": "/usr/lib/python3.12/multiprocessing/util.py",
+        "sha256": "6752c4515ec69f82e9df64e017da490c3754e51d818c270ea1ad2d64e09268be",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 151,
+        "links": [],
+        "mode": 420,
+        "name": "distutils-precedence.pth",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 151,
+          "type": "regular"
+        },
+        "path": "/usr/local/lib/python3.12/dist-packages/distutils-precedence.pth",
+        "reason": null,
+        "resolved": "/usr/local/lib/python3.12/dist-packages/distutils-precedence.pth",
+        "sha256": "2638ce9e2500e572a5e0de7faed6661eb569d1b696fcba07b0dd223da5f5d224",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 116,
+        "links": [],
+        "mode": 420,
+        "name": "nvidia_cutlass_dsl_packages.pth",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 116,
+          "type": "regular"
+        },
+        "path": "/usr/local/lib/python3.12/dist-packages/nvidia_cutlass_dsl_packages.pth",
+        "reason": null,
+        "resolved": "/usr/local/lib/python3.12/dist-packages/nvidia_cutlass_dsl_packages.pth",
+        "sha256": "cc710b99ddb3d76361a70461461d274212a979d00c381d821fce5bb3ad9cf246",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": null,
+        "links": [],
+        "mode": null,
+        "name": "cutlass-init",
+        "observed": {
+          "mode": null,
+          "nlink": null,
+          "size": null,
+          "type": null
+        },
+        "path": "/usr/local/lib/python3.12/dist-packages/nvidia_cutlass_dsl/__init__.py",
+        "reason": "confirmed-absent",
+        "resolved": null,
+        "sha256": null,
+        "stage": "stat",
+        "status": "absent"
+      }
+    ],
+    "hardware_validated": false,
+    "limits": {
+      "file_bytes": 67108864,
+      "hashed_bytes": 268435456,
+      "links": 8,
+      "locations": 32,
+      "report_bytes": 131072,
+      "scan_entries": 300000,
+      "seconds": 300
+    },
+    "overlay_admission": "not-evaluated",
+    "packaging": {
+      "ambiguous": 0,
+      "classified_nonhost_assets": [
+        {
+          "bytes": 71320,
+          "classification": "published-cutlass-aot-crosscompile-stub",
+          "path": "nvidia_cutlass_dsl/cu12/lib/stubs/aarch64-unknown-linux-gnu/libcute_dsl_runtime.so",
+          "sha256": "0e0fc2fbde506983308e2d02a9c7673f43e07b7638224cebd00ebcba1b1e5645"
+        },
+        {
+          "bytes": 71320,
+          "classification": "published-cutlass-aot-crosscompile-stub",
+          "path": "nvidia_cutlass_dsl/cu12/lib/stubs/aarch64-unknown-nto-qnx8.0.0/libcute_dsl_runtime.so",
+          "sha256": "0e0fc2fbde506983308e2d02a9c7673f43e07b7638224cebd00ebcba1b1e5645"
+        },
+        {
+          "bytes": 71320,
+          "classification": "published-cutlass-aot-crosscompile-stub",
+          "path": "nvidia_cutlass_dsl/cu13/lib/stubs/aarch64-unknown-linux-gnu/libcute_dsl_runtime.so",
+          "sha256": "0e0fc2fbde506983308e2d02a9c7673f43e07b7638224cebd00ebcba1b1e5645"
+        },
+        {
+          "bytes": 71320,
+          "classification": "published-cutlass-aot-crosscompile-stub",
+          "path": "nvidia_cutlass_dsl/cu13/lib/stubs/aarch64-unknown-nto-qnx8.0.0/libcute_dsl_runtime.so",
+          "sha256": "0e0fc2fbde506983308e2d02a9c7673f43e07b7638224cebd00ebcba1b1e5645"
+        }
+      ],
+      "entrypoints": {
+        "console_scripts": {
+          "vllm": "vllm.entrypoints.cli.main:main"
+        },
+        "vllm.general_plugins": {
+          "lora_filesystem_resolver": "vllm.plugins.lora_resolvers.filesystem_resolver:register_filesystem_resolver",
+          "lora_hf_hub_resolver": "vllm.plugins.lora_resolvers.hf_hub_resolver:register_hf_hub_resolver"
+        }
+      },
+      "entrypoints_match": true,
+      "inventory": "pass",
+      "inventory_sha256": "456a79e70743e77ce61bb05200093d769264372dd472a48fa08a2c1cbf37883a",
+      "legacy_bytecode": 0,
+      "reason": null,
+      "removal_bytes": 48909952,
+      "removal_count": 2879,
+      "removal_plan_sha256": "210a50805b36797d06e1d17425f6eacba6f90f1e04aaa7c0560692c05ffb3b3f",
+      "status": "pass",
+      "without_source": 0
+    },
+    "preparation": {
+      "candidate_bundle_sha256": "8b0b2aca8c20395e99dabc930e7bdf1605cc50f85f5d41d93a291f01cbf5a766",
+      "context_sha256": "877fc1987e6846a4398d94f6c308c6fbc8c27fc823ec7f8965f5658233fc59ca",
+      "image_writes": false,
+      "stages": 5
+    },
+    "proposed_paths": [
+      "/usr/lib/python3.12",
+      "/usr/lib/python3.12/lib-dynload",
+      "/usr/local/lib/python3.12/dist-packages/nvidia_cutlass_dsl/dsl_packages",
+      "/usr/local/lib/python3.12/dist-packages"
+    ],
+    "runtime": {
+      "build": {
+        "EXT_SUFFIX": ".cpython-312-x86_64-linux-gnu.so",
+        "MULTIARCH": "x86_64-linux-gnu",
+        "Py_DEBUG": 0,
+        "Py_ENABLE_SHARED": 1,
+        "SOABI": "cpython-312-x86_64-linux-gnu"
+      },
+      "cache_tag": "cpython-312",
+      "extension_suffixes": [
+        ".cpython-312-x86_64-linux-gnu.so",
+        ".abi3.so",
+        ".so"
+      ],
+      "flags": {
+        "dont_write_bytecode": true,
+        "ignore_environment": true,
+        "isolated": true,
+        "no_site": true,
+        "no_user_site": true,
+        "safe_path": true
+      },
+      "locations": [
+        {
+          "name": "executable",
+          "path": "/usr/bin/python3",
+          "status": "observed"
+        },
+        {
+          "name": "base_executable",
+          "path": "/usr/bin/python3",
+          "status": "observed"
+        },
+        {
+          "name": "prefix",
+          "path": "/usr",
+          "status": "observed"
+        },
+        {
+          "name": "base_prefix",
+          "path": "/usr",
+          "status": "observed"
+        },
+        {
+          "name": "exec_prefix",
+          "path": "/usr",
+          "status": "observed"
+        },
+        {
+          "name": "base_exec_prefix",
+          "path": "/usr",
+          "status": "observed"
+        },
+        {
+          "name": "stdlib",
+          "path": "/usr/lib/python3.12",
+          "status": "observed"
+        },
+        {
+          "name": "platstdlib",
+          "path": "/usr/lib/python3.12",
+          "status": "observed"
+        },
+        {
+          "name": "purelib",
+          "path": "/usr/local/lib/python3.12/dist-packages",
+          "status": "observed"
+        },
+        {
+          "name": "platlib",
+          "path": "/usr/local/lib/python3.12/dist-packages",
+          "status": "observed"
+        },
+        {
+          "name": "scripts",
+          "path": "/usr/local/bin",
+          "status": "observed"
+        },
+        {
+          "name": "dynload",
+          "path": "/usr/lib/python3.12/lib-dynload",
+          "status": "observed"
+        },
+        {
+          "name": "pycache_prefix",
+          "path": null,
+          "status": "unset"
+        },
+        {
+          "name": "sys_path_0",
+          "path": "/usr/lib/python312.zip",
+          "status": "observed"
+        },
+        {
+          "name": "sys_path_1",
+          "path": "/usr/lib/python3.12",
+          "status": "observed"
+        },
+        {
+          "name": "sys_path_2",
+          "path": "/usr/lib/python3.12/lib-dynload",
+          "status": "observed"
+        },
+        {
+          "name": "site_root_0",
+          "path": "/usr/local/lib/python3.12/dist-packages",
+          "status": "observed"
+        },
+        {
+          "name": "site_root_1",
+          "path": "/usr/lib/python3/dist-packages",
+          "status": "observed"
+        },
+        {
+          "name": "site_root_2",
+          "path": "/usr/lib/python3.12/dist-packages",
+          "status": "observed"
+        }
+      ],
+      "multiprocessing_flags": [
+        "-B",
+        "-S",
+        "-I"
+      ],
+      "python": "3.12.3",
+      "status": "observed"
+    },
+    "scans": [
+      {
+        "bytecode": {
+          "ambiguous": 0,
+          "total": 573,
+          "with_source": 571,
+          "without_source": 2
+        },
+        "elapsed_ms": 30,
+        "entries": 1306,
+        "mode": 493,
+        "multiply_linked": 0,
+        "name": "stdlib",
+        "path": "/usr/lib/python3.12",
+        "reason": null,
+        "regular_bytes": 53249703,
+        "resolved": "/usr/lib/python3.12",
+        "startup_hooks": {
+          "editable": 0,
+          "egg_link": 0,
+          "pth": 0,
+          "sitecustomize": 2,
+          "usercustomize": 0
+        },
+        "status": "pass",
+        "top_level_imports": 194,
+        "top_level_imports_sha256": "ba7bbdf565b3a19376e791e60e0d6978818b5843e640bf66787e410f12ae1dd8",
+        "types": {
+          "directory": 92,
+          "regular": 1211,
+          "special": 0,
+          "symlink": 3
+        }
+      },
+      {
+        "bytecode": {
+          "ambiguous": 0,
+          "total": 31485,
+          "with_source": 31485,
+          "without_source": 0
+        },
+        "elapsed_ms": 4627,
+        "entries": 204969,
+        "mode": 493,
+        "multiply_linked": 0,
+        "name": "selected",
+        "path": "/usr/local/lib/python3.12/dist-packages",
+        "reason": null,
+        "regular_bytes": 19176556448,
+        "resolved": "/usr/local/lib/python3.12/dist-packages",
+        "startup_hooks": {
+          "editable": 0,
+          "egg_link": 0,
+          "pth": 2,
+          "sitecustomize": 0,
+          "usercustomize": 0
+        },
+        "status": "pass",
+        "top_level_imports": 234,
+        "top_level_imports_sha256": "51760b4fe39b25445fce18cf032d9858d24537d1692cde15e36ac7fffeb5898f",
+        "types": {
+          "directory": 16604,
+          "regular": 188365,
+          "special": 0,
+          "symlink": 0
+        }
+      },
+      {
+        "bytecode": {
+          "ambiguous": 0,
+          "total": 291,
+          "with_source": 291,
+          "without_source": 0
+        },
+        "elapsed_ms": 14,
+        "entries": 682,
+        "mode": 493,
+        "multiply_linked": 0,
+        "name": "cutlass",
+        "path": "/usr/local/lib/python3.12/dist-packages/nvidia_cutlass_dsl/dsl_packages",
+        "reason": null,
+        "regular_bytes": 419045425,
+        "resolved": "/usr/local/lib/python3.12/dist-packages/nvidia_cutlass_dsl/dsl_packages",
+        "startup_hooks": {
+          "editable": 0,
+          "egg_link": 0,
+          "pth": 0,
+          "sitecustomize": 0,
+          "usercustomize": 0
+        },
+        "status": "pass",
+        "top_level_imports": 2,
+        "top_level_imports_sha256": "5bf289ad72fde221dc1fda22153cb2224691c1f806f248574ea80c1876ac9c2c",
+        "types": {
+          "directory": 86,
+          "regular": 596,
+          "special": 0,
+          "symlink": 0
+        }
+      },
+      {
+        "bytecode": {
+          "ambiguous": 0,
+          "total": 0,
+          "with_source": 0,
+          "without_source": 0
+        },
+        "elapsed_ms": 1,
+        "entries": 46,
+        "mode": 493,
+        "multiply_linked": 0,
+        "name": "dynload",
+        "path": "/usr/lib/python3.12/lib-dynload",
+        "reason": null,
+        "regular_bytes": 3425296,
+        "resolved": "/usr/lib/python3.12/lib-dynload",
+        "startup_hooks": {
+          "editable": 0,
+          "egg_link": 0,
+          "pth": 0,
+          "sitecustomize": 0,
+          "usercustomize": 0
+        },
+        "status": "pass",
+        "top_level_imports": 46,
+        "top_level_imports_sha256": "169dad7b7b46c8a26a488de0289eecc92b300194d17c6be81eed5e640537213f",
+        "types": {
+          "directory": 0,
+          "regular": 46,
+          "special": 0,
+          "symlink": 0
+        }
+      },
+      {
+        "bytecode": {
+          "ambiguous": 0,
+          "total": 31485,
+          "with_source": 31485,
+          "without_source": 0
+        },
+        "elapsed_ms": 4022,
+        "entries": 204969,
+        "mode": 493,
+        "multiply_linked": 0,
+        "name": "site_root_0",
+        "path": "/usr/local/lib/python3.12/dist-packages",
+        "reason": null,
+        "regular_bytes": 19176556448,
+        "resolved": "/usr/local/lib/python3.12/dist-packages",
+        "startup_hooks": {
+          "editable": 0,
+          "egg_link": 0,
+          "pth": 2,
+          "sitecustomize": 0,
+          "usercustomize": 0
+        },
+        "status": "pass",
+        "top_level_imports": 234,
+        "top_level_imports_sha256": "51760b4fe39b25445fce18cf032d9858d24537d1692cde15e36ac7fffeb5898f",
+        "types": {
+          "directory": 16604,
+          "regular": 188365,
+          "special": 0,
+          "symlink": 0
+        }
+      },
+      {
+        "bytecode": {
+          "ambiguous": 0,
+          "total": 335,
+          "with_source": 335,
+          "without_source": 0
+        },
+        "elapsed_ms": 21,
+        "entries": 939,
+        "mode": 493,
+        "multiply_linked": 0,
+        "name": "site_root_1",
+        "path": "/usr/lib/python3/dist-packages",
+        "reason": null,
+        "regular_bytes": 13510598,
+        "resolved": "/usr/lib/python3/dist-packages",
+        "startup_hooks": {
+          "editable": 0,
+          "egg_link": 0,
+          "pth": 0,
+          "sitecustomize": 0,
+          "usercustomize": 0
+        },
+        "status": "pass",
+        "top_level_imports": 23,
+        "top_level_imports_sha256": "763c4a3b136ca701e4c47d2434d7d0a0364d002ec3f9ef9bd69014787aa6712a",
+        "types": {
+          "directory": 156,
+          "regular": 783,
+          "special": 0,
+          "symlink": 0
+        }
+      },
+      {
+        "bytecode": {
+          "ambiguous": 0,
+          "total": 0,
+          "with_source": 0,
+          "without_source": 0
+        },
+        "elapsed_ms": 0,
+        "entries": 0,
+        "mode": null,
+        "multiply_linked": 0,
+        "name": "site_root_2",
+        "path": "/usr/lib/python3.12/dist-packages",
+        "reason": "confirmed-absent",
+        "regular_bytes": 0,
+        "resolved": null,
+        "startup_hooks": {
+          "editable": 0,
+          "egg_link": 0,
+          "pth": 0,
+          "sitecustomize": 0,
+          "usercustomize": 0
+        },
+        "status": "absent",
+        "top_level_imports": 0,
+        "top_level_imports_sha256": null,
+        "types": {
+          "directory": 0,
+          "regular": 0,
+          "special": 0,
+          "symlink": 0
+        }
+      }
+    ],
+    "schema": "nib.engine-python-descriptor/v2",
+    "scope": "installed-file-hashes-and-name-counterparts-not-loaded-code-or-launcher-validation",
+    "worker_sources": [
+      {
+        "bytes": 51196,
+        "expected_sha256": "e8dcfb67c1ace957dcc7e12569ee62eb0f983aec3901fdef27c13014cea4b760",
+        "links": [],
+        "matches": true,
+        "mode": 420,
+        "name": "vllm/config/parallel.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 51196,
+          "type": "regular"
+        },
+        "path": "/usr/local/lib/python3.12/dist-packages/vllm/config/parallel.py",
+        "reason": null,
+        "resolved": "/usr/local/lib/python3.12/dist-packages/vllm/config/parallel.py",
+        "sha256": "e8dcfb67c1ace957dcc7e12569ee62eb0f983aec3901fdef27c13014cea4b760",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 139040,
+        "expected_sha256": "c10281277fd9a90dc8b22670db4f1af53708c5caa2aefee7aa861fa579329219",
+        "links": [],
+        "matches": true,
+        "mode": 420,
+        "name": "vllm/engine/arg_utils.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 139040,
+          "type": "regular"
+        },
+        "path": "/usr/local/lib/python3.12/dist-packages/vllm/engine/arg_utils.py",
+        "reason": null,
+        "resolved": "/usr/local/lib/python3.12/dist-packages/vllm/engine/arg_utils.py",
+        "sha256": "c10281277fd9a90dc8b22670db4f1af53708c5caa2aefee7aa861fa579329219",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 15955,
+        "expected_sha256": "fc1692aa4caec2328ed8d0138074d65651dbef6d768f60cb0c834ed2d7376080",
+        "links": [],
+        "matches": true,
+        "mode": 420,
+        "name": "vllm/entrypoints/cli/serve.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 15955,
+          "type": "regular"
+        },
+        "path": "/usr/local/lib/python3.12/dist-packages/vllm/entrypoints/cli/serve.py",
+        "reason": null,
+        "resolved": "/usr/local/lib/python3.12/dist-packages/vllm/entrypoints/cli/serve.py",
+        "sha256": "fc1692aa4caec2328ed8d0138074d65651dbef6d768f60cb0c834ed2d7376080",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 8246,
+        "expected_sha256": "0630e130bff19e36d7296194072403bcb730586226770101c741a10674cb4f69",
+        "links": [],
+        "matches": true,
+        "mode": 420,
+        "name": "vllm/entrypoints/launchers/api_server/entry.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 8246,
+          "type": "regular"
+        },
+        "path": "/usr/local/lib/python3.12/dist-packages/vllm/entrypoints/launchers/api_server/entry.py",
+        "reason": null,
+        "resolved": "/usr/local/lib/python3.12/dist-packages/vllm/entrypoints/launchers/api_server/entry.py",
+        "sha256": "0630e130bff19e36d7296194072403bcb730586226770101c741a10674cb4f69",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 1854,
+        "expected_sha256": "470ff555bdc19f8e17edf4ee7b6ec3f49ff5af0f773e2a7f91bab536e2239109",
+        "links": [],
+        "matches": true,
+        "mode": 420,
+        "name": "vllm/entrypoints/openai/api_server.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 1854,
+          "type": "regular"
+        },
+        "path": "/usr/local/lib/python3.12/dist-packages/vllm/entrypoints/openai/api_server.py",
+        "reason": null,
+        "resolved": "/usr/local/lib/python3.12/dist-packages/vllm/entrypoints/openai/api_server.py",
+        "sha256": "470ff555bdc19f8e17edf4ee7b6ec3f49ff5af0f773e2a7f91bab536e2239109",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 21476,
+        "expected_sha256": "e8d5d52e65bda7b3457f9f3863ecb5431a82bc2f7af97760425dd64626a75f68",
+        "links": [],
+        "matches": true,
+        "mode": 420,
+        "name": "vllm/utils/numa_utils.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 21476,
+          "type": "regular"
+        },
+        "path": "/usr/local/lib/python3.12/dist-packages/vllm/utils/numa_utils.py",
+        "reason": null,
+        "resolved": "/usr/local/lib/python3.12/dist-packages/vllm/utils/numa_utils.py",
+        "sha256": "e8d5d52e65bda7b3457f9f3863ecb5431a82bc2f7af97760425dd64626a75f68",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 754,
+        "expected_sha256": "0f256fa1a277bf0b12765b7bf09d9ec69ae8bd200db5ee129bf4dc33d9327b3f",
+        "links": [],
+        "matches": true,
+        "mode": 493,
+        "name": "vllm/utils/numa_wrapper.sh",
+        "observed": {
+          "mode": 493,
+          "nlink": 1,
+          "size": 754,
+          "type": "regular"
+        },
+        "path": "/usr/local/lib/python3.12/dist-packages/vllm/utils/numa_wrapper.sh",
+        "reason": null,
+        "resolved": "/usr/local/lib/python3.12/dist-packages/vllm/utils/numa_wrapper.sh",
+        "sha256": "0f256fa1a277bf0b12765b7bf09d9ec69ae8bd200db5ee129bf4dc33d9327b3f",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 12363,
+        "expected_sha256": "e3a55885b92e70dd27e794bf1192035e1cbe2be8d9722944233cb8a1350ab6a1",
+        "links": [],
+        "matches": true,
+        "mode": 420,
+        "name": "vllm/utils/ompmultiprocessing.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 12363,
+          "type": "regular"
+        },
+        "path": "/usr/local/lib/python3.12/dist-packages/vllm/utils/ompmultiprocessing.py",
+        "reason": null,
+        "resolved": "/usr/local/lib/python3.12/dist-packages/vllm/utils/ompmultiprocessing.py",
+        "sha256": "e3a55885b92e70dd27e794bf1192035e1cbe2be8d9722944233cb8a1350ab6a1",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 9086,
+        "expected_sha256": "09b103712a196e93e708ccc1d8634c29032c260f74df727789ef79bced1df152",
+        "links": [],
+        "matches": true,
+        "mode": 420,
+        "name": "vllm/utils/system_utils.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 9086,
+          "type": "regular"
+        },
+        "path": "/usr/local/lib/python3.12/dist-packages/vllm/utils/system_utils.py",
+        "reason": null,
+        "resolved": "/usr/local/lib/python3.12/dist-packages/vllm/utils/system_utils.py",
+        "sha256": "09b103712a196e93e708ccc1d8634c29032c260f74df727789ef79bced1df152",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 56563,
+        "expected_sha256": "3491dde64ef226b9f65e4341c944615cf6ebd23de3210293dc66767c4c18365c",
+        "links": [],
+        "matches": true,
+        "mode": 420,
+        "name": "vllm/v1/engine/async_llm.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 56563,
+          "type": "regular"
+        },
+        "path": "/usr/local/lib/python3.12/dist-packages/vllm/v1/engine/async_llm.py",
+        "reason": null,
+        "resolved": "/usr/local/lib/python3.12/dist-packages/vllm/v1/engine/async_llm.py",
+        "sha256": "3491dde64ef226b9f65e4341c944615cf6ebd23de3210293dc66767c4c18365c",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 113700,
+        "expected_sha256": "458fd729771681b124d3a4d5b1c575f689bf789a5e0c8cc9f5c524eb6ec84f87",
+        "links": [],
+        "matches": true,
+        "mode": 420,
+        "name": "vllm/v1/engine/core.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 113700,
+          "type": "regular"
+        },
+        "path": "/usr/local/lib/python3.12/dist-packages/vllm/v1/engine/core.py",
+        "reason": null,
+        "resolved": "/usr/local/lib/python3.12/dist-packages/vllm/v1/engine/core.py",
+        "sha256": "458fd729771681b124d3a4d5b1c575f689bf789a5e0c8cc9f5c524eb6ec84f87",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 85131,
+        "expected_sha256": "386b528a69029507f80a2df4d6df2a4fa6ba2ba811501dc3449ceea58b5cd90a",
+        "links": [],
+        "matches": true,
+        "mode": 420,
+        "name": "vllm/v1/engine/core_client.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 85131,
+          "type": "regular"
+        },
+        "path": "/usr/local/lib/python3.12/dist-packages/vllm/v1/engine/core_client.py",
+        "reason": null,
+        "resolved": "/usr/local/lib/python3.12/dist-packages/vllm/v1/engine/core_client.py",
+        "sha256": "386b528a69029507f80a2df4d6df2a4fa6ba2ba811501dc3449ceea58b5cd90a",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 59997,
+        "expected_sha256": "8740c9af331597573d59941d3d65a58dbfd93c92f0144fd187b44bb25a6e4a2e",
+        "links": [],
+        "matches": true,
+        "mode": 420,
+        "name": "vllm/v1/engine/utils.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 59997,
+          "type": "regular"
+        },
+        "path": "/usr/local/lib/python3.12/dist-packages/vllm/v1/engine/utils.py",
+        "reason": null,
+        "resolved": "/usr/local/lib/python3.12/dist-packages/vllm/v1/engine/utils.py",
+        "sha256": "8740c9af331597573d59941d3d65a58dbfd93c92f0144fd187b44bb25a6e4a2e",
+        "stage": "complete",
+        "status": "read"
+      },
+      {
+        "bytes": 45633,
+        "expected_sha256": "948c15e09617b02e2d0746d9ee20b43168b083da71313d05f06b29a753f8570b",
+        "links": [],
+        "matches": true,
+        "mode": 420,
+        "name": "vllm/v1/executor/multiproc_executor.py",
+        "observed": {
+          "mode": 420,
+          "nlink": 1,
+          "size": 45633,
+          "type": "regular"
+        },
+        "path": "/usr/local/lib/python3.12/dist-packages/vllm/v1/executor/multiproc_executor.py",
+        "reason": null,
+        "resolved": "/usr/local/lib/python3.12/dist-packages/vllm/v1/executor/multiproc_executor.py",
+        "sha256": "948c15e09617b02e2d0746d9ee20b43168b083da71313d05f06b29a753f8570b",
+        "stage": "complete",
+        "status": "read"
+      }
+    ]
+  },
+  "hardware_validated": false,
+  "image": {
+    "binding": "local-manifest-reference-platform-and-diffids",
+    "daemon_os_interpreter_trusted": true,
+    "docker_reported_id": "sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "local_config_bytes_rehashed": false,
+    "local_layers_rehashed": false,
+    "manifest_sha256": "6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "platform": "linux/amd64",
+    "raw_config_link_verified": true,
+    "raw_config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d"
+  },
+  "provenance": {
+    "diagnostic_mode": "python-descriptor",
+    "expected_config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d",
+    "git_sha": "8ceec40b867460f9273a321a16798bb36bbfe1fa",
+    "payload_sha256": "2142fd5e894744adb1f92749f0a9d61f99615ee90562c64e22726f685592ac8b",
+    "raw_oci_metadata_verified": true,
+    "requested_image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "source_bundle_sha256": "b7705b976ac938bf3b61a46eede9baf85f54d06d5b184c4aae395d36b4ae2482",
+    "validator_source_sha256": "c18f7f7028758f683f01a67806cbe5db9d44f503c6f58357393329b01a243232"
+  },
+  "result": "fail",
+  "stage": "python-descriptor-partial"
+}
