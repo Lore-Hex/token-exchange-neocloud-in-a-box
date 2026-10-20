@@ -303,7 +303,7 @@ def run(payload, sha, destination, socket):
     owner = uuid.uuid4().hex
     name = "nib-tau-" + owner
     started = now()
-    result, stage, cleaned = None, "image", False
+    result, stage, cleaned, create_unknown = None, "image", False, False
     with tempfile.TemporaryDirectory(prefix="nib-tau-docker-") as private:
         config = Path(private) / "config.json"
         config.write_text('{"auths":{"https://index.docker.io/v1/":{}}}\n')
@@ -332,9 +332,13 @@ def run(payload, sha, destination, socket):
                     and re.fullmatch("sha256:[0-9a-f]{64}", image["Id"])
                     and not image["Config"].get("Volumes"))
             stage = "create"
+            # Killing the bounded client cannot cancel an in-flight daemon create.
+            # Only the exact owned-container inspection establishes completion.
+            create_unknown = True
             command(*create_command(name, owner, payload, sha, image["Id"]))
             info = tau.json_value(command("inspect", name))[0]
             check_container(info, name, owner, payload, sha, image["Id"])
+            create_unknown = False
             stage = "trial"
             raw = command("start", "--attach", name, seconds=SECONDS, limit=16384)
             observed = tau.json_value(raw)
@@ -355,7 +359,8 @@ def run(payload, sha, destination, socket):
                 require(len(names) <= 1 and all(re.fullmatch("[0-9a-f]{12,64}", item) for item in names))
                 if names:
                     command("rm", "--force", *names)
-                cleaned = not command("ps", "-aq", "--filter", "label=" + LABEL + "=" + owner).strip()
+                empty = not command("ps", "-aq", "--filter", "label=" + LABEL + "=" + owner).strip()
+                cleaned = empty and not create_unknown
             except Exception:
                 cleaned = False
             signal.signal(signal.SIGTERM, old)
@@ -363,6 +368,7 @@ def run(payload, sha, destination, socket):
               "image": plan["image"], "platform": plan["platform"], "execution": "software",
               "started_utc": started, "ended_utc": now(),
               "stage": stage, "cleanup_confirmed": cleaned, "diagnostic": result,
+              "cleanup": "create-completion-unknown" if create_unknown else "confirmed" if cleaned else "failed",
               "result": "pass" if cleaned and result and result["completed"]
                         and result["report"]["trials"][0]["status"] == "evaluated" else "fail",
               "confidential": False, "quality_accepted": False, "live_transport": False}

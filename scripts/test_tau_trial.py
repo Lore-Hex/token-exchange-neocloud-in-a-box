@@ -452,7 +452,13 @@ class LifecycleTests(unittest.TestCase):
                 "State": {"Running": False, "OOMKilled": False, "ExitCode": 0}}
 
     def test_real_recorder_control_flow_fake_docker_clean_and_failed_output(self):
-        for failure in (None, "attach", "output", "cleanup", "oom", "policy"):
+        self.exercise_lifecycle((None, "attach", "output", "cleanup", "oom", "policy"))
+
+    def test_create_timeout_late_daemon_and_inspection_timeout_cannot_certify_cleanup(self):
+        self.exercise_lifecycle(("create_timeout", "create_late", "inspect_timeout"))
+
+    def exercise_lifecycle(self, failures):
+        for failure in failures:
             with self.subTest(failure=failure):
                 manifest = fixtures.manifest()
                 selection = chosen(manifest)
@@ -467,7 +473,7 @@ class LifecycleTests(unittest.TestCase):
                 result = {"schema": "nib.tau-scripted-trial/v1", "stage": "completed", "completed": True,
                           "report": report, "accounting": accounting, "quality_accepted": False, "confidential": False,
                           "live_transport": False, "token_usage": "synthetic-not-tokenized", "upstream_executed": True}
-                state = {"exists": False}
+                state = {"exists": False, "queries": 0}
                 calls = []
                 published = {}
                 def capture(argv, *, env, timeout, limit):
@@ -482,9 +488,13 @@ class LifecycleTests(unittest.TestCase):
                         return tau.encoded([{"Id": "sha256:" + "c" * 64, "Os": "linux", "Architecture": "amd64",
                                              "RepoDigests": [runner.runtime.TARGET["image"]], "Config": {}}])
                     if args[0] == "create":
+                        if failure in ("create_timeout", "create_late"):
+                            raise TimeoutError(CANARY)
                         state.update(exists=True, info=self.info(args))
                         return b"d" * 64
                     if args[0] == "inspect":
+                        if failure == "inspect_timeout":
+                            raise TimeoutError(CANARY)
                         info = copy.deepcopy(state["info"])
                         if failure == "policy":
                             info["HostConfig"]["NetworkMode"] = "bridge"
@@ -498,6 +508,12 @@ class LifecycleTests(unittest.TestCase):
                             return tau.encoded({"secret": CANARY})
                         return tau.encoded(result)
                     if args[0] == "ps":
+                        state["queries"] += 1
+                        if failure == "create_late" and state["queries"] == 2:
+                            # Both queries observed absence, but the daemon creates
+                            # afterward. No actual container or background task.
+                            state["exists"] = True
+                            return b""
                         return b"d" * 64 if state["exists"] else b""
                     if args[0] == "rm":
                         if failure == "cleanup":
@@ -524,8 +540,18 @@ class LifecycleTests(unittest.TestCase):
                 envelope = json.loads(published["run.json"])
                 self.assertEqual(envelope["execution"], "software")
                 self.assertFalse(envelope["hardware_validated"])
-                self.assertEqual(summary["cleanup_confirmed"], failure != "cleanup")
-                self.assertTrue(any(args[0] == "rm" for args in calls))
+                uncertain = failure in ("create_timeout", "create_late", "inspect_timeout", "policy")
+                self.assertEqual(summary["cleanup_confirmed"], failure != "cleanup" and not uncertain)
+                self.assertEqual(summary["cleanup"], "create-completion-unknown" if uncertain else
+                                 "failed" if failure == "cleanup" else "confirmed")
+                if failure in ("create_timeout", "create_late"):
+                    self.assertFalse(any(args[0] in ("inspect", "start", "rm") for args in calls))
+                else:
+                    self.assertTrue(any(args[0] == "rm" for args in calls))
+                if failure == "create_late":
+                    self.assertTrue(state["exists"])
+                    self.assertEqual(state["queries"], 2)
+                    self.assertEqual(envelope["result"], "fail")
                 if failure == "policy":
                     self.assertFalse(any(args[0] == "start" for args in calls))
                 if failure == "output":

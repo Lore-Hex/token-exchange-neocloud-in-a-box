@@ -116,6 +116,11 @@ is allowed. Docker uses a private credential-free config and an explicitly
 selected local Unix socket. Inspection rejects policy drift before start;
 normal completion requires no OOM, exit zero and stopped state. The owned
 container is force-removed and an independent label query must be empty.
+Create completion is uncertain from immediately before dispatch until exact
+owned-container inspection succeeds. Client timeout or failed inspection keeps
+`cleanup=create-completion-unknown`, even if cleanup currently lists no matching
+container: the daemon can finish a create after that query. Such an attempt
+cannot claim cleanup or integration success.
 The Docker operation shares 300 seconds, with a separate maximum 60-second
 cleanup allowance; initial host revalidation is separately bounded to 60
 seconds. A worker-wide 240-second timer also covers startup and import; file
