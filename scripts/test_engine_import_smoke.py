@@ -21,6 +21,7 @@ RECORDED_SOURCE = "4b6b90613cfcd806ea0d40bf0b1aa7a415880313"
 NUMPY_RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-numpy-startup-smoke"
 DENIED_RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-denied-process-smoke"
 CALLSITE_RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-callsite-smoke"
+DISTRO_RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-distro-callsite-smoke"
 
 
 def load(name, relative):
@@ -110,7 +111,10 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(contract["import_environment_sources"], list(smoke.ENVIRONMENT_SOURCES))
         self.assertEqual(contract["process_callsite_sources"], smoke.callsite_specs())
         self.assertEqual(len(contract["process_callsite_sources"]), 12)
-        self.assertEqual(sum(row["bytes"] for row in contract["process_callsite_sources"]), 537634)
+        self.assertEqual(sum(row["bytes"] for row in contract["process_callsite_sources"]), 538259)
+        self.assertEqual(contract["process_callsite_sources"][3:5],
+                         [s for s in smoke.callsite_specs() if s["root"] == "stdlib"])
+        self.assertEqual([s["revision"] for s in smoke.DISTRO_SOURCES], ["3.12.3-1ubuntu0.17"] * 2)
         self.assertEqual(contract["metadata_source_sha256"], tool.bootstrap.METADATA_SOURCES)
         self.assertEqual(contract["permitted_dependency_entrypoint"], list(tool.bootstrap.CONTEXT_ENTRYPOINT))
         self.assertEqual([p["revision"] for p in contract["import_environment_sources"]],
@@ -319,6 +323,7 @@ class SmokeTests(unittest.TestCase):
                 processes = types.SimpleNamespace(execute_process_group=execute)
                 with mock.patch("time.monotonic", side_effect=lambda: clock[0]), \
                      mock.patch.object(smoke, "load_module", return_value=processes), \
+                     mock.patch.object(smoke, "verify_stdlib_sources"), \
                      mock.patch.object(smoke, "require", overlay.require, create=True):
                     report = smoke.apply_and_smoke(self.contract, {"processes.py": b"unused"},
                         (overlay, None, None, app), {"files": []}, self.measured)
@@ -378,12 +383,70 @@ class SmokeTests(unittest.TestCase):
                 return {}
             app = types.SimpleNamespace(verify_layout=verify, selected_tree=selected, inspect=lambda *args: {},
                                         apply=apply, require_contract=lambda *args: None)
-            with mock.patch("time.monotonic", side_effect=lambda: clock[0]), mock.patch.object(smoke, "load_module") as launch:
-                report = smoke.apply_and_smoke({}, {}, (overlay, None, None, app), {"files": []}, self.measured)
+            with mock.patch("time.monotonic", side_effect=lambda: clock[0]), \
+                 mock.patch.object(smoke, "verify_stdlib_sources"), mock.patch.object(smoke, "load_module") as launch:
+                report = smoke.apply_and_smoke(self.contract, {}, (overlay, None, None, app), {"files": []}, self.measured)
             launch.assert_not_called()
             self.assertEqual(report["stage"], expected)
             self.assertIsNone(report["application"])
             self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
+
+    def test_distro_source_preflight_reuses_real_reader_before_any_application(self):
+        payload = types.ModuleType("preflight_payload")
+        exec(compile(tool.BOOTSTRAP_SOURCE + b"\n" + tool.SMOKE_SOURCE, "<payload>", "exec"), payload.__dict__)
+        raw = b"raise RuntimeError('source must never execute')\n"
+        paths = [self.root / "ctypes" / "util.py", self.root / "platform.py"]
+        paths[0].parent.mkdir()
+        payload.DISTRO_SOURCES = tuple({"installed": str(path.relative_to(self.root)), "bytes": len(raw),
+                                       "sha256": overlay.digest(raw)} for path in paths)
+        contract = {**self.contract, "paths": [str(self.root)]}
+        for path in paths:
+            path.write_bytes(raw)
+        payload.verify_stdlib_sources(str(self.root))
+        for index in range(2):
+            for failure in ("missing", "changed", "size", "symlink", "hardlink", "fifo", "directory", "oversize"):
+                with self.subTest(index=index, failure=failure):
+                    path = paths[index]
+                    path.unlink()
+                    if failure == "changed":
+                        path.write_bytes(b"X" * len(raw))
+                    elif failure == "size":
+                        path.write_bytes(raw + b" ")
+                    elif failure == "symlink":
+                        path.symlink_to(paths[1 - index])
+                    elif failure == "hardlink":
+                        os.link(paths[1 - index], path)
+                    elif failure == "fifo":
+                        os.mkfifo(path)
+                    elif failure == "directory":
+                        path.mkdir()
+                    elif failure == "oversize":
+                        path.write_bytes(b"X" * ((256 << 10) + 1))
+                    app = types.SimpleNamespace(verify_layout=mock.Mock(), selected_tree=mock.Mock())
+                    started = time.monotonic()
+                    report = payload.apply_and_smoke(contract, {}, (overlay, None, None, app), {}, self.measured)
+                    self.assertLess(time.monotonic() - started, 2)
+                    self.assertEqual(report["stage"], "application-preflight")
+                    self.assertEqual(report["failure"], "bounded-smoke-stage-rejected")
+                    self.assertIsNone(report["application"])
+                    self.assertIsNone(report["phase_elapsed_ms"]["application"])
+                    app.verify_layout.assert_not_called()
+                    app.selected_tree.assert_not_called()
+                    self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
+                    self.assertNotIn("source must never execute", json.dumps(report))
+                    if failure == "directory":
+                        path.rmdir()
+                    elif failure != "missing":
+                        path.unlink()
+                    path.write_bytes(raw)
+        # Both files are verified before the independent layout gate is reached.
+        app = types.SimpleNamespace(verify_layout=mock.Mock(side_effect=ValueError("synthetic-private")),
+                                    selected_tree=mock.Mock())
+        report = payload.apply_and_smoke(contract, {}, (overlay, None, None, app), {}, self.measured)
+        app.verify_layout.assert_called_once()
+        app.selected_tree.assert_not_called()
+        self.assertEqual(report["stage"], "application-preflight")
+        self.assertNotIn("synthetic-private", json.dumps(report))
 
     def test_publish_no_overwrite_and_source_reader_special_files(self):
         destination = self.root / "payload"
@@ -542,7 +605,7 @@ class SmokeTests(unittest.TestCase):
         binary, _ = tool.recorder.build_validator(ROOT, record["git_sha"], self.root, env)
         tool.recorder.publish_evidence(record, report, binary, self.root, self.root / "evidence", env)
         self.assertEqual(json.loads((self.root / "evidence/run.json").read_bytes()), record)
-        for directory in (RECORDED, NUMPY_RECORDED, DENIED_RECORDED, CALLSITE_RECORDED):
+        for directory in (RECORDED, NUMPY_RECORDED, DENIED_RECORDED, CALLSITE_RECORDED, DISTRO_RECORDED):
             recorded = self.root / "recorded/evidence/p0" / directory.name
             recorded.mkdir(parents=True)
             (recorded / "run.json").write_bytes(tool.read_source(directory / "run.json"))
@@ -592,6 +655,25 @@ class SmokeTests(unittest.TestCase):
             timestamps=("2026-10-20T06:38:11Z", "2026-10-20T06:48:22Z"),
             elapsed={"application-preflight": 9112, "application": 582750, "import-smoke": 7036}, guard=("process", 1),
             denied={"event": "subprocess.Popen", "command": "other", "caller": "other"}, callsites=callsites)
+
+    def test_recorded_distro_attempt_identifies_denied_ldconfig_without_permission(self):
+        sources = [{"id": name, "status": "verified"}
+                   for name in ("vllm-init", "vllm-env", "torch-init", "ctypes-util", "platform", "triton-nvidia",
+                                "triton-amd", "triton-build", "triton-knobs", "torch-extension", "torch-builder", "torch-vec")]
+        callsites = [{"sources": sources,
+                     "ids": ["ctypes-util:_findSoname_ldconfig", "torch-init-extension-call", "torch-init:module",
+                             "vllm-env-torch-import", "vllm-env:module", "vllm-init-env-import", "vllm-init:module"],
+                     "frames_scanned": scanned, "unmatched_frames": scanned - 4,
+                     "scan_truncated": False, "output_truncated": False, "comparison_failed": False}
+                    for scanned in (105, 111, 111)]
+        self.assert_recorded_attempt(DISTRO_RECORDED, "303990335ee6c65fc3ba01f8148d7c9c9029375a",
+            run_sha="c78094cc7d5221bd59970b96fc293d2f2b16eb854d7ec3a0670dc7f39b4282c2",
+            output_sha="9fc662a8460eaa415cda88615b7c598196a78b6108aba078c8668468569b917f",
+            recorder_sha="8fadc2b6f408b25ac3238593cb591d8ff4f9324a8855b867c624f8085c4307f9",
+            payload_sha="deb91df6333f37a58fc1b87dd3136f7ba83217994b740af5a5a5ae403a46fda8",
+            timestamps=("2026-10-20T07:52:24Z", "2026-10-20T08:01:25Z"),
+            elapsed={"application-preflight": 8620, "application": 512969, "import-smoke": 8531}, guard=("process", 1),
+            denied={"event": "subprocess.Popen", "command": "ldconfig-cache", "caller": "other"}, callsites=callsites)
 
     def assert_recorded_attempt(self, directory, revision, *, run_sha, output_sha, recorder_sha, payload_sha,
                                 timestamps, elapsed, guard, denied=None, callsites=None):

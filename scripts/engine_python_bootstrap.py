@@ -24,12 +24,13 @@ CONTEXT_ENTRYPOINT = ("opentelemetry_context", "contextvars_context",
 CONTEXT_MODULE = "opentelemetry.context.contextvars_context"
 PROCESS_EVENTS = ("subprocess.Popen", "multiprocessing.spawnv_passfds", "os.exec",
                   "os.posix_spawn", "os.system", "os.fork", "os.forkpty")
-PROCESS_COMMANDS = ("uname-processor", "gxx-version", "ptxas-version", "other")
+PROCESS_COMMANDS = ("uname-processor", "gxx-version", "ptxas-version", "ldconfig-cache", "other")
 # Classification only, never authorization. No basename matching, path
 # resolution, shell parsing or arbitrary string conversion. Sources in task doc.
 PROCESS_SHAPES = {
     ("uname", "-p"): "uname-processor",
     ("g++", "--version"): "gxx-version",
+    ("/sbin/ldconfig", "-p"): "ldconfig-cache",
     ("/usr/local/lib/python3.12/dist-packages/triton/backends/nvidia/bin/ptxas", "--version"): "ptxas-version",
     ("/usr/local/lib/python3.12/dist-packages/triton/backends/nvidia/bin/ptxas-blackwell", "--version"): "ptxas-version",
 }
@@ -142,12 +143,18 @@ def callsite_observation(catalog, frame):
             result["frames_scanned"] += 1
             matched = False
             code = frame.f_code
+            compared = {}
             for identifier, _, reference, offsets in references:
                 try:
                     # Cheap exact-type name filter only; it never establishes a match.
                     if type(code) is not types.CodeType or type(code.co_name) is not str or code.co_name != reference.co_name:
                         continue
-                    if same_code(code, reference) and (offsets is None or frame.f_lasti in offsets):
+                    # Phase selectors share a public code object. Compare it
+                    # only once per frame; never hash/serialize observed code.
+                    key = id(reference)
+                    if key not in compared:
+                        compared[key] = same_code(code, reference)
+                    if compared[key] and (offsets is None or frame.f_lasti in offsets):
                         matched = True
                         if identifier not in result["ids"]:
                             if len(result["ids"]) < CALLSITE_IDS:

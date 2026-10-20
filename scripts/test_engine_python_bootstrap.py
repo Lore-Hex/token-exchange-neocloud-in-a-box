@@ -580,6 +580,8 @@ class BootstrapTests(unittest.TestCase):
             self.assertEqual(bootstrap.process_command(Hostile(), list(shape)), "other")
         for executable in ("/usr/bin/uname", "./uname", "UNAME", "/private/../uname"):
             self.assertEqual(bootstrap.process_command(executable, [executable, "-p"]), "other")
+        for executable in ("ldconfig", "/usr/sbin/ldconfig", "/sbin/../sbin/ldconfig", "/private/ldconfig"):
+            self.assertEqual(bootstrap.process_command(executable, [executable, "-p"]), "other")
 
     def process_fixture(self, operation):
         driver = DRIVER.replace('            if name == "fork":',

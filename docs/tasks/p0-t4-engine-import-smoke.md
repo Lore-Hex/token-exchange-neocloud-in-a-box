@@ -139,6 +139,39 @@ reconstructs this complete payload with its original committed producer and
 validates the failure using that producer's validator. Do not repeat the
 unchanged experiment; any next correction requires separate source review.
 
+### Distro Callsite Attempt
+
+The unchanged [run metadata](../../evidence/p0/2026-10-20-official-vllm-distro-callsite-smoke/run.json)
+and [sanitized output](../../evidence/p0/2026-10-20-official-vllm-distro-callsite-smoke/output.log)
+record source `303990335ee6c65fc3ba01f8148d7c9c9029375a`, from
+2026-10-20 07:52:24 through 08:01:25 UTC. Payload SHA-256 is
+`deb91df6333f37a58fc1b87dd3136f7ba83217994b740af5a5a5ae403a46fda8`.
+
+All twelve reference sources verified, including the two Ubuntu stdlib files.
+All five application stages passed with native inventory unchanged and the same
+2,879 bytecode removals. Phase durations were 8,620 ms preflight, 512,969 ms
+application and 8,531 ms imports.
+
+Fresh, spawn and grandchild each rejected the first API-entry import with
+`subprocess.Popen` and command `ldconfig-cache`, the exact classifier for
+`/sbin/ldconfig -p`. All three matched `ctypes-util:_findSoname_ldconfig` and
+`torch-init-extension-call`, followed by the previously observed Torch/vLLM
+ancestors. This identifies the denied library-cache query during Torch extension
+initialization; it does not authorize that query or establish runtime safety.
+The coarse caller remains `other`. Fresh scanned 105 frames, 101 unmatched;
+spawn and grandchild each scanned 111, 107 unmatched. No scan/output truncation
+or comparison failure occurred.
+
+Each process recorded process-guard count 1, every other guard count zero,
+`first_state_mismatch:null`, and zero permitted dependency entrypoint loads.
+The remaining three imports were not run. Bootstrap/pre-unpickle observations
+and tracker exit passed. Cleanup is `confirmed`; the parent independently
+observed an empty Docker label listing, not included in the artifact.
+The result remains `smoke-rejected`, `smoke_pass:false`, `result:fail`,
+`deployable:false`. No GPU, weights, model inference, ABI or confidentiality
+qualification occurred. Historical payload reconstruction checks preserve this
+failure and all earlier artifacts. Do not repeat the unchanged experiment.
+
 ### Denied-Process Diagnostics
 
 The recorder diagnostics were exercised in the attempt above, which remained
@@ -157,7 +190,7 @@ contain new observations.
   `os.exec`, `os.posix_spawn`, `os.system`, `os.fork` and `os.forkpty`.
 - Command classes are `uname-processor`, `gxx-version`, `ptxas-version` and
   `other`. Known classes require exactly two arguments and executable equality
-  with argv[0]: `uname -p`, `g++ --version`, or `--version` for exactly
+  with argv[0]: `uname -p`, `g++ --version`, `/sbin/ldconfig -p`, or `--version` for exactly
   `/usr/local/lib/python3.12/dist-packages/triton/backends/nvidia/bin/ptxas`
   or its `ptxas-blackwell` sibling. No basename/path normalization, shell
   interpretation or private-path matching occurs. Extra arguments, alternate
@@ -188,7 +221,7 @@ IDs, per-source availability, scanned/unmatched frame counts, independent
 `scan_truncated` and `output_truncated` booleans, and `comparison_failed`.
 The old module-name caller remains only a hint; it does not establish an ID.
 
-The recorder binds a twelve-file catalog (537,634 source bytes) in its payload.
+The recorder binds a twelve-file catalog (538,259 source bytes) in its payload.
 Each interpreter reads only those fixed installed paths through the existing
 bounded no-follow regular-file reader, checks size and SHA-256, then compiles
 each matching source once with its own compiler, `flags=0`, `dont_inherit=True`
@@ -203,15 +236,21 @@ line and exception tables), excluding `co_filename`. It never hashes or
 serializes unknown frame code, reads globals/locals, or converts arbitrary
 objects. Matching structure does **not** prove origin, globals, executed data,
 or authorization. Changed cached bytecode with unchanged source is not a match.
-Specific vLLM phases additionally require an instruction offset from the
+Specific phases additionally require an instruction offset from the
 verified reference statement: init's env import, env's Torch import, the
-lowering/graph imports, and the top-level fallback-patch call. No observed line
-number or path is published.
+lowering/graph imports, the top-level fallback-patch call, all 71 Torch module-code
+import statements and three Torch initialization calls. The thirty-submodule
+`from torch import (...)` statement is one block ID, not an attribution to any
+one of its names: Python can import the entire from-list during `IMPORT_NAME`,
+before its individual `IMPORT_FROM` instructions. No observed line number or
+path is published.
 
 The scan visits at most 128 frames, nearest first, retaining at most eight unique
 IDs. Hitting the output limit does not stop the frame scan. Each structural
-comparison has a 20,000-node and depth-64 bound; at most 36 selected references
+comparison has a 20,000-node and depth-64 bound; at most 110 selected references
 are considered per frame, with a name prefilter that cannot establish a match.
+Selectors sharing the same public code object reuse one structural comparison
+per frame; neither private code nor its constants become cache keys.
 These are finite diagnostic bounds, not a runtime performance qualification.
 The offline audit checks every actual public reference against those bounds.
 The source statuses are `verified`, `missing`, `read-rejected`,
@@ -223,8 +262,8 @@ replace the original denial or clear its sticky counter.
 
 | Source ID | Immutable public source |
 |---|---|
-| `ctypes-util` | [CPython ctypes/util.py](https://github.com/python/cpython/blob/f6650f9ad73359051f3e558c2431a109bc016664/Lib/ctypes/util.py) |
-| `platform` | [CPython platform.py](https://github.com/python/cpython/blob/f6650f9ad73359051f3e558c2431a109bc016664/Lib/platform.py) |
+| `ctypes-util` | `usr/lib/python3.12/ctypes/util.py` in [Ubuntu libpython3.12-stdlib 3.12.3-1ubuntu0.17 amd64](https://archive.ubuntu.com/ubuntu/pool/main/p/python3.12/libpython3.12-stdlib_3.12.3-1ubuntu0.17_amd64.deb), exact package/source hashes below |
+| `platform` | `usr/lib/python3.12/platform.py` in [Ubuntu libpython3.12-minimal 3.12.3-1ubuntu0.17 amd64](https://archive.ubuntu.com/ubuntu/pool/main/p/python3.12/libpython3.12-minimal_3.12.3-1ubuntu0.17_amd64.deb), exact package/source hashes below |
 | `triton-nvidia` | [Triton NVIDIA driver](https://github.com/triton-lang/triton/blob/f797708c0626e5f9840ca5b0a98790e2c7cb09ad/third_party/nvidia/backend/driver.py) |
 | `triton-amd` | [Triton AMD driver](https://github.com/triton-lang/triton/blob/f797708c0626e5f9840ca5b0a98790e2c7cb09ad/third_party/amd/backend/driver.py) |
 | `triton-build` | [Triton runtime build](https://github.com/triton-lang/triton/blob/f797708c0626e5f9840ca5b0a98790e2c7cb09ad/python/triton/runtime/build.py) |
@@ -238,16 +277,18 @@ selectors can distinguish that structure if observed. Its reachability in the
 historical run is unproven. The ISA environment setting remains unchanged; no
 generated script or library path is examined or published.
 
-All twelve files were independently retrieved from their fixed public revisions
-and checked locally: 537,634 bytes, twelve matching SHA-256 values, 36 matching
-selectors under Python 3.12.13. This compile-only source audit is not an installed
+All twelve current references were checked locally against their fixed public
+revisions/packages: 538,259 bytes, twelve matching SHA-256 values, 110 matching
+selectors under Python 3.12.13. The audit also checks that every Torch module-code
+`IMPORT_NAME` is covered and all thirty submodule imports lie within their block.
+This compile-only source audit is not an installed
 image observation; the target image compiles its own verified references under
 its previously measured Python 3.12.3. Reproduce offline against already fetched
 files named by catalog source ID (for example `torch-vec.py`):
 
 ```sh
 uv run --project tools --frozen python -I scripts/test_engine_callsite.py \
-  --public-sources /private/tmp/nib-engine-callsite-sources
+  --public-sources /private/tmp/nib-distro-callsite-sources
 ```
 
 Tests also cover source/read/selector failures, unknown commands with verified
@@ -255,6 +296,49 @@ ancestors, altered constants/line/exception tables, valid stale bytecode,
 spoofed names, no private hashing/conversion, both independent caps, caught
 denials, diagnostic failure, and real local fresh/spawn/grandchild/tracker paths.
 Historical artifacts remain byte-identical and use their original validators.
+
+### Distro Reference Correction
+
+The original `094aa096293cdde51534dccbdc205ada67cc9653` attempt used pristine
+upstream CPython references, and both stdlib sources reported `source-mismatch`.
+That recorded result is unchanged. The new references use Ubuntu's published
+`3.12.3-1ubuntu0.17` packages. HTTPS
+[stdlib package metadata](https://packages.ubuntu.com/noble-updates/amd64/libpython3.12-stdlib/download)
+and [minimal package metadata](https://packages.ubuntu.com/noble-updates/amd64/libpython3.12-minimal/download),
+checked 2026-10-20, supply the matching package sizes and SHA-256 values:
+
+| Package | Bytes | SHA-256 |
+|---|---:|---|
+| `libpython3.12-stdlib_3.12.3-1ubuntu0.17_amd64.deb` | 2,070,530 | `45d3f530ba1f9d6e879ad46b92046fabab13fe50a82450e4f65557a3bbad1489` |
+| `libpython3.12-minimal_3.12.3-1ubuntu0.17_amd64.deb` | 838,536 | `d646ad7112b5adec21ba0e1af015f04ae8ca7f5efdc619622547dd6673c4c14b` |
+
+| Extracted public source | Bytes | SHA-256 |
+|---|---:|---|
+| `ctypes/util.py` | 14,584 | `9cddec0d3640c812f023cf850107e38705a040fb22213181a8cd30cdd49ea0d1` |
+| `platform.py` | 43,331 | `ed0defe8ff7c116710493ffd099b566d3de686ab1b431a3d5401056798e59341` |
+
+These packages were read as archives, never installed or executed. Their twelve
+previously measured stdlib files match every corresponding hash in the
+[chain artifact](../../evidence/p0/2026-10-20-official-vllm-python-chain/output.log).
+The published `python3.12-minimal` executable also matches the artifact's
+`e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f`.
+This is **external package byte correspondence**, not an installed dpkg-version
+measurement, signed-APT verification, or whole-image package certification.
+
+Before layout validation or any inventory/application pass, the smoke checks
+the two installed stdlib sources with the existing bounded, anchored no-follow,
+nonblocking regular-file reader and these exact size/hash pins. Failure retains
+`application-preflight` rejection and never reaches application or engine import.
+There is no dpkg subprocess/parser, network fetch, alternate-source fallback, or
+package installation. Successful preflight does not relax any subsequent gate.
+
+The distro `ctypes.util._findSoname_ldconfig` invokes exactly
+`['/sbin/ldconfig', '-p']`. This adds a fixed `ldconfig-cache` diagnostic class,
+not permission: the same audit rejection and sticky process counter apply.
+Bare `ldconfig`, `/usr/sbin/ldconfig`, path aliases, extra arguments and malformed
+values remain `other` and denied. The historical `other/other` event is still
+unattributed; no compiler/ISA flag or runtime allowance changed. This correction
+has not yet been exercised in the pinned image.
 
 Primary source observations (read without executing upstream packages):
 

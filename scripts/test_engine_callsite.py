@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Bounded source compilation/code matching; no upstream module execution."""
 
+import dis
 import hashlib
 import json
 from pathlib import Path
@@ -40,6 +41,15 @@ def verify_public_sources(directory):
     for _, _, reference, _ in references:
         if not bootstrap.same_code(reference, reference):
             raise ValueError("public code comparison differs")
+    torch = next(code for identifier, _, code, _ in references if identifier == "torch-init:module")
+    imports = [(i.positions.lineno, i.argval) for i in dis.get_instructions(torch) if i.opname == "IMPORT_NAME"]
+    if sorted(imports) != sorted((line, name) for _, line, name in smoke.TORCH_IMPORT_PHASES):
+        raise ValueError("public import phase coverage differs")
+    block = next(offsets for identifier, _, _, offsets in references
+                 if identifier == "torch-init-import-thirty-submodules")
+    names = [i for i in dis.get_instructions(torch) if i.opname == "IMPORT_FROM" and i.positions.lineno == 2298]
+    if len(names) != 30 or any(i.offset not in block for i in names):
+        raise ValueError("public submodule block coverage differs")
     return {"python": ".".join(map(str, sys.version_info[:3])), "sources": len(sources),
             "bytes": sum(s["bytes"] for s in specs), "sites": len(references)}
 
@@ -148,6 +158,27 @@ class CallsiteTests(unittest.TestCase):
         self.assertEqual(bootstrap.callsite_observation(catalog, self.frame(code, offset=len(code.co_code) - 2))["ids"], [])
         self.spec["sites"][0]["arg"] = "second"
         self.assertEqual(self.catalog(), ([{"id": "source", "status": "selector-rejected"}], []))
+
+    def test_multiline_fromlist_is_one_phase_not_false_individual_attribution(self):
+        self.raw = ("from public import (\n" + "".join(f"    item{i},\n" for i in range(30)) + ")\nimport after\n").encode()
+        self.path.write_bytes(self.raw)
+        self.spec.update(bytes=len(self.raw), sha256=hashlib.sha256(self.raw).hexdigest(), sites=[
+            {"id": "public-block", "qualname": "<module>", "line": 1, "op": "IMPORT_NAME", "arg": "public"}])
+        catalog = self.catalog()
+        code = catalog[1][0][2]
+        calls = [i for i in dis.get_instructions(code) if i.opname in ("IMPORT_NAME", "IMPORT_FROM")]
+        self.assertEqual(len(calls), 32)
+        for instruction in calls:
+            self.assertEqual(bootstrap.callsite_observation(catalog, self.frame(code, offset=instruction.offset))["ids"],
+                             [] if instruction.argval == "after" else ["public-block"])
+
+    def test_many_phase_selectors_compare_shared_public_code_once_per_frame(self):
+        code = self.code()
+        refs = [("phase-" + str(i), "source", code, (i,)) for i in range(110)]
+        with mock.patch.object(bootstrap, "same_code", wraps=bootstrap.same_code) as compare:
+            row = bootstrap.callsite_observation(([], refs), self.frame(code, offset=73))
+        self.assertEqual(row["ids"], ["phase-73"])
+        self.assertEqual(compare.call_count, 1)
 
     def test_frame_scan_and_id_output_caps_are_independent_nearest_first(self):
         code = self.code()
