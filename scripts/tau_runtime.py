@@ -210,23 +210,36 @@ def platform_ok(tag):
     return match is not None and 5 <= int(match[1]) <= 36
 
 
+def expand_tags(values):
+    """Compare compressed filename and WHEEL triples with the same finite rules."""
+    require(0 < len(values) <= 128)
+    tags, count = set(), 0
+    for value in values:
+        require(type(value) is str and 0 < len(value) <= 512)
+        parts = value.split("-")
+        require(len(parts) == 3 and all(re.fullmatch(r"[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*", part)
+                                       for part in parts))
+        fields = [part.split(".") for part in parts]
+        count += len(fields[0]) * len(fields[1]) * len(fields[2])
+        require(count <= 256)
+        tags.update(itertools.product(*fields))
+    return tags
+
+
 def wheel_tags(filename):
     require(filename.endswith(".whl") and "/" not in filename and "\\" not in filename)
     parts = filename[:-4].split("-")
     require(len(parts) in (5, 6))
-    python, abi, platform = parts[-3:]
-    for py in python.split("."):
-        for ab in abi.split("."):
-            for plat in platform.split("."):
-                if not platform_ok(plat):
-                    continue
-                if py in ("py3", "py312") and ab == "none" and plat == "any":
-                    return True
-                if py == "cp312" and ab in ("cp312", "abi3", "none"):
-                    return True
-                if ab == "abi3" and py in ("cp32", "cp33", "cp34", "cp35", "cp36", "cp37",
-                                          "cp38", "cp39", "cp310", "cp311"):
-                    return True
+    for py, ab, plat in expand_tags(["-".join(parts[-3:])]):
+        if not platform_ok(plat):
+            continue
+        if py in ("py3", "py312") and ab == "none" and plat == "any":
+            return True
+        if py == "cp312" and ab in ("cp312", "abi3", "none"):
+            return True
+        if ab == "abi3" and py in ("cp32", "cp33", "cp34", "cp35", "cp36", "cp37",
+                                  "cp38", "cp39", "cp310", "cp311"):
+            return True
     return False
 
 
@@ -329,13 +342,12 @@ def check_wheel(raw, expected, deadline):
                     wheel = BytesParser().parsebytes(data)
         require(metadata is not None and wheel is not None)
         normalize = lambda value: re.sub(r"[-_.]+", "-", value).lower()
-        tags = {"-".join(parts) for parts in itertools.product(
-            *[part.split(".") for part in expected["filename"][:-4].split("-")[-3:]])}
+        tags = expand_tags(["-".join(expected["filename"][:-4].split("-")[-3:])])
         require(len(metadata.get_all("Name", [])) == len(metadata.get_all("Version", [])) == 1
                 and normalize(metadata["Name"]) == normalize(expected["filename"].split("-")[0])
                 and metadata["Version"] == expected["version"]
                 and wheel.get_all("Wheel-Version") == ["1.0"]
-                and set(wheel.get_all("Tag", [])) == tags)
+                and expand_tags(wheel.get_all("Tag", [])) == tags)
     return total
 
 

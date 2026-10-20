@@ -91,6 +91,16 @@ distribution name/version/WHEEL tags. It does not validate an installed
 environment's RECORD, execute startup hooks or establish native ABI integrity.
 Extra local wheelhouse files are ignored and are not authorized for installation.
 
+Some pinned Maturin-built wheels use compressed triples in `WHEEL` `Tag`
+headers as well as filenames. The checker applies the same
+[PyPA Cartesian expansion](https://packaging.python.org/en/latest/specifications/platform-compatibility-tags/#compressed-tag-sets)
+to each side and requires exact set equality, not merely one compatible tag.
+It bounds each triple to 512 characters, metadata to 128 tag headers and total
+expansion to 256 triples. Malformed, missing, additional or over-budget tags
+reject; selected hashes and the CPython/Linux/glibc compatibility rules remain
+unchanged. This handles the observed pinned metadata representation without
+executing the wheels.
+
 All reads are bounded, no-follow, regular/single-link and identity-checked.
 There is a shared 180-second check deadline; source archive size is at most
 100 MiB, selected source retention at most 32 MiB, each wheel at most 64 MiB,

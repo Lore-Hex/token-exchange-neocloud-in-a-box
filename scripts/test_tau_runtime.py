@@ -231,6 +231,39 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             runtime.check_wheel(self.wheels["alpha"], self.expected_wheel(), 0)
 
+    def test_compressed_and_expanded_wheel_metadata_tags_are_equivalent(self):
+        tags = (
+            ("cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64",
+             ("cp39-abi3-manylinux_2_17_x86_64", "cp39-abi3-manylinux2014_x86_64")),
+            ("py2.py3-none-any", ("py2-none-any", "py3-none-any")),
+            ("cp311.cp312-abi3.none-manylinux_2_28_x86_64",
+             ("cp311-abi3-manylinux_2_28_x86_64", "cp311-none-manylinux_2_28_x86_64",
+              "cp312-abi3-manylinux_2_28_x86_64", "cp312-none-manylinux_2_28_x86_64")),
+        )
+        for compressed, expanded in tags:
+            for metadata_tags in ((compressed,), expanded):
+                with self.subTest(compressed=compressed, metadata_tags=metadata_tags):
+                    raw = wheel(wheel_metadata="Wheel-Version: 1.0\n"
+                                + "".join("Tag: " + tag + "\n" for tag in metadata_tags))
+                    expected = {**self.expected_wheel(raw), "filename": "alpha-1.0-" + compressed + ".whl"}
+                    self.assertGreater(runtime.check_wheel(raw, expected, self.deadline), 0)
+            for wrong in (expanded[:-1], (*expanded, "cp313-cp313-win_amd64")):
+                raw = wheel(wheel_metadata="Wheel-Version: 1.0\n" + "".join("Tag: " + tag + "\n" for tag in wrong))
+                expected = {**self.expected_wheel(raw), "filename": "alpha-1.0-" + compressed + ".whl"}
+                with self.subTest(wrong=wrong), self.assertRaises(ValueError):
+                    runtime.check_wheel(raw, expected, self.deadline)
+
+    def test_tag_expansion_rejects_malformed_or_unbounded_products(self):
+        for tags in ([], ["py3-none-any-extra"], ["py3..py312-none-any"], ["py3-none-"],
+                     ["py3-none-any\nTag: cp312-none-any"], ["py3-none-" + "a" * 512],
+                     ["py3-none-any"] * 129,
+                     [".".join("py" + str(i) for i in range(17)) + "-"
+                      + ".".join("abi" + str(i) for i in range(17)) + "-any"]):
+            with self.subTest(tags=tags), self.assertRaises(ValueError):
+                runtime.expand_tags(tags)
+        # A syntactically valid compressed set still needs the existing target platform.
+        self.assertFalse(runtime.wheel_tags("alpha-1.0-cp312-cp312-win_amd64.macosx_11_0_arm64.whl"))
+
     def test_wheel_paths_symlinks_duplicates_metadata_and_zip_limits_reject(self):
         for kind in ("traversal", "absolute", "symlink", "duplicate", "name", "version",
                      "multiple-name", "multiple-metadata", "format", "tags", "budget"):
