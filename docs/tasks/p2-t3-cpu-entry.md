@@ -141,3 +141,15 @@ exhaustion but does not identify an internal exception or host-side cause.
 There is no complete application receipt, entry timing, checkpoint or finder
 observation. Cleanup is confirmed. This run neither attributes the prior
 unknown finder to Botocore nor authorizes an adapter or guard change.
+
+## Recorded Native Attempt
+
+The [native GitHub Actions attempt](../../evidence/p2/2026-10-20-cpu-native-39462843995-1/README.md)
+ran producer `badaab20717e9c8f14f45f0821a87f9d50bc6b9a` on October 20, 2026,
+17:10:14-17:10:32 UTC. Image/provenance bindings passed, but the recorder stopped
+at `application-and-entry` without a validated experiment or entry observation.
+It reports `cleanup-unresolved` and `completion-unknown`; no application,
+finder, inference or cleanup success follows from that report.
+The separate final workflow log supports an empty labeled-container query at
+that time, not recorder-confirmed cleanup or proof of future absence. The
+original failure bytes and their historical source bindings are preserved.
