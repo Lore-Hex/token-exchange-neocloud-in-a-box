@@ -155,7 +155,11 @@ def completion_result(raw):
     require(type(usage) is dict and all(type(usage.get(k)) is int for k in ("prompt_tokens", "completion_tokens", "total_tokens"))
             and 0 < usage["completion_tokens"] <= 128 and 0 < usage["prompt_tokens"] <= 4096
             and usage["total_tokens"] == usage["prompt_tokens"] + usage["completion_tokens"])
+    content = message.get("content")
+    final_content_present = type(content) is str and bool(content.strip())
     return {"generated": True, "finish": choice["finish_reason"],
+            "final_content_present": final_content_present,
+            "synthetic_answer_match": final_content_present and content.strip() == "2",
             "prompt_tokens": usage["prompt_tokens"], "completion_tokens": usage["completion_tokens"]}
 
 
@@ -239,11 +243,12 @@ def application_and_request(contract, sources, modules, application, measured):
                 and [row.get("id") for row in models["data"]] == [MODEL])
         result["stage"] = "request"
         raw = http_request("/v1/chat/completions", timeout=REQUEST_SECONDS, data={
-            "model": MODEL, "messages": [{"role": "user", "content": "Compute 1 + 1. Give a short answer."}],
+            "model": MODEL, "messages": [{"role": "user", "content": "Compute 1 + 1. Reply with the single digit only."}],
             "max_tokens": 128, "temperature": 0, "stream": False})
         result["completion"] = completion_result(raw)
         require(hardware() == result["hardware"])
-        result["functional_pass"] = True
+        result["functional_pass"] = (result["completion"]["final_content_present"]
+                                     and result["completion"]["synthetic_answer_match"])
         result["stage"] = "complete"
     except Exception:
         result["functional_pass"] = False

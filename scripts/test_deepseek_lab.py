@@ -452,7 +452,8 @@ class PayloadTests(unittest.TestCase):
         row = {"schema": "nib.deepseek-lab-result/v1", "status": "BLOCKED", "deployable": False,
                "confidential": False, "functional_pass": True, "stage": "complete",
                "application": receipt, "hardware": probe.validate(HardwareTests().raw()),
-               "completion": {"generated": True, "finish": "stop", "prompt_tokens": 10, "completion_tokens": 1},
+               "completion": {"generated": True, "finish": "stop", "prompt_tokens": 10, "completion_tokens": 1,
+                              "final_content_present": True, "synthetic_answer_match": True},
                "engine_stopped": True}
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
@@ -469,6 +470,11 @@ class PayloadTests(unittest.TestCase):
                 changed[section]["private"] = "sentinel"
                 with self.subTest(section=section), self.assertRaises(ValueError):
                     host.validate_result(changed, root, self.contract, self.builder.recorder)
+            for field in ("final_content_present", "synthetic_answer_match"):
+                changed = copy.deepcopy(row)
+                changed["completion"][field] = False
+                with self.subTest(field=field), self.assertRaises(ValueError):
+                    host.validate_result(changed, root, self.contract, self.builder.recorder)
 
 
 class LifecycleTests(unittest.TestCase):
@@ -482,7 +488,7 @@ class LifecycleTests(unittest.TestCase):
         response = {"object": "chat.completion", "model": lab.MODEL,
                     "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": "2"}}],
                     "usage": {"prompt_tokens": 10, "completion_tokens": 1, "total_tokens": 11}}
-        for terminal in (0, -signal.SIGTERM, 1, "timeout", "request-error", "dead-worker"):
+        for terminal in (0, -signal.SIGTERM, 1, "timeout", "request-error", "dead-worker", "reasoning-only", "wrong-answer"):
             engine = mock.Mock(pid=99999999)
             engine.poll.return_value = 1 if terminal == "dead-worker" else None
             engine.wait.side_effect = ([subprocess.TimeoutExpired("fixed", 60), -9] if terminal == "timeout"
@@ -491,13 +497,23 @@ class LifecycleTests(unittest.TestCase):
                 if path == "/health": return b"ok"
                 if path == "/v1/models": return json.dumps({"data": [{"id": lab.MODEL}]}).encode()
                 if terminal == "request-error": raise OSError("private upstream failure")
-                return json.dumps(response).encode()
+                body = copy.deepcopy(response)
+                if terminal == "reasoning-only":
+                    body["choices"][0].update(finish_reason="length", message={"role": "assistant", "content": None,
+                                                                            "reasoning": "synthetic-private"})
+                elif terminal == "wrong-answer":
+                    body["choices"][0]["message"]["content"] = "3"
+                return json.dumps(body).encode()
             with self.subTest(terminal=terminal), mock.patch.object(lab, "hardware", return_value={"fixed": True}), \
                     mock.patch.object(lab, "quiet_command"), mock.patch.object(lab, "http_request", side_effect=http), \
                     mock.patch.object(lab.subprocess, "Popen", return_value=engine), mock.patch.object(lab.os, "killpg"):
                 row = lab.application_and_request({}, {}, [None, None, None, app], application, {})
             self.assertEqual(row["functional_pass"], terminal in (0, -signal.SIGTERM))
             self.assertNotIn("private upstream failure", json.dumps(row))
+            self.assertNotIn("synthetic-private", json.dumps(row))
+            if terminal in ("reasoning-only", "wrong-answer"):
+                self.assertTrue(row["completion"]["generated"])
+                self.assertFalse(row["completion"]["synthetic_answer_match"])
             engine.wait.assert_called()
 
     def test_owned_cleanup_absence_and_foreign_owner(self):
@@ -538,6 +554,21 @@ class LifecycleTests(unittest.TestCase):
 
 
 class ReportTests(unittest.TestCase):
+    def test_final_answer_is_distinct_from_reasoning_token_generation(self):
+        row = {"object": "chat.completion", "model": lab.MODEL,
+               "choices": [{"index": 0, "finish_reason": "length", "message": {"role": "assistant"}}],
+               "usage": {"prompt_tokens": 10, "completion_tokens": 128, "total_tokens": 138}}
+        for content, present, matches in ((None, False, False), ("", False, False), (" \n", False, False),
+                                          ("3", True, False), ("The answer is 2.", True, False),
+                                          ("2", True, True), ("\n2\n", True, True)):
+            row["choices"][0]["message"] = {"role": "assistant", "content": content,
+                                          "reasoning": "private reasoning sentinel"}
+            with self.subTest(content=content):
+                result = lab.completion_result(json.dumps(row))
+                self.assertTrue(result["generated"])
+                self.assertEqual((result["final_content_present"], result["synthetic_answer_match"]), (present, matches))
+                self.assertNotIn("private reasoning sentinel", json.dumps(result))
+
     def test_completion_no_content_retained_and_strict_bounds(self):
         row = {"object": "chat.completion", "model": lab.MODEL,
                "choices": [{"index": 0, "finish_reason": "length", "message": {"role": "assistant", "content": "synthetic-private"}}],

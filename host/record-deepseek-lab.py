@@ -402,15 +402,20 @@ def validate_result(row, bundle, contract, recorder):
         require(row["application"]["before_inventory_sha256"] == measured["packaging"]["inventory_sha256"])
     if row["completion"] is not None:
         value = row["completion"]
-        require(type(value) is dict and set(value) == {"generated", "finish", "prompt_tokens", "completion_tokens"}
+        require(type(value) is dict and set(value) == {"generated", "finish", "prompt_tokens", "completion_tokens",
+                                                     "final_content_present", "synthetic_answer_match"}
                 and value["generated"] is True and value["finish"] in ("stop", "length")
+                and type(value["final_content_present"]) is bool and type(value["synthetic_answer_match"]) is bool
+                and (not value["synthetic_answer_match"] or value["final_content_present"])
                 and type(value["prompt_tokens"]) is int and 0 < value["prompt_tokens"] <= 4096
                 and type(value["completion_tokens"]) is int and 0 < value["completion_tokens"] <= 128)
     if row["functional_pass"]:
         require(row["stage"] == "complete" and row["engine_stopped"] is True
                 and type(row["application"]) is dict and row["application"].get("deployable") is False
                 and type(row["hardware"]) is dict and row["hardware"].get("attestation_verified") is False
-                and type(row["completion"]) is dict and row["completion"].get("generated") is True)
+                and type(row["completion"]) is dict and row["completion"].get("generated") is True
+                and row["completion"]["final_content_present"] is True
+                and row["completion"]["synthetic_answer_match"] is True)
     require(row["hardware"] is not None or (row["application"] is None and row["completion"] is None))
     require(row["application"] is not None or row["completion"] is None)
     require(len(json.dumps(row)) <= 60000)

@@ -98,9 +98,14 @@ zero CPU/group offload, no speculation, and every existing collective/fusion
 exclusion. DeepSeek sparse attention remains enabled. Limits are 4,096 context,
 one sequence, 4,096 batched tokens, eager mode and 128 output tokens for one
 fixed synthetic chat request at loopback. Eager mode does not mean no JIT.
-The response is checked for completion shape, finish and bounded usage; neither
-prompt nor generated content is recorded. This is not a quality benchmark or
-the provider/tau acceptance suite.
+The response is checked for completion shape, finish and bounded usage. The
+fixed prompt asks for the single digit for 1 + 1; `functional_pass` additionally
+requires nonempty final assistant content and exact trimmed content `2`.
+Only `final_content_present` and `synthetic_answer_match` booleans are retained.
+`generated:true` alone means token generation was observed: reasoning-only,
+length-limited responses or a wrong final answer do **not** pass the functional
+check. Neither prompt nor generated content is recorded. This single exact
+answer is not a quality benchmark or the provider/tau acceptance suite.
 
 `sys.executable` points at a fixed `-I -S -B` wrapper. Spawn/tracker reentry is
 parse-only and fixed; fork/forkserver, NUMA executable substitution and generic
