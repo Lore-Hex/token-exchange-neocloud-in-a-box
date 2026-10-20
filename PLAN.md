@@ -628,6 +628,10 @@ Gates:
     checked against `files.sha256`.
   - AC: evidence shows every file hash matches.
 - **T3. DeepSeek-V4.1-Flash-1017 serve and correctness.**
+  - Separately approved Spheron CC hardware may exercise the bounded
+    [experimental functional lab](docs/tasks/p2-t3-deepseek-lab.md): TP4/DP1,
+    loopback synthetic request, no qualification. This does not satisfy the
+    GCP gates, DP2 target, quality/tau requirements or P0 hardened bootstrap.
   - vLLM per the recipe: DP2 × TP4, **Engram on GPU (no UVA)**, which is the
     confidential setting. Also run Engram offload once, for the record only.
   - provider-check Tiers 1–4 direct to the node.

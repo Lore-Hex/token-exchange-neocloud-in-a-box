@@ -61,6 +61,7 @@ Pre-alpha. **Nothing in this repository has run on confidential hardware yet.**
 | Local real-model provider pilot | Qwen3-0.6B CPU inference through standard TLS: 17 conformance checks, auth, usage, upstream failure and cleanup pass on native macOS and an offline Linux/amd64 container; not public or confidential ([native](evidence/p3/2026-10-19-qwen-native-regression-1/run.json), [Linux](evidence/p3/2026-10-19-qwen-linux-4/run.json), [runbook](docs/operators/qwen-pilot.md)) |
 | Provider-configurable Qwen service | Real Linux model: operator metadata, all 18 provider checks, Catalog v2 and declared retirement pass; active streaming response finishes through shutdown; no public cloud or billing claim ([evidence](evidence/p3/2026-10-19-provider-neutral-linux/run.json), [results](evidence/p3/2026-10-19-provider-neutral-linux/output.log), [runbook](docs/operators/qwen-service.md)) |
 | Model bring-up and benchmarks, non-confidential | not started (P2) |
+| Bounded DeepSeek CC functional lab | implemented; synthetic boundary/lifecycle tests only, no real lab run or qualification; separate container policy leaves the P0 import guard unchanged ([scope and runbook](docs/tasks/p2-t3-deepseek-lab.md)) |
 | Confidential pipeline on a 1-GPU TDX VM | not started (P3) |
 | TrustedRouter generic verifier | not started (P4) |
 | Bare-metal 8×B200 confidential node | not started (P5) |

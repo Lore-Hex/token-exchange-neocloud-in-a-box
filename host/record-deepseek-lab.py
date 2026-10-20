@@ -1,0 +1,502 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+"""Prepare offline, or explicitly run one private nonqualifying CC experiment."""
+
+import sys
+
+if __name__ == "__main__" and not (sys.flags.isolated and sys.flags.no_site):
+    sys.exit("Use python3 -I -S host/record-deepseek-lab.py")
+
+import argparse
+import datetime as dt
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import select
+import signal
+import stat
+import subprocess
+import tempfile
+import time
+import types
+import uuid
+
+ROOT = Path(__file__).absolute().parent.parent
+SCRIPT = "host/record-deepseek-lab.py"
+BUILDER = "scripts/prepare-engine-application.py"
+BUILDER_SHA = "4821dfc601f8a8f25985dc84b0c5f40c83f3ef5f153383277b91e2513fa0fc98"
+HELPER = "scripts/engine_python_bootstrap.py"
+RUNTIME = "scripts/engine_lab.py"
+LAB_BOOTSTRAP = "scripts/engine_lab_bootstrap.py"
+PROBE = "scripts/engine_lab_probe.py"
+SMOKE = "scripts/engine_import_smoke.py"
+TEST = "scripts/test_deepseek_lab.py"
+PACK = "models/deepseek-v4.1-flash-1017/1"
+SUPPORT = ("scripts/record-engine-image.py", "scripts/prepare-engine-overlay.py",
+           "scripts/check-engine-candidate.py", "scripts/engine_overlay.py",
+           "scripts/engine_image_diagnostic.py", "scripts/engine_python_descriptor.py", "scripts/e2e/snapshot.py")
+MAX_BYTES = 64 << 20
+MAX_SECONDS = 4800
+WATCHDOG_SETTLE_SECONDS = 40
+LABEL = "nib.deepseek-lab"
+CANCELLED = False
+CLEANING = False
+
+
+def require(value):
+    if not value:
+        raise ValueError("lab contract rejected")
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def read(path, limit=2 << 20):
+    path = Path(path)
+    require(path.is_absolute() and ".." not in path.parts)
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in path.parts[1:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        raw = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+        with os.fdopen(raw, "rb") as stream:
+            before = os.fstat(stream.fileno())
+            require(stat.S_ISREG(before.st_mode) and before.st_nlink == 1 and 0 < before.st_size <= limit)
+            data = stream.read(limit + 1)
+            def identity(s):
+                return (s.st_dev, s.st_ino, s.st_mode, s.st_nlink, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
+            require(len(data) == before.st_size and identity(before) == identity(os.fstat(stream.fileno()))
+                    and identity(before) == identity(os.stat(path.name, dir_fd=fd, follow_symlinks=False)))
+            return data
+    finally:
+        os.close(fd)
+
+
+def load(name, path, expected=None):
+    raw = read(path)
+    require(expected is None or digest(raw) == expected)
+    module = types.ModuleType(name)
+    module.__file__ = str(path)
+    exec(compile(raw, str(path), "exec", flags=0, dont_inherit=True), module.__dict__)
+    return module
+
+
+def committed(builder, revision, name):
+    row = builder.checker.git(ROOT, "ls-tree", revision, "--", name).decode().split()
+    require(len(row) == 4 and row[:2] == ["100644", "blob"] and row[3] == name)
+    require(int(builder.checker.git(ROOT, "cat-file", "-s", row[2])) <= 2 << 20)
+    return builder.checker.git(ROOT, "cat-file", "blob", row[2])
+
+
+def make_payload(builder, revision, bundle, extra, binary):
+    files, _ = builder.prepare_files(revision, bundle, extra)
+    app = builder.overlay.load_json(files["payload/contract.json"])
+    measured = builder.application.measurement(builder.overlay, extra[builder.application.EVIDENCE])
+    runtime = types.ModuleType("lab_constants")
+    exec(compile(extra[RUNTIME], RUNTIME, "exec", dont_inherit=True), runtime.__dict__)
+    plan = builder.recorder.prep.launch_plan()
+    prefix = b'import sys\nif not (sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode):\n    sys.exit("Isolated lab required.")\n'
+    payload = {"application/" + name.removeprefix("payload/"): data for name, data in files.items() if name.startswith("payload/")}
+    payload.update({"launch.py": prefix + extra[HELPER] + b"\n" + extra[LAB_BOOTSTRAP] + b"\n" + extra[RUNTIME],
+                    "probe.py": extra[PROBE], "launch-plan.json": builder.overlay.json_bytes(plan),
+                    "processes.py": extra[builder.recorder.SNAPSHOT],
+                    "nib": binary, "pack/pack.yaml": extra[PACK + "/pack.yaml"],
+                    "pack/files.sha256": extra[PACK + "/files.sha256"]})
+    contract = {"schema": "nib.deepseek-lab-input/v1", "status": "BLOCKED", "deployable": False, "confidential": False,
+                "git_sha": revision, "base_image": builder.overlay.BASE_IMAGE, "official_config": app["official_config"],
+                "source_bundle_sha256": builder.checker.bundle_digest({**bundle, **extra}),
+                "application_contract_sha256": digest(payload["application/contract.json"]),
+                "candidate_bundle_sha256": app["candidate_bundle_sha256"],
+                "validation_source_sha256": digest(extra[SMOKE]),
+                "pack_revision": runtime.MODEL_REVISION, "pack_bytes": runtime.TOTAL_BYTES,
+                "manifest_sha256": digest(payload["pack/files.sha256"]),
+                "interpreter": {key: measured["files"][0][key] for key in ("resolved", "bytes", "sha256")},
+                "paths": measured["proposed_paths"], "arguments": runtime.lab_args(plan),
+                "environment": runtime.lab_environment(plan), "sources": {name: digest(data) for name, data in payload.items()}}
+    payload["lab.json"] = builder.overlay.json_bytes(contract)
+    payload["python"] = runtime.wrapper_bytes(contract["interpreter"]["resolved"], contract["environment"], digest(payload["lab.json"]))
+    return payload, contract
+
+
+def prepare(destination):
+    builder = load("lab_application_builder", ROOT / BUILDER, BUILDER_SHA)
+    revision, bundle, extra = builder.inputs(ROOT)
+    for name in (SCRIPT, HELPER, RUNTIME, LAB_BOOTSTRAP, PROBE, SMOKE, TEST, PACK + "/pack.yaml", PACK + "/files.sha256"):
+        extra[name] = committed(builder, revision, name)
+    require(extra[SCRIPT] == read(Path(__file__).absolute()))
+    recorder = builder.recorder
+    with tempfile.TemporaryDirectory(prefix="nib-lab-build-") as temporary:
+        work = Path(temporary).resolve()
+        env = recorder.offline_environment(work / "control")
+        binary, source_sha = recorder.build_validator(ROOT, revision, work, {**env, "GOOS": "linux", "GOARCH": "amd64"})
+        payload, contract = make_payload(builder, revision, bundle, extra, read(binary, MAX_BYTES))
+        config = recorder.raw_metadata(ROOT / "build/engine-image-metadata", contract)
+        runtime = load("lab_environment_constants", ROOT / RUNTIME, digest(extra[RUNTIME]))
+        image_env = dict(item.split("=", 1) for item in config["config"]["Env"])
+        require(image_env["LD_LIBRARY_PATH"] == runtime.IMAGE_LD_PATH and image_env["CUDA_HOME"] == "/usr/local/cuda")
+        files = {"record-deepseek-lab.py": extra[SCRIPT], **{"payload/" + n: b for n, b in payload.items()}}
+        files["support/" + SMOKE] = extra[SMOKE]
+        for name in SUPPORT:
+            files["support/" + name] = (bundle if name in bundle else extra)[name]
+        for name in ("manifest.json", "config.json"):
+            files["metadata/" + name] = read(ROOT / "build/engine-image-metadata" / name)
+        receipt = {"schema": "nib.deepseek-lab-bundle/v1", "git_sha": revision,
+                   "status": "BLOCKED", "deployable": False, "confidential": False,
+                   "platform": "linux/amd64", "validator_source_sha256": source_sha,
+                   "payload_sha256": builder.checker.bundle_digest(payload),
+                   "source_bundle_sha256": contract["source_bundle_sha256"],
+                   "files": {n: {"bytes": len(b), "sha256": digest(b)} for n, b in files.items()}}
+        files["receipt.json"] = recorder.overlay.json_bytes(receipt)
+        recorder.prep.publish(destination, files)
+        for name in ("payload/nib", "payload/python"):
+            (Path(destination) / name).chmod(0o500)
+    print(json.dumps({"git_sha": revision, "receipt_sha256": digest(files["receipt.json"]),
+                      "status": "BLOCKED", "executed": False}, sort_keys=True))
+
+
+def bundle_inputs(path, expected):
+    path = Path(path)
+    require(path.is_absolute() and re.fullmatch(r"[0-9a-f]{64}", expected))
+    raw = read(path / "receipt.json")
+    require(digest(raw) == expected)
+    receipt = json.loads(raw)
+    require(receipt["schema"] == "nib.deepseek-lab-bundle/v1" and receipt["status"] == "BLOCKED"
+            and receipt["deployable"] is False and receipt["confidential"] is False
+            and receipt["platform"] == "linux/amd64" and re.fullmatch(r"[0-9a-f]{40}", receipt["git_sha"]))
+    require(type(receipt["files"]) is dict and len(receipt["files"]) <= 130)
+    total = 0
+    for name, row in receipt["files"].items():
+        require(re.fullmatch(r"[A-Za-z0-9_./-]+", name) and not name.startswith("/")
+                and all(p not in ("", ".", "..") for p in name.split("/")))
+        data = read(path / name, MAX_BYTES if name == "payload/nib" else 2 << 20)
+        total += len(data)
+        require(row == {"bytes": len(data), "sha256": digest(data)} and total <= 80 << 20)
+    actual = set()
+    directories_seen = 0
+    for parent, directories, names in os.walk(path, followlinks=False):
+        directories_seen += 1
+        require(directories_seen <= 130 and len(Path(parent).relative_to(path).parts) <= 16
+                and len(directories) <= 130)
+        require(len(actual) + len(names) <= 150)
+        for name in directories:
+            require(not (Path(parent) / name).is_symlink())
+        actual.update((Path(parent) / name).relative_to(path).as_posix() for name in names)
+    require(actual == set(receipt["files"]) | {"receipt.json"})
+    require(read(Path(__file__).absolute()) == read(path / "record-deepseek-lab.py"))
+    # This is the already reviewed raw-OCI/config/platform/DiffID verifier and
+    # bounded process implementation, not a second image verification engine.
+    recorder = load("lab_record_support", path / "support/scripts/record-engine-image.py",
+                    receipt["files"]["support/scripts/record-engine-image.py"]["sha256"])
+    contract = recorder.overlay.load_json(read(path / "payload/lab.json"))
+    require(contract["git_sha"] == receipt["git_sha"] and contract["status"] == "BLOCKED"
+            and contract["deployable"] is False and contract["confidential"] is False)
+    config = recorder.raw_metadata(path / "metadata", contract)
+    return receipt, contract, config, recorder
+
+
+def create_command(name, owner, bundle, weights, contract, config):
+    payload = str(Path(bundle) / "payload")
+    command = ["docker", "container", "create", "--name", name, "--label", LABEL + "=" + owner,
+               "--pull", "never", "--platform", "linux/amd64", "--runtime", "nvidia",
+               "--gpus", '"device=0,1,2,3"', "--network", "none", "--cap-drop", "ALL",
+               "--security-opt", "no-new-privileges", "--pids-limit", "1024",
+               "--memory", "768g", "--memory-swap", "768g", "--cpus", "64",
+               "--ipc", "private", "--shm-size", "2g", "--cgroupns", "private",
+               "--restart", "no", "--log-driver", "none", "--no-healthcheck", "--user", "0:0",
+               "--workdir", "/", "--tmpfs", "/cache:rw,nosuid,nodev,size=16g,mode=0700",
+               "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777",
+               "--mount", "type=bind,src=" + payload + ",dst=/opt/nib,readonly",
+               "--mount", "type=bind,src=" + str(weights) + ",dst=/model,readonly",
+               "--entrypoint", "/usr/bin/env"]
+    names = set()
+    constraints = {}
+    for item in config["config"].get("Env", []):
+        key, sep, value = item.partition("=")
+        require(sep and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", key) and key not in names)
+        names.add(key)
+        if key.startswith("NVIDIA_REQUIRE_"):
+            constraints[key] = value
+    # Toolkit device injection is selected at the Docker boundary. Application
+    # environment starts from env -i; host credentials/proxies never propagate.
+    # Retain the verified image's vendor constraints for the NVIDIA prestart
+    # hook; env -i runs only after that hook has enforced them.
+    for key in sorted(names | {"PATH", "HOME", "NVIDIA_VISIBLE_DEVICES", "NVIDIA_DRIVER_CAPABILITIES"}):
+        command += ["--env", key + "=" + ({**constraints, "NVIDIA_VISIBLE_DEVICES": "0,1,2,3",
+                                          "NVIDIA_DRIVER_CAPABILITIES": "compute,utility"}.get(key, ""))]
+    return command + [contract["base_image"], "-i", *[key + "=" + value for key, value in sorted(contract["environment"].items())],
+                      "/usr/bin/python3.12", "-I", "-S", "-B", "/opt/nib/launch.py",
+                      digest(read(Path(bundle) / "payload/lab.json")), "apply"]
+
+
+def check_container(info, name, owner, bundle, weights, contract, config, image_id):
+    command = create_command(name, owner, bundle, weights, contract, config)
+    cfg, host = info["Config"], info["HostConfig"]
+    require(info["Image"] == image_id and cfg["Image"] == contract["base_image"]
+            and cfg["Labels"].get(LABEL) == owner and cfg["Entrypoint"] == ["/usr/bin/env"]
+            and cfg["Cmd"] == command[command.index(contract["base_image"]) + 1:]
+            and cfg["User"] == "0:0" and cfg["WorkingDir"] == "/" and not cfg.get("Tty") and not cfg.get("OpenStdin"))
+    env = [command[i + 1] for i, arg in enumerate(command) if arg == "--env"]
+    require(len(cfg["Env"]) == len(env) and set(cfg["Env"]) == set(env))
+    require(host["NetworkMode"] == "none" and not host["Privileged"] and host["Runtime"] == "nvidia"
+            and host["ReadonlyRootfs"] is False
+            and host["CapDrop"] == ["ALL"] and not host.get("CapAdd") and not host.get("Devices")
+            and not host.get("DeviceCgroupRules") and not host.get("PortBindings") and not host.get("PublishAllPorts")
+            and not host.get("PidMode") and not host.get("UTSMode") and not host.get("VolumesFrom") and not host.get("Binds")
+            and host["IpcMode"] == "private" and host["ShmSize"] == 2 << 30 and host["CgroupnsMode"] == "private"
+            and host["Memory"] == host["MemorySwap"] == 768 << 30 and host["NanoCpus"] == 64000000000
+            and host["PidsLimit"] == 1024 and host["RestartPolicy"]["Name"] == "no" and host["LogConfig"]["Type"] == "none"
+            and set(host["SecurityOpt"]) in ({"no-new-privileges"}, {"no-new-privileges=true"})
+            and cfg["Healthcheck"]["Test"] == ["NONE"]
+            and host["Tmpfs"] == {"/cache": "rw,nosuid,nodev,size=16g,mode=0700",
+                                 "/tmp": "rw,nosuid,nodev,noexec,size=256m,mode=1777"})
+    devices = host["DeviceRequests"]
+    require(len(devices) == 1 and devices[0]["DeviceIDs"] == ["0", "1", "2", "3"]
+            and devices[0]["Capabilities"] == [["gpu"]] and devices[0]["Count"] == 0
+            and devices[0]["Driver"] in ("", "nvidia") and not devices[0].get("Options"))
+    mounts = info["Mounts"]
+    require(len(mounts) == 2)
+    require({(m["Type"], m["Source"], m["Destination"], m["RW"]) for m in mounts}
+            == {("bind", str(Path(bundle) / "payload"), "/opt/nib", False),
+                ("bind", str(weights), "/model", False)})
+
+
+def cleanup(recorder, name, owner, env):
+    absent = ["docker", "container", "ls", "--all", "--quiet", "--filter", "name=^/" + name + "$"]
+    if recorder.call(absent, env, timeout=10, limit=4096).strip():
+        info = inspect(recorder, "container", name, env)
+        require(info["Config"]["Labels"].get(LABEL) == owner)
+        recorder.call(["docker", "container", "rm", "--force", name], env, timeout=30, limit=4096)
+    require(not recorder.call(absent, env, timeout=10, limit=4096).strip())
+
+
+def inspect(recorder, kind, name, env):
+    return recorder.docker_json(kind, name, env, recorder.snapshot.execute_process_group)
+
+
+def watchdog(bundle, sha, name, owner, deadline, life_fd, docker_host):
+    require(re.fullmatch(r"nib-deepseek-[0-9a-f]{32}", name) and re.fullmatch(r"[0-9a-f]{32}", owner))
+    _, _, _, recorder = bundle_inputs(bundle, sha)
+    env = controlled_env(docker_host)
+    remaining = max(0, deadline - time.time())
+    select.select([life_fd], [], [], min(remaining, MAX_SECONDS))
+    # Retry across the bounded create-client window: parent death can race a
+    # request already accepted by Docker. Uncertain daemon completion is still
+    # reported as unknown by the parent, never as successful cancellation.
+    end = time.monotonic() + WATCHDOG_SETTLE_SECONDS
+    while True:
+        try:
+            cleanup(recorder, name, owner, env)
+        except Exception:
+            if time.monotonic() >= end:
+                raise ValueError("lab cleanup unconfirmed") from None
+        if time.monotonic() >= end:
+            break
+        time.sleep(1)
+    cleanup(recorder, name, owner, env)
+
+
+def controlled_env(docker_host):
+    require(type(docker_host) is str and re.fullmatch(r"unix:///[A-Za-z0-9_./-]+", docker_host))
+    return {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/nonexistent", "LANG": "C", "LC_ALL": "C",
+            "DOCKER_HOST": docker_host, "DOCKER_CONFIG": "/nonexistent/nib-lab-docker-config"}
+
+
+def run_container(bundle, sha, weights, deadline, recorder, contract, config, env):
+    global CLEANING
+    name, owner = "nib-deepseek-" + uuid.uuid4().hex, uuid.uuid4().hex
+    report = {"result": "fail", "status": "BLOCKED", "deployable": False, "confidential": False,
+              "functional_pass": False, "stage": "image", "cleanup": "not-created"}
+    monitor = None
+    life_r, life_w = os.pipe()
+    created = started = terminal = create_finished = False
+    try:
+        image = inspect(recorder, "image", contract["base_image"], env)
+        report["image"] = recorder.image_binding(image, config, contract)
+        require(not CANCELLED and deadline > time.time())
+        monitor = subprocess.Popen([sys.executable, "-I", "-S", str(Path(__file__).absolute()), "--watchdog",
+            str(bundle), sha, name, owner, str(deadline), str(life_r), env["DOCKER_HOST"]],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            env=env, pass_fds=(life_r,), start_new_session=True)
+        report["stage"] = "create"
+        require(not recorder.call(["docker", "container", "ls", "--all", "--quiet",
+                                    "--filter", "name=^/" + name + "$"], env, timeout=10, limit=4096).strip())
+        created = True
+        identifier = recorder.call(create_command(name, owner, bundle, weights, contract, config), env).decode().strip()
+        require(re.fullmatch(r"[0-9a-f]{64}", identifier))
+        create_finished = True
+        info = inspect(recorder, "container", name, env)
+        check_container(info, name, owner, bundle, weights, contract, config, image["Id"])
+        require(info["Id"] == identifier and info["State"]["Status"] == "created"
+                and monitor.poll() is None and not CANCELLED)
+        report["stage"] = "experiment"
+        started = True
+        raw = recorder.call(["docker", "container", "start", "--attach", name], env,
+                            timeout=max(1, min(MAX_SECONDS, deadline - time.time())), limit=65536)
+        experiment = json.loads(raw)
+        final = inspect(recorder, "container", name, env)
+        require(final["Id"] == identifier and final["State"]["Status"] == "exited"
+                and final["State"]["ExitCode"] == 0 and not final["State"].get("OOMKilled"))
+        validate_result(experiment, bundle, contract, recorder)
+        terminal = True
+        report.update(experiment=experiment, functional_pass=experiment["functional_pass"], stage="completed")
+    except Exception:
+        report["failure"] = "bounded-lab-stage-failed"
+    finally:
+        CLEANING = True
+        os.close(life_r)
+        if created:
+            report["cleanup"] = "unconfirmed"
+            try:
+                cleanup(recorder, name, owner, env)
+                report["cleanup"] = "confirmed"
+            except Exception:
+                report["functional_pass"] = False
+        os.close(life_w)
+        if monitor is not None:
+            try:
+                monitor.wait(timeout=120)
+                require(monitor.returncode == 0)
+            except Exception:
+                report["cleanup"] = "unconfirmed"
+                report["functional_pass"] = False
+                if monitor.poll() is None:
+                    os.killpg(monitor.pid, signal.SIGKILL)
+                    monitor.wait(timeout=10)
+        if created and not create_finished:
+            report["cleanup"] = "create-completion-unknown"
+            report["functional_pass"] = False
+        if started and not terminal:
+            report["functional_pass"] = False
+    return report
+
+
+def validate_result(row, bundle, contract, recorder):
+    require(type(row) is dict and set(row) == {"schema", "status", "deployable", "confidential", "functional_pass",
+                                             "stage", "application", "hardware", "completion", "engine_stopped"}
+            and row["schema"] == "nib.deepseek-lab-result/v1" and row["status"] == "BLOCKED"
+            and row["deployable"] is False and row["confidential"] is False
+            and type(row["functional_pass"]) is bool and type(row["engine_stopped"]) is bool
+            and row["stage"] in ("hardware", "weights", "application", "prelaunch", "startup", "request", "complete"))
+    if row["hardware"] is not None:
+        probe = load("lab_hardware_validation", Path(bundle) / "payload/probe.py", contract["sources"]["probe.py"])
+        probe.validate_report(row["hardware"])
+    if row["application"] is not None:
+        # Reuse the existing exact application-receipt validator unchanged. This
+        # temporary validation envelope is not evidence of a P0 import attempt.
+        validator = load("lab_application_validation", Path(bundle) / "support" / SMOKE,
+                         contract["validation_source_sha256"])
+        overlay = recorder.overlay
+        raw_application = read(Path(bundle) / "payload/application/contract.json")
+        require(digest(raw_application) == contract["application_contract_sha256"])
+        application = overlay.load_json(raw_application)
+        app = load("lab_measured_layout", Path(bundle) / "payload/application/application.py",
+                   contract["sources"]["application/application.py"])
+        measured = app.measurement(overlay, read(Path(bundle) / "payload/application/measurement.json"))
+        validator.validate(overlay, {
+            "schema": "nib.engine-import-smoke/v1", "status": "BLOCKED", "deployable": False,
+            "image": None, "abi_validated": False, "hardware_validated": False, "inference_started": False,
+            "stage": "import-smoke", "application": row["application"], "smoke": None,
+            "failure": "bounded-smoke-stage-rejected",
+            "phase_elapsed_ms": {"application-preflight": 0, "application": 0, "import-smoke": 0}},
+            application, measured)
+        require(row["application"]["before_inventory_sha256"] == measured["packaging"]["inventory_sha256"])
+    if row["completion"] is not None:
+        value = row["completion"]
+        require(type(value) is dict and set(value) == {"generated", "finish", "prompt_tokens", "completion_tokens",
+                                                     "final_content_present", "synthetic_answer_match"}
+                and value["generated"] is True and value["finish"] in ("stop", "length")
+                and type(value["final_content_present"]) is bool and type(value["synthetic_answer_match"]) is bool
+                and (not value["synthetic_answer_match"] or value["final_content_present"])
+                and type(value["prompt_tokens"]) is int and 0 < value["prompt_tokens"] <= 4096
+                and type(value["completion_tokens"]) is int and 0 < value["completion_tokens"] <= 128)
+    if row["functional_pass"]:
+        require(row["completion"] is not None and row["completion"]["finish"] == "stop")
+        require(row["stage"] == "complete" and row["engine_stopped"] is True
+                and type(row["application"]) is dict and row["application"].get("deployable") is False
+                and type(row["hardware"]) is dict and row["hardware"].get("attestation_verified") is False
+                and type(row["completion"]) is dict and row["completion"].get("generated") is True
+                and row["completion"]["final_content_present"] is True
+                and row["completion"]["synthetic_answer_match"] is True)
+    require(row["hardware"] is not None or (row["application"] is None and row["completion"] is None))
+    require(row["application"] is not None or row["completion"] is None)
+    require(len(json.dumps(row)) <= 60000)
+
+
+def cancel(*_):
+    global CANCELLED
+    was_cancelled = CANCELLED
+    CANCELLED = True
+    if not was_cancelled and not CLEANING:
+        raise InterruptedError("lab cancelled")
+
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--watchdog":
+        require(len(sys.argv) == 9)
+        watchdog(Path(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5],
+                 float(sys.argv[6]), int(sys.argv[7]), sys.argv[8])
+        return 0
+    class QuietParser(argparse.ArgumentParser):
+        def error(self, message):
+            raise ValueError("lab arguments rejected")
+    parser = QuietParser(description=__doc__)
+    action = parser.add_mutually_exclusive_group(required=True)
+    action.add_argument("--prepare")
+    action.add_argument("--run", metavar="PRIVATE_BUNDLE")
+    parser.add_argument("--receipt-sha256")
+    parser.add_argument("--weights")
+    parser.add_argument("--output")
+    parser.add_argument("--deadline", help="Required UTC hard cutoff, YYYY-MM-DDTHH:MM:SSZ, at most 80 minutes away.")
+    args = parser.parse_args()
+    if args.prepare:
+        require(not any((args.receipt_sha256, args.weights, args.output, args.deadline)))
+        prepare(args.prepare)
+        return 0
+    require(sys.platform == "linux" and all((args.receipt_sha256, args.weights, args.output, args.deadline)))
+    deadline = dt.datetime.strptime(args.deadline, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp()
+    require(0 < deadline - time.time() <= MAX_SECONDS)
+    bundle, weights, output = (Path(p) for p in (args.run, args.weights, args.output))
+    require(all(p.is_absolute() and p == p.resolve() for p in (bundle, weights, output))
+            and not os.path.lexists(output) and not any(a == b or a in b.parents or b in a.parents
+                                                       for a, b in ((bundle, weights), (bundle, output), (weights, output))))
+    receipt, contract, config, recorder = bundle_inputs(bundle, args.receipt_sha256)
+    signal.signal(signal.SIGTERM, cancel)
+    signal.signal(signal.SIGINT, cancel)
+    started = recorder.now()
+    # Fixed local Docker socket: no account config, remote context, plugins or credentials.
+    env = controlled_env("unix:///var/run/docker.sock")
+    report = run_container(bundle, args.receipt_sha256, weights, deadline, recorder, contract, config, env)
+    report["provenance"] = {"git_sha": receipt["git_sha"], "source_bundle_sha256": receipt["source_bundle_sha256"],
+                            "payload_sha256": receipt["payload_sha256"], "receipt_sha256": args.receipt_sha256,
+                            "image": contract["base_image"], "config_sha256": contract["official_config"]["sha256"],
+                            "manifest_sha256": contract["manifest_sha256"], "pack_revision": contract["pack_revision"]}
+    hardware_row = report.get("experiment", {}).get("hardware")
+    record = {"schema": "nib.evidence/v1", "phase": "P2", "task": "T3", "git_sha": receipt["git_sha"],
+              "started_utc": started, "ended_utc": recorder.now(), "result": "fail",
+              "execution": "hardware" if hardware_row else "software", "hardware_validated": False,
+              "host": {"provider": "spheron", "machine": "approved-isolated-lab",
+                       "gpus": "four-selected-B200" if hardware_row else "unobserved",
+                       "driver": hardware_row["driver"] if hardware_row else None,
+                       "cuda": hardware_row["cuda_driver"] if hardware_row else None},
+              "command": "python3 -I -S host/record-deepseek-lab.py --run <private-bundle> --receipt-sha256 <digest> --weights <private-weights> --output <private-evidence> --deadline <approved-UTC-cutoff>",
+              "notes": "Partial Spheron functional experiment, not GCP gates or full P2 acceptance. "
+                       "Candidate BLOCKED; deployable=false; confidential=false; no attestation or ABI qualification. "
+                       "Generated JIT code is private output, not verified native provenance. "
+                       "CUDA field is the observed driver-supported CUDA API version, not a runtime measurement."}
+    with tempfile.TemporaryDirectory(prefix="nib-lab-evidence-") as temporary:
+        recorder.publish_evidence(record, report, bundle / "payload/nib", Path(temporary).resolve(), output, env)
+    print(json.dumps({"recorded": True, "functional_pass": report["functional_pass"],
+                      "status": "BLOCKED", "confidential": False}, sort_keys=True))
+    return 1
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Exception:
+        sys.exit("Lab operation rejected; no successful qualification may be inferred.")
