@@ -317,11 +317,21 @@ def controlled_env(docker_host):
             "DOCKER_HOST": docker_host, "DOCKER_CONFIG": "/nonexistent/nib-lab-docker-config"}
 
 
+def container_observation(info, identifier, owner):
+    require(info["Id"] == identifier and info["Config"]["Labels"].get(LABEL) == owner)
+    state = info["State"]
+    require(state["Status"] in ("created", "running", "paused", "restarting", "removing", "exited", "dead")
+            and type(state["ExitCode"]) is int and -128 <= state["ExitCode"] <= 255
+            and type(state["OOMKilled"]) is bool)
+    return {"status": state["Status"], "exit_code": state["ExitCode"], "oom_killed": state["OOMKilled"]}
+
+
 def run_container(bundle, sha, weights, deadline, recorder, contract, config, env):
     global CLEANING
     name, owner = "nib-deepseek-" + uuid.uuid4().hex, uuid.uuid4().hex
     report = {"result": "fail", "status": "BLOCKED", "deployable": False, "confidential": False,
-              "functional_pass": False, "stage": "image", "cleanup": "not-created"}
+              "functional_pass": False, "stage": "image", "cleanup": "not-created",
+              "experiment_step": None, "container_observation": None, "output_bytes": None}
     monitor = None
     life_r, life_w = os.pipe()
     created = started = terminal = create_finished = False
@@ -346,20 +356,34 @@ def run_container(bundle, sha, weights, deadline, recorder, contract, config, en
                 and monitor.poll() is None and not CANCELLED)
         report["stage"] = "experiment"
         started = True
+        report["experiment_step"] = "attach"
         raw = recorder.call(["docker", "container", "start", "--attach", name], env,
                             timeout=max(1, min(MAX_SECONDS, deadline - time.time())), limit=65536)
+        report["output_bytes"] = len(raw)
+        report["experiment_step"] = "decode"
         experiment = json.loads(raw)
+        report["experiment_step"] = "terminal"
         final = inspect(recorder, "container", name, env)
+        report["container_observation"] = container_observation(final, identifier, owner)
         require(final["Id"] == identifier and final["State"]["Status"] == "exited"
                 and final["State"]["ExitCode"] == 0 and not final["State"].get("OOMKilled"))
+        report["experiment_step"] = "validation"
         validate_result(experiment, bundle, contract, recorder)
         terminal = True
-        report.update(experiment=experiment, functional_pass=experiment["functional_pass"], stage="completed")
+        report.update(experiment=experiment, functional_pass=experiment["functional_pass"],
+                      stage="completed", experiment_step="completed")
     except Exception:
         report["failure"] = "bounded-lab-stage-failed"
     finally:
         CLEANING = True
         os.close(life_r)
+        if started and report["container_observation"] is None:
+            # Observe the owned container before cleanup changes its exit state.
+            try:
+                report["container_observation"] = container_observation(
+                    inspect(recorder, "container", name, env), identifier, owner)
+            except Exception:
+                pass
         if created:
             report["cleanup"] = "unconfirmed"
             try:
@@ -393,7 +417,7 @@ def validate_result(row, bundle, contract, recorder):
         return
     correctness = contract.get("operation") == "local-correctness"
     fields = {"schema", "status", "deployable", "confidential", "functional_pass",
-              "stage", "application", "hardware", "completion", "engine_stopped"}
+              "stage", "application", "hardware", "completion", "startup", "engine_stopped"}
     expected_schema = "nib.deepseek-lab-result/v1"
     if correctness:
         fields.add("correctness")
@@ -403,6 +427,26 @@ def validate_result(row, bundle, contract, recorder):
             and row["deployable"] is False and row["confidential"] is False
             and type(row["functional_pass"]) is bool and type(row["engine_stopped"]) is bool
             and row["stage"] in ("hardware", "weights", "application", "prelaunch", "startup", "request", "complete"))
+    startup = row["startup"]
+    if row["stage"] in ("hardware", "weights", "application", "prelaunch"):
+        require(startup is None)
+    else:
+        require(type(startup) is dict
+                and set(startup) == {"outcome", "wait_ms", "exit_code", "health_probes"})
+        require(startup["outcome"] in ("launch-failed", "child-exited", "startup-timeout",
+                                      "models-rejected", "ready", "supervisor-failure")
+                and type(startup["wait_ms"]) is int and 0 <= startup["wait_ms"] <= MAX_SECONDS * 1000
+                and type(startup["health_probes"]) is int and 0 <= startup["health_probes"] <= MAX_SECONDS + 1)
+        if startup["outcome"] == "child-exited":
+            require(type(startup["exit_code"]) is int and -128 <= startup["exit_code"] <= 255)
+        else:
+            require(startup["exit_code"] is None)
+        if startup["outcome"] == "launch-failed":
+            require(startup["wait_ms"] == 0 and startup["health_probes"] == 0)
+        if row["stage"] in ("request", "complete"):
+            require(startup["outcome"] == "ready" and startup["health_probes"] > 0)
+        else:
+            require(startup["outcome"] != "ready" and row["functional_pass"] is False)
     if row["hardware"] is not None:
         probe = load("lab_hardware_validation", Path(bundle) / "payload/probe.py", contract["sources"]["probe.py"])
         probe.validate_report(row["hardware"])
