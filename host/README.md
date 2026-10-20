@@ -4,6 +4,21 @@ Reserved for version-pinned BIOS, TDX, GPU CC and QEMU launch procedures.
 Host commands require the hardware gates in PLAN.md. No BIOS/GPU settings or
 confidential launch procedure is implemented here yet.
 
+## Private Test-Host Preparation
+
+`prepare-lab.py` prepares operator-owned mode-0700 directories for an already
+approved rental. Transfer this committed script alone, verify its SHA-256 against
+the trusted local checkout, and run it using `python3 -I -S`. `init --root PATH`
+creates the private root and `stage` subdirectory; the parent must already be
+private and owned. This does not install packages or change GPU modes.
+
+Transfer the approved `source-45e7a09.bundle` into that root, then run
+`checkout --root PATH`. Its fixed SHA-256 and revision must match before Git runs.
+The checkout is new-only, with hooks and ambient Git configuration disabled.
+Use the checkout's committed `host/record-probe.py` for actual hardware evidence.
+`prerequisites --root PATH` reports only whether expected executables exist.
+These setup results are not hardware qualification or a model-serving result.
+
 ## Approved weight staging
 
 The [bounded staging wrapper](../docs/tasks/p0-t4-host-weight-staging.md) prepares
