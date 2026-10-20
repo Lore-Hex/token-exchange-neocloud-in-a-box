@@ -100,6 +100,45 @@ No GPU, weights, model inference, ABI, hardware or confidentiality qualification
 occurred. Both prior failed-run artifacts remain unchanged. Any next source
 change belongs to a separate reviewed task; do not repeat this unchanged run.
 
+### Callsite Attempt
+
+The unchanged [run metadata](../../evidence/p0/2026-10-20-official-vllm-callsite-smoke/run.json)
+and [sanitized output](../../evidence/p0/2026-10-20-official-vllm-callsite-smoke/output.log)
+record source `094aa096293cdde51534dccbdc205ada67cc9653`, from
+2026-10-20 06:38:11 through 06:48:22 UTC. Payload SHA-256 is
+`3215f616de6bc6f88a563eb6e9a6e9d71165b3518c8df38b37eaf354b43adbd6`.
+
+All five application stages completed, with native inventory unchanged and
+2,879 bytecode removals. Phase durations were 9,112 ms preflight, 582,750 ms
+application and 7,036 ms imports. Fresh, spawn and grandchild each rejected the
+first API-entry import with `subprocess.Popen`, command `other`, caller `other`,
+process count 1, all other guard counts zero, `first_state_mismatch:null`, and
+zero permitted dependency entrypoint loads. The remaining three imports were
+not run. Bootstrap/pre-unpickle observations passed and the owned tracker
+exited zero.
+
+All three reports contain these ordered structural matches:
+`torch-init:module`, `vllm-env-torch-import`, `vllm-env:module`,
+`vllm-init-env-import`, and `vllm-init:module`. These place the observed stack
+inside env-override's initial Torch import, before its later Inductor patch
+phase; they do **not** identify the function or command that requested Popen.
+Fresh scanned 105 frames with 102 unmatched; spawn and grandchild each scanned
+111 with 108 unmatched. There was no scan/output truncation or comparison
+failure. Ten catalog sources verified, but `ctypes-util` and `platform` reported
+`source-mismatch` and therefore supplied no matchable references. The artifact
+does not explain those byte/size mismatches or establish either as the caller.
+Most frames remain outside the selected matched coverage. The exact cause is
+**still unknown**; no subprocess permission or compatibility exception follows.
+
+The result remains `smoke-rejected`, `smoke_pass:false`, `result:fail`,
+`deployable:false`. Cleanup is `confirmed`; the parent also reported an
+independent empty Docker label query, whose transcript is not in the artifact.
+No GPU, weights, model inference, ABI, hardware or confidentiality qualification
+occurred. All prior failed-run artifacts remain unchanged. The regression
+reconstructs this complete payload with its original committed producer and
+validates the failure using that producer's validator. Do not repeat the
+unchanged experiment; any next correction requires separate source review.
+
 ### Denied-Process Diagnostics
 
 The recorder diagnostics were exercised in the attempt above, which remained
@@ -107,7 +146,8 @@ non-qualifying. The change preserves every existing process denial and the
 exact permitted spawn/resource-tracker/fresh reentry paths. It adds `first_denied_process` to
 each fresh/spawn/grandchild report: `null` before any process rejection,
 otherwise a sticky object containing only fixed `event`, `command` and `caller`
-categories. Caught denials still increment the process counter and prevent
+categories in that historical producer. The current producer additionally
+records the bounded `callsites` object described below. Caught denials still increment the process counter and prevent
 success; later events cannot overwrite the first observation. Host validation
 requires the field and consistency with that counter. Historical evidence is
 validated using its original committed producer/validator, not rewritten to
@@ -137,6 +177,84 @@ produce the same old process-counter-only result. No actual executable identity,
 compiler behavior, JIT safety or engine compatibility is established, and no
 subprocess is newly permitted. Any subsequent actual changed-source run remains
 parent-owned and gated on independent review and tests.
+
+### Source-Bound Callsite Diagnostics
+
+The diagnostics were exercised in the callsite attempt above, which remained
+non-qualifying with two source mismatches. They do not identify the historical
+`other/other` event's cause or permit any new process. The first-denial object
+contains `callsites`: fixed public
+IDs, per-source availability, scanned/unmatched frame counts, independent
+`scan_truncated` and `output_truncated` booleans, and `comparison_failed`.
+The old module-name caller remains only a hint; it does not establish an ID.
+
+The recorder binds a twelve-file catalog (537,634 source bytes) in its payload.
+Each interpreter reads only those fixed installed paths through the existing
+bounded no-follow regular-file reader, checks size and SHA-256, then compiles
+each matching source once with its own compiler, `flags=0`, `dont_inherit=True`
+and `optimize=0`. References are never executed or imported. The existing
+`ENVIRONMENT_SOURCES` entries provide the vLLM init/env-override and Torch init
+pins; the other nine immutable sources are listed below. No upstream source is
+vendored, installed, or downloaded by the runtime.
+
+Only selected public function/module code objects enter the catalog. Comparison
+covers the full compiled structure (including nested constants, signed zero,
+line and exception tables), excluding `co_filename`. It never hashes or
+serializes unknown frame code, reads globals/locals, or converts arbitrary
+objects. Matching structure does **not** prove origin, globals, executed data,
+or authorization. Changed cached bytecode with unchanged source is not a match.
+Specific vLLM phases additionally require an instruction offset from the
+verified reference statement: init's env import, env's Torch import, the
+lowering/graph imports, and the top-level fallback-patch call. No observed line
+number or path is published.
+
+The scan visits at most 128 frames, nearest first, retaining at most eight unique
+IDs. Hitting the output limit does not stop the frame scan. Each structural
+comparison has a 20,000-node and depth-64 bound; at most 36 selected references
+are considered per frame, with a name prefilter that cannot establish a match.
+These are finite diagnostic bounds, not a runtime performance qualification.
+The offline audit checks every actual public reference against those bounds.
+The source statuses are `verified`, `missing`, `read-rejected`,
+`source-mismatch`, `compile-rejected`, and `selector-rejected`. A failed selector
+discards all references from that source. Unmatched frames, unavailable sources,
+either truncation, and comparison failure are explicit coverage gaps, never
+evidence that an unobserved callsite did not execute. Diagnostic failures cannot
+replace the original denial or clear its sticky counter.
+
+| Source ID | Immutable public source |
+|---|---|
+| `ctypes-util` | [CPython ctypes/util.py](https://github.com/python/cpython/blob/f6650f9ad73359051f3e558c2431a109bc016664/Lib/ctypes/util.py) |
+| `platform` | [CPython platform.py](https://github.com/python/cpython/blob/f6650f9ad73359051f3e558c2431a109bc016664/Lib/platform.py) |
+| `triton-nvidia` | [Triton NVIDIA driver](https://github.com/triton-lang/triton/blob/f797708c0626e5f9840ca5b0a98790e2c7cb09ad/third_party/nvidia/backend/driver.py) |
+| `triton-amd` | [Triton AMD driver](https://github.com/triton-lang/triton/blob/f797708c0626e5f9840ca5b0a98790e2c7cb09ad/third_party/amd/backend/driver.py) |
+| `triton-build` | [Triton runtime build](https://github.com/triton-lang/triton/blob/f797708c0626e5f9840ca5b0a98790e2c7cb09ad/python/triton/runtime/build.py) |
+| `triton-knobs` | [Triton knobs](https://github.com/triton-lang/triton/blob/f797708c0626e5f9840ca5b0a98790e2c7cb09ad/python/triton/knobs.py) |
+| `torch-extension` | [Torch cpp_extension](https://github.com/pytorch/pytorch/blob/cf30153c4c131c8164ee7798e5022d810682e2cb/torch/utils/cpp_extension.py) |
+| `torch-builder` | [Torch cpp_builder](https://github.com/pytorch/pytorch/blob/cf30153c4c131c8164ee7798e5022d810682e2cb/torch/_inductor/cpp_builder.py) |
+| `torch-vec` | [Torch cpu_vec_isa](https://github.com/pytorch/pytorch/blob/cf30153c4c131c8164ee7798e5022d810682e2cb/torch/_inductor/cpu_vec_isa.py) |
+
+`VecISA._probe_load` invokes a three-argument Python command; its build/probe
+selectors can distinguish that structure if observed. Its reachability in the
+historical run is unproven. The ISA environment setting remains unchanged; no
+generated script or library path is examined or published.
+
+All twelve files were independently retrieved from their fixed public revisions
+and checked locally: 537,634 bytes, twelve matching SHA-256 values, 36 matching
+selectors under Python 3.12.13. This compile-only source audit is not an installed
+image observation; the target image compiles its own verified references under
+its previously measured Python 3.12.3. Reproduce offline against already fetched
+files named by catalog source ID (for example `torch-vec.py`):
+
+```sh
+uv run --project tools --frozen python -I scripts/test_engine_callsite.py \
+  --public-sources /private/tmp/nib-engine-callsite-sources
+```
+
+Tests also cover source/read/selector failures, unknown commands with verified
+ancestors, altered constants/line/exception tables, valid stale bytecode,
+spoofed names, no private hashing/conversion, both independent caps, caught
+denials, diagnostic failure, and real local fresh/spawn/grandchild/tracker paths.
+Historical artifacts remain byte-identical and use their original validators.
 
 Primary source observations (read without executing upstream packages):
 

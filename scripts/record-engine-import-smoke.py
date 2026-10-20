@@ -24,10 +24,10 @@ SCRIPT = "scripts/record-engine-import-smoke.py"
 BUILDER = "scripts/prepare-engine-application.py"
 BOOTSTRAP_FILE = "scripts/engine_python_bootstrap.py"
 SMOKE = "scripts/engine_import_smoke.py"
-TESTS = ("scripts/test_engine_python_bootstrap.py", "scripts/test_engine_import_smoke.py")
+TESTS = ("scripts/test_engine_python_bootstrap.py", "scripts/test_engine_import_smoke.py", "scripts/test_engine_callsite.py")
 BUILDER_SHA = "4821dfc601f8a8f25985dc84b0c5f40c83f3ef5f153383277b91e2513fa0fc98"
-BOOTSTRAP_SHA = "d7e590ffe20bb77892884cf0421442fed8fed353f666ddaac6fdd131735c3fe7"
-SMOKE_SHA = "ee312af62aad7f217213acb1ccfd3cd17bf5f59130fe6e95d661a0f8d21a3a1e"
+BOOTSTRAP_SHA = "0a7fc1f081dd26d72cd660b85d226ba6e6cb35b9370c0e254480cd6d49e04c0b"
+SMOKE_SHA = "d973d4190ec56a843a30cacd4416b2bea6ec1b917e033bceec88d32cece0eb48"
 
 
 def read_source(path):
@@ -115,6 +115,7 @@ def prepare_files(revision, bundle, extra):
                 "interpreter": {key: measured["files"][0][key] for key in ("resolved", "bytes", "sha256")},
                 "modules": list(smoke.MODULES), "environment": environment(),
                 "import_environment_sources": list(smoke.ENVIRONMENT_SOURCES),
+                "process_callsite_sources": smoke.callsite_specs(),
                 "metadata_source_sha256": dict(bootstrap.METADATA_SOURCES),
                 "permitted_dependency_entrypoint": list(bootstrap.CONTEXT_ENTRYPOINT),
                 "sources": {name: overlay.digest(data) for name, data in payload.items()}}

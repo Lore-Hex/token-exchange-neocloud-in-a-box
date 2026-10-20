@@ -20,6 +20,7 @@ RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-import-smoke"
 RECORDED_SOURCE = "4b6b90613cfcd806ea0d40bf0b1aa7a415880313"
 NUMPY_RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-numpy-startup-smoke"
 DENIED_RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-denied-process-smoke"
+CALLSITE_RECORDED = ROOT / "evidence/p0/2026-10-20-official-vllm-callsite-smoke"
 
 
 def load(name, relative):
@@ -36,6 +37,11 @@ overlay, smoke = tool.overlay, tool.smoke
 
 
 class SmokeTests(unittest.TestCase):
+    def callsites(self):
+        return {"sources": [{"id": row["id"], "status": "verified"} for row in smoke.callsite_specs()],
+                "ids": [], "frames_scanned": 1, "unmatched_frames": 1, "scan_truncated": False,
+                "output_truncated": False, "comparison_failed": False}
+
     @classmethod
     def setUpClass(cls):
         fixtures.ApplicationTests.setUpClass()
@@ -102,6 +108,9 @@ class SmokeTests(unittest.TestCase):
             "OTEL_PYTHON_CONTEXT": "contextvars_context", "OTEL_PROPAGATORS": "none",
             "OPENBLAS_MAIN_FREE": "1", "GOTOBLAS_MAIN_FREE": "1"})
         self.assertEqual(contract["import_environment_sources"], list(smoke.ENVIRONMENT_SOURCES))
+        self.assertEqual(contract["process_callsite_sources"], smoke.callsite_specs())
+        self.assertEqual(len(contract["process_callsite_sources"]), 12)
+        self.assertEqual(sum(row["bytes"] for row in contract["process_callsite_sources"]), 537634)
         self.assertEqual(contract["metadata_source_sha256"], tool.bootstrap.METADATA_SOURCES)
         self.assertEqual(contract["permitted_dependency_entrypoint"], list(tool.bootstrap.CONTEXT_ENTRYPOINT))
         self.assertEqual([p["revision"] for p in contract["import_environment_sources"]],
@@ -153,7 +162,7 @@ class SmokeTests(unittest.TestCase):
         report = copy.deepcopy(original)
         report["smoke"]["fresh"]["guard_rejections"]["process"] = 1
         report["smoke"]["fresh"]["first_denied_process"] = {
-            "event": "subprocess.Popen", "command": "other", "caller": "other"}
+            "event": "subprocess.Popen", "command": "other", "caller": "other", "callsites": self.callsites()}
         self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
 
     def test_process_diagnostics_are_required_bounded_and_counter_consistent(self):
@@ -165,14 +174,14 @@ class SmokeTests(unittest.TestCase):
             for event in tool.bootstrap.PROCESS_EVENTS:
                 for command in tool.bootstrap.PROCESS_COMMANDS:
                     for caller in (*tool.bootstrap.PROCESS_CALLERS.values(), "other"):
-                        row["first_denied_process"] = {"event": event, "command": command, "caller": caller}
+                        row["first_denied_process"] = {"event": event, "command": command, "caller": caller, "callsites": self.callsites()}
                         if command != "other" and event not in ("subprocess.Popen", "os.exec", "os.posix_spawn"):
                             with self.assertRaises(ValueError):
                                 smoke.validate(overlay, report, self.application, self.measured)
                         else:
                             # A caught denial must fail even if all imports claim pass.
                             self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
-            valid = {"event": "subprocess.Popen", "command": "gxx-version", "caller": "torch-cpp-builder"}
+            valid = {"event": "subprocess.Popen", "command": "gxx-version", "caller": "torch-cpp-builder", "callsites": self.callsites()}
             for invalid in (None, {}, [], "private", True, {**valid, "args": ["private"]},
                             {"event": "subprocess.Popen", "command": "gxx-version"},
                             *({**valid, field: value} for field in valid for value in (None, True, [], {}, "private"))):
@@ -533,7 +542,7 @@ class SmokeTests(unittest.TestCase):
         binary, _ = tool.recorder.build_validator(ROOT, record["git_sha"], self.root, env)
         tool.recorder.publish_evidence(record, report, binary, self.root, self.root / "evidence", env)
         self.assertEqual(json.loads((self.root / "evidence/run.json").read_bytes()), record)
-        for directory in (RECORDED, NUMPY_RECORDED, DENIED_RECORDED):
+        for directory in (RECORDED, NUMPY_RECORDED, DENIED_RECORDED, CALLSITE_RECORDED):
             recorded = self.root / "recorded/evidence/p0" / directory.name
             recorded.mkdir(parents=True)
             (recorded / "run.json").write_bytes(tool.read_source(directory / "run.json"))
@@ -567,8 +576,25 @@ class SmokeTests(unittest.TestCase):
             elapsed={"application-preflight": 8146, "application": 482321, "import-smoke": 6036}, guard=("process", 1),
             denied={"event": "subprocess.Popen", "command": "other", "caller": "other"})
 
+    def test_recorded_callsites_preserve_verified_ancestors_and_source_coverage_gaps(self):
+        sources = [{"id": name, "status": "source-mismatch" if name in ("ctypes-util", "platform") else "verified"}
+                   for name in ("vllm-init", "vllm-env", "torch-init", "ctypes-util", "platform", "triton-nvidia",
+                                "triton-amd", "triton-build", "triton-knobs", "torch-extension", "torch-builder", "torch-vec")]
+        callsites = [{"sources": sources, "ids": ["torch-init:module", "vllm-env-torch-import", "vllm-env:module",
+                     "vllm-init-env-import", "vllm-init:module"], "frames_scanned": scanned,
+                     "unmatched_frames": scanned - 3, "scan_truncated": False, "output_truncated": False,
+                     "comparison_failed": False} for scanned in (105, 111, 111)]
+        self.assert_recorded_attempt(CALLSITE_RECORDED, "094aa096293cdde51534dccbdc205ada67cc9653",
+            run_sha="31b7f6dba4f5c5c090efbbe3d8ad2bdb50f0cf04c81ee03a016f430f3ea2ee0f",
+            output_sha="b88eae0b3f0fd18101301b4eaf723bf4eb54ce6974304aafee3f3ac8323263f2",
+            recorder_sha="394e09cf668a71ab22341e825ac70e7bd6fb0477080b88098e9b819e93d8450d",
+            payload_sha="3215f616de6bc6f88a563eb6e9a6e9d71165b3518c8df38b37eaf354b43adbd6",
+            timestamps=("2026-10-20T06:38:11Z", "2026-10-20T06:48:22Z"),
+            elapsed={"application-preflight": 9112, "application": 582750, "import-smoke": 7036}, guard=("process", 1),
+            denied={"event": "subprocess.Popen", "command": "other", "caller": "other"}, callsites=callsites)
+
     def assert_recorded_attempt(self, directory, revision, *, run_sha, output_sha, recorder_sha, payload_sha,
-                                timestamps, elapsed, guard, denied=None):
+                                timestamps, elapsed, guard, denied=None, callsites=None):
         documents = []
         for name, expected in (("run.json", run_sha), ("output.log", output_sha)):
             raw = tool.read_source(directory / name)
@@ -634,14 +660,14 @@ class SmokeTests(unittest.TestCase):
         self.assertFalse(applied["packaging"]["plugins_loaded"])  # pre-import application only
         self.assertFalse(experiment["inference_started"])
         self.assertEqual(experiment["smoke"]["tracker"], {"launched": True, "exit_zero": True})
-        for row in (experiment["smoke"]["fresh"], experiment["smoke"]["spawn"], experiment["smoke"]["spawn"]["grandchild"]):
+        for index, row in enumerate((experiment["smoke"]["fresh"], experiment["smoke"]["spawn"], experiment["smoke"]["spawn"]["grandchild"])):
             self.assertEqual(row["guard_rejections"], {key: guard[1] if key == guard[0] else 0 for key in row["guard_rejections"]})
             if guard[0] == "process":
                 self.assertIsNone(row["first_state_mismatch"])
             if denied is None:
                 self.assertNotIn("first_denied_process", row)
             else:
-                self.assertEqual(row["first_denied_process"], denied)
+                self.assertEqual(row["first_denied_process"], denied if callsites is None else {**denied, "callsites": callsites[index]})
             self.assertEqual(row["dependency_entrypoint_loads"], 0)
             self.assertEqual(row["imports"], [{"module": name, "status": "rejected" if i == 0 else "not-run",
                                                "error_category": "guard" if i == 0 else None}
