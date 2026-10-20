@@ -145,7 +145,26 @@ def resolve(tree, path, *, ancestors_only=False):
     raise ValueError("tools-link-cycle")
 
 
-def payload(raw):
+def payload(raw, *, exact_data=None):
+    # Only a caller's source-pinned archive/member inventory may name literal
+    # non-ASCII regular data. The default path and executable policies stay strict.
+    require(exact_data is None or type(exact_data) is dict)
+    exact_data = {} if exact_data is None else exact_data
+    allowed = exact_data.get("members", {})
+    if exact_data:
+        require(set(exact_data) == {"archive_sha256", "members"}
+                and digest(raw) == exact_data["archive_sha256"]
+                and type(allowed) is dict and 0 < len(allowed) <= 8)
+        for name, row in allowed.items():
+            require(type(name) is str and not name.isascii()
+                    and name.isprintable() and len(name.encode("utf-8")) <= 1024
+                    and not name.startswith("/") and len(name.split("/")) <= 32
+                    and all(p not in ("", ".", "..") for p in name.split("/")))
+            require(type(row) is dict and set(row) == {"bytes", "sha256", "mode"}
+                    and type(row["bytes"]) is int and 0 < row["bytes"] <= 1 << 20
+                    and re.fullmatch("[0-9a-f]{64}", row["sha256"])
+                    and type(row["mode"]) is int and 0 <= row["mode"] <= 0o666
+                    and not row["mode"] & 0o111)
     _, (name, packed) = base.archive_members(raw)
     expanded = base.decompress(name, packed, MAX_EXPANDED)
     result = {}
@@ -154,7 +173,13 @@ def payload(raw):
             require(count < MAX_ENTRIES and not member.pax_headers and not member.issparse())
             if member.name in (".", "./") and member.isdir():
                 continue
-            name = path_name(member.name)
+            literal = member.name.removeprefix("./")
+            if literal in allowed:
+                name = literal
+                require(member.isfile() and member.mode == allowed[name]["mode"]
+                        and member.size == allowed[name]["bytes"])
+            else:
+                name = path_name(member.name)
             require(name not in result and 0 <= member.uid <= 65535
                     and 0 <= member.gid <= 65535 and 0 <= member.mode <= 0o7777)
             # Hard links are copied only after their in-archive regular target is verified.
@@ -170,8 +195,11 @@ def payload(raw):
                 with archive.extractfile(member) as stream:
                     data = stream.read((64 << 20) + 1)
                 require(len(data) == member.size)
+                if name in allowed:
+                    require(digest(data) == allowed[name]["sha256"])
                 row = {"kind": "file", "data": data, "mode": member.mode & 0o777}
             result[name] = row
+    require(set(allowed) <= set(result))
     for row in result.values():
         if row["kind"] == "hard":
             target = result.get(row["target"])
