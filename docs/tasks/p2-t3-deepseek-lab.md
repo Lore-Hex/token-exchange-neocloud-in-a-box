@@ -82,7 +82,10 @@ conservative experimental choice for the operator-reported approximately
 1.3 TiB host and 510.3 GB weights, not a measured loader-memory requirement.
 Only the payload and weights
 are host-mounted, read-only. NVIDIA runtime injection is explicit; no driver
-or CC settings are changed.
+or CC settings are changed. Every `NVIDIA_REQUIRE_*` value from the digest-verified
+image config is preserved exactly at container creation and checked again in
+container inspection. The toolkit enforces these before application `env -i`;
+the lab does not disable vendor compatibility constraints.
 
 The reviewed exact-image application contract performs all eight inventories,
 all five patch stages, bytecode removal and source/native/hash receipt checks.
@@ -91,6 +94,15 @@ It retains inert `.pth` files and excludes alternate roots. Application receipt
 the later functional experiment. vLLM plugins and Torch backend auto-loading
 remain disabled; dependency initialization may load its own reviewed entry
 points. Both stdlib/backport metadata lookup are restricted to fixed paths.
+The lab additionally predeclares only the selected root's `setuptools/_vendor`
+path after verifying four pinned setuptools 80.10.2 source files. This makes
+the upstream vendor-path addition idempotent. A source-bound adapter routes
+only its temporary `distutils` alias through the existing sealed finder,
+without inserting an unrestricted finder. All four adapter sources execute
+from verified bytes, not cached bytecode; preloaded setuptools/distutils
+modules, source/version mismatches, symlinked vendor roots, and unrelated
+path/finder changes reject. This lab-only compatibility is inherited before
+spawn preparation/unpickling; it does not modify the P0 bootstrap.
 
 After rechecking hardware, the launcher starts one Python API process, one
 EngineCore and TP4 workers using mp/spawn, DP1/PP1, NUMA and EP off, GPU Engram,
@@ -101,6 +113,7 @@ fixed synthetic chat request at loopback. Eager mode does not mean no JIT.
 The response is checked for completion shape, finish and bounded usage. The
 fixed prompt asks for the single digit for 1 + 1; `functional_pass` additionally
 requires nonempty final assistant content and exact trimmed content `2`.
+The completion must also end with `finish_reason:"stop"`, never `"length"`.
 Only `final_content_present` and `synthetic_answer_match` booleans are retained.
 `generated:true` alone means token generation was observed: reasoning-only,
 length-limited responses or a wrong final answer do **not** pass the functional
@@ -146,6 +159,19 @@ the external VM deletion deadline is still mandatory.
   `_avx_py_load`, `_build_probe_env`, `_probe_load` (113-162), 22,427 bytes,
   SHA-256 `6cd49584e3cfdab9f0883c5a24d088f992909775f7d400ff0a4cefccbe6998a0`.
   This is a source compatibility route, not proof of actual runtime reachability.
+- [Setuptools 80.10.2 initialization](https://github.com/pypa/setuptools/blob/5cf2d085186f2c8053940076db99045b826ec22a/setuptools/__init__.py)
+  and [distutils shim](https://github.com/pypa/setuptools/blob/5cf2d085186f2c8053940076db99045b826ec22a/_distutils_hack/__init__.py):
+  the published tag resolves to this immutable commit. Source SHA-256 pins in
+  `engine_lab_bootstrap.py` also cover
+  [override.py](https://github.com/pypa/setuptools/blob/5cf2d085186f2c8053940076db99045b826ec22a/_distutils_hack/override.py)
+  and [the distutils package initializer](https://github.com/pypa/setuptools/blob/5cf2d085186f2c8053940076db99045b826ec22a/setuptools/_distutils/__init__.py).
+  The four retrieved files total 16,433 bytes and pass compile/parse-only
+  checks under Python 3.12; upstream package code was not executed by the
+  author. Synthetic parent/child regressions are not real-image compatibility
+  or GPU execution evidence.
+- [NVIDIA Container Toolkit 1.20.1 constraints](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/1.20.1/docker-specialized.html#constraints):
+  `NVIDIA_REQUIRE_*` constraints are enforced by the runtime, before application
+  environment replacement; no `NVIDIA_DISABLE_REQUIRE=true` bypass is passed.
 - [Pinned NVML binding](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/third_party/pynvml.py):
   structs/getters 2724-2754, 6384-6425; named constants 1167-1195.
   [NVIDIA NVML R595 reference](https://docs.nvidia.com/deploy/pdf/NVML_API_Reference_Guide.pdf),

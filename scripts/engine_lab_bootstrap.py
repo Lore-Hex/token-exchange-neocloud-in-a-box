@@ -11,6 +11,20 @@ import stat
 import sys
 
 VECISA_SOURCE_SHA = "6cd49584e3cfdab9f0883c5a24d088f992909775f7d400ff0a4cefccbe6998a0"
+# setuptools v80.10.2, immutable commit 5cf2d085186f2c8053940076db99045b826ec22a.
+# Only this lab adapter changes startup; the P0 bootstrap remains unchanged.
+SETUPTOOLS_SOURCES = {
+    "setuptools/__init__.py": "bf5ad90eff95604f2db0f6b07f11bc73b8c4c88f1cdfbc805b160efc51664c86",
+    "_distutils_hack/__init__.py": "df81e6bcba34ee3e3952f776551fb669143b9490fdd6c4caeb32609f97e985b4",
+    "_distutils_hack/override.py": "12efecf8d17a5486780aa774b5b6c0e70b56932d8864f35df1eb7a18bb759b3a",
+    "setuptools/_distutils/__init__.py": "c4662e856c0b1b4ec9d10e3d0559c48cfcbac320dc77abde24c0c95fb9639723",
+}
+SETUPTOOLS_MODULES = {
+    "setuptools": "setuptools/__init__.py",
+    "_distutils_hack": "_distutils_hack/__init__.py",
+    "_distutils_hack.override": "_distutils_hack/override.py",
+    "setuptools._distutils": "setuptools/_distutils/__init__.py",
+}
 
 
 def vecisa_library(args, layout, helpers):
@@ -67,13 +81,29 @@ def install_lab(layout, helpers):
     require = helpers.require
     require(sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode
             and sys.pycache_prefix is None and os.getcwd() == "/")
+    selected = layout["paths"][-1]
+    vendor = selected + "/setuptools/_vendor"
+    layout = {**layout, "paths": [*layout["paths"], vendor]}
     old = getattr(sys, "_nib_lab_bootstrap", None)
     if old is not None:
         require(old["layout"] == layout)
         old["check"]()
         return old
     require(not any(name == "vllm" or name.startswith("vllm.") or name == "torch" for name in sys.modules)
-            and not {"sitecustomize", "usercustomize"} & set(sys.modules))
+            and not {"sitecustomize", "usercustomize"} & set(sys.modules)
+            and not any(name.split(".", 1)[0] in ("setuptools", "_distutils_hack", "distutils")
+                        for name in sys.modules))
+    # Verify before extending the path. Never execute .pth or load cached code.
+    for relative, expected in SETUPTOOLS_SOURCES.items():
+        require(hashlib.sha256(helpers.read_source(selected + "/" + relative, 32768)).hexdigest() == expected)
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in vendor.split("/")[1:]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = child
+    finally:
+        os.close(fd)
     import multiprocessing as mp
     import multiprocessing.context as contexts
     import multiprocessing.process as process
@@ -90,7 +120,8 @@ def install_lab(layout, helpers):
     mp.set_executable(layout["wrapper"])
     state = {"layout": layout, "spawn_entry": False, "before_unpickle": True, "rejections": 0,
              "finders": None, "backport_loading": False, "backport_context": None,
-             "backport_class": None, "backport_delegate": None}
+             "backport_class": None, "backport_delegate": None,
+             "distutils_active": False, "distutils_delegate": None}
 
     def reject():
         state["rejections"] += 1
@@ -190,7 +221,7 @@ def install_lab(layout, helpers):
         def exec_module(self, module):
             relative = "importlib_metadata/" + ("__init__.py" if module.__name__ == "importlib_metadata" else "_compat.py")
             raw = helpers.read_source(self.path)
-            require(self.path == layout["paths"][-1] + "/" + relative
+            require(self.path == selected + "/" + relative
                     and hashlib.sha256(raw).hexdigest() == helpers.METADATA_SOURCES[relative])
             main = relative.endswith("__init__.py")
             if main:
@@ -210,12 +241,49 @@ def install_lab(layout, helpers):
                     state["backport_loading"] = False
             check()
 
+    class SetuptoolsSource(SourceOnly):
+        def exec_module(self, module):
+            name = module.__name__
+            relative = SETUPTOOLS_MODULES[name]
+            raw = helpers.read_source(self.path, 32768)
+            require(self.path == selected + "/" + relative
+                    and hashlib.sha256(raw).hexdigest() == SETUPTOOLS_SOURCES[relative])
+            if name == "setuptools":
+                from importlib import metadata
+                require(metadata.version("setuptools") == "80.10.2")
+            exec(compile(raw, self.path, "exec", flags=0, dont_inherit=True, optimize=0), module.__dict__)
+            if name == "_distutils_hack":
+                require(state["distutils_delegate"] is None
+                        and type(module.DISTUTILS_FINDER) is module.DistutilsMetaFinder)
+                state["distutils_delegate"] = module.DISTUTILS_FINDER.find_spec
+
+                def insert_shim():
+                    check()
+                    require(not state["distutils_active"])
+                    state["distutils_active"] = True
+
+                def remove_shim():
+                    check()
+                    state["distutils_active"] = False
+
+                # The pinned shim calls these globals. Do not add its finder
+                # ahead of the sealed finder or permit arbitrary finder changes.
+                module.insert_shim = insert_shim
+                module._remove_shim = remove_shim
+                module.add_shim = lambda: None if state["distutils_active"] else insert_shim()
+            check()
+
     class Finder:
         @staticmethod
         def find_spec(fullname, path=None, target=None):
             check()
             if fullname.split(".", 1)[0] in ("sitecustomize", "usercustomize"):
                 reject()
+            if fullname == "distutils":
+                require(state["distutils_active"] and state["distutils_delegate"] is not None and path is None)
+                spec = state["distutils_delegate"](fullname, path, target)
+                require(spec is not None and spec.origin == selected + "/setuptools/_distutils/__init__.py")
+                return spec
             spec = importlib.machinery.PathFinder.find_spec(fullname, path, target)
             if spec is None:
                 return None
@@ -225,6 +293,11 @@ def install_lab(layout, helpers):
                 reject()
             if isinstance(spec.loader, importlib.machinery.SourcelessFileLoader):
                 reject()
+            if fullname in SETUPTOOLS_MODULES:
+                require(type(spec.loader) is importlib.machinery.SourceFileLoader
+                        and spec.origin == selected + "/" + SETUPTOOLS_MODULES[fullname])
+                spec.loader = SetuptoolsSource(fullname, spec.origin)
+                return spec
             if fullname in ("importlib_metadata", "importlib_metadata._compat"):
                 require(type(spec.loader) is importlib.machinery.SourceFileLoader)
                 spec.loader = MetadataSource(fullname, spec.origin)

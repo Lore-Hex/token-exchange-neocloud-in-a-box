@@ -49,6 +49,45 @@ cdll.LoadLibrary("__lib_path__")
 """
 FAKE_VEC = ("class VecISA:\n    _avx_py_load = " + repr(TEMPLATE) + "\n").encode()
 
+# Original synthetic source contracts, not executed upstream setuptools code.
+FAKE_SETUPTOOLS = {
+    "setuptools/__init__.py": '''
+import os, sys
+vendor = os.path.join(os.path.dirname(__file__), "_vendor")
+sys.path.extend([] if vendor in sys.path else [vendor])
+import _distutils_hack.override
+import distutils.core
+import lab_vendor
+VALUE = distutils.core.VALUE + lab_vendor.VALUE
+''',
+    "_distutils_hack/__init__.py": '''
+import sys
+class DistutilsMetaFinder:
+    def find_spec(self, fullname, path, target=None):
+        import importlib, importlib.util, importlib.abc
+        mod = importlib.import_module("setuptools._distutils")
+        class Loader(importlib.abc.Loader):
+            def create_module(self, spec):
+                mod.__name__ = "distutils"
+                return mod
+            def exec_module(self, module): pass
+        return importlib.util.spec_from_loader("distutils", Loader(), origin=mod.__file__)
+DISTUTILS_FINDER = DistutilsMetaFinder()
+def insert_shim(): sys.meta_path.insert(0, DISTUTILS_FINDER)
+def _remove_shim(): sys.meta_path.remove(DISTUTILS_FINDER)
+def add_shim(): insert_shim()
+class shim:
+    def __enter__(self): insert_shim()
+    def __exit__(self, *args): _remove_shim()
+def do_override():
+    import importlib
+    with shim(): importlib.import_module("distutils")
+    importlib.import_module("distutils.core")
+''',
+    "_distutils_hack/override.py": '__import__("_distutils_hack").do_override()\n',
+    "setuptools/_distutils/__init__.py": 'VALUE = "source"\n',
+}
+
 
 class VecTests(unittest.TestCase):
     def test_exact_template_only_not_generic_python(self):
@@ -123,6 +162,7 @@ from pathlib import Path
 LAYOUT = json.loads(Path(__file__).with_name("layout.json").read_text())
 ARGS = sys.argv[1:]
 STATE = install_lab(LAYOUT, sys.modules[__name__])
+LAYOUT = STATE["layout"]
 def observe():
     STATE["check"]()
     import fake_engine
@@ -172,6 +212,7 @@ if __name__ == "__main__":
             elif ARGS[1] == "executable": mp.set_executable("/private/sentinel")
             elif ARGS[1] == "metadata": list(metadata.distributions(path=["/private/sentinel"]))
             elif ARGS[1] == "finder": sys.meta_path.append(importlib.machinery.PathFinder); STATE["check"]()
+            elif ARGS[1] == "path": sys.path.append("/private/sentinel"); STATE["check"]()
             elif ARGS[1] == "site": import site; site.main()
             elif ARGS[1] == "numa": os.environ["NUMACTL_PYTHON"] = "/private/sentinel"; STATE["check"]()
             elif ARGS[1] == "pth": import sitecustomize
@@ -196,11 +237,24 @@ class BootstrapTests(unittest.TestCase):
         dist = self.package / "lab_fake-1.0.dist-info"
         dist.mkdir()
         (dist / "METADATA").write_text("Name: lab-fake\nVersion: 1.0\n")
+        for name, text in FAKE_SETUPTOOLS.items():
+            path = self.package / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        vendor = self.package / "setuptools/_vendor"
+        vendor.mkdir()
+        (vendor / "lab_vendor.py").write_text('VALUE="-vendor"\n')
+        (self.package / "setuptools/_distutils/core.py").write_text('VALUE="distutils"\n')
+        dist = self.package / "setuptools-80.10.2.dist-info"
+        dist.mkdir()
+        (dist / "METADATA").write_text("Name: setuptools\nVersion: 80.10.2\n")
         stdlib = [sysconfig.get_path("stdlib"), sysconfig.get_config_var("DESTSHARED")]
         self.layout = {"paths": stdlib + [str(self.package)], "stdlib_roots": stdlib,
                        "launcher": str(self.root / "launch.py"), "wrapper": str(self.root / "python")}
         (self.root / "layout.json").write_text(json.dumps(self.layout))
         self.source = (ROOT / "scripts/engine_python_bootstrap.py").read_bytes() + b"\n" + (ROOT / "scripts/engine_lab_bootstrap.py").read_bytes()
+        pins = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in FAKE_SETUPTOOLS.items()}
+        self.source += ("\nSETUPTOOLS_SOURCES=" + repr(pins) + "\n").encode()
         (self.root / "launch.py").write_bytes(self.source + DRIVER.encode())
         env = ["VLLM_PLUGINS=", "VLLM_WORKER_MULTIPROC_METHOD=spawn", "PATH=/usr/bin:/bin", "LC_ALL=C.UTF-8"]
         (self.root / "python").write_text("#!/bin/sh\nexec " + shlex.join(
@@ -224,7 +278,7 @@ class BootstrapTests(unittest.TestCase):
         self.assertFalse(list(self.root.rglob("*.pyc")))
 
     def test_fork_forkserver_paths_numa_and_generic_python_rejected(self):
-        for variant in ("fork", "forkserver", "executable", "metadata", "finder", "site", "numa", "pth", "python"):
+        for variant in ("fork", "forkserver", "executable", "metadata", "finder", "path", "site", "numa", "pth", "python"):
             with self.subTest(variant=variant):
                 self.assertEqual(self.run_fixture("reject", variant), {"rejected": True})
 
@@ -272,6 +326,107 @@ class BootstrapTests(unittest.TestCase):
         (self.root / "launch.py").write_bytes(self.source + ("\nMETADATA_SOURCES=" + repr(pins) + "\n").encode() + driver.encode())
         row = self.run_fixture("positive")
         self.assertEqual(row["child"]["grandchild"]["after"]["version"], "1.0")
+
+    def test_setuptools_source_adapter_parent_spawn_grandchild_and_fresh(self):
+        import importlib.util
+        import marshal
+        import struct
+        for relative in FAKE_SETUPTOOLS:
+            source = self.package / relative
+            cache = Path(importlib.util.cache_from_source(str(source)))
+            cache.parent.mkdir(exist_ok=True)
+            cache.write_bytes(importlib.util.MAGIC_NUMBER
+                              + struct.pack("<III", 0, int(source.stat().st_mtime), source.stat().st_size)
+                              + marshal.dumps(compile("raise RuntimeError('private cached setuptools')", str(source), "exec")))
+        driver = DRIVER.replace("    import fake_engine", """    import fake_engine
+    before = list(sys.meta_path)
+    import setuptools, _distutils_hack, distutils
+    assert setuptools.VALUE == "distutils-vendor"
+    assert sys.meta_path == before
+    assert not STATE["distutils_active"]
+    assert sys.path.count(LAYOUT["paths"][-1]) == 1
+    with _distutils_hack.shim():
+        STATE["check"]()
+        assert sys.meta_path == before
+    STATE["check"]()""")
+        (self.root / "launch.py").write_bytes(self.source + driver.encode())
+        result = self.run_fixture("positive")
+        self.assertTrue(result["child"]["grandchild"]["before"]["paths"])
+        self.assertTrue(result["fresh"]["paths"])
+
+    def test_setuptools_unadapted_path_and_finder_are_rejected(self):
+        # Positive controls reproduce both original strict-boundary failures.
+        driver = DRIVER.replace("    import fake_engine", """    import fake_engine
+    for field in ("path", "finder"):
+        before = list(sys.path), list(sys.meta_path)
+        if field == "path": sys.path.append(LAYOUT["paths"][-1])
+        else:
+            import _distutils_hack
+            sys.meta_path.insert(0, _distutils_hack.DISTUTILS_FINDER)
+        try: STATE["check"]()
+        except ValueError: pass
+        else: raise AssertionError("unadapted mutation accepted")
+        sys.path[:], sys.meta_path[:] = before
+    STATE["check"]()""")
+        (self.root / "launch.py").write_bytes(self.source + driver.encode())
+        self.assertTrue(self.run_fixture("fresh")["paths"])
+
+    def test_setuptools_source_version_root_and_cached_module_rejections(self):
+        def rejected():
+            result = subprocess.run([self.layout["wrapper"], "fresh"], cwd="/", capture_output=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn(b"private-payload-executed", result.stdout + result.stderr)
+        for name, original in FAKE_SETUPTOOLS.items():
+            path = self.package / name
+            path.write_text("raise RuntimeError('private-payload-executed')\n")
+            with self.subTest(source=name):
+                rejected()
+            path.write_text(original)
+        driver = DRIVER.replace("    import fake_engine", "    import fake_engine\n    import setuptools")
+        (self.root / "launch.py").write_bytes(self.source + driver.encode())
+        metadata = self.package / "setuptools-80.10.2.dist-info/METADATA"
+        original = metadata.read_bytes()
+        metadata.write_text("Name: setuptools\nVersion: 80.10.1\n")
+        rejected()
+        metadata.write_bytes(original)
+        vendor = self.package / "setuptools/_vendor"
+        moved = self.root / "outside"
+        vendor.rename(moved)
+        vendor.symlink_to(moved, target_is_directory=True)
+        rejected()
+        vendor.unlink()
+        moved.rename(vendor)
+        for cached in ("setuptools", "_distutils_hack", "distutils"):
+            prefix = "\nsys.modules[" + repr(cached) + "] = type(sys)(" + repr(cached) + ")\n"
+            (self.root / "launch.py").write_bytes(self.source + prefix.encode() + driver.encode())
+            with self.subTest(cached=cached):
+                rejected()
+
+    def test_setuptools_rechecks_bytes_and_exact_origin_at_import(self):
+        source = self.package / "_distutils_hack/override.py"
+        original = source.read_bytes()
+        driver = DRIVER.replace("    import fake_engine", """    import fake_engine
+    Path(LAYOUT["paths"][-2] + "/_distutils_hack/override.py").write_text(
+        "raise RuntimeError('private-code-ran')\\n")
+    try: import setuptools
+    except ValueError: pass
+    else: raise AssertionError("changed source accepted")
+    STATE["check"]()""")
+        (self.root / "launch.py").write_bytes(self.source + driver.encode())
+        self.assertTrue(self.run_fixture("fresh")["paths"])
+        source.write_bytes(original)
+        driver = DRIVER.replace("    import fake_engine", """    import fake_engine
+    import _distutils_hack
+    _distutils_hack.__path__[:] = [LAYOUT["paths"][-2] + "/shadow"]
+    try: import setuptools
+    except ValueError: pass
+    else: raise AssertionError("alternate origin accepted")
+    STATE["check"]()""")
+        shadow = self.package / "shadow"
+        shadow.mkdir()
+        (shadow / "override.py").write_bytes(original)
+        (self.root / "launch.py").write_bytes(self.source + driver.encode())
+        self.assertTrue(self.run_fixture("fresh")["paths"])
 
 
 class BoundedProcessTests(unittest.TestCase):
@@ -475,6 +630,13 @@ class PayloadTests(unittest.TestCase):
                 changed["completion"][field] = False
                 with self.subTest(field=field), self.assertRaises(ValueError):
                     host.validate_result(changed, root, self.contract, self.builder.recorder)
+            changed = copy.deepcopy(row)
+            changed["completion"].update(finish="length", completion_tokens=128)
+            with self.assertRaises(ValueError):
+                host.validate_result(changed, root, self.contract, self.builder.recorder)
+            # Retain a valid token-generation observation, never functional pass.
+            changed["functional_pass"] = False
+            host.validate_result(changed, root, self.contract, self.builder.recorder)
 
 
 class LifecycleTests(unittest.TestCase):
@@ -488,7 +650,7 @@ class LifecycleTests(unittest.TestCase):
         response = {"object": "chat.completion", "model": lab.MODEL,
                     "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": "2"}}],
                     "usage": {"prompt_tokens": 10, "completion_tokens": 1, "total_tokens": 11}}
-        for terminal in (0, -signal.SIGTERM, 1, "timeout", "request-error", "dead-worker", "reasoning-only", "wrong-answer"):
+        for terminal in (0, -signal.SIGTERM, 1, "timeout", "request-error", "dead-worker", "reasoning-only", "wrong-answer", "truncated-answer"):
             engine = mock.Mock(pid=99999999)
             engine.poll.return_value = 1 if terminal == "dead-worker" else None
             engine.wait.side_effect = ([subprocess.TimeoutExpired("fixed", 60), -9] if terminal == "timeout"
@@ -503,6 +665,9 @@ class LifecycleTests(unittest.TestCase):
                                                                             "reasoning": "synthetic-private"})
                 elif terminal == "wrong-answer":
                     body["choices"][0]["message"]["content"] = "3"
+                elif terminal == "truncated-answer":
+                    body["choices"][0]["finish_reason"] = "length"
+                    body["usage"].update(completion_tokens=128, total_tokens=138)
                 return json.dumps(body).encode()
             with self.subTest(terminal=terminal), mock.patch.object(lab, "hardware", return_value={"fixed": True}), \
                     mock.patch.object(lab, "quiet_command"), mock.patch.object(lab, "http_request", side_effect=http), \
@@ -514,6 +679,10 @@ class LifecycleTests(unittest.TestCase):
             if terminal in ("reasoning-only", "wrong-answer"):
                 self.assertTrue(row["completion"]["generated"])
                 self.assertFalse(row["completion"]["synthetic_answer_match"])
+            if terminal == "truncated-answer":
+                self.assertTrue(row["completion"]["synthetic_answer_match"])
+                self.assertTrue(row["completion"]["generated"])
+                self.assertEqual(row["completion"]["finish"], "length")
             engine.wait.assert_called()
 
     def test_owned_cleanup_absence_and_foreign_owner(self):
@@ -614,6 +783,53 @@ class ReportTests(unittest.TestCase):
         self.assertIn("-B", args)
         self.assertEqual(args[-1], "apply")
 
+    def test_verified_nvidia_constraints_survive_creation_and_inspection(self):
+        config = {"config": {"Env": ["NVIDIA_REQUIRE_CUDA=cuda>=13.0 driver>=580",
+                                    "NVIDIA_REQUIRE_BRAND=brand=tesla", "NVIDIA_DISABLE_REQUIRE=true",
+                                    "UNRELATED=private-sentinel"]}}
+        contract = {"base_image": "pinned", "environment": {"VLLM_PLUGINS": ""}}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / "payload").mkdir()
+            (root / "payload/lab.json").write_text("{}")
+            args = host.create_command("owned", "owner", root, "/weights", contract, config)
+            env = [args[i + 1] for i, arg in enumerate(args) if arg == "--env"]
+            self.assertIn("NVIDIA_REQUIRE_CUDA=cuda>=13.0 driver>=580", env)
+            self.assertIn("NVIDIA_REQUIRE_BRAND=brand=tesla", env)
+            self.assertIn("NVIDIA_DISABLE_REQUIRE=", env)
+            self.assertIn("UNRELATED=", env)
+            application_args = args[args.index("pinned") + 1:]
+            self.assertEqual(application_args[0], "-i")
+            self.assertNotIn("NVIDIA_REQUIRE_CUDA=cuda>=13.0 driver>=580", application_args)
+            info = {
+                "Image": "image-id",
+                "Config": {"Image": "pinned", "Labels": {host.LABEL: "owner"}, "Entrypoint": ["/usr/bin/env"],
+                           "Cmd": application_args, "User": "0:0", "WorkingDir": "/", "Env": env,
+                           "Healthcheck": {"Test": ["NONE"]}},
+                "HostConfig": {"NetworkMode": "none", "Privileged": False, "Runtime": "nvidia",
+                               "ReadonlyRootfs": False, "CapDrop": ["ALL"], "IpcMode": "private",
+                               "ShmSize": 2 << 30, "CgroupnsMode": "private", "Memory": 768 << 30,
+                               "MemorySwap": 768 << 30, "NanoCpus": 64000000000, "PidsLimit": 1024,
+                               "RestartPolicy": {"Name": "no"}, "LogConfig": {"Type": "none"},
+                               "SecurityOpt": ["no-new-privileges"],
+                               "Tmpfs": {"/cache": "rw,nosuid,nodev,size=16g,mode=0700",
+                                         "/tmp": "rw,nosuid,nodev,noexec,size=256m,mode=1777"},
+                               "DeviceRequests": [{"DeviceIDs": ["0", "1", "2", "3"], "Capabilities": [["gpu"]],
+                                                   "Count": 0, "Driver": "nvidia"}]},
+                "Mounts": [{"Type": "bind", "Source": str(root / "payload"), "Destination": "/opt/nib", "RW": False},
+                           {"Type": "bind", "Source": "/weights", "Destination": "/model", "RW": False}],
+            }
+            host.check_container(info, "owned", "owner", root, "/weights", contract, config, "image-id")
+            for key in ("NVIDIA_REQUIRE_CUDA", "NVIDIA_REQUIRE_BRAND"):
+                original = next(value for value in env if value.startswith(key + "="))
+                for replacement in (None, key + "=", key + "=changed"):
+                    changed = copy.deepcopy(info)
+                    changed["Config"]["Env"].remove(original)
+                    if replacement is not None:
+                        changed["Config"]["Env"].append(replacement)
+                    with self.subTest(key=key, replacement=replacement), self.assertRaises(ValueError):
+                        host.check_container(changed, "owned", "owner", root, "/weights", contract, config, "image-id")
+
 
 def public_source_audit(path):
     raw = Path(path).read_bytes()
@@ -629,8 +845,26 @@ def public_source_audit(path):
     print("Pinned Torch VecISA source/template: PASS (compile/parse only; no upstream execution).")
 
 
+def public_setuptools_audit(path):
+    for name, sha in bootstrap.SETUPTOOLS_SOURCES.items():
+        raw = (Path(path) / name).read_bytes()
+        if hashlib.sha256(raw).hexdigest() != sha or len(raw) > 32768:
+            raise ValueError("public setuptools source rejected")
+        compile(raw, name, "exec", flags=0, dont_inherit=True, optimize=0)
+        tree = ast.parse(raw)
+        if name == "_distutils_hack/__init__.py":
+            functions = {n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))}
+            assert {"DistutilsMetaFinder", "insert_shim", "_remove_shim", "add_shim", "shim"} <= functions
+            shim = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "shim")
+            calls = {n.func.id for n in ast.walk(shim) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+            assert calls == {"insert_shim", "_remove_shim"}
+    print("Pinned setuptools 80.10.2: four sources PASS (compile/parse only; no upstream execution).")
+
+
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--public-vecisa":
         public_source_audit(sys.argv[2])
+    elif len(sys.argv) == 3 and sys.argv[1] == "--public-setuptools":
+        public_setuptools_audit(sys.argv[2])
     else:
         unittest.main()

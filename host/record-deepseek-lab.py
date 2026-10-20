@@ -214,14 +214,19 @@ def create_command(name, owner, bundle, weights, contract, config):
                "--mount", "type=bind,src=" + str(weights) + ",dst=/model,readonly",
                "--entrypoint", "/usr/bin/env"]
     names = set()
+    constraints = {}
     for item in config["config"].get("Env", []):
-        key, sep, _ = item.partition("=")
+        key, sep, value = item.partition("=")
         require(sep and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", key) and key not in names)
         names.add(key)
+        if key.startswith("NVIDIA_REQUIRE_"):
+            constraints[key] = value
     # Toolkit device injection is selected at the Docker boundary. Application
     # environment starts from env -i; host credentials/proxies never propagate.
+    # Retain the verified image's vendor constraints for the NVIDIA prestart
+    # hook; env -i runs only after that hook has enforced them.
     for key in sorted(names | {"PATH", "HOME", "NVIDIA_VISIBLE_DEVICES", "NVIDIA_DRIVER_CAPABILITIES"}):
-        command += ["--env", key + "=" + ({"NVIDIA_VISIBLE_DEVICES": "0,1,2,3",
+        command += ["--env", key + "=" + ({**constraints, "NVIDIA_VISIBLE_DEVICES": "0,1,2,3",
                                           "NVIDIA_DRIVER_CAPABILITIES": "compute,utility"}.get(key, ""))]
     return command + [contract["base_image"], "-i", *[key + "=" + value for key, value in sorted(contract["environment"].items())],
                       "/usr/bin/python3.12", "-I", "-S", "-B", "/opt/nib/launch.py",
@@ -410,6 +415,7 @@ def validate_result(row, bundle, contract, recorder):
                 and type(value["prompt_tokens"]) is int and 0 < value["prompt_tokens"] <= 4096
                 and type(value["completion_tokens"]) is int and 0 < value["completion_tokens"] <= 128)
     if row["functional_pass"]:
+        require(row["completion"] is not None and row["completion"]["finish"] == "stop")
         require(row["stage"] == "complete" and row["engine_stopped"] is True
                 and type(row["application"]) is dict and row["application"].get("deployable") is False
                 and type(row["hardware"]) is dict and row["hardware"].get("attestation_verified") is False

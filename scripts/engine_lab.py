@@ -248,7 +248,8 @@ def application_and_request(contract, sources, modules, application, measured):
         result["completion"] = completion_result(raw)
         require(hardware() == result["hardware"])
         result["functional_pass"] = (result["completion"]["final_content_present"]
-                                     and result["completion"]["synthetic_answer_match"])
+                                     and result["completion"]["synthetic_answer_match"]
+                                     and result["completion"]["finish"] == "stop")
         result["stage"] = "complete"
     except Exception:
         result["functional_pass"] = False
