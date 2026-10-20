@@ -24,6 +24,7 @@ MODEL_REVISION = "1bae0e1088993b9b82de08f59de5be5a34e42170"
 IMAGE_LD_PATH = "/usr/local/nvidia/lib64:/usr/local/cuda/lib64:/usr/local/cuda/lib64:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/cuda/lib64"
 PROCESSES = None
 GPU_PROBE = None
+CORRECTNESS = None
 
 
 def lab_args(plan):
@@ -72,7 +73,7 @@ def load(name, raw, path):
 
 
 def lab_context(expected):
-    global PROCESSES, GPU_PROBE
+    global PROCESSES, GPU_PROBE, CORRECTNESS
     import platform
     import re
     require(re.fullmatch(r"[0-9a-f]{64}", expected) and __file__ == ROOT + "/launch.py")
@@ -81,7 +82,7 @@ def lab_context(expected):
     contract = json.loads(raw)
     require(contract["schema"] == "nib.deepseek-lab-input/v1" and contract["status"] == "BLOCKED"
             and contract["deployable"] is False and contract["confidential"] is False
-            and contract["operation"] in ("functional", "hardware-diagnostic")
+            and contract["operation"] in ("functional", "hardware-diagnostic", "local-correctness")
             and platform.system() == "Linux" and platform.machine() == "x86_64"
             and platform.python_version() == "3.12.3" and sys.pycache_prefix is None
             and os.getcwd() == "/" and dict(os.environ) == contract["environment"])
@@ -101,6 +102,8 @@ def lab_context(expected):
     require(sum(map(len, sources.values())) <= 8 << 20)
     PROCESSES = load("lab_processes", sources["processes.py"], ROOT + "/processes.py")
     GPU_PROBE = load("lab_gpu", sources["probe.py"], ROOT + "/probe.py")
+    if contract["operation"] == "local-correctness":
+        CORRECTNESS = load("lab_correctness", sources["correctness.py"], ROOT + "/correctness.py")
     modules = [load(name, sources["application/" + name], ROOT + "/application/" + name)
                for name in ("engine_overlay.py", "engine_image_diagnostic.py", "engine_python_descriptor.py", "application.py")]
     overlay, _, _, app = modules
@@ -187,6 +190,30 @@ def http_request(path, *, data=None, timeout=2):
         connection.close()
 
 
+def correctness_request(payload, deadline):
+    """A whole-request deadline, including slow headers or trickling bodies."""
+    before = time.monotonic()
+    remaining = deadline - before
+    if remaining <= 0:
+        raise TimeoutError("request deadline")
+    previous_handler = signal.getsignal(signal.SIGALRM)
+    previous_timer = signal.getitimer(signal.ITIMER_REAL)
+    require(previous_timer[0] > 0 and previous_timer[1] == 0)
+    def expired(*_):
+        raise TimeoutError("request deadline")
+    signal.signal(signal.SIGALRM, expired)
+    signal.setitimer(signal.ITIMER_REAL, min(previous_timer[0], remaining))
+    try:
+        return http_request("/v1/chat/completions", data=payload, timeout=remaining)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        restored = previous_timer[0] - (time.monotonic() - before)
+        if restored <= 0:
+            os._exit(124)
+        signal.setitimer(signal.ITIMER_REAL, restored)
+
+
 def completion_result(raw):
     row = json.loads(raw)
     require(type(row) is dict and "error" not in row and row.get("object") == "chat.completion"
@@ -253,6 +280,9 @@ def application_and_request(contract, sources, modules, application, measured):
     result = {"schema": "nib.deepseek-lab-result/v1", "status": "BLOCKED", "deployable": False,
               "confidential": False, "functional_pass": False, "stage": "hardware",
               "application": None, "hardware": None, "completion": None, "engine_stopped": False}
+    correctness = contract["operation"] == "local-correctness"
+    if correctness:
+        result.update(schema="nib.deepseek-lab-correctness-result/v1", correctness=None)
     engine = None
     started = time.monotonic()
     try:
@@ -271,6 +301,8 @@ def application_and_request(contract, sources, modules, application, measured):
             # exact source, all preserved native bytes and all five receipts.
         result["stage"] = "prelaunch"
         require(hardware() == result["hardware"])
+        if correctness:
+            CORRECTNESS.verify_sources(read_source, contract["paths"][-1])
         require(time.monotonic() - started < WEIGHTS_SECONDS + APPLICATION_SECONDS + 60)
         result["stage"] = "startup"
         engine = subprocess.Popen([ROOT + "/python", "engine"], stdin=subprocess.DEVNULL,
@@ -287,14 +319,19 @@ def application_and_request(contract, sources, modules, application, measured):
         require(type(models) is dict and type(models.get("data")) is list
                 and [row.get("id") for row in models["data"]] == [MODEL])
         result["stage"] = "request"
-        raw = http_request("/v1/chat/completions", timeout=REQUEST_SECONDS, data={
-            "model": MODEL, "messages": [{"role": "user", "content": "Compute 1 + 1. Reply with the single digit only."}],
-            "max_tokens": 128, "temperature": 0, "stream": False})
-        result["completion"] = completion_result(raw)
+        if correctness:
+            result["correctness"] = CORRECTNESS.run(
+                correctness_request, MODEL, deadline=started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE)
+        else:
+            raw = http_request("/v1/chat/completions", timeout=REQUEST_SECONDS, data={
+                "model": MODEL, "messages": [{"role": "user", "content": "Compute 1 + 1. Reply with the single digit only."}],
+                "max_tokens": 128, "temperature": 0, "stream": False})
+            result["completion"] = completion_result(raw)
         require(hardware() == result["hardware"])
-        result["functional_pass"] = (result["completion"]["final_content_present"]
+        result["functional_pass"] = (result["correctness"]["all_cases_pass"] if correctness else
+                                    (result["completion"]["final_content_present"]
                                      and result["completion"]["synthetic_answer_match"]
-                                     and result["completion"]["finish"] == "stop")
+                                     and result["completion"]["finish"] == "stop"))
         result["stage"] = "complete"
     except Exception:
         result["functional_pass"] = False
@@ -333,7 +370,7 @@ def lab_entry():
         signal.alarm(60)
         print(json.dumps(diagnostic_request(), sort_keys=True))
         return
-    require(contract["operation"] == "functional")
+    require(contract["operation"] in ("functional", "local-correctness"))
     if mode == "apply" and len(rest) == 1:
         for path in ("/cache/home", "/cache/tmp", "/cache/hf", "/cache/deep-gemm", "/cache/triton",
                      "/cache/inductor", "/cache/torch", "/cache/xdg"):

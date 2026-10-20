@@ -796,7 +796,7 @@ class PayloadTests(unittest.TestCase):
         cls.fixtures.ApplicationTests.setUpClass()
         cls.builder = host.load("lab_test_builder", ROOT / host.BUILDER, host.BUILDER_SHA)
         cls.extra = dict(cls.fixtures.ApplicationTests.extra)
-        for name in (host.SCRIPT, host.HELPER, host.RUNTIME, host.LAB_BOOTSTRAP, host.PROBE, host.SMOKE,
+        for name in (host.SCRIPT, host.HELPER, host.RUNTIME, host.LAB_BOOTSTRAP, host.PROBE, host.SMOKE, host.CORRECTNESS,
                      host.TEST, host.PACK + "/pack.yaml", host.PACK + "/files.sha256"):
             cls.extra[name] = (ROOT / name).read_bytes()
         cls.bundle = cls.builder.checker.working_bundle(ROOT)
@@ -846,6 +846,18 @@ class PayloadTests(unittest.TestCase):
             host.validate_result(row, root, contract, None)
             with self.assertRaises(ValueError):
                 host.validate_result({**row, "functional_pass": True}, root, contract, None)
+
+    def test_correctness_payload_is_opt_in_and_source_bound(self):
+        files, contract = host.make_payload(self.builder, "1"*40, self.bundle, self.extra,
+                                            b"fake-linux-binary", "local-correctness")
+        self.assertEqual(contract["operation"], "local-correctness")
+        self.assertEqual(files["correctness.py"], self.extra[host.CORRECTNESS])
+        self.assertEqual(contract["sources"]["correctness.py"], hashlib.sha256(files["correctness.py"]).hexdigest())
+        self.assertNotIn("correctness.py", self.files)
+        self.assertEqual(contract["arguments"], self.contract["arguments"])
+        self.assertEqual(contract["environment"], self.contract["environment"])
+        self.assertFalse(contract["confidential"])
+        self.assertFalse(contract["deployable"])
 
     def test_diagnostic_main_publishes_failed_nvml_observations_with_authoritative_schema(self):
         recorder = self.builder.recorder
@@ -956,6 +968,24 @@ class PayloadTests(unittest.TestCase):
             # Retain a valid token-generation observation, never functional pass.
             changed["functional_pass"] = False
             host.validate_result(changed, root, self.contract, self.builder.recorder)
+            correctness = module("scripts/engine_local_correctness.py")
+            cases = module("scripts/test_engine_local_correctness.py")
+            contract = copy.deepcopy(self.contract)
+            contract["operation"] = "local-correctness"
+            contract["sources"]["correctness.py"] = hashlib.sha256(self.extra[host.CORRECTNESS]).hexdigest()
+            (root / "payload/correctness.py").write_bytes(self.extra[host.CORRECTNESS])
+            good = {**row, "schema": "nib.deepseek-lab-correctness-result/v1",
+                    "completion": None, "correctness": correctness.run(cases.success, lab.MODEL)}
+            host.validate_result(good, root, contract, self.builder.recorder)
+            for mutation in ({"correctness": None}, {"completion": row["completion"]},
+                             {"engine_stopped": False}, {"schema": row["schema"]}):
+                with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                    host.validate_result({**good, **mutation}, root, contract, self.builder.recorder)
+            failed = correctness.run(lambda *_: "{}", lab.MODEL)
+            with self.assertRaises(ValueError):
+                host.validate_result({**good, "correctness": failed}, root, contract, self.builder.recorder)
+            host.validate_result({**good, "correctness": failed, "functional_pass": False},
+                                 root, contract, self.builder.recorder)
 
 
 class LifecycleTests(unittest.TestCase):
@@ -991,7 +1021,8 @@ class LifecycleTests(unittest.TestCase):
             with self.subTest(terminal=terminal), mock.patch.object(lab, "hardware", return_value={"fixed": True}), \
                     mock.patch.object(lab, "quiet_command"), mock.patch.object(lab, "http_request", side_effect=http), \
                     mock.patch.object(lab.subprocess, "Popen", return_value=engine), mock.patch.object(lab.os, "killpg"):
-                row = lab.application_and_request({}, {}, [None, None, None, app], application, {})
+                row = lab.application_and_request({"operation": "functional"}, {},
+                                                  [None, None, None, app], application, {})
             self.assertEqual(row["functional_pass"], terminal in (0, -signal.SIGTERM))
             self.assertNotIn("private upstream failure", json.dumps(row))
             self.assertNotIn("synthetic-private", json.dumps(row))
@@ -1003,6 +1034,66 @@ class LifecycleTests(unittest.TestCase):
                 self.assertTrue(row["completion"]["generated"])
                 self.assertEqual(row["completion"]["finish"], "length")
             engine.wait.assert_called()
+
+    def test_correctness_runs_inside_existing_lifecycle_and_source_failure_stops_startup(self):
+        @contextmanager
+        def selected(*_):
+            yield types.SimpleNamespace(deadline=0), (None, types.SimpleNamespace(deadline=0))
+        app = types.SimpleNamespace(verify_layout=lambda *_: None, selected_tree=selected,
+                                    inspect=lambda *_: {}, apply=lambda *_: {"stages": 5})
+        correctness = module("scripts/engine_local_correctness.py")
+        cases = module("scripts/test_engine_local_correctness.py")
+        contract = {"operation": "local-correctness", "paths": ["/selected"]}
+        for source_ok in (True, False):
+            engine = mock.Mock(pid=99999999)
+            engine.poll.return_value = None
+            engine.wait.return_value = 0
+            def http(path, **kwargs):
+                if path == "/health":
+                    return b"ok"
+                if path == "/v1/models":
+                    return json.dumps({"data": [{"id": lab.MODEL}]}).encode()
+                raise AssertionError("unexpected endpoint")
+            with self.subTest(source_ok=source_ok), \
+                    mock.patch.object(lab, "CORRECTNESS", correctness), \
+                    mock.patch.object(correctness, "verify_sources", side_effect=None if source_ok else ValueError()), \
+                    mock.patch.object(lab, "read_source", create=True), \
+                    mock.patch.object(lab, "hardware", return_value={"fixed": True}), \
+                    mock.patch.object(lab, "quiet_command"), \
+                    mock.patch.object(lab, "http_request", side_effect=http), \
+                    mock.patch.object(lab, "correctness_request", side_effect=cases.success) as request, \
+                    mock.patch.object(lab.subprocess, "Popen", return_value=engine) as start, \
+                    mock.patch.object(lab.os, "killpg"):
+                row = lab.application_and_request(contract, {}, [None, None, None, app], {"files": []}, {})
+            self.assertEqual(row["functional_pass"], source_ok)
+            self.assertEqual(row["engine_stopped"], source_ok)
+            self.assertIsNone(row["completion"])
+            self.assertEqual(start.call_count, int(source_ok))
+            self.assertEqual(request.call_count, 10 if source_ok else 0)
+            if source_ok:
+                self.assertTrue(row["correctness"]["all_cases_pass"])
+                self.assertFalse(row["correctness"]["tau_acceptance"])
+            else:
+                self.assertIsNone(row["correctness"])
+
+    def test_correctness_request_restores_outer_watchdog_on_success_and_failure(self):
+        for failure in (None, TimeoutError("request deadline")):
+            with self.subTest(failure=failure), \
+                    mock.patch.object(lab.time, "monotonic", side_effect=[100.0, 101.0]), \
+                    mock.patch.object(lab.signal, "getsignal", return_value="outer"), \
+                    mock.patch.object(lab.signal, "getitimer", return_value=(30.0, 0.0)), \
+                    mock.patch.object(lab.signal, "signal") as handler, \
+                    mock.patch.object(lab.signal, "setitimer") as timer, \
+                    mock.patch.object(lab, "http_request", return_value=b"ok", side_effect=failure):
+                if failure is None:
+                    self.assertEqual(lab.correctness_request({}, 105.0), b"ok")
+                else:
+                    with self.assertRaises(TimeoutError):
+                        lab.correctness_request({}, 105.0)
+            self.assertEqual(timer.call_args_list, [
+                mock.call(signal.ITIMER_REAL, 5.0), mock.call(signal.ITIMER_REAL, 0),
+                mock.call(signal.ITIMER_REAL, 29.0)])
+            self.assertEqual(handler.call_args_list[-1], mock.call(signal.SIGALRM, "outer"))
 
     def test_owned_cleanup_absence_and_foreign_owner(self):
         recorder = types.SimpleNamespace(call=mock.Mock(side_effect=[b"exists", b"removed", b""]))

@@ -31,6 +31,7 @@ HELPER = "scripts/engine_python_bootstrap.py"
 RUNTIME = "scripts/engine_lab.py"
 LAB_BOOTSTRAP = "scripts/engine_lab_bootstrap.py"
 PROBE = "scripts/engine_lab_probe.py"
+CORRECTNESS = "scripts/engine_local_correctness.py"
 SMOKE = "scripts/engine_import_smoke.py"
 TEST = "scripts/test_deepseek_lab.py"
 PACK = "models/deepseek-v4.1-flash-1017/1"
@@ -94,7 +95,7 @@ def committed(builder, revision, name):
 
 
 def make_payload(builder, revision, bundle, extra, binary, operation="functional"):
-    require(operation in ("functional", "hardware-diagnostic"))
+    require(operation in ("functional", "hardware-diagnostic", "local-correctness"))
     files, _ = builder.prepare_files(revision, bundle, extra)
     app = builder.overlay.load_json(files["payload/contract.json"])
     measured = builder.application.measurement(builder.overlay, extra[builder.application.EVIDENCE])
@@ -108,6 +109,8 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
                     "processes.py": extra[builder.recorder.SNAPSHOT],
                     "nib": binary, "pack/pack.yaml": extra[PACK + "/pack.yaml"],
                     "pack/files.sha256": extra[PACK + "/files.sha256"]})
+    if operation == "local-correctness":
+        payload["correctness.py"] = extra[CORRECTNESS]
     contract = {"schema": "nib.deepseek-lab-input/v1", "status": "BLOCKED", "deployable": False, "confidential": False,
                 "operation": operation,
                 "git_sha": revision, "base_image": builder.overlay.BASE_IMAGE, "official_config": app["official_config"],
@@ -130,6 +133,9 @@ def prepare(destination, operation="functional"):
     revision, bundle, extra = builder.inputs(ROOT)
     for name in (SCRIPT, HELPER, RUNTIME, LAB_BOOTSTRAP, PROBE, SMOKE, TEST, PACK + "/pack.yaml", PACK + "/files.sha256"):
         extra[name] = committed(builder, revision, name)
+    if operation == "local-correctness":
+        for name in (CORRECTNESS, "scripts/test_engine_local_correctness.py"):
+            extra[name] = committed(builder, revision, name)
     require(extra[SCRIPT] == read(Path(__file__).absolute()))
     recorder = builder.recorder
     with tempfile.TemporaryDirectory(prefix="nib-lab-build-") as temporary:
@@ -197,13 +203,13 @@ def bundle_inputs(path, expected):
     contract = recorder.overlay.load_json(read(path / "payload/lab.json"))
     require(contract["git_sha"] == receipt["git_sha"] and contract["status"] == "BLOCKED"
             and contract["deployable"] is False and contract["confidential"] is False
-            and contract["operation"] in ("functional", "hardware-diagnostic"))
+            and contract["operation"] in ("functional", "hardware-diagnostic", "local-correctness"))
     config = recorder.raw_metadata(path / "metadata", contract)
     return receipt, contract, config, recorder
 
 
 def create_command(name, owner, bundle, weights, contract, config):
-    require(contract["operation"] in ("functional", "hardware-diagnostic"))
+    require(contract["operation"] in ("functional", "hardware-diagnostic", "local-correctness"))
     payload = str(Path(bundle) / "payload")
     command = ["docker", "container", "create", "--name", name, "--label", LABEL + "=" + owner,
                "--pull", "never", "--platform", "linux/amd64", "--runtime", "nvidia",
@@ -385,9 +391,15 @@ def validate_result(row, bundle, contract, recorder):
         probe = load("lab_diagnostic_validation", Path(bundle) / "payload/probe.py", contract["sources"]["probe.py"])
         probe.validate_diagnostic(row)
         return
-    require(type(row) is dict and set(row) == {"schema", "status", "deployable", "confidential", "functional_pass",
-                                             "stage", "application", "hardware", "completion", "engine_stopped"}
-            and row["schema"] == "nib.deepseek-lab-result/v1" and row["status"] == "BLOCKED"
+    correctness = contract.get("operation") == "local-correctness"
+    fields = {"schema", "status", "deployable", "confidential", "functional_pass",
+              "stage", "application", "hardware", "completion", "engine_stopped"}
+    expected_schema = "nib.deepseek-lab-result/v1"
+    if correctness:
+        fields.add("correctness")
+        expected_schema = "nib.deepseek-lab-correctness-result/v1"
+    require(type(row) is dict and set(row) == fields
+            and row["schema"] == expected_schema and row["status"] == "BLOCKED"
             and row["deployable"] is False and row["confidential"] is False
             and type(row["functional_pass"]) is bool and type(row["engine_stopped"]) is bool
             and row["stage"] in ("hardware", "weights", "application", "prelaunch", "startup", "request", "complete"))
@@ -424,13 +436,23 @@ def validate_result(row, bundle, contract, recorder):
                 and type(value["prompt_tokens"]) is int and 0 < value["prompt_tokens"] <= 4096
                 and type(value["completion_tokens"]) is int and 0 < value["completion_tokens"] <= 128)
     if row["functional_pass"]:
-        require(row["completion"] is not None and row["completion"]["finish"] == "stop")
         require(row["stage"] == "complete" and row["engine_stopped"] is True
                 and type(row["application"]) is dict and row["application"].get("deployable") is False
-                and type(row["hardware"]) is dict and row["hardware"].get("attestation_verified") is False
-                and type(row["completion"]) is dict and row["completion"].get("generated") is True
-                and row["completion"]["final_content_present"] is True
-                and row["completion"]["synthetic_answer_match"] is True)
+                and type(row["hardware"]) is dict and row["hardware"].get("attestation_verified") is False)
+        if not correctness:
+            require(type(row["completion"]) is dict and row["completion"].get("generated") is True
+                    and row["completion"]["finish"] == "stop"
+                    and row["completion"]["final_content_present"] is True
+                    and row["completion"]["synthetic_answer_match"] is True)
+    if correctness:
+        require(row["completion"] is None)
+        if row["correctness"] is not None:
+            checker = load("lab_correctness_validation", Path(bundle) / "payload/correctness.py",
+                           contract["sources"]["correctness.py"])
+            checker.validate(row["correctness"])
+            require(row["hardware"] is not None and row["application"] is not None)
+        if row["functional_pass"]:
+            require(row["correctness"] is not None and row["correctness"]["all_cases_pass"])
     require(row["hardware"] is not None or (row["application"] is None and row["completion"] is None))
     require(row["application"] is not None or row["completion"] is None)
     require(len(json.dumps(row)) <= 60000)
@@ -457,16 +479,18 @@ def main():
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument("--prepare")
     action.add_argument("--prepare-hardware-diagnostic")
+    action.add_argument("--prepare-local-correctness")
     action.add_argument("--run", metavar="PRIVATE_BUNDLE")
     parser.add_argument("--receipt-sha256")
     parser.add_argument("--weights")
     parser.add_argument("--output")
     parser.add_argument("--deadline", help="Required UTC hard cutoff, YYYY-MM-DDTHH:MM:SSZ, at most 80 minutes away.")
     args = parser.parse_args()
-    if args.prepare or args.prepare_hardware_diagnostic:
+    if args.prepare or args.prepare_hardware_diagnostic or args.prepare_local_correctness:
         require(not any((args.receipt_sha256, args.weights, args.output, args.deadline)))
-        prepare(args.prepare or args.prepare_hardware_diagnostic,
-                "hardware-diagnostic" if args.prepare_hardware_diagnostic else "functional")
+        prepare(args.prepare or args.prepare_hardware_diagnostic or args.prepare_local_correctness,
+                "hardware-diagnostic" if args.prepare_hardware_diagnostic else
+                "local-correctness" if args.prepare_local_correctness else "functional")
         return 0
     require(sys.platform == "linux" and all((args.receipt_sha256, args.weights, args.output, args.deadline)))
     deadline = dt.datetime.strptime(args.deadline, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp()
