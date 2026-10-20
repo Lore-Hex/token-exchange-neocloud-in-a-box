@@ -20,6 +20,15 @@ the container limits. GitHub's [public runner specifications](https://docs.githu
 list 4 CPUs and 16 GB memory for `ubuntu-24.04` (checked 2026-10-20).
 They do not guarantee the reclaimed disk space, so the disk check is required.
 
+The host temporary directory remains mode `0700`. Only the read-only mounted
+payload is mode `0555` for directories and its executable wrapper, and `0444`
+for source/data files. Native Linux preserves the host UID on bind mounts;
+the container's UID 0 cannot read another UID's owner-only files with all
+capabilities dropped. See Linux [capabilities](https://man7.org/linux/man-pages/man7/capabilities.7.html),
+`CAP_DAC_OVERRIDE` and `CAP_DAC_READ_SEARCH`. No capability is added and no
+private host data becomes readable through the enclosing private directory.
+This follows the existing image recorder's payload-mode pattern.
+
 `oci/manifest.json` and `oci/config.json` are unmodified public Docker registry
 responses for the immutable image, not Docker's reformatted inspection output:
 

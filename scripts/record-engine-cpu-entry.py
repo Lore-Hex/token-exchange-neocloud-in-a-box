@@ -112,6 +112,32 @@ def prepare_files(revision, bundle, extra):
     return payload, contract
 
 
+def publish_container_payload(directory, payload):
+    # As in record-engine-image: the host parent stays private, while the
+    # read-only bind must be readable without CAP_DAC_OVERRIDE on native Linux.
+    directory = Path(directory)
+    with overlay.directory(directory.parent) as parent:
+        info = os.fstat(parent)
+        overlay.require(stat.S_IMODE(info.st_mode) == 0o700 and info.st_uid == os.getuid())
+    recorder.prep.publish(directory, payload)
+    overlay.require({name: read_source(directory / name) for name in payload} == payload)
+    directories = {directory}
+    for name in payload:
+        path = directory / name
+        with overlay.directory(path.parent) as parent:
+            fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+            try:
+                info = os.fstat(fd)
+                overlay.require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1)
+                os.fchmod(fd, 0o555 if name == "python" else 0o444)
+            finally:
+                os.close(fd)
+        directories.update(path.parents[:len(Path(name).parts)])
+    for path in sorted(directories, key=lambda item: len(item.parts), reverse=True):
+        with overlay.directory(path) as fd:
+            os.fchmod(fd, 0o555)
+
+
 def create_command(name, owner, payload, sha, config, contract):
     # Reuse P0's CPU-only container policy; only the fixed entry/environment,
     # owned label and a bounded noexec cache tmpfs differ.
@@ -328,8 +354,7 @@ def main():
             overlay.require(endpoint.startswith("unix:///") and not any(ord(c) < 32 for c in endpoint))
             env["DOCKER_HOST"] = endpoint
             directory = work / "payload"
-            recorder.prep.publish(directory, payload)
-            (directory / "python").chmod(0o500)
+            publish_container_payload(directory, payload)
             overlay.require({name: read_source(directory / name) for name in payload} == payload)
             report = run_container(directory, contract, config, env)
         except Exception:
