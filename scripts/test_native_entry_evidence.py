@@ -19,7 +19,7 @@ RECORDER_SHA = "418a78ef884dfcc1ff6d8232c20e4e0293161d0641b0f48b09ae2f75d8f0f6b1
 
 
 @contextmanager
-def producer_payload():
+def producer_payload(revision=REVISION, recorder_sha=RECORDER_SHA):
     names = (
         "scripts/record-engine-cpu-entry.py", "scripts/engine_cpu_entry.py", "scripts/engine_lab.py",
         "scripts/engine_lab_bootstrap.py", "scripts/record-engine-import-smoke.py",
@@ -34,14 +34,14 @@ def producer_payload():
     with tempfile.TemporaryDirectory() as temporary:
         source_root = Path(temporary).resolve()
         for name in names:
-            raw = git(ROOT, "show", REVISION + ":" + name)
+            raw = git(ROOT, "show", revision + ":" + name)
             if len(raw) > 2 << 20:
                 raise ValueError("historical helper exceeds bound")
             path = source_root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(raw)
         source = (source_root / names[0]).read_bytes()
-        if hashlib.sha256(source).hexdigest() != RECORDER_SHA:
+        if hashlib.sha256(source).hexdigest() != recorder_sha:
             raise ValueError("historical recorder differs")
         historical = types.ModuleType("native_failure_producer")
         historical.__file__ = str(source_root / names[0])
@@ -50,13 +50,13 @@ def producer_payload():
 
         def source_git(repo, *args, **kwargs):
             if args == ("rev-parse", "--verify", "HEAD^{commit}"):
-                return (REVISION + "\n").encode()
+                return (revision + "\n").encode()
             return original_git(repo, *args, **kwargs)
 
         with mock.patch.object(historical.checker, "git", side_effect=source_git):
             files, contract = historical.prepare_files(*historical.inputs(ROOT))
         validator = {}
-        entries = original_git(ROOT, "ls-tree", "-r", "-z", REVISION, "--",
+        entries = original_git(ROOT, "ls-tree", "-r", "-z", revision, "--",
                                "go.mod", "go.sum", "cmd/nib", "internal", "schemas")
         for entry in entries.split(b"\0"):
             if not entry:
@@ -71,7 +71,7 @@ def producer_payload():
         oci = source_root / "oci"
         oci.mkdir()
         for name in ("manifest.json", "config.json"):
-            (oci / name).write_bytes(original_git(ROOT, "show", REVISION + ":bench/engine-cpu-entry/oci/" + name))
+            (oci / name).write_bytes(original_git(ROOT, "show", revision + ":bench/engine-cpu-entry/oci/" + name))
         historical.recorder.raw_metadata(oci, contract)
         yield historical, files, contract, historical.overlay.bundle_digest(validator)
 
