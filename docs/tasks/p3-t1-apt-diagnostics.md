@@ -7,6 +7,12 @@ scripts were installed/executed. Its v1 report cannot distinguish a failed
 process, nonempty stderr, deadline/collector failure or rejected plan. **The
 exact cause remains unknown.**
 
+The [historical record](../../evidence/p3/2026-10-20-apt-resolve-failure/run.json)
+was produced by committed importer
+`e3c2bc747312874175e3402e88919da39ba5b22a`. Its `output.log` is unchanged from the
+original v1 report. The regression rechecks it with the original `03d` producer's
+validator, without executing APT or reconstructing a new runtime observation.
+
 ## Diagnostic-only change
 
 The v2 guest/host reports add one failure diagnostic; successful reports require

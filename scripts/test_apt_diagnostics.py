@@ -195,6 +195,37 @@ class DiagnosticTests(unittest.TestCase):
 
 
 class ImportTests(unittest.TestCase):
+    def test_committed_historical_artifact_with_original_producer_validator(self):
+        raw = HISTORICAL.read_bytes()
+        self.assertEqual(raw, historical())
+        self.assertEqual(recorder.base.digest(raw), recorder.REPORT_SHA256)
+        record = json.loads(HISTORICAL.with_name("run.json").read_bytes())
+        self.assertEqual((record["git_sha"], record["result"], record["execution"]),
+                         (recorder.PRODUCER, "fail", "software"))
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            for name in runner.prep.FILES:
+                value = recorder.base.processes.execute_process_group(
+                    ["git", "-C", str(ROOT), "show", recorder.PRODUCER + ":" + name],
+                    env=recorder.base.GIT_ENV, timeout=15, max_output_bytes=2 << 20,
+                    stdin=subprocess.DEVNULL)
+                value.check_returncode()
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(value.stdout)
+            original = types.ModuleType("original_apt_host")
+            original.__file__ = str(root / "host/simulate-guest-apt.py")
+            exec(compile(Path(original.__file__).read_bytes(), original.__file__, "exec",
+                         dont_inherit=True), original.__dict__)
+            report = json.loads(raw)
+            guest_raw = (root / original.prep.FILES[-1]).read_bytes()
+            original.validate_result(report["simulation"], {
+                "git_sha": recorder.PRODUCER,
+                "source_hashes": {original.prep.FILES[-1]: recorder.base.digest(guest_raw)}},
+                json.loads(guest_raw))
+        self.assertIsNone(report["simulation"]["plan"])
+        self.assertEqual(report["simulation"]["stage"], "resolve")
+
     def test_committed_importer_and_helpers_no_ambient_git_or_untracked_source(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
