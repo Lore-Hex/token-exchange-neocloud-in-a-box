@@ -151,8 +151,10 @@ def validate(data, appraiser, script_hash, *, attest=False, enable=False, instal
                 and value["nvml_shutdown"] is True)
         if enable:
             require(value["ready_after"] == 1 and value["persistence_enabled_count"] == 8
-                    and value["readiness_transition"] in
-                    ("enabled-readback-verified", "already-ready-verified"))
+                    and ((value["readiness_transition"] == "enabled-readback-verified"
+                          and value["ready_before"] == 0)
+                         or (value["readiness_transition"] == "already-ready-verified"
+                             and value["ready_before"] == 1)))
         else:
             require(value["ready_before"] in (0, 1)
                     and value["ready_after"] == value["ready_before"]

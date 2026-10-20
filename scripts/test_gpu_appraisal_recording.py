@@ -126,6 +126,30 @@ class AppraisalRecordingTests(unittest.TestCase):
             self.assertEqual(output["appraisal"]["claim_failure"], row["claim_failure"])
             self.assertFalse(output["appraisal"]["gpu_appraisal_verified"])
 
+    def test_publication_requires_exact_transition_start_state(self):
+        for transition, required_before in (("enabled-readback-verified", 0),
+                                             ("already-ready-verified", 1)):
+            for before in (None, 0, 1):
+                row = report(enable=True)
+                row.update(readiness_transition=transition, ready_before=before)
+                with self.subTest(transition=transition, before=before), \
+                     tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    relative, code = record(root, row, enable=True)
+                    run = json.loads((root / relative / "run.json").read_bytes())
+                    output = json.loads((root / relative / "output.log").read_bytes())
+                    if before == required_before:
+                        self.assertEqual(code, 0)
+                        self.assertEqual(run["result"], "pass")
+                        self.assertEqual(output["appraisal"], row)
+                    else:
+                        self.assertEqual(code, 1)
+                        self.assertEqual(run["result"], "fail")
+                        self.assertEqual(output["result"], "fail")
+                        self.assertIsNone(output["appraisal"])
+                        self.assertEqual(output["failure_code"],
+                                         "appraisal-execution-or-report-failed")
+
     def test_timeout_and_cancellation_preserve_failed_record(self):
         for error in (ValueError(CANARY), KeyboardInterrupt(),
                       subprocess.TimeoutExpired(CANARY, 285, output=CANARY)):
