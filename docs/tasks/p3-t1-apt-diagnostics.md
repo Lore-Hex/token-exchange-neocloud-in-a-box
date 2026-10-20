@@ -4,8 +4,9 @@ The reviewed `03d52b4b078c8102b296e03603ec34c00c0c3401` run failed at the
 guest `resolve` stage after APT version checking and local indexing. The outer
 runner completed and reported cleanup confirmed. No packages or maintainer
 scripts were installed/executed. Its v1 report cannot distinguish a failed
-process, nonempty stderr, deadline/collector failure or rejected plan. **The
-exact cause remains unknown.**
+process, nonempty stderr, deadline/collector failure or rejected plan. Its
+unrecorded stderr cannot be reconstructed. The subsequent observation below
+reproduces a specific failure with the diagnostic-only change.
 
 The [historical record](../../evidence/p3/2026-10-20-apt-resolve-failure/run.json)
 was produced by committed importer
@@ -83,14 +84,49 @@ it. Changed paths/errno/spacing, CRLF, extra lines, multiple warnings, private
 sentinels and every single-byte mutation retain the generic stderr rejection.
 Other stages/nonzero exits/deadline expiry do not gain this classification.
 All such results still fail; configuration and acceptance are unchanged.
-The historical run remains unattributed until new observations are available.
 
-## Historical report preservation
+## Actual diagnostic observation
 
-The [importer](../../scripts/record_apt_report.py) accepts **only** the original
-failed report bytes, SHA-256
-`37801abac400cd6cda8be1986591c8b7f1cae8c01de1f42e401246af98c2dd4f`.
-It is not an arbitrary report publication API.
+The independently reviewed, CI-green
+`a3d2657ead1a375d9fa57082dca7e5f23bf6e3d4` producer ran once on October 20,
+2026, 20:27:45-20:27:51 UTC in the unchanged local, offline Linux/amd64 container
+boundary. This local run uses CPU emulation, not native x86-64 hardware.
+
+The [original report](../../evidence/p3/2026-10-20-apt-missing-preferences/output.log)
+records resolve exit **0**, stdout **19,639 bytes**, and stderr **92 bytes**:
+exactly one warning classified as `stderr-missing-preferences-directory`.
+The strict stderr gate rejected it, so no accepted plan is reported.
+Outer and inner results remain **fail**; cleanup is **confirmed**. No package
+installation or maintainer script executed.
+
+This identifies the reproduced diagnostic failure, not new fields in the
+historical v1 report. No warning was ignored.
+
+## Corrected rehearsal
+
+The separately reviewed, CI-green producer
+`87f7d15c6d3a02f3faa83b0ac584315501e1fe9b` ran once at
+21:00:27-21:00:30 UTC on October 20, 2026 using explicit private empty
+preferences. The [original passing report](../../evidence/p3/2026-10-20-apt-private-preferences-pass/output.log)
+retains the same offline, local Linux/amd64 emulated boundary and strict stderr
+gate. It plans all 145 target packages for installation and configuration, with
+zero removals; outer cleanup is confirmed. Plan SHA-256:
+`8bccb4aa2b6c004f7081f817a7244c931cc003280c166dc8c930ecbc915efe4c`.
+
+This passes dependency resolution only. No package was installed, no maintainer
+script ran, and no guest image was built or booted. The two earlier failure
+reports remain unchanged.
+
+## Exact report preservation
+
+The [importer](../../scripts/record_apt_report.py) accepts only these reviewed
+report byte sequences, not arbitrary JSON or caller-supplied hashes:
+
+| Observation | SHA-256 |
+| --- | --- |
+| Original v1 failure | `37801abac400cd6cda8be1986591c8b7f1cae8c01de1f42e401246af98c2dd4f` |
+| v2 missing-preferences diagnostic | `2a31d0e293c05c09b29b9636d3ffcae41e15d1761e297a6ff1cfb211fa467f9b` |
+| v2 private-preferences passing rehearsal | `980e1a5e9599a3e39d98e58c46dc8da707b92cfc5965a8360b5df16329be0fa0` |
 
 ```sh
 python3 -I scripts/record_apt_report.py \
@@ -101,7 +137,7 @@ python3 -I scripts/record_apt_report.py \
 From a committed producer, it creates private, no-overwrite `run.json` and
 `output.log`. The latter is byte-identical to the original report, not a
 reformatted or enriched substitute. `run.json` retains the original producer
-SHA, reported execution timestamps and failure. It identifies the importer SHA
+SHA, reported execution timestamps and result. It identifies the importer SHA
 and helper hashes separately. The fixed original CLI is shown with normalized
 private paths, whose literal values were not captured in the report.
 
@@ -112,9 +148,9 @@ changed bytes and existing output reject.
 
 ## Next run gate
 
-Only the parent/operator may run the changed diagnostic after exact-head review,
-full tests and green CI, with a newly prepared source-bound bundle. Preserve the
-original failed report. A changed diagnostic run is not an unchanged-input retry;
+Only the parent/operator may run another diagnostic or configuration change after
+exact-head review, full tests and green CI, with a newly prepared source-bound
+bundle. Preserve both original failed reports. A changed diagnostic run is not an unchanged-input retry;
 it still cannot install packages or execute maintainer scripts. Installation,
 mkosi build, LKCA, boot, reproducibility and hardware qualification remain
 separate gates.

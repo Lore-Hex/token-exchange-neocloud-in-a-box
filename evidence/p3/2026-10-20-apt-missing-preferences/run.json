@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I host/simulate-guest-apt.py --run --metadata <private-metadata> --archives <private-archives> --bundle <private-bundle> --output <private-output>",
+  "ended_utc": "2026-10-20T20:27:51Z",
+  "execution": "software",
+  "git_sha": "a3d2657ead1a375d9fa57082dca7e5f23bf6e3d4",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "linux-amd64",
+    "provider": "local-docker"
+  },
+  "notes": "Historical content-free report import, not a new execution or independent container verification. Original producer and reported execution timestamps retained. Command uses the producer's fixed CLI with private paths normalized; literal path values were not recorded. Resolve exited zero but the strict stderr gate rejected the exact missing-preferences-directory warning (92 bytes). This is the diagnostic run's observation, not a reconstruction of the earlier v1 stderr. No package installation, scripts, guest build or hardware validation. output.log is byte-identical to original report.json; SHA256=2a31d0e293c05c09b29b9636d3ffcae41e15d1761e297a6ff1cfb211fa467f9b. Importer git_sha=91a1b3df33b91394ecd401d8e3f18621734668b9; importer/helper SHA256={\"image/inputs/r595-ubuntu2404.json\": \"ea8a93155131f15d460f6b3c147063e672e718d027366ab6c53c4264066a8883\", \"scripts/e2e/snapshot.py\": \"b7f5753ecacde3cda2bf5fdc673b6f2af239875f2a9468e34a5219a797b78b3a\", \"scripts/guest_package_inputs.py\": \"17923d29e7b990cdf86673e63f32ce770ccac372bf34e9f6c682cbd316d9fed7\", \"scripts/prepare_guest_packages.py\": \"7d522005c4717548945c5ffa0788841ea3eeb4447e4d1d94fac564c84e4a613f\", \"scripts/record_apt_report.py\": \"ab1ef8b6fa916270e4ee72c610d97b6d85a541cec79527288e887147d54cedf7\"}",
+  "phase": "P3",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-20T20:27:45Z",
+  "task": "T1"
+}
