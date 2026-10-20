@@ -39,14 +39,17 @@ onboarding steps; running the toolkit does not automatically list a provider.
 
 ## Status
 
-Pre-alpha. **Nothing in this repository has run on confidential hardware yet.**
+Pre-alpha. **No fully verified confidential inference service yet.** Real
+8xB200 lab checks and a complete DeepSeek weight download have run. GPU
+readiness is still blocked; no DeepSeek inference or quality benchmark has
+passed. The lab uses AMD SEV-SNP, not the plan's Intel TDX deployment.
 
 | Component | State |
 |---|---|
 | Plan, sizing, phase definitions | written ([PLAN.md](PLAN.md)) |
 | CLI skeleton and repository checks | implemented; no serving runtime ([development](docs/development.md)) |
 | Model packs (pinned revisions and checksums) | source-audited drafts; not deployable confidential profiles ([model packs](models/README.md)) |
-| Pinned weight staging | bounded streaming download, optional 1-4 workers, verified-file restart and offline exact-set verification implemented; tested with synthetic files, not a complete DeepSeek download ([staging](docs/tasks/p0-t4-weight-staging.md), [parallel bounds](docs/tasks/p2-t2-parallel-stage.md)) |
+| Pinned weight staging | real DeepSeek download completed: 83 files, 510,311,045,295 bytes, exact-set/hash verification PASS and cleanup confirmed; no model execution implied ([evidence](evidence/p2/2026-10-20-weight-stage-verified/run.json), [checkpoint](docs/tasks/p2-t3-verified-weights-checkpoint.md)) |
 | Engine candidate overlay preparation | offline committed-source context and installed-wheel checks tested with fake files; BLOCKED, no image build, ABI or hardware validation ([scope and limits](docs/tasks/p0-t4-engine-overlay.md)) |
 | Experimental packaging contract | standalone contract tested with synthetic files; exact entry-point map and sealed bytecode removal subsequently exercised by the bounded smoke application below; default admission unchanged ([scope](docs/tasks/p0-t4-engine-packaging-contract.md)) |
 | Python layout descriptor | read-only collection complete: exact interpreter chain, packaging and 14 source pins verified; stdlib child canaries pass, overall qualification remains failed, no engine/GPU admission ([evidence](docs/tasks/p0-t4-engine-python-chain.md#recorded-outcome)) |
@@ -60,8 +63,8 @@ Pre-alpha. **Nothing in this repository has run on confidential hardware yet.**
 | GPU-free end-to-end node | tested against fakes locally and in CI; independently reviewed and merged in [PR #10](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/pull/10) ([evidence](evidence/p1/2026-10-19-combined-node-v4/run.json), [results](evidence/p1/2026-10-19-combined-node-v4/result.json)) |
 | Local real-model provider pilot | Qwen3-0.6B CPU inference through standard TLS: 17 conformance checks, auth, usage, upstream failure and cleanup pass on native macOS and an offline Linux/amd64 container; not public or confidential ([native](evidence/p3/2026-10-19-qwen-native-regression-1/run.json), [Linux](evidence/p3/2026-10-19-qwen-linux-4/run.json), [runbook](docs/operators/qwen-pilot.md)) |
 | Provider-configurable Qwen service | Real Linux model: operator metadata, all 18 provider checks, Catalog v2 and declared retirement pass; active streaming response finishes through shutdown; no public cloud or billing claim ([evidence](evidence/p3/2026-10-19-provider-neutral-linux/run.json), [results](evidence/p3/2026-10-19-provider-neutral-linux/output.log), [runbook](docs/operators/qwen-service.md)) |
-| Model bring-up and benchmarks, non-confidential | not started (P2) |
-| Bounded DeepSeek CC functional lab | implemented; synthetic boundary/lifecycle tests only, no real lab run or qualification; separate container policy leaves the P0 import guard unchanged ([scope and runbook](docs/tasks/p2-t3-deepseek-lab.md)) |
+| Model bring-up and benchmarks | compatibility bring-up in progress; model inference, throughput and quality/tau benchmarks not yet run (P2) |
+| Bounded DeepSeek CC functional lab | actual admission diagnostic observed production CC, debug tools off and GPU readiness zero; no application or engine launched. A fresh GPU appraisal subsequently rejected claims policy. No confidential qualification; separate container policy leaves P0 admission unchanged ([hardware evidence](evidence/p2/2026-10-20-readiness-not-ready/run.json), [appraisal checkpoint](docs/tasks/p2-t3-appraisal-checkpoint.md), [scope](docs/tasks/p2-t3-deepseek-lab.md)) |
 | Confidential pipeline on a 1-GPU TDX VM | not started (P3) |
 | TrustedRouter generic verifier | not started (P4) |
 | Bare-metal 8×B200 confidential node | not started (P5) |
