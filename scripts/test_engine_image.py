@@ -41,6 +41,33 @@ fixtures = source("image_wheel_test", "scripts/test_engine_overlay.py")
 overlay, diagnostic = recorder.overlay, recorder.diagnostic
 
 
+def historical_payload(revision, expected_recorder_sha):
+    """Reconstruct with the actual historical helper closure, not current code."""
+    names = (recorder.SCRIPT, recorder.prep.SCRIPT, recorder.prep.INSPECTOR,
+             recorder.checker.SCRIPT, recorder.SNAPSHOT, recorder.DIAGNOSTIC, recorder.DESCRIPTOR)
+    with tempfile.TemporaryDirectory(dir=Path(tempfile.gettempdir()).resolve()) as temporary:
+        root = Path(temporary)
+        for name in names:
+            data = recorder.checker.git(ROOT, "show", revision + ":" + name)
+            overlay.require(len(data) <= recorder.MAX_REPORT)
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        data = (root / recorder.SCRIPT).read_bytes()
+        overlay.require(overlay.digest(data) == expected_recorder_sha)
+        historical = types.ModuleType("historical_image_recorder")
+        historical.__file__ = str(root / recorder.SCRIPT)
+        # The recorder validates every transitive helper hash before compilation.
+        exec(compile(data, historical.__file__, "exec"), historical.__dict__)
+        original_git = historical.checker.git
+        def source_git(repo, *args, **kwargs):
+            if args == ("rev-parse", "--verify", "HEAD^{commit}"):
+                return (revision + "\n").encode()
+            return original_git(repo, *args, **kwargs)
+        with mock.patch.object(historical.checker, "git", side_effect=source_git):
+            return historical.payload_files(*historical.inputs(ROOT), mode="python-descriptor")
+
+
 class FakeDocker:
     def __init__(self, image, report, fault=None):
         self.image, self.report, self.fault = image, report, fault
@@ -1679,17 +1706,9 @@ class ImageTests(unittest.TestCase):
         historical_descriptor = recorder.checker.git(ROOT, "show", revision + ":" + recorder.DESCRIPTOR)
         self.assertEqual(overlay.digest(historical_recorder), "bfe76a51bba24b73dbe727e41a1f70c3972120ee450b040e900bce199e703dfd")
         self.assertEqual(overlay.digest(historical_descriptor), "5330337b9e12650a964136b2b5497d6c6dc64cd632899a6e2a302511128f89b5")
-        original_git = recorder.checker.git
-        def source_git(root, *args, **kwargs):
-            if args == ("rev-parse", "--verify", "HEAD^{commit}"):
-                return (revision + "\n").encode()
-            return original_git(root, *args, **kwargs)
         # Reconstruct all five stages and the payload from the recorded commit,
         # not today's test/doc/artifact bytes. No image or upstream import.
-        with mock.patch.object(recorder.checker, "git", side_effect=source_git), \
-                mock.patch.object(recorder, "BOOTSTRAP", historical_recorder), \
-                mock.patch.object(recorder, "DESCRIPTOR_SOURCE", historical_descriptor):
-            files, contract = recorder.payload_files(*recorder.inputs(), mode="python-descriptor")
+        files, contract = historical_payload(revision, "bfe76a51bba24b73dbe727e41a1f70c3972120ee450b040e900bce199e703dfd")
         payload = overlay.bundle_digest(files)
         self.assertEqual(payload, "2142fd5e894744adb1f92749f0a9d61f99615ee90562c64e22726f685592ac8b")
         pairs = ((PREREQUISITES_RECORDED, "c29e8217b4ef21584061a3906075d8da120eaf29a41eb1f761963509c1d420f0",
@@ -1760,13 +1779,7 @@ class ImageTests(unittest.TestCase):
 
     def test_recorded_interpreter_chain_complete_collection_is_not_qualification(self):
         revision = "d033d2198866f7fdbd509e56329702942f22de14"
-        original_git = recorder.checker.git
-        def source_git(root, *args, **kwargs):
-            if args == ("rev-parse", "--verify", "HEAD^{commit}"):
-                return (revision + "\n").encode()
-            return original_git(root, *args, **kwargs)
-        with mock.patch.object(recorder.checker, "git", side_effect=source_git):
-            files, contract = recorder.payload_files(*recorder.inputs(), mode="python-descriptor")
+        files, contract = historical_payload(revision, "f589ca6c9ad22d88433941cad27387ad80403e0def2c69be79406ef2d0e350cc")
         payload = overlay.bundle_digest(files)
         self.assertEqual(payload, "864ebf136e71eafc570677378547990140f1ace563f1d7a8ddf21fe4b672ff1e")
         documents = []
