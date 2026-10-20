@@ -3,6 +3,9 @@
 The separate [content-free aggregator](p2-t3-tau-aggregation.md) consumes a frozen
 manifest and allowlisted trial records. It does not implement the live adapter
 or turn this foundation into a measured benchmark.
+The [runtime-input validator](p2-t3-tau-runtime.md) separately pins the complete
+tau package source tree and platform-selected base wheels. It does not import
+upstream or prove runtime/logging compatibility.
 
 Status: software-only preflight and budget primitives. **No benchmark execution,
 score, endpoint qualification or live tau adapter.** This is preparation for the

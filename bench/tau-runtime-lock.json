@@ -1,0 +1,2423 @@
+{
+  "archive_sha256": "7a227036d07fdeb088dbd0c99fdb40ee9b9e0ebc06aadbc4dec1217b3383e57e",
+  "content_logging_suppression_verified": false,
+  "domains": [
+    "airline",
+    "retail",
+    "telecom"
+  ],
+  "extras": [],
+  "revision": "fc0055dc4e0a316c3f83133267fbd6faaa770992",
+  "root": {
+    "build_backend": "hatchling.build",
+    "build_backend_locked": false,
+    "build_requirements": [
+      "hatchling"
+    ],
+    "building_allowed": false,
+    "dependencies": [
+      "addict",
+      "deepdiff",
+      "docstring-parser",
+      "fastapi",
+      "httpx",
+      "litellm",
+      "loguru",
+      "numpy",
+      "pandas",
+      "psutil",
+      "python-dotenv",
+      "pyyaml",
+      "requests",
+      "rich",
+      "tabulate",
+      "tenacity",
+      "toml",
+      "typer",
+      "uvicorn"
+    ],
+    "editable_installation_allowed": false,
+    "mode": "verified-source-tree-not-installed",
+    "name": "tau2",
+    "source_version": "1.0.1",
+    "upstream_lock_modified": false,
+    "upstream_lock_version": "1.0.0"
+  },
+  "runtime_imports_verified": false,
+  "schema": "nib.tau-runtime-lock/v1",
+  "scope": "complete-tau-package-source-and-declared-base-wheel-closure",
+  "source_files": {
+    "LICENSE": {
+      "bytes": 1072,
+      "git_blob": "f0323a32227c1327820da33d2fb9d3338a27ac84",
+      "mode": "100644",
+      "sha256": "e67c5aa0074dfcaefd3c3a1aedb94cb539234aecd15d5a972574e3200e6252fe"
+    },
+    "README.md": {
+      "bytes": 10443,
+      "git_blob": "9fe658afdd54e83f923bbfc6d77e556ecdbe45f1",
+      "mode": "100644",
+      "sha256": "ed39688aa5d40bd73007355df65f4e41a6c250960642e56764c3ad44da1df8d2"
+    },
+    "data/tau2/domains/airline/db.json": {
+      "bytes": 7042725,
+      "git_blob": "c6a1e817aa9102c5822e83affb3595acbc312701",
+      "mode": "100644",
+      "sha256": "1af9fea6e03ca7ca15a22bb3fcaf3e351393e3fc9070b6777947da8996f7531b"
+    },
+    "data/tau2/domains/airline/policy.md": {
+      "bytes": 7676,
+      "git_blob": "8098be7db3f47de943fad39d1e057ede6cc6cd04",
+      "mode": "100644",
+      "sha256": "10dc0525421521208be39cee235bba84a16e2bcba9899eb93d92cd81d2f62fc4"
+    },
+    "data/tau2/domains/airline/split_tasks.json": {
+      "bytes": 1443,
+      "git_blob": "c83cce155671e66a6bf07450fd2845fe0eb1f229",
+      "mode": "100644",
+      "sha256": "b22ced4d9a9850ac9aea31c53bdcb6d6009058140bd9acc7db37c1d36222ba8b"
+    },
+    "data/tau2/domains/airline/tasks.json": {
+      "bytes": 155528,
+      "git_blob": "ea4ff5e3f5e3d97ca391846a6e8dd9eb3437dc80",
+      "mode": "100644",
+      "sha256": "ccd8ba737b4cc371415af70151187788f728d6108d0916e73bb4317b40542052"
+    },
+    "data/tau2/domains/retail/db.json": {
+      "bytes": 2811616,
+      "git_blob": "4d67b03b2d39ade5a7ab6facb2edd7ab3e013d48",
+      "mode": "100644",
+      "sha256": "413a65160adbdb5fde0ffc0015c49b6d70250b10c18128de169b597af7766765"
+    },
+    "data/tau2/domains/retail/policy.md": {
+      "bytes": 6699,
+      "git_blob": "d127e6b074654926f337d0d98b0e669ebe90d19e",
+      "mode": "100644",
+      "sha256": "2c9652afbce57d6e087768d37cda64d31c53d50b3e3225cfdb791bac66466467"
+    },
+    "data/tau2/domains/retail/split_tasks.json": {
+      "bytes": 3263,
+      "git_blob": "8b20704a17aa1940b1e58668f89dcef2ddaeeea3",
+      "mode": "100644",
+      "sha256": "ed0580ec52575b63fbf76568af42490da6ee7783ecb4aa81af46961291358f20"
+    },
+    "data/tau2/domains/retail/tasks.json": {
+      "bytes": 345982,
+      "git_blob": "e95a9f898b2d1f6568ea8faec78edc3767ce747d",
+      "mode": "100644",
+      "sha256": "8e03ebce7901bd6218e7a7dc3105faa9324091a68058f7fe61c65262868812e8"
+    },
+    "data/tau2/domains/telecom/db.toml": {
+      "bytes": 9628,
+      "git_blob": "6c8a639d85896a049a5daf87332107a840a55aac",
+      "mode": "100644",
+      "sha256": "562d647ef9d7df8df91eafd8ee76036e707c8f9e32aaedc4a7fde06975aea2c0"
+    },
+    "data/tau2/domains/telecom/main_policy.md": {
+      "bytes": 5699,
+      "git_blob": "c55f5bd10c49a3d0b48f6e83a3168e6242fb2be7",
+      "mode": "100644",
+      "sha256": "95943844a0cf11fdf0e2842b483b81d9f9338aa53235712ed131db075d086ed7"
+    },
+    "data/tau2/domains/telecom/split_tasks.json": {
+      "bytes": 356149,
+      "git_blob": "a5b01687eaaa5c669f792bff33c0d6ec13be36fd",
+      "mode": "100644",
+      "sha256": "605b488bb9a6acb3c7f4505240a855fdc8681d09aadb16a8f38b2efcfc5c3aec"
+    },
+    "data/tau2/domains/telecom/tasks.json": {
+      "bytes": 13977063,
+      "git_blob": "6f41a5e3489e187fa247d729706509d8250a31c1",
+      "mode": "100644",
+      "sha256": "37e562e1ae3242577407e1303b1548bc64e7ea68e37d36173e6747990ceaf8a4"
+    },
+    "data/tau2/domains/telecom/tech_support_manual.md": {
+      "bytes": 17589,
+      "git_blob": "b64a9f1433bfb62bdaf9e5c1d90c10e833b26c17",
+      "mode": "100644",
+      "sha256": "015a3ee49ec8c199c5e1a059c922081937b92cf3a5ea74fedbc4357816f389ba"
+    },
+    "data/tau2/domains/telecom/tech_support_workflow.md": {
+      "bytes": 16390,
+      "git_blob": "36104c70ea1caf5adfbbc8b26b61e29a1da72a7c",
+      "mode": "100644",
+      "sha256": "64f3ccd13875d14f358b21b9af221dab09e0e7bf5690d0e4322fb91855a43a4d"
+    },
+    "data/tau2/domains/telecom/user_db.toml": {
+      "bytes": 933,
+      "git_blob": "1def9a98eabf1d4a5fc95a67387ec294f56196d8",
+      "mode": "100644",
+      "sha256": "4886107ea0c16f8e16d74bef91cfb557de61822afe9361f5a9b241806aea2e4c"
+    },
+    "data/tau2/user_simulator/simulation_guidelines.md": {
+      "bytes": 1449,
+      "git_blob": "b55a28a1d5eaf81e72bdc263307d9f512fe49a99",
+      "mode": "100644",
+      "sha256": "740a29dfa64d7bc08eea3bf7493575b914a63f744acbaf7f199ee07eddaf72d3"
+    },
+    "data/tau2/user_simulator/simulation_guidelines_tools.md": {
+      "bytes": 2747,
+      "git_blob": "a7235b1ddf8d0d1e2edc9b1708916f37b0aac045",
+      "mode": "100644",
+      "sha256": "cbf3d8a4d8642fd04e559862f1afef55d7dd4e6a7e727ca49e239023c599de0c"
+    },
+    "pyproject.toml": {
+      "bytes": 2417,
+      "git_blob": "55a9d9cf6ebd8bf2326798f4923988917e431086",
+      "mode": "100644",
+      "sha256": "23d59670b4ad7bbc0f57420fd9643a8d9188c24abe4f29c9c965544d8cc4cb8d"
+    },
+    "src/tau2/__init__.py": {
+      "bytes": 3615,
+      "git_blob": "e69d9272e12e4298daddfb58897ed5c98f43b09f",
+      "mode": "100644",
+      "sha256": "0ce892494155fa432fe4e8caabc2ffb1349a19959ad756215f2d9031156bfb78"
+    },
+    "src/tau2/agent/AGENTS.md": {
+      "bytes": 2642,
+      "git_blob": "539ce7123ca470e597a40999f482e1865f78e475",
+      "mode": "100644",
+      "sha256": "fb614bcd050c50310064fc5d7375e71b55fa393c1e533c12f87cc15d2e10e7b3"
+    },
+    "src/tau2/agent/README.md": {
+      "bytes": 9576,
+      "git_blob": "f299f699f83acc446b2d522a64f1856bffc754c6",
+      "mode": "100644",
+      "sha256": "6b8ff0946d53ed2e7712f9bf3b9c32f07880bdcecf44f0990c1304788ff79005"
+    },
+    "src/tau2/agent/__init__.py": {
+      "bytes": 3177,
+      "git_blob": "02b731e5b6f0c775132862fad9241995a38a01fb",
+      "mode": "100644",
+      "sha256": "fe543554d2638c983cbbc64ca19b2a4ce39c08c36dbf8ec303ac4d65a0244075"
+    },
+    "src/tau2/agent/base/README.md": {
+      "bytes": 17100,
+      "git_blob": "418ebd075fc82dcda0e4285893289942b6f2d679",
+      "mode": "100644",
+      "sha256": "852c2dc905a8f5f65ed8f3cfefe22052c3507ab92ad99c802d9012d3c7c67454"
+    },
+    "src/tau2/agent/base/__init__.py": {
+      "bytes": 2584,
+      "git_blob": "a894933a59b2323b83c4eff1cf55676ec9207f7a",
+      "mode": "100644",
+      "sha256": "c0099fefb99b15f6f1482c9ebd918d560d104aaa47471e86b8574b25c259f534"
+    },
+    "src/tau2/agent/base/llm_config.py": {
+      "bytes": 1276,
+      "git_blob": "433c7236a4c39333252926fd5294b2ad5cf13a98",
+      "mode": "100644",
+      "sha256": "3b5bf4c5f69e5df5357374a9e379e6932096bcdbfcf3e411c4791c33d73d35b4"
+    },
+    "src/tau2/agent/base/participant.py": {
+      "bytes": 8137,
+      "git_blob": "b8265b72046edfa7c9db2929a4705d47f35a7300",
+      "mode": "100644",
+      "sha256": "64609023945372948cbec447fbf3b9d7b2eb53701a185680305af5247402d420"
+    },
+    "src/tau2/agent/base/streaming.py": {
+      "bytes": 106836,
+      "git_blob": "09b1da4fafcf7a907ff735071acd3e67446add6c",
+      "mode": "100644",
+      "sha256": "2bd6ae56cee0469ecdb88a3d7437f35f19982c5799ea27a942c547e9a67e94c4"
+    },
+    "src/tau2/agent/base/streaming_utils.py": {
+      "bytes": 7656,
+      "git_blob": "2567bd60feeef5ad6a1864cc44b9ca6c30d58a73",
+      "mode": "100644",
+      "sha256": "e9b26a7f4f4bf1decd291fe8b3fd12da97a8158ecc250281a18b175f8d79cc15"
+    },
+    "src/tau2/agent/base/voice.py": {
+      "bytes": 7691,
+      "git_blob": "6127f38713d987f611e311d6b204286455ac440d",
+      "mode": "100644",
+      "sha256": "d749493fca8b1ca1be65af9ec57371e40dd1293bd24f0adf4814864669a1cd53"
+    },
+    "src/tau2/agent/base_agent.py": {
+      "bytes": 6331,
+      "git_blob": "47f95ccb77e59ddd9ed0a7d1774932ce3d6c7de2",
+      "mode": "100644",
+      "sha256": "97f1033723d03da99f3338ff7a12ed60114a55ed293928ff4ca0bdace6851b4d"
+    },
+    "src/tau2/agent/discrete_time_audio_native_agent.py": {
+      "bytes": 33025,
+      "git_blob": "77a2a4b5e7218b432c60e12f480ac1a2a7df2969",
+      "mode": "100644",
+      "sha256": "3782ed75fe42615a17ed2f0d70e44c0f99cc1153d028e00420b1fdcbe4c82ead"
+    },
+    "src/tau2/agent/llm_agent.py": {
+      "bytes": 18019,
+      "git_blob": "652974ff98edb652c582453687977cff1742b7bd",
+      "mode": "100644",
+      "sha256": "d13412ff502859f0ef0492af0128f1b2666be32640057ba8e076d2602af084d8"
+    },
+    "src/tau2/api_service/__init__.py": {
+      "bytes": 19,
+      "git_blob": "fca0cd456af18fe57ff5338962704bdb2eb7b701",
+      "mode": "100644",
+      "sha256": "48747a78fd49944aaef6f540269b5b77e558b8b996cb0f7210b80317769bc032"
+    },
+    "src/tau2/api_service/api_config.py": {
+      "bytes": 1033,
+      "git_blob": "832fd04658a874222d7fdff26b1bc4d7d8730aae",
+      "mode": "100644",
+      "sha256": "7eedc4d41d7dd41c45afa243037c6eb03b7de68f8be28bdda8db869ecae3ebc0"
+    },
+    "src/tau2/api_service/data_model.py": {
+      "bytes": 277,
+      "git_blob": "bfe8ea1a14b4d0c558231b4defad7823c61d2e4d",
+      "mode": "100644",
+      "sha256": "3aa78323402498716bc5773217ff7d79ed0b703e2d0bce0d6f37699426a4152e"
+    },
+    "src/tau2/api_service/simulation_service.py": {
+      "bytes": 1307,
+      "git_blob": "423659944fef8623624986221f1cdaa11ca6f6ea",
+      "mode": "100644",
+      "sha256": "b74b43da92ba0db9434130a9f403ce709d33c38b361ab63dd99cfb9b253564b2"
+    },
+    "src/tau2/cli.py": {
+      "bytes": 42027,
+      "git_blob": "d55127d704b6c9dba431584be4b77e46d649880b",
+      "mode": "100644",
+      "sha256": "3aa0231e885e44168e11d44771ae534f344b1d1400d8f7877c3711e14cc5fada"
+    },
+    "src/tau2/config.py": {
+      "bytes": 9952,
+      "git_blob": "d8a8acea4fb7c140705719d0e5050260c66b7865",
+      "mode": "100644",
+      "sha256": "1f3589ff61392778079d688ad18b680ce13275a84462b2383b258614b665eb46"
+    },
+    "src/tau2/data_model/__init__.py": {
+      "bytes": 0,
+      "git_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "src/tau2/data_model/audio.py": {
+      "bytes": 6148,
+      "git_blob": "11b2217dd9c22288801335d3e2f0fe7b999c799e",
+      "mode": "100644",
+      "sha256": "443de1a2c4fa856621eaccf8b6d0637f4e8d4f0de0aba990e9732c49b3751bb0"
+    },
+    "src/tau2/data_model/audio_effects.py": {
+      "bytes": 9102,
+      "git_blob": "f919488769f9391891cc7d2750460d3e10a2c615",
+      "mode": "100644",
+      "sha256": "30fc2e70e27e1691b5e098c7e165cdaee44108efff48ee36c41ccef9fb448ee0"
+    },
+    "src/tau2/data_model/message.py": {
+      "bytes": 32440,
+      "git_blob": "0449e2f2ce82cc03dd351520549eb9e24eb70bf9",
+      "mode": "100644",
+      "sha256": "378cc451ded5b4314c4fe177bf83e72abb2e0bba53b79c2a0e27c53f3cbd15b0"
+    },
+    "src/tau2/data_model/persona.py": {
+      "bytes": 5854,
+      "git_blob": "ac5aa3e5f10e9c230148abd2d41b28f250f6afb2",
+      "mode": "100644",
+      "sha256": "e012387070438f51673aed61291288541c7270bce310b9851fde89493fac8e19"
+    },
+    "src/tau2/data_model/simulation.py": {
+      "bytes": 58699,
+      "git_blob": "edc805ee2e645d62edd6e8b1c20b24a12b175d74",
+      "mode": "100644",
+      "sha256": "518a4eda9af783f25243e1bd2c714f4617cf86188878a0bb584fe73c9528a35a"
+    },
+    "src/tau2/data_model/tasks.py": {
+      "bytes": 22764,
+      "git_blob": "28f37885f0282bd3b82eed18bfe8aa2350fba2b7",
+      "mode": "100644",
+      "sha256": "0243a6454b2e9c8a14b8364c38ff95dc1dd7512105b69fada9bf9295fc8170fa"
+    },
+    "src/tau2/data_model/voice.py": {
+      "bytes": 13369,
+      "git_blob": "753a340f0bf71634fcfa9d85260a5769be51d96e",
+      "mode": "100644",
+      "sha256": "019841fc7efa629043f4df2905c6f26c9c2d6b254421981ed60baf62a8515e82"
+    },
+    "src/tau2/data_model/voice_personas.py": {
+      "bytes": 9862,
+      "git_blob": "1422cababaddb3de4c800129bf7c47a9f74dd8a4",
+      "mode": "100644",
+      "sha256": "674761a5b702aebfe3064d87644dd9bf95ca86b0f38ffbb31f94f45191927264"
+    },
+    "src/tau2/domains/AGENTS.md": {
+      "bytes": 3670,
+      "git_blob": "70706b07d189d47be9edbee3aa1fadc022456d9e",
+      "mode": "100644",
+      "sha256": "2332cebc44528f6ad1582102de7bc0aba19eb7a67a511566bf7c59cf9e14ec5d"
+    },
+    "src/tau2/domains/README.md": {
+      "bytes": 5060,
+      "git_blob": "14d2d70503852616097079ed0aa2494add876342",
+      "mode": "100644",
+      "sha256": "fedcd187044e34a714e85897ad40139c99d79638118d242162fc86c6a3e33b0c"
+    },
+    "src/tau2/domains/__init__.py": {
+      "bytes": 0,
+      "git_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "src/tau2/domains/airline/__init__.py": {
+      "bytes": 19,
+      "git_blob": "fca0cd456af18fe57ff5338962704bdb2eb7b701",
+      "mode": "100644",
+      "sha256": "48747a78fd49944aaef6f540269b5b77e558b8b996cb0f7210b80317769bc032"
+    },
+    "src/tau2/domains/airline/data_model.py": {
+      "bytes": 10402,
+      "git_blob": "1b65884c10349950a1fc31c8ad96a8d804e093a1",
+      "mode": "100644",
+      "sha256": "a8083e2f590e4b9b66a65d7cd50b7a0247e4fa33d6961aaeb02e4d92488b3cff"
+    },
+    "src/tau2/domains/airline/environment.py": {
+      "bytes": 1612,
+      "git_blob": "e1cabffe7ed4ad895904aa5248319dd307e77a97",
+      "mode": "100644",
+      "sha256": "64589faffbcb75c8ac7c95d2c94ad27f4bd70e23b9856a6928fa678a0f7fcc8d"
+    },
+    "src/tau2/domains/airline/tools.py": {
+      "bytes": 28123,
+      "git_blob": "adc5c09a155d82d91e2f0647682023419eaca2ea",
+      "mode": "100644",
+      "sha256": "3987f21c286314cb48764f97052934ff4fd60e27a0b2e4a43423911adf8eaa26"
+    },
+    "src/tau2/domains/airline/utils.py": {
+      "bytes": 256,
+      "git_blob": "055548ffd07f82343645c79e6ea9bacf08501047",
+      "mode": "100644",
+      "sha256": "9da26327af3d7fa94e05d48869d8b06cd8110313fc24d308993a750106b11f06"
+    },
+    "src/tau2/domains/banking_knowledge/DATABASE_GUIDE.md": {
+      "bytes": 1831,
+      "git_blob": "be5b864d0d41cc7317980ebec69b70dca9829545",
+      "mode": "100644",
+      "sha256": "987db29707bd8d3126b6a9f9d664ba8e1e57f45e45fe89752dfa85375e4d8c70"
+    },
+    "src/tau2/domains/banking_knowledge/__init__.py": {
+      "bytes": 613,
+      "git_blob": "93f8ac0e4942a7629d794262d5807d6e2c2259d3",
+      "mode": "100644",
+      "sha256": "090929481bbbf2436b2e7ab84cba3d736b6dbd79f0c408157e41fc116fcf5cbc"
+    },
+    "src/tau2/domains/banking_knowledge/data_model.py": {
+      "bytes": 7735,
+      "git_blob": "d4498d1eb5e8529faef0300d8503d45a2f960e37",
+      "mode": "100644",
+      "sha256": "8451829795c7cf18668b26adc2db06c10426f4e69b553824ea886c40765ee3c4"
+    },
+    "src/tau2/domains/banking_knowledge/db_query.py": {
+      "bytes": 17039,
+      "git_blob": "1d2ef653b9488c1cf340d669fbc102e467fa46cd",
+      "mode": "100644",
+      "sha256": "0f42b5cba53fdb8f41984af160bd6f2bc20416460973b3256542785fd318065a"
+    },
+    "src/tau2/domains/banking_knowledge/environment.py": {
+      "bytes": 4034,
+      "git_blob": "032f0014ebc6be586f8bb1ae2df7a4362ee46102",
+      "mode": "100644",
+      "sha256": "3e68a4adec87a2b32cb7a6f367c050a25bbd331c85a14d13fa22fda98bd60cfe"
+    },
+    "src/tau2/domains/banking_knowledge/retrieval.py": {
+      "bytes": 27979,
+      "git_blob": "f727fa2f22107208c9224cec7bffca8232065964",
+      "mode": "100644",
+      "sha256": "daa5b514532dd13c6f5caa04195282d6fe80f3af4f2d1ab139949bf208dfe2cd"
+    },
+    "src/tau2/domains/banking_knowledge/retrieval_mixins.py": {
+      "bytes": 7032,
+      "git_blob": "edd7c246eb582e8005357fb0b0bd670aa1c93f19",
+      "mode": "100644",
+      "sha256": "1eb9051ff164329ab16fb0976ac36f7442346a894061ce657b1fb86c8e1ff86e"
+    },
+    "src/tau2/domains/banking_knowledge/retrieval_toolkits.py": {
+      "bytes": 3393,
+      "git_blob": "f52732b4d00552234fa6b3fdbf5c5548891fd7e4",
+      "mode": "100644",
+      "sha256": "be37543d4459125e502ba983f5444e923b1d80ab24d57f58057592f331a15f3e"
+    },
+    "src/tau2/domains/banking_knowledge/tools.py": {
+      "bytes": 189257,
+      "git_blob": "60ed2208905a8cd42c03e6e4a4cc7227f6062d4c",
+      "mode": "100644",
+      "sha256": "e7287dc76ab74f7c172a9b632b6ebdb067a85bbc0cb7c769f7bdf08ec18aa1c0"
+    },
+    "src/tau2/domains/banking_knowledge/utils.py": {
+      "bytes": 11497,
+      "git_blob": "e6ecbb0cef4632dc456136404ebeb2c0272f8575",
+      "mode": "100644",
+      "sha256": "ff116aef99e023d7492690fafff54fc24e9b6f3d3af18b7402a26b974b41fc66"
+    },
+    "src/tau2/domains/mock/__init__.py": {
+      "bytes": 19,
+      "git_blob": "fca0cd456af18fe57ff5338962704bdb2eb7b701",
+      "mode": "100644",
+      "sha256": "48747a78fd49944aaef6f540269b5b77e558b8b996cb0f7210b80317769bc032"
+    },
+    "src/tau2/domains/mock/data_model.py": {
+      "bytes": 1089,
+      "git_blob": "e66200599b8d4681d4bcfd5a6f5f35b00ac08157",
+      "mode": "100644",
+      "sha256": "12f8be77d805d8d332291d6f0b3283d30ff0581c15d887ab5a1f37f8a9f395aa"
+    },
+    "src/tau2/domains/mock/environment.py": {
+      "bytes": 2294,
+      "git_blob": "7a1a79d729043265319d1302116c7918792901fa",
+      "mode": "100644",
+      "sha256": "4a45228c388606fe16203c107ae107622fb5d9505d90b56e6fbc33acc2dc0d51"
+    },
+    "src/tau2/domains/mock/tools.py": {
+      "bytes": 3806,
+      "git_blob": "a4430b1e1c4d037ab2ad8c701a56f8f491a33457",
+      "mode": "100644",
+      "sha256": "926b077132c8eabd2bbae8173dbed299eea7fcd4a78c74c3986766626a24b928"
+    },
+    "src/tau2/domains/mock/user_data_model.py": {
+      "bytes": 927,
+      "git_blob": "807b3e838939a2ea54d7fb2d80cf38cc6f1f3923",
+      "mode": "100644",
+      "sha256": "0c1d084d1f2e4539e050f28ba01d97528d2e05c6d4c4a3cb49cb8c9a0eb4ebd9"
+    },
+    "src/tau2/domains/mock/user_tools.py": {
+      "bytes": 2286,
+      "git_blob": "22dc2fee3abd6a5f75dfe18e49098fdde0e729ee",
+      "mode": "100644",
+      "sha256": "75a8e33dca3b358b2fab08786922aa142d03e053bc02c69c0d292af325a3131f"
+    },
+    "src/tau2/domains/mock/utils.py": {
+      "bytes": 340,
+      "git_blob": "cba218b2aa8b37a2c6d771188651609c5097c5c8",
+      "mode": "100644",
+      "sha256": "d9f43cf5eeefad0817973d188dad2113e73c37d1b9bae6fc86a6b0f1a703622e"
+    },
+    "src/tau2/domains/retail/__init__.py": {
+      "bytes": 19,
+      "git_blob": "fca0cd456af18fe57ff5338962704bdb2eb7b701",
+      "mode": "100644",
+      "sha256": "48747a78fd49944aaef6f540269b5b77e558b8b996cb0f7210b80317769bc032"
+    },
+    "src/tau2/domains/retail/data_model.py": {
+      "bytes": 8799,
+      "git_blob": "e8cedd4c73c3c3865e86ef7dd9202ad2468d685b",
+      "mode": "100644",
+      "sha256": "f5ad09590953855cc49d2ab2ad5c0594be408cae74d1500fb278e5a6bf2c50d6"
+    },
+    "src/tau2/domains/retail/environment.py": {
+      "bytes": 1615,
+      "git_blob": "a403300c800a06c314260c6215b0c39e175b4cdc",
+      "mode": "100644",
+      "sha256": "5b819fb895a4ef49df71404c3d9678ab09e8578eec841b8ec9229c8f51e32405"
+    },
+    "src/tau2/domains/retail/tools.py": {
+      "bytes": 29202,
+      "git_blob": "eba01ab32dca0d4ef33328c22358b794d859f2b6",
+      "mode": "100644",
+      "sha256": "34f4fe9702d36f0dd4697700fbcd63d0cf5386e6eb8e7499aaa336243bad8750"
+    },
+    "src/tau2/domains/retail/utils.py": {
+      "bytes": 248,
+      "git_blob": "f4d0fa552bab03a2a3c2b4c6dbd66c77f7845c49",
+      "mode": "100644",
+      "sha256": "a385b085b63d0e5921c15f7e2201b00df1d984990f4dbb7b24a867e3bf7cb648"
+    },
+    "src/tau2/domains/telecom/__init__.py": {
+      "bytes": 19,
+      "git_blob": "fca0cd456af18fe57ff5338962704bdb2eb7b701",
+      "mode": "100644",
+      "sha256": "48747a78fd49944aaef6f540269b5b77e558b8b996cb0f7210b80317769bc032"
+    },
+    "src/tau2/domains/telecom/data_model.py": {
+      "bytes": 9418,
+      "git_blob": "54e95d47c9e73da268bc7ac4d7969d4f8a03f013",
+      "mode": "100644",
+      "sha256": "f868cbbd344cadf6c376f21976edfa38b8cfe199922748e31eee666f791a0628"
+    },
+    "src/tau2/domains/telecom/environment.py": {
+      "bytes": 7286,
+      "git_blob": "a408c9bd5cdfb0c09eeeb438301459356b51d088",
+      "mode": "100644",
+      "sha256": "7bc335d717a8cb6bda54551fa2b5c12ff073f6287878d215f4181572e551abcd"
+    },
+    "src/tau2/domains/telecom/tasks/__init__.py": {
+      "bytes": 0,
+      "git_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "src/tau2/domains/telecom/tasks/const.py": {
+      "bytes": 2204,
+      "git_blob": "8c41d7dcd61287c38156244017e9d9315e003614",
+      "mode": "100644",
+      "sha256": "1f7100229a56c86ea2f47d6c78fe26f7e0fbab65ad91150f9436f0fee09d7784"
+    },
+    "src/tau2/domains/telecom/tasks/create_tasks.py": {
+      "bytes": 3639,
+      "git_blob": "1c62bfaf1ba2b07cc531e4ae25d07ca6b83de8ef",
+      "mode": "100644",
+      "sha256": "7ce75c5afc869a344985e68f7725d18709e51f6aa1233a91e5d387ba45bfac59"
+    },
+    "src/tau2/domains/telecom/tasks/manager.py": {
+      "bytes": 8836,
+      "git_blob": "fdedb7d963c7d11f810de17ab729ff6cd56af492",
+      "mode": "100644",
+      "sha256": "ba1fe1c514e8a85c58c417cfbe5ecfa853289bbc181874e37e90e610bdee3e9e"
+    },
+    "src/tau2/domains/telecom/tasks/mms_issues.py": {
+      "bytes": 10313,
+      "git_blob": "d4e084c1bbbbd9c3cb7888f2eafd11cb240405e0",
+      "mode": "100644",
+      "sha256": "f7350a6771ac28464ee392731f741486b421126ddf907082891d2cfc4a739b24"
+    },
+    "src/tau2/domains/telecom/tasks/mobile_data_issues.py": {
+      "bytes": 16347,
+      "git_blob": "c74f6c419d22b9c57ae4d913f39e0be9765af3ed",
+      "mode": "100644",
+      "sha256": "2c5169d82c6fad894ffd9447b98c249312155354d428fb3d3f373176b82fd667"
+    },
+    "src/tau2/domains/telecom/tasks/service_issues.py": {
+      "bytes": 14396,
+      "git_blob": "8bc3dbc7cf056824cfa8e30b262909f0bcfce91e",
+      "mode": "100644",
+      "sha256": "a646ab516cdd7f9a3716dfa9acd7ca60741bb7db81494c26c2c988f2efe3db2a"
+    },
+    "src/tau2/domains/telecom/tasks/utils.py": {
+      "bytes": 4162,
+      "git_blob": "803c6466e2c1322e0952a474efe584efb5f9e57b",
+      "mode": "100644",
+      "sha256": "aaf9ee7d1e3699918292902951ca929ff7d0e7d7a2c8f782a0bd14e3bf13ca26"
+    },
+    "src/tau2/domains/telecom/tools.py": {
+      "bytes": 26442,
+      "git_blob": "c531b4c717233285271f3c4039961a6a8e562ed6",
+      "mode": "100644",
+      "sha256": "388552434d1b8225e33e7958bdb6efccfe92b49e11d1838568d9b559514e9d01"
+    },
+    "src/tau2/domains/telecom/user_data_model.py": {
+      "bytes": 15172,
+      "git_blob": "78288cfc3f27cef39b4f7016d6b4646480338ecf",
+      "mode": "100644",
+      "sha256": "27be0006694e9a740dd378f42099d6d1afecbd445f7906aedcd1f800087377c2"
+    },
+    "src/tau2/domains/telecom/user_tools.py": {
+      "bytes": 48531,
+      "git_blob": "a79447b0af1abbe23caeaaefa79b34432279f942",
+      "mode": "100644",
+      "sha256": "03fa751eeea3734313a3f5274223d42750fd5c1a28f2624265a678f271ac309d"
+    },
+    "src/tau2/domains/telecom/utils.py": {
+      "bytes": 1260,
+      "git_blob": "15ddf884b4592f290c3a7ab5396398956c45582e",
+      "mode": "100644",
+      "sha256": "9195707fca3d96b41d78de661bd2408cfaab75793769c9a739a7521b690fc6dd"
+    },
+    "src/tau2/environment/__init__.py": {
+      "bytes": 0,
+      "git_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "src/tau2/environment/db.py": {
+      "bytes": 1267,
+      "git_blob": "5a4122a575449d2e8f531399f77391a237b6d958",
+      "mode": "100644",
+      "sha256": "49e12f900a8aabe62d6137a9baa1e7d471f9b3e516cf7c85fb61ecde8a65154c"
+    },
+    "src/tau2/environment/environment.py": {
+      "bytes": 18486,
+      "git_blob": "0dce3d21826273e789eb25fa167b95ab148fa4f4",
+      "mode": "100644",
+      "sha256": "b5357f11e2914c11ce0372af919cc1d726191b91cd97f776b8fb388ae0615350"
+    },
+    "src/tau2/environment/server.py": {
+      "bytes": 7918,
+      "git_blob": "233ab8ec4acb4321f63065317a6ff1a1aae80369",
+      "mode": "100644",
+      "sha256": "5ec31d6b75139106bf331a8a0125854ecf873fa3517bfe7420323bd560d12d4e"
+    },
+    "src/tau2/environment/tool.py": {
+      "bytes": 8092,
+      "git_blob": "cf55463cbac9286f36f5b01f5c799d5b0b50da88",
+      "mode": "100644",
+      "sha256": "6dd74021ba95a6f8dfa0971546b768b90e15b212f8f9051156ae6bcdd24b77d3"
+    },
+    "src/tau2/environment/toolkit.py": {
+      "bytes": 11313,
+      "git_blob": "b6ccc92f4b4d7d692a7b7db10197ce3630fadaae",
+      "mode": "100644",
+      "sha256": "3e897891e8878c3399aec72e42eb0eb5546642420c0c902b225421fc936b924a"
+    },
+    "src/tau2/environment/utils/interface_agent.py": {
+      "bytes": 9563,
+      "git_blob": "28e44f92838d9bc580b31f97f7b175ba2b87d368",
+      "mode": "100644",
+      "sha256": "9c26fdc3f787c0551c2335d0932f6099c1e054cfa7d5f4da733ee8396a82b040"
+    },
+    "src/tau2/evaluator/AGENTS.md": {
+      "bytes": 4684,
+      "git_blob": "acc80f3341bb78355306f76d398326641e69eca1",
+      "mode": "100644",
+      "sha256": "302b5491200f2adff4ca5ae4fb00efe055e37b4a126712f4df5222f9537524b0"
+    },
+    "src/tau2/evaluator/__init__.py": {
+      "bytes": 1,
+      "git_blob": "8b137891791fe96927ad78e64b0aad7bded08bdc",
+      "mode": "100644",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    "src/tau2/evaluator/auth_classifier.py": {
+      "bytes": 7884,
+      "git_blob": "4f5eb42f8d91f5d0c3d7d794ec2a41aa27fd7896",
+      "mode": "100644",
+      "sha256": "3a9184b16c7212ddfb81050d94bcc0f591c12ddec7517db0c4e7e83701eb2c2f"
+    },
+    "src/tau2/evaluator/evaluator.py": {
+      "bytes": 14218,
+      "git_blob": "76c95a83e9049d70a5570b93989797c0626974b6",
+      "mode": "100644",
+      "sha256": "204d95a82812402f2fee989250392d3c66de702a8bcc20258c7e2a8153a1ea8d"
+    },
+    "src/tau2/evaluator/evaluator_action.py": {
+      "bytes": 8150,
+      "git_blob": "861784876aab7f0f2bf16685b8607b50f9873fd5",
+      "mode": "100644",
+      "sha256": "4347ec90fd09db73b9f7e46515220363f91f0c3b12aeddf7ece83346f49227f8"
+    },
+    "src/tau2/evaluator/evaluator_base.py": {
+      "bytes": 665,
+      "git_blob": "4dc118ddf10549fa6b2a1017aba2251991024af4",
+      "mode": "100644",
+      "sha256": "1f79c11e5cb5c8cabc26cdaad7ff3a3a1687380f4d7fb1f9fbd9b6f9ab18e1ff"
+    },
+    "src/tau2/evaluator/evaluator_communicate.py": {
+      "bytes": 7462,
+      "git_blob": "1bac18fd8830304894da767d2e6b7efe6e779e89",
+      "mode": "100644",
+      "sha256": "7a082f91c746b84cc37c6994eb6ff78f297222fd067503a4cc86d45750696507"
+    },
+    "src/tau2/evaluator/evaluator_env.py": {
+      "bytes": 14100,
+      "git_blob": "a2e0a1a07cffd9394cc462376799289b1e9fbedd",
+      "mode": "100644",
+      "sha256": "b53ebfe6b0b06d7a2071b5f9dd03ee6ca8ac6000b0ef44f3bd345b346c30d8ac"
+    },
+    "src/tau2/evaluator/evaluator_nl_assertions.py": {
+      "bytes": 8843,
+      "git_blob": "1f5397c5b8f8b105bf3d76027518d3bc3eb3e0f7",
+      "mode": "100644",
+      "sha256": "cb6b3758cdceb02a726732b4ee1af618affcc08f8ab84b44f060146b8f3ad90a"
+    },
+    "src/tau2/evaluator/hallucination_reviewer.py": {
+      "bytes": 8894,
+      "git_blob": "72cd426774b51daa7fa1f5da9d0d557c51fa85e6",
+      "mode": "100644",
+      "sha256": "10bb19e7dd0ae19a82df8fc6aa28d7c52e34c820316f72f73f12bcb17e212faa"
+    },
+    "src/tau2/evaluator/review_llm_judge.py": {
+      "bytes": 29158,
+      "git_blob": "b3e0d5d274b28cfc4449bd5f2b686754daac99fc",
+      "mode": "100644",
+      "sha256": "34f3e44975b804e755cc94aaf07dd79cd6f1e8c3ffd4a8a5af80f5d3c24616e1"
+    },
+    "src/tau2/evaluator/review_llm_judge_user_only.py": {
+      "bytes": 24065,
+      "git_blob": "4618d11966d7ec61ced5afa0f8316a5f83593f1c",
+      "mode": "100644",
+      "sha256": "cf95c8e13192b8ad0447689b7a58b995ce0cb40cdbc738847e88758305d123cf"
+    },
+    "src/tau2/evaluator/reviewer.py": {
+      "bytes": 7374,
+      "git_blob": "1c8c0ce44c281fd7f1d787bf65cb841db129f56f",
+      "mode": "100644",
+      "sha256": "3ff29a1527ae2fd5fd906846d964a06b4d0827fe52de94b0419b7613c5b3b933"
+    },
+    "src/tau2/gym/README.md": {
+      "bytes": 17545,
+      "git_blob": "1df4c51cdc59ab15b06d9bd31bed2959694f93f3",
+      "mode": "100644",
+      "sha256": "a0292533146f6cd60100504d04494b4d765fdaf53f016957313697c59837f1a2"
+    },
+    "src/tau2/gym/__init__.py": {
+      "bytes": 330,
+      "git_blob": "3a9295a15fe8c4cb4d0bef5792c03efc547a4990",
+      "mode": "100644",
+      "sha256": "8b617d7665ee63a601dd5b70e9b20afb85a826a81c5bad72f2a0192f4acd6511"
+    },
+    "src/tau2/gym/gym_agent.py": {
+      "bytes": 60236,
+      "git_blob": "e7cd1e21255f60ed2b8dc41e8957330ca09beae7",
+      "mode": "100644",
+      "sha256": "109a7d5a84ecae3c84c56bc7a20fd4b9be8e87727a6cfd0e3bd3e6c011f4dcf7"
+    },
+    "src/tau2/knowledge/README.md": {
+      "bytes": 4424,
+      "git_blob": "bf86f1615e3baf3b295fe649833c59893d8eefcc",
+      "mode": "100644",
+      "sha256": "876ac287cd251b5d689d28e21696342f2c349670704f1db06ec42880ffeddf27"
+    },
+    "src/tau2/knowledge/__init__.py": {
+      "bytes": 1034,
+      "git_blob": "df5e1b123c3b77ce644c2e20625706a85dbc3613",
+      "mode": "100644",
+      "sha256": "7b2f1aa6e9f265c70cabe0c8aabcfe34bc27c2b680a841cd6c8d145b689e60d0"
+    },
+    "src/tau2/knowledge/config.py": {
+      "bytes": 4551,
+      "git_blob": "612be74dac282d271992a7357863dfd3bbce0d2f",
+      "mode": "100644",
+      "sha256": "3c2d0048dc9af7d6af49cebfe25be54dff88cee2bdaff84456b17a6020b3e1dd"
+    },
+    "src/tau2/knowledge/document_preprocessors/__init__.py": {
+      "bytes": 0,
+      "git_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "src/tau2/knowledge/document_preprocessors/base.py": {
+      "bytes": 1355,
+      "git_blob": "788512abd64f4eb00758ea5386479a57b3bde42f",
+      "mode": "100644",
+      "sha256": "1256bc851213dd0c28b3242938f97521503d7a6ea64faad65c2e621888451699"
+    },
+    "src/tau2/knowledge/document_preprocessors/bm25_indexer.py": {
+      "bytes": 1359,
+      "git_blob": "73e8d67492203f30bfbb6775d2157c34c931abc2",
+      "mode": "100644",
+      "sha256": "5808f4bd2a8406fcbe575dd8412dbfcdab7637b94bc0ca053414710dad0a9059"
+    },
+    "src/tau2/knowledge/document_preprocessors/embedding_indexer.py": {
+      "bytes": 4197,
+      "git_blob": "4b68fb2fa5ba85f23f31736da18bac42cee4d5b7",
+      "mode": "100644",
+      "sha256": "5861371cb3879c8027a03da409d6c1e8c7f6dcf70c71599d60ec00e4338fe638"
+    },
+    "src/tau2/knowledge/embedders/__init__.py": {
+      "bytes": 267,
+      "git_blob": "6efd2c7809ff8f026d9162c596985615c3e1482b",
+      "mode": "100644",
+      "sha256": "8c4a2b6728007db804ab6dd135243ad5db1acd46cffe6230ffb581693ba56e80"
+    },
+    "src/tau2/knowledge/embedders/base.py": {
+      "bytes": 595,
+      "git_blob": "e5e5ede5cb08e7a8ce00ed678b9eaadf55c2a96d",
+      "mode": "100644",
+      "sha256": "8905218ed326c3ebca8cabdb21ab11e28aff752c61ba567e82379d40298aaf4d"
+    },
+    "src/tau2/knowledge/embedders/openai_embedder.py": {
+      "bytes": 1519,
+      "git_blob": "4f8cb46f7a8e9ce5b68c8bffcd31c7647870daf9",
+      "mode": "100644",
+      "sha256": "3da18207179a790930e507464d94d97be9f2cdbfdccb712df10a75c6f9cb47f9"
+    },
+    "src/tau2/knowledge/embedders/openrouter_embedder.py": {
+      "bytes": 7524,
+      "git_blob": "3de45c837a829e72fddd691f8f61c8a6e1e2da67",
+      "mode": "100644",
+      "sha256": "e3eed96867aaef0de493fd7535abd2ae58c5ba56f3e5421bf464554de4f7fb58"
+    },
+    "src/tau2/knowledge/embeddings_cache.py": {
+      "bytes": 22614,
+      "git_blob": "4c89759857efa1009f31387ce084bff650e98e74",
+      "mode": "100644",
+      "sha256": "9e7d82bff25eb88129a4f90d7c6b1b185bc71c0e7bd21503dcf5f83815a4919d"
+    },
+    "src/tau2/knowledge/input_preprocessors/__init__.py": {
+      "bytes": 242,
+      "git_blob": "3cca444861004b6b38e0a4509c567d9c9ff044da",
+      "mode": "100644",
+      "sha256": "10a9fb1fc962f9b7642dbb338762945078309e3380a5aa08552cfd7902d239e6"
+    },
+    "src/tau2/knowledge/input_preprocessors/base.py": {
+      "bytes": 1481,
+      "git_blob": "02365339ed180bccc6cb3643a5bf442e348e6fa5",
+      "mode": "100644",
+      "sha256": "32c1064e520195df17c0b0d0a1d0a8c1863ce84546dcd6139b9f9b697df2090c"
+    },
+    "src/tau2/knowledge/input_preprocessors/embedding_encoder.py": {
+      "bytes": 4873,
+      "git_blob": "5363695ad77d20da6171a1909de51673e119cd60",
+      "mode": "100644",
+      "sha256": "d4b0406b78fe4b7d07de7a37cec018c222e9f198342a45154172f6202925cbf7"
+    },
+    "src/tau2/knowledge/pipeline.py": {
+      "bytes": 10143,
+      "git_blob": "29d013b083aa293cd8dce9600362e7e67e842397",
+      "mode": "100644",
+      "sha256": "6aed4b8d6186986299a3af5cb840985b1041a69893ce94bf62c5ecdc2fc64286"
+    },
+    "src/tau2/knowledge/postprocessors/__init__.py": {
+      "bytes": 421,
+      "git_blob": "1734d83a4251a5e2760b2cd1144e9d8b29185bb9",
+      "mode": "100644",
+      "sha256": "63c5a76cb486e25617d2942c17378a9bda8211fc31fd9c4d590ce6b2fae4f6db"
+    },
+    "src/tau2/knowledge/postprocessors/base.py": {
+      "bytes": 1861,
+      "git_blob": "25dd5b9e2ecd2518b58b791f48d679ddd789f3f3",
+      "mode": "100644",
+      "sha256": "4cbffeb5028150f50a06d72e2cb861f651c5b34e56726ddc0c90875830935875"
+    },
+    "src/tau2/knowledge/postprocessors/bge_reranker.py": {
+      "bytes": 7219,
+      "git_blob": "7e84665fbf02bf0ea23dd52d6fd1a2845bebdd10",
+      "mode": "100644",
+      "sha256": "4430889114d7f519abe3a69afa22a0815528d60e549e5c05699c5392306d811b"
+    },
+    "src/tau2/knowledge/postprocessors/pointwise_llm_reranker.py": {
+      "bytes": 4054,
+      "git_blob": "7bf3a8d9fc87435a972417b4fec2feb0b1a92b2c",
+      "mode": "100644",
+      "sha256": "878a8f22f507727357e2d7cff8ff6d289b3101ea33b602a198594eb5e8e23503"
+    },
+    "src/tau2/knowledge/postprocessors/qwen_reranker.py": {
+      "bytes": 9532,
+      "git_blob": "efb3019b045cea37bb9b73300330f1cc60acb04e",
+      "mode": "100644",
+      "sha256": "430c5f4e7371950cba39457b77f49c8201809ce2da6ace868571969b8b19ea67"
+    },
+    "src/tau2/knowledge/registry.py": {
+      "bytes": 1914,
+      "git_blob": "f6ce760155698033e4b57db55045fe59dd586817",
+      "mode": "100644",
+      "sha256": "98b476f3ac15de7555e2ee621c6ea16cf1b860d383b6e6b85e47bb0e097d815c"
+    },
+    "src/tau2/knowledge/retrievers/__init__.py": {
+      "bytes": 363,
+      "git_blob": "a102abdc174d28b81a079af00dac7a3fcb373df1",
+      "mode": "100644",
+      "sha256": "1ebced75a6122c66f071f38443e6cab1d8eba909b8066935863428021d73c514"
+    },
+    "src/tau2/knowledge/retrievers/base.py": {
+      "bytes": 1560,
+      "git_blob": "10412f6e16e77c0c6a067e5cbe266ad1e846477b",
+      "mode": "100644",
+      "sha256": "14d5584225cf31d90bed97175e6b74c9e49a5b94f2296f673cbdf3f382cd1930"
+    },
+    "src/tau2/knowledge/retrievers/bm25_retriever.py": {
+      "bytes": 2267,
+      "git_blob": "8ad81fc105dc19784e3e65e043ac9a8eb27f93e1",
+      "mode": "100644",
+      "sha256": "2a9f6dc19db6e7bd05eb5d2d39d9944a5dc87019c69ea708c42b1d515f2834ba"
+    },
+    "src/tau2/knowledge/retrievers/cosine_retriever.py": {
+      "bytes": 3154,
+      "git_blob": "4365098b91ed96692abe01f38867ea4f4361b2b8",
+      "mode": "100644",
+      "sha256": "1c06852a79299e58d3a0b56175e72d870b90ae022b814ea68487ff7336bf01eb"
+    },
+    "src/tau2/knowledge/retrievers/grep_retriever.py": {
+      "bytes": 1835,
+      "git_blob": "eba550dbec9ab71220d85fa303e3bf0279fbde27",
+      "mode": "100644",
+      "sha256": "ea7d5427b128666b71049ac5e5dc4851ef8c65ac4ddd0faf29a04b9bcc1d52cd"
+    },
+    "src/tau2/knowledge/sandbox_manager.py": {
+      "bytes": 21268,
+      "git_blob": "723ea9e903833d811c53b2f7b8e35855b0266038",
+      "mode": "100644",
+      "sha256": "7bacd92019c51230616dffe73c731e721ccb76ebfa3bfa9c8da1cc2287168f10"
+    },
+    "src/tau2/metrics/__init__.py": {
+      "bytes": 0,
+      "git_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "src/tau2/metrics/agent_metrics.py": {
+      "bytes": 18374,
+      "git_blob": "f6959b005e9653f1858f463d4c73c321d6d26eef",
+      "mode": "100644",
+      "sha256": "136b5ebcc0c115b5817a4f6d6b485a871aba199ddedf56458f35f339569a54dc"
+    },
+    "src/tau2/metrics/break_down_metrics.py": {
+      "bytes": 5582,
+      "git_blob": "308357872910493ab32a47eedd1e80d6c071c9d8",
+      "mode": "100644",
+      "sha256": "8eb9e7571d49d7fa9e6a3dcf3c9dd9004b5326dea5cb8f7694f53ffb7b8d92fd"
+    },
+    "src/tau2/metrics/voice_interaction_metrics.py": {
+      "bytes": 89594,
+      "git_blob": "9b8c88936a04188868810fed5bc1b9b680fa7818",
+      "mode": "100644",
+      "sha256": "61a0db7da4429c1f3c7be22708e3c048ca5bf0863b1ac97abb61279a5843a6ab"
+    },
+    "src/tau2/orchestrator/README.md": {
+      "bytes": 5201,
+      "git_blob": "ebe5f9f1f0b07595eb71f3484ae2529f20e21a3d",
+      "mode": "100644",
+      "sha256": "880d08235518048278e7e6007965dfdcc25dd125fe9f677d6b0fd6dd9cb8289b"
+    },
+    "src/tau2/orchestrator/__init__.py": {
+      "bytes": 500,
+      "git_blob": "a57beb001a2a57f4008fc504d7e1bab102c2e81e",
+      "mode": "100644",
+      "sha256": "8cfdda384404bbc2a14999757d3f304da71db2191d828723dbd19a40c8906828"
+    },
+    "src/tau2/orchestrator/environment_manager.py": {
+      "bytes": 8876,
+      "git_blob": "73fd07accd913403b4abcbcf49e155b48f56dae3",
+      "mode": "100644",
+      "sha256": "c548268b3c7a9a526c7b9fcfcef9058bff878dc3b17cef31793eccc695b6a049"
+    },
+    "src/tau2/orchestrator/full_duplex_orchestrator.py": {
+      "bytes": 24005,
+      "git_blob": "4bf2439d57066c5fe1b030544f9abff98f6b164e",
+      "mode": "100644",
+      "sha256": "a674b6d2cba44dc3374eb80d054485cc0e96772bd7c8f527621cf25930e08b13"
+    },
+    "src/tau2/orchestrator/modes.py": {
+      "bytes": 808,
+      "git_blob": "c14599db0624a714a183f625c0a3d08cd0cfe100",
+      "mode": "100644",
+      "sha256": "b2d131cef3f15b1558568b1e4b0b316aeea26ae7fbe1e1092d79febbb7d74553"
+    },
+    "src/tau2/orchestrator/orchestrator.py": {
+      "bytes": 40843,
+      "git_blob": "eaf9537a78310f9d1e3446c388e4dab3d179f85b",
+      "mode": "100644",
+      "sha256": "6c689e5d1037dd08aef8834b46f58efa14359824cbebf7084de0172e5f580cba"
+    },
+    "src/tau2/orchestrator/utils.py": {
+      "bytes": 319,
+      "git_blob": "9fbd2aa2b5a0c2da2f54c544f20532a7ab874626",
+      "mode": "100644",
+      "sha256": "b0940cb324f4c44bfd6a63e9a3cbaf9336a5b95c50c3da201ad1ea8340858dbe"
+    },
+    "src/tau2/registry.py": {
+      "bytes": 13109,
+      "git_blob": "86a97a1deeea8a8e09cafeac4dfcff171b6454d4",
+      "mode": "100644",
+      "sha256": "d170c1f4b7323a75e26b2ead6754ed423b17a3deb91fe2c89e7e8ec78c6bf12a"
+    },
+    "src/tau2/run.py": {
+      "bytes": 10098,
+      "git_blob": "7a15803220eb9e44a598cc9aa330ce51c83d52eb",
+      "mode": "100644",
+      "sha256": "5a32c35582b8070e8d50c135508d436859392bf2db179a52711a3c53fb108dc9"
+    },
+    "src/tau2/runner/README.md": {
+      "bytes": 4443,
+      "git_blob": "00a7ed2a1809da3e9856c049017230c97537184f",
+      "mode": "100644",
+      "sha256": "b04a5b17ddf516a86172eccd1153901633bf6c794e980e52995a69464dcc1c97"
+    },
+    "src/tau2/runner/__init__.py": {
+      "bytes": 1564,
+      "git_blob": "e46c8cb4918c1862e8d874d2c702d925b8ca933a",
+      "mode": "100644",
+      "sha256": "a4691118a6a612a7e3339ae638a76910d2f1746ff3bd3ed584946e32731aef6e"
+    },
+    "src/tau2/runner/batch.py": {
+      "bytes": 33414,
+      "git_blob": "d109df1dd0ad4aa6461659e19c55f960bf6243ed",
+      "mode": "100644",
+      "sha256": "649a73d5cd4b373abfaca2bacfcc97693a43da4ef1dbb6b9098f673c7a0161db"
+    },
+    "src/tau2/runner/build.py": {
+      "bytes": 21425,
+      "git_blob": "0eb6bdcb2d599d74d7020834eff6ea11f4f24a12",
+      "mode": "100644",
+      "sha256": "2c4b61b83d4108bb9a2b46724a7b9cc0823548cfd866ca0f415bc536269d964b"
+    },
+    "src/tau2/runner/checkpoint.py": {
+      "bytes": 16355,
+      "git_blob": "2b4f04bba8efac46d0bf0f8197f3f05decfa8cf6",
+      "mode": "100644",
+      "sha256": "3c4cf66101ec30a3dc47ad7b3be35a4e542ffcbf85b3ba2bad66ad28064e9ca3"
+    },
+    "src/tau2/runner/helpers.py": {
+      "bytes": 6851,
+      "git_blob": "fd15027ddbab10368c7f0e34764ea69702d30265",
+      "mode": "100644",
+      "sha256": "39f804b325b8bb73893fc75ba422a70d5bacd258bc64ebaf1c0fe71b2fa93b66"
+    },
+    "src/tau2/runner/progress.py": {
+      "bytes": 7868,
+      "git_blob": "464548a60d38fccae732f3b93b4eb3dac8a8ac2e",
+      "mode": "100644",
+      "sha256": "3264ea8ad797f6d513626b9baec1a57c2a3b0aa499cebf9915f9038b90edf68f"
+    },
+    "src/tau2/runner/simulation.py": {
+      "bytes": 3240,
+      "git_blob": "25330c9d831f548b72edfd959757faefb901da9a",
+      "mode": "100644",
+      "sha256": "1b98532199a05d87dcc14aead9d59c320d20f11d3d8e4c8458663ed5964eafef"
+    },
+    "src/tau2/scripts/__init__.py": {
+      "bytes": 0,
+      "git_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "src/tau2/scripts/analyze_vad_silence.py": {
+      "bytes": 7779,
+      "git_blob": "5e541a83144e556d150d8a7f0df21ae20608a51a",
+      "mode": "100644",
+      "sha256": "2396b1b2326bfb1bf5a43864d68a927dfff0451175ac80015422a37fbcd9e317"
+    },
+    "src/tau2/scripts/check_data.py": {
+      "bytes": 812,
+      "git_blob": "9c04ba3f79940c17ca3614a4efcba7bd58e965d6",
+      "mode": "100644",
+      "sha256": "60878ba719227e2583c02fbe9dec93b6589ed33c6e56ce6874f1f2c7492acf03"
+    },
+    "src/tau2/scripts/evaluate_trajectories.py": {
+      "bytes": 10468,
+      "git_blob": "a354080eea8ca8052fc8b8dc0f959893aafb6f96",
+      "mode": "100644",
+      "sha256": "4122061d8e062f7a968622f63a8da9117c0bdd2aae20f590fb96582a649e1ed3"
+    },
+    "src/tau2/scripts/get_experiment_results.py": {
+      "bytes": 3994,
+      "git_blob": "af623bbf698769c3d205fc801aac2dc137008444",
+      "mode": "100644",
+      "sha256": "d6355f0e4386c472ee84db55ad7acb7665ec623050951d0de55eb742cbe979a7"
+    },
+    "src/tau2/scripts/leaderboard/MAINTAINER.md": {
+      "bytes": 5580,
+      "git_blob": "bdf4376117c56bc31b263ad99dcb8a8bfa6c4e24",
+      "mode": "100644",
+      "sha256": "7287ef844f89029ebc68d744fadad3d9f5f5e735d99c4d50fcea14efb9df477c"
+    },
+    "src/tau2/scripts/leaderboard/__init__.py": {
+      "bytes": 2540,
+      "git_blob": "0e01905f80b6aa20ad09a55077b07caa2e36d652",
+      "mode": "100644",
+      "sha256": "af99294a3b149ff9a55c5c7d13bc3ff5e5fbfac6e8e0b9658f1f7bbafeebdfea"
+    },
+    "src/tau2/scripts/leaderboard/backfill_interaction_metrics.py": {
+      "bytes": 4897,
+      "git_blob": "9a14933330df62228d480ef1e7801b3742d1cfbe",
+      "mode": "100644",
+      "sha256": "a1c82d1b5572f7361db7098411d47b82abbf19efae669af6312da1015cf5013c"
+    },
+    "src/tau2/scripts/leaderboard/compute_interaction_metrics.py": {
+      "bytes": 8234,
+      "git_blob": "e2823458ec22bae942221f522600f38951c5974e",
+      "mode": "100644",
+      "sha256": "e48fab2363f7b8dc7dbf97b4e73f161d1fbe44cbd1c41b800dc4cc26bd0006ec"
+    },
+    "src/tau2/scripts/leaderboard/generate_schema.py": {
+      "bytes": 2300,
+      "git_blob": "663100368e35803462bb0c328d8496eb4e700474",
+      "mode": "100644",
+      "sha256": "4b8926308fd24d9478e42f8308022e2bbfed8f9ecd1a373ea2a63c91a470897f"
+    },
+    "src/tau2/scripts/leaderboard/leaderboard.py": {
+      "bytes": 17996,
+      "git_blob": "d5cfa5e36b2e0366413ca364d18da7a46f501a48",
+      "mode": "100644",
+      "sha256": "ec27bc5e56a6705003e49b72fe54d8b4b395c697c6d114bf6aad90558dd2b903"
+    },
+    "src/tau2/scripts/leaderboard/prepare_submission.py": {
+      "bytes": 36574,
+      "git_blob": "6174e07f606668a66cd05e2431297e0a0c4b46fe",
+      "mode": "100644",
+      "sha256": "99740b39acb6d2cbc41d127a43bdad0716c4ae6de5efab12e2569b032092fa05"
+    },
+    "src/tau2/scripts/leaderboard/review_submission.py": {
+      "bytes": 17415,
+      "git_blob": "a5f07e80ef9d2e4edd8f246041d556515674af11",
+      "mode": "100644",
+      "sha256": "6ecf888a594d5a7c14caa742cacca4181889e8203f1247896a292bed46694d8c"
+    },
+    "src/tau2/scripts/leaderboard/submission.py": {
+      "bytes": 20062,
+      "git_blob": "00d1643154f2120054633bccda246b37194b182b",
+      "mode": "100644",
+      "sha256": "8ba7a0d981ae73f470219e0ff3d132abcb029ee322f95bbc8a91dee7668d2c12"
+    },
+    "src/tau2/scripts/leaderboard/trim_trajectories.py": {
+      "bytes": 8896,
+      "git_blob": "f7c1166cf8c373984e748bdebde78522e0cb66c8",
+      "mode": "100644",
+      "sha256": "9c38da31b884f96c29681ef93d965c071b4472bdfc73c6642051edaeafe4929e"
+    },
+    "src/tau2/scripts/leaderboard/verify_trajectories.py": {
+      "bytes": 3482,
+      "git_blob": "d74ba40a85d99ff2065288212e4b66af8781ea78",
+      "mode": "100644",
+      "sha256": "33260c9c00ea329aaabbf998d6413450af818f2e8f9fb66f8f82a94f0eca681a"
+    },
+    "src/tau2/scripts/leaderboard/verify_trajectories_private.py": {
+      "bytes": 243,
+      "git_blob": "8104c4380ab96a38657a76250dbc5e479bbfcbaf",
+      "mode": "100644",
+      "sha256": "8559f11d219655a01093f74028a7be232161dcdea5fe6d1346c15184a463c22a"
+    },
+    "src/tau2/scripts/leaderboard/verify_trajectories_public.py": {
+      "bytes": 2607,
+      "git_blob": "ad325e50f61229a96fe903910d080b44dbf41c85",
+      "mode": "100644",
+      "sha256": "577fdd4be68cfcada461698c60607a7f61487759819dd9dd4b44258075c69b71"
+    },
+    "src/tau2/scripts/manual_mode.py": {
+      "bytes": 27665,
+      "git_blob": "3ce64e0cef9da31c07b108a460eaf78a0a803a2e",
+      "mode": "100755",
+      "sha256": "2b44a8dc68c7267bb859bc1b347e3bbac16cff9320865ed7762d0221f841cd60"
+    },
+    "src/tau2/scripts/per_task_summary.py": {
+      "bytes": 14203,
+      "git_blob": "0afe0f9487cc1f50cd71b68d83450c1dfb9d1a61",
+      "mode": "100644",
+      "sha256": "2a2d23496501adda712e66b46cb0e298b800cb938b9c62f7034ef018c1e05b7a"
+    },
+    "src/tau2/scripts/recombine_rewards.py": {
+      "bytes": 9763,
+      "git_blob": "f76b802f89d559c201e308891e63c19e3fccac45",
+      "mode": "100644",
+      "sha256": "8c4843e7d3cd202a34441492570f7980fe7d874a7bcf2a6f9084405c1dd4ce0d"
+    },
+    "src/tau2/scripts/review_conversation.py": {
+      "bytes": 43714,
+      "git_blob": "aa02b188bca77033c293c1373b9997dfa97894da",
+      "mode": "100644",
+      "sha256": "2da50b56312097667557166427cf3d2a1601fb2a20971a61e217218d1a2ea5cd"
+    },
+    "src/tau2/scripts/show_domain_doc.py": {
+      "bytes": 2122,
+      "git_blob": "3c8093a56e95943c6a6568bc33956517d7ef1240",
+      "mode": "100755",
+      "sha256": "af6b584d51d05fa961df91434d2e262a10a751d5362d8fc1ad570ceec06432cc"
+    },
+    "src/tau2/scripts/start_servers.py": {
+      "bytes": 3462,
+      "git_blob": "7a7596be5114e0492ec9103e07b68bfde4909a29",
+      "mode": "100755",
+      "sha256": "d1d98bc7c6fb34b57569ded1ee2bf155b30f84028c9582d07913a79895d29688"
+    },
+    "src/tau2/scripts/view_simulations.py": {
+      "bytes": 42616,
+      "git_blob": "a533334496e3f7d241bcfd42cd9e63f12a1974e6",
+      "mode": "100644",
+      "sha256": "8f51839672bd89224196b4522daeaa8bc50e319d4d82cd54c889dc3dfc4408cb"
+    },
+    "src/tau2/user/__init__.py": {
+      "bytes": 2240,
+      "git_blob": "b880bd721f27843f58506b041710ea96979324e1",
+      "mode": "100644",
+      "sha256": "7698d14639e2eea82fc40169113ad99d0f57de30207a3cb47b8f9d5fa96ca351"
+    },
+    "src/tau2/user/user_simulator.py": {
+      "bytes": 9350,
+      "git_blob": "51ef4bba88e2565532ce02da1f36ab3021028178",
+      "mode": "100644",
+      "sha256": "bfe1defe73bce25450b2be697c249d6cec2f3ba25a70e32e2452ba75a53a630c"
+    },
+    "src/tau2/user/user_simulator_base.py": {
+      "bytes": 6622,
+      "git_blob": "1daa1f6d8aa630f73c744dd44a5888ff6700239e",
+      "mode": "100644",
+      "sha256": "e6c4bae08fb7ae6fa6ee5ee29624bc35e0dd6c6fe8ffeab065592c7b51fa32f2"
+    },
+    "src/tau2/user/user_simulator_streaming.py": {
+      "bytes": 61021,
+      "git_blob": "f8f4bd08df782e753893f74129cf4ae5fdf44573",
+      "mode": "100644",
+      "sha256": "2f045564e3e17192d83ac6fae23789bfc5af2d8d976cc0cc96473437895973b3"
+    },
+    "src/tau2/user/user_simulator_voice.py": {
+      "bytes": 4357,
+      "git_blob": "1961a4a41a19519a500df653ece78e7021fbb57c",
+      "mode": "100644",
+      "sha256": "e4543b619836a5dab127ba125ffc150aa012ec2ee154109716095556d7563aeb"
+    },
+    "src/tau2/user_simulation_voice_presets.py": {
+      "bytes": 35426,
+      "git_blob": "4e1ad1912c961ffbb0ff8d65ac66a02c1b6e12e5",
+      "mode": "100644",
+      "sha256": "0d5c480871549a6d565b9ec90339e66c1c43d674072b4b7c2a6cc325d91ddc30"
+    },
+    "src/tau2/utils/__init__.py": {
+      "bytes": 353,
+      "git_blob": "42a638ed754506b85e80f714bddde9c7883e38c6",
+      "mode": "100644",
+      "sha256": "e255aeff0258cf0042f57283c5375cd78b034509b886ba827cd927a2a6d27c6a"
+    },
+    "src/tau2/utils/display.py": {
+      "bytes": 115552,
+      "git_blob": "397892f5a8565c82424c903f0a7104ec7cc491de",
+      "mode": "100644",
+      "sha256": "3f15b046d636b89999d53cb0411a7e340b374012053177a5196c1e536decef97"
+    },
+    "src/tau2/utils/io_utils.py": {
+      "bytes": 5890,
+      "git_blob": "16edf0e8af54adee8118206cb64baeb6058795b0",
+      "mode": "100644",
+      "sha256": "ce66fb275b9bbf09a17be2cb2092bf2e696ab07655bf7571fe53ba8db4ed3015"
+    },
+    "src/tau2/utils/llm_utils.py": {
+      "bytes": 16869,
+      "git_blob": "e9d8156a720ea7019b2aebca0d428b0388417127",
+      "mode": "100644",
+      "sha256": "8c1f1c297e879b2a2d48ac65394cdd497bbd10f42fefa0ce770e7a65ce42bf95"
+    },
+    "src/tau2/utils/pydantic_utils.py": {
+      "bytes": 994,
+      "git_blob": "adc02cb8db38d1b55340ead43207f3ff0ecf7c76",
+      "mode": "100644",
+      "sha256": "618dfc39b619bb0f623151682962ddc52bf2ea70bc2562dded884f118c84b78a"
+    },
+    "src/tau2/utils/retry.py": {
+      "bytes": 4875,
+      "git_blob": "8a77c363ec980f5c91a409d8f57bfa09f8cdd78e",
+      "mode": "100644",
+      "sha256": "8a4f833ea1880b79a3d6086ad2a87f78372949e8918acdff76d500e8a33bc550"
+    },
+    "src/tau2/utils/tools.py": {
+      "bytes": 10589,
+      "git_blob": "dc9823d3c930da558baa808104782072ca541a38",
+      "mode": "100644",
+      "sha256": "0b7900a9a31a5a65c32780410f30539dface4fdb94c68196199eb2dd575e5763"
+    },
+    "src/tau2/utils/utils.py": {
+      "bytes": 2957,
+      "git_blob": "0e6878e34c3c1c18aa5789d0ab278c64cacbf51e",
+      "mode": "100644",
+      "sha256": "e0c39544b01700e60a3a26c7cf2c2d17e37e3852d5f0fa466b8517f82b83622b"
+    },
+    "src/tau2/voice/AGENTS.md": {
+      "bytes": 5747,
+      "git_blob": "3c614e6a39a349fca57d520adf4044f3a3597fcd",
+      "mode": "100644",
+      "sha256": "580fdbda55a9192da6d7b6c3b4ca278e14b1458c65613aac50c3c8ce168b5d3a"
+    },
+    "src/tau2/voice/README.md": {
+      "bytes": 5864,
+      "git_blob": "168765d6a4807b505fdff8002000b790a2c62506",
+      "mode": "100644",
+      "sha256": "9a8fffe5b9d67859c8a756980159b864a9484b486c448763e1bbe39d6611a256"
+    },
+    "src/tau2/voice/__init__.py": {
+      "bytes": 59,
+      "git_blob": "4055c915da9573e4502e7bdf8f0eecaa9f6951d2",
+      "mode": "100644",
+      "sha256": "e134adb31cb51580d967b2ef853ecd0c54537f73f5f72336642cb52622e73b77"
+    },
+    "src/tau2/voice/audio_native/AGENTS.md": {
+      "bytes": 1974,
+      "git_blob": "93f67385638707faa7a4e25ab734131b84405ed7",
+      "mode": "100644",
+      "sha256": "058ed3e649037b64d1376d1be7d00f6449089635b8303e86827d800574bae1af"
+    },
+    "src/tau2/voice/audio_native/README.md": {
+      "bytes": 3081,
+      "git_blob": "a3894b4514a20c198cfdddca5f892676a4d51a40",
+      "mode": "100644",
+      "sha256": "e3379965b5920d36d6fa468db423b75be2d331006dcc1228577ada6445f1d23b"
+    },
+    "src/tau2/voice/audio_native/__init__.py": {
+      "bytes": 160,
+      "git_blob": "162f3296de2e9f69b25b39999d052e8658ed16a5",
+      "mode": "100644",
+      "sha256": "946065799bbc9687cf4c4d9a9e49a71d59ed3a6016ce71bd986c0dcf382685ef"
+    },
+    "src/tau2/voice/audio_native/adapter.py": {
+      "bytes": 17189,
+      "git_blob": "a62b92182da4196576158f470b3adce47f721b04",
+      "mode": "100644",
+      "sha256": "90ec79760c3ab0cd43afa7a86a223c25ec4f3c7dcb652c92063b83e64d8bcc24"
+    },
+    "src/tau2/voice/audio_native/async_loop.py": {
+      "bytes": 2890,
+      "git_blob": "10bb355942bf043e81fc074889116b63ae2547e8",
+      "mode": "100644",
+      "sha256": "5597fb2e629f032474d22da1a122e96333709e2aa05f328c67aa55a5e270e7c0"
+    },
+    "src/tau2/voice/audio_native/audio_converter.py": {
+      "bytes": 3955,
+      "git_blob": "bb8746567e56a5178e4b0adf5b9e4ae8d8bd1f97",
+      "mode": "100644",
+      "sha256": "d674b43bfbf273a3e5691e6bb3625f6db9f154e99aac703fbdb58245cdf6abdb"
+    },
+    "src/tau2/voice/audio_native/gemini/README.md": {
+      "bytes": 1771,
+      "git_blob": "87bb26d7beb76cabefd97f17bdb10e6e22d09608",
+      "mode": "100644",
+      "sha256": "1fd35255bc262e64046778fc81ac4067e31d20b5e4d4b6e611904df83a2eb407"
+    },
+    "src/tau2/voice/audio_native/gemini/__init__.py": {
+      "bytes": 1151,
+      "git_blob": "fe03c2936e2daed9e69e0c6857c9faa951ed8c95",
+      "mode": "100644",
+      "sha256": "2452584629ff6ee1db4bc5c72ae4b8a4d4c0d9213db76d6e10d38848fa4bf024"
+    },
+    "src/tau2/voice/audio_native/gemini/discrete_time_adapter.py": {
+      "bytes": 19105,
+      "git_blob": "a7d0f68881588e1bba4314e16a0d91d1159add85",
+      "mode": "100644",
+      "sha256": "c143cc90d9cbe411f4b1dbd517993dfe24bc001c6af5b2d66322b927cacd17fb"
+    },
+    "src/tau2/voice/audio_native/gemini/events.py": {
+      "bytes": 5481,
+      "git_blob": "974cae3460506f1d1f9a0187b17aa030e23bb33c",
+      "mode": "100644",
+      "sha256": "d8274f8addc5b401aa42463af4447fde2093c9318e2ed4ba0aa1d9fe3bcd3dd9"
+    },
+    "src/tau2/voice/audio_native/gemini/provider.py": {
+      "bytes": 53576,
+      "git_blob": "bbb4e3b6c1d1bc2ac0879e8d0edf92d0d45836ee",
+      "mode": "100644",
+      "sha256": "e6ade110583dbccae9125ffb895b942c62caa9b7334fc7dda1aa445f29168fe7"
+    },
+    "src/tau2/voice/audio_native/livekit/README.md": {
+      "bytes": 5505,
+      "git_blob": "4ff8a8b2c872a7be60644707a3a20047ecc97f8b",
+      "mode": "100644",
+      "sha256": "e0105f4eda4db88bf711108d882cce7e75a3ff960377e35400c77b07cbbb2d5d"
+    },
+    "src/tau2/voice/audio_native/livekit/__init__.py": {
+      "bytes": 3342,
+      "git_blob": "8162bc882b63b72d6ba8eec36b1950a5ee6b93ae",
+      "mode": "100644",
+      "sha256": "e42ede2bb9f0ba349036c5be8586feca35f1f6a45edd3d3ab8bcf32810a72463"
+    },
+    "src/tau2/voice/audio_native/livekit/config.py": {
+      "bytes": 7550,
+      "git_blob": "396785ac5a638f03d712498366049cb43e808341",
+      "mode": "100644",
+      "sha256": "4e1eda41b8058caab797944b9d2f76d217a28916e1549b6a4cf9c21204aab83f"
+    },
+    "src/tau2/voice/audio_native/livekit/discrete_time_adapter.py": {
+      "bytes": 24664,
+      "git_blob": "6eb93e3b2699320c1fa039086602911ac95f9b87",
+      "mode": "100644",
+      "sha256": "dd00c8dbe76c4eda20dc6d8e0384935a8898256f714343748d1997eabada5bd3"
+    },
+    "src/tau2/voice/audio_native/livekit/provider.py": {
+      "bytes": 42463,
+      "git_blob": "184a01d26c97611f76225450682d96454dfd7caa",
+      "mode": "100644",
+      "sha256": "6107fa54c39c7735749e9278ac8c2e8fe50e2635e8576c40afd790051df12964"
+    },
+    "src/tau2/voice/audio_native/nova/__init__.py": {
+      "bytes": 1027,
+      "git_blob": "8f0d78ea7e1a6bdafedef7dbe2ca76e7ae4a3b44",
+      "mode": "100644",
+      "sha256": "69f4c0b2cce21dac956a14a82f3a478d4eccfa6c50958512914240c9a2b0aae4"
+    },
+    "src/tau2/voice/audio_native/nova/discrete_time_adapter.py": {
+      "bytes": 21547,
+      "git_blob": "d867d9923fe749bf0b743649d6a03b2b4d53b525",
+      "mode": "100644",
+      "sha256": "ac5e952ba19ac49c8e704f491620ccb75f1f2d0a009ff502731d3bb6e6395743"
+    },
+    "src/tau2/voice/audio_native/nova/events.py": {
+      "bytes": 12105,
+      "git_blob": "e2c3220e41cd0b1c0aef1b47cd588950654664e5",
+      "mode": "100644",
+      "sha256": "5a3dc62d596cb4bc339bd01cfab75281e4cdf14d1cdbabf42fed061a5c4a4275"
+    },
+    "src/tau2/voice/audio_native/nova/provider.py": {
+      "bytes": 31331,
+      "git_blob": "531bacb067a79eb02ad85c558cf01ec7c8558d82",
+      "mode": "100644",
+      "sha256": "e1f40124b1a845b692b01eda0d74095a3659c7d0bcfba05bba80c6673d8ef6ed"
+    },
+    "src/tau2/voice/audio_native/nova/test_provider_standalone.py": {
+      "bytes": 8247,
+      "git_blob": "b6f68f482b35b498aa01b56f44280412150014f2",
+      "mode": "100644",
+      "sha256": "cea112576479eecae2f8d5e2f8e2040c249f55f81f32bc7c55bb87e55efc72ff"
+    },
+    "src/tau2/voice/audio_native/openai/__init__.py": {
+      "bytes": 1643,
+      "git_blob": "e503bc3fde59f8e6349dc0a86d308030d3e25177",
+      "mode": "100644",
+      "sha256": "cccf047f0b2c9252ba147535114f363a0c5df9b1e79c180724f604825a7feeb7"
+    },
+    "src/tau2/voice/audio_native/openai/discrete_time_adapter.py": {
+      "bytes": 12059,
+      "git_blob": "c367710f7ea66cc217c87f3a5639676be3c00c00",
+      "mode": "100644",
+      "sha256": "3354a4b6e2c5b5dba9837e407b5ffac631142c5f69ac9fbe22b74da4f526e9f2"
+    },
+    "src/tau2/voice/audio_native/openai/events.py": {
+      "bytes": 9733,
+      "git_blob": "98991907afaaaf0d9c1f0717f333d5e5ac5cb873",
+      "mode": "100644",
+      "sha256": "4730083edfa93ac0678c7ff81d4e5615ee9ae342505ac9e75770b826c180c37e"
+    },
+    "src/tau2/voice/audio_native/openai/provider.py": {
+      "bytes": 17988,
+      "git_blob": "cf50d97342d91701414c078a30d4db8d223e772a",
+      "mode": "100644",
+      "sha256": "7682d50a8f30622d0e5df38e0a5baed83be545105784d133bc1f9c366ee59e37"
+    },
+    "src/tau2/voice/audio_native/qwen/__init__.py": {
+      "bytes": 2130,
+      "git_blob": "18a29e921c98139a915971a8c903f15a6d8a548c",
+      "mode": "100644",
+      "sha256": "c6a58014c11c456b01982c4b2269314bf7ae03627c2700cf42d03c514ba37d4c"
+    },
+    "src/tau2/voice/audio_native/qwen/discrete_time_adapter.py": {
+      "bytes": 14566,
+      "git_blob": "49b024a1d2ab8056017023d103256974cb361963",
+      "mode": "100644",
+      "sha256": "44e813984663cee8ce3b7f84b4bcdd748f412fb64ebc8dd49c81b7b6151e39bc"
+    },
+    "src/tau2/voice/audio_native/qwen/events.py": {
+      "bytes": 12970,
+      "git_blob": "3310e1cd8a9ba1ecf5ba1c0b09c7a49db33a5fca",
+      "mode": "100644",
+      "sha256": "ef6c33e4f001bb3967086a5b837a8c65399583796f3e62642d0b615c514ca74e"
+    },
+    "src/tau2/voice/audio_native/qwen/provider.py": {
+      "bytes": 16562,
+      "git_blob": "78862e978ca1d2402016db93b01c7f0bc8e6f048",
+      "mode": "100644",
+      "sha256": "1402626e68f35717a2fe4638b5970d004c51131c31fb6d18d9591a98ef7598ec"
+    },
+    "src/tau2/voice/audio_native/tick_result.py": {
+      "bytes": 19687,
+      "git_blob": "de75e73a26261364cfe53f4f5d5d68ee861a0879",
+      "mode": "100644",
+      "sha256": "40f5e2cbd5f4c9d6c76b7082e80ea70210f59c79e42bfda0e7aa4c746e7e171f"
+    },
+    "src/tau2/voice/audio_native/xai/__init__.py": {
+      "bytes": 2340,
+      "git_blob": "62c3cd041e8ae8c411cbb11fa57278c436045d34",
+      "mode": "100644",
+      "sha256": "4b3c6e19820146b6481bb946acba25e865b5ec739879e9c2dda1f2245fd47f46"
+    },
+    "src/tau2/voice/audio_native/xai/discrete_time_adapter.py": {
+      "bytes": 13175,
+      "git_blob": "c728a7b46c73e8f348578c1f9fc1cc7cbc88e67e",
+      "mode": "100644",
+      "sha256": "02f4884bf577626aabfbabc3b8730cab8fc35d2884104cc3a7341bc0bc89d1eb"
+    },
+    "src/tau2/voice/audio_native/xai/events.py": {
+      "bytes": 12733,
+      "git_blob": "fa66d9452a986d4ed3e3e6ae463961b18ca8d1fa",
+      "mode": "100644",
+      "sha256": "93100ffc2f63e9034dc4b2e5e748d500f54bac5f4c7068e80980ed037ef0ba76"
+    },
+    "src/tau2/voice/audio_native/xai/provider.py": {
+      "bytes": 13879,
+      "git_blob": "70b042cc54557cb312d99b2eac1fcc4abacd4ae3",
+      "mode": "100644",
+      "sha256": "cbc99718597be8e9f30cf34258da8793d4aaaf2d944a2bd99a5e3e20e74f72a9"
+    },
+    "src/tau2/voice/scripts/elevenlabs.py": {
+      "bytes": 4551,
+      "git_blob": "76850eb24bee11226e0716d0645e16c97034af41",
+      "mode": "100755",
+      "sha256": "4eaf14e9a529b62083b66d1b5afd6a0d79bc473276560f6a82da3a3271b9c7d0"
+    },
+    "src/tau2/voice/scripts/setup_voices.py": {
+      "bytes": 13369,
+      "git_blob": "8b256ba99713eca03eaa9c05b7e19be6ecaa6d39",
+      "mode": "100644",
+      "sha256": "04ba1964f493df145bf0c286c9f085cb3411b5e16f7b9dbc84b4e4acab3881e2"
+    },
+    "src/tau2/voice/synthesis/__init__.py": {
+      "bytes": 49,
+      "git_blob": "9e9cf6010adeaf61f6000d10a9f205a1d589d95d",
+      "mode": "100644",
+      "sha256": "2568ad9034e97543894a35d973a11973ca74fcd3f70e88227c42111091b5a9a8"
+    },
+    "src/tau2/voice/synthesis/audio_effects/README.md": {
+      "bytes": 8464,
+      "git_blob": "1de3b424f446575602045b28da60ffd219895978",
+      "mode": "100644",
+      "sha256": "9b2327ce23b2928068bb7b025a869de3d02cc1712ed1413b4b252e5ddcf75920"
+    },
+    "src/tau2/voice/synthesis/audio_effects/__init__.py": {
+      "bytes": 71,
+      "git_blob": "7b002816a950c2d8e33e91f2678a18e2170add1d",
+      "mode": "100644",
+      "sha256": "4a7f6f50bb323e96b3e03854ba334231fa23e10a332097562dd5075291b68328"
+    },
+    "src/tau2/voice/synthesis/audio_effects/effects.py": {
+      "bytes": 14217,
+      "git_blob": "ce3752a7832788a72e1fc38f6fbb51ea458c06f4",
+      "mode": "100644",
+      "sha256": "5de2d38c9ad0403394bd82fd629759baa8e39a861f19875f11c56e8622032b41"
+    },
+    "src/tau2/voice/synthesis/audio_effects/noise_generator.py": {
+      "bytes": 14407,
+      "git_blob": "dbe78efee3ce1c5cc322154aad47fadac1a9e90d",
+      "mode": "100644",
+      "sha256": "97ee7b2ee4b44e9d593718a3e6cd60554a2be4332bfa63a7675ca42fc59ee4d9"
+    },
+    "src/tau2/voice/synthesis/audio_effects/processor.py": {
+      "bytes": 11692,
+      "git_blob": "426862bc8d3dbefd5a509173674dc080a3d1efa7",
+      "mode": "100644",
+      "sha256": "9d91250848bb350a2740913a1d377a92ba723b5e4d1fda79c7d59cc3aed4b023"
+    },
+    "src/tau2/voice/synthesis/audio_effects/scheduler.py": {
+      "bytes": 13901,
+      "git_blob": "a050cf5abc756ce269a720db70eb514c08d52f19",
+      "mode": "100644",
+      "sha256": "c52bc5a5d3a4f21c4c2b090c0861a089c07bf6c82e5bb55e217597b076b12fdf"
+    },
+    "src/tau2/voice/synthesis/audio_effects/speech_generator.py": {
+      "bytes": 5280,
+      "git_blob": "b67d1331f83f759b9dabd656cc6e3093a616f6c8",
+      "mode": "100644",
+      "sha256": "4a5392fed0c75c542582e1289a515da2c0ac54f510383e8cc6b1075abb83ef25"
+    },
+    "src/tau2/voice/synthesis/cli.py": {
+      "bytes": 9491,
+      "git_blob": "db9108a6687f4fe639d463ed801fa73c9ef32d49",
+      "mode": "100644",
+      "sha256": "f4c46f67ea3a843c483f4f57e637fd759317921399b8602f1e5ce9889c829a0e"
+    },
+    "src/tau2/voice/synthesis/conversation_builder.py": {
+      "bytes": 26802,
+      "git_blob": "0fdeac0dd5fffa49c771afd2bacaba1c2d9f1446",
+      "mode": "100644",
+      "sha256": "1fd98cb3d14b46daa6b74d7b09aeab748a5f9d8917b7c458fcc7b1f2ee6671d1"
+    },
+    "src/tau2/voice/synthesis/synthesize.py": {
+      "bytes": 947,
+      "git_blob": "e9a7ab98a35340b9283d6eb63d6578af18784dc2",
+      "mode": "100644",
+      "sha256": "c5436ead082d5bd58fb6e2e9f373b59bb1359157d3366bd0288e001f68013b01"
+    },
+    "src/tau2/voice/transcription/__init__.py": {
+      "bytes": 247,
+      "git_blob": "432c2b8c7f2e45b2f502f7ea2f12641c7c1ef348",
+      "mode": "100644",
+      "sha256": "43d1f7cca8b2919f4a489422c818e9f110169d777fa7553b717815d0952a1118"
+    },
+    "src/tau2/voice/transcription/transcribe.py": {
+      "bytes": 8827,
+      "git_blob": "3b9752c25deacdc3b407b795b22abc95d257fec0",
+      "mode": "100644",
+      "sha256": "79fafd188681f7e32ee290218fd0e463e07ab271fd8f9c357f56f3c482d336e2"
+    },
+    "src/tau2/voice/transcription/transcription_test.py": {
+      "bytes": 3692,
+      "git_blob": "be4ceb4ae68bb70ea6ea8d5e7db49206200d286e",
+      "mode": "100644",
+      "sha256": "3383d6792d96bc8a2a50ee9fefb4b6f559e0171fda33831672b44cdc88817435"
+    },
+    "src/tau2/voice/utils/__init__.py": {
+      "bytes": 0,
+      "git_blob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      "mode": "100644",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "src/tau2/voice/utils/audio_debug.py": {
+      "bytes": 17189,
+      "git_blob": "fbee0ffd4a1e9442f060e95f40b46a5adbd2e704",
+      "mode": "100644",
+      "sha256": "1b41b8f362a4ccef7ccf386da65467b9e53ea6994f77b8fe4cab8649142dc87e"
+    },
+    "src/tau2/voice/utils/audio_io.py": {
+      "bytes": 3869,
+      "git_blob": "1cc62ba50f8d493c13f77d109be7bf8fbbcdf1aa",
+      "mode": "100644",
+      "sha256": "0a42d9ae79029edcafead1639ddda9c78f275430ff34320b040ad6f495fae32e"
+    },
+    "src/tau2/voice/utils/audio_preprocessing.py": {
+      "bytes": 22153,
+      "git_blob": "230d84bfdf5faee5941a4b0179ed1ba5b653d091",
+      "mode": "100644",
+      "sha256": "88bc6d226f3d0423b3398769d3358eb284915f37c2fc518cc6c09070af7798e1"
+    },
+    "src/tau2/voice/utils/audio_tap.py": {
+      "bytes": 3566,
+      "git_blob": "f8714579bed7afafca00a83d81c2ec6bfe3352e9",
+      "mode": "100644",
+      "sha256": "7a1cfc3b84d629a7ce40dac51d67ef120cb0c32762e6320ded5f9f53e3cdcce1"
+    },
+    "src/tau2/voice/utils/conversation_builder.py": {
+      "bytes": 8984,
+      "git_blob": "32f6d5b073c46d87a91be7cab415e528f2fe0ebb",
+      "mode": "100644",
+      "sha256": "8ce5f45becc6dd5439f9019155f274485419ee5b4e47c397a917d6fb519ce924"
+    },
+    "src/tau2/voice/utils/convert_audio_files.py": {
+      "bytes": 5254,
+      "git_blob": "9774c7ab7cc190d13a811c2be0b9cc6a6e5bb574",
+      "mode": "100644",
+      "sha256": "923b7398b919d6d0632dca4a2a942f0fd282c0212b6b01112a82821f16e2aa12"
+    },
+    "src/tau2/voice/utils/elevenlabs_utils.py": {
+      "bytes": 3797,
+      "git_blob": "f944b1f5567578ed325a2ede39d8baa94e31c89e",
+      "mode": "100644",
+      "sha256": "f488172e46b373b8902f56edd0fc8e24ae9c447aba49827464a7f6b00c225a71"
+    },
+    "src/tau2/voice/utils/openai_utils.py": {
+      "bytes": 3097,
+      "git_blob": "05b0803db581cb260b11165f952fd076de7a8d53",
+      "mode": "100644",
+      "sha256": "f41e76d7d1f47f760a6c62be57123cdd2ed9fcd133ba45230880edad1c66a915"
+    },
+    "src/tau2/voice/utils/probability.py": {
+      "bytes": 5030,
+      "git_blob": "900414f5dbd663e5ef031ff90ebc35232dd746f8",
+      "mode": "100644",
+      "sha256": "76403e6293cf6cd170288fcad4972087dd1db267b1c6dd2e9b07c466404f38ec"
+    },
+    "src/tau2/voice/utils/text_effects.py": {
+      "bytes": 1129,
+      "git_blob": "c0237429cd5f538e410fbab89c1ba836e92b883d",
+      "mode": "100644",
+      "sha256": "ac9b4c92bf8a35b020b4bf6e365362f3e5593ef69638a94bf74328b1ad8225c3"
+    },
+    "src/tau2/voice/utils/transcript_utils.py": {
+      "bytes": 9893,
+      "git_blob": "0f0645744c1006da633ae5d84d2220674bc74a43",
+      "mode": "100644",
+      "sha256": "cbe7b406058c8140448c5b6fc571794b87e24970e5e9e9baeeb6ffe98ee34312"
+    },
+    "src/tau2/voice/utils/utils.py": {
+      "bytes": 1121,
+      "git_blob": "f09e5a5d18780f1b28c98f01772e7d4d7383d4d1",
+      "mode": "100644",
+      "sha256": "70bc0caa3d46a7188535a2f941206d355ef2c3da311a36dd49827a851d1305a9"
+    },
+    "src/tau2/voice_config.py": {
+      "bytes": 4071,
+      "git_blob": "2c4bdb3ffcb908b381ecc00d2a1a205ac1bd99f4",
+      "mode": "100644",
+      "sha256": "b644b1ef1c1f32c17e318d4f253ce420216b68c7ce30f184c6a1f5ff113f8121"
+    },
+    "uv.lock": {
+      "bytes": 466363,
+      "git_blob": "09f0b4a86b4aaf82bf87511df1ff970ff23ec6bd",
+      "mode": "100644",
+      "sha256": "62d3a8c4807b89e85703b3c03f2c21048a2da9736ca83d9af6f61adc74ac5314"
+    }
+  },
+  "source_tree": "a11f9406b7c54d840a7006900c9e4d085059d1ec",
+  "target": {
+    "abi": "cp312",
+    "glibc_version": "2.36",
+    "image": "docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2",
+    "implementation": "cpython",
+    "libc": "glibc",
+    "platform": "linux/amd64",
+    "platform_machine": "x86_64",
+    "python_full_version": "3.12.13",
+    "sys_platform": "linux"
+  },
+  "upstream_lock_sha256": "62d3a8c4807b89e85703b3c03f2c21048a2da9736ca83d9af6f61adc74ac5314",
+  "wheels": {
+    "addict": {
+      "bytes": 3832,
+      "dependencies": [],
+      "filename": "addict-2.4.0-py3-none-any.whl",
+      "sha256": "249bb56bbfd3cdc2a004ea0ff4c2b6ddc84d53bc2194761636eb314d5cfa5dfc",
+      "url": "https://files.pythonhosted.org/packages/6a/00/b08f23b7d7e1e14ce01419a467b583edbb93c6cdb8654e54a9cc579cd61f/addict-2.4.0-py3-none-any.whl",
+      "version": "2.4.0"
+    },
+    "aiohappyeyeballs": {
+      "bytes": 15265,
+      "dependencies": [],
+      "filename": "aiohappyeyeballs-2.6.1-py3-none-any.whl",
+      "sha256": "f349ba8f4b75cb25c99c5c2d84e997e485204d2902a9597802b0371f09331fb8",
+      "url": "https://files.pythonhosted.org/packages/0f/15/5bf3b99495fb160b63f95972b81750f18f7f4e02ad051373b669d17d44f2/aiohappyeyeballs-2.6.1-py3-none-any.whl",
+      "version": "2.6.1"
+    },
+    "aiohttp": {
+      "bytes": 1755181,
+      "dependencies": [
+        "aiohappyeyeballs",
+        "aiosignal",
+        "attrs",
+        "frozenlist",
+        "multidict",
+        "propcache",
+        "yarl"
+      ],
+      "filename": "aiohttp-3.13.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "9ae8dd55c8e6c4257eae3a20fd2c8f41edaea5992ed67156642493b8daf3cecc",
+      "url": "https://files.pythonhosted.org/packages/86/f6/a62cbbf13f0ac80a70f71b1672feba90fdb21fd7abd8dbf25c0105fb6fa3/aiohttp-3.13.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "3.13.3"
+    },
+    "aiosignal": {
+      "bytes": 7490,
+      "dependencies": [
+        "frozenlist",
+        "typing-extensions"
+      ],
+      "filename": "aiosignal-1.4.0-py3-none-any.whl",
+      "sha256": "053243f8b92b990551949e63930a839ff0cf0b0ebbe0597b0f3fb19e1a0fe82e",
+      "url": "https://files.pythonhosted.org/packages/fb/76/641ae371508676492379f16e2fa48f4e2c11741bd63c48be4b12a6b09cba/aiosignal-1.4.0-py3-none-any.whl",
+      "version": "1.4.0"
+    },
+    "annotated-doc": {
+      "bytes": 5303,
+      "dependencies": [],
+      "filename": "annotated_doc-0.0.4-py3-none-any.whl",
+      "sha256": "571ac1dc6991c450b25a9c2d84a3705e2ae7a53467b5d111c24fa8baabbed320",
+      "url": "https://files.pythonhosted.org/packages/1e/d3/26bf1008eb3d2daa8ef4cacc7f3bfdc11818d111f7e2d0201bc6e3b49d45/annotated_doc-0.0.4-py3-none-any.whl",
+      "version": "0.0.4"
+    },
+    "annotated-types": {
+      "bytes": 13643,
+      "dependencies": [],
+      "filename": "annotated_types-0.7.0-py3-none-any.whl",
+      "sha256": "1f02e8b43a8fbbc3f3e0d4f0f4bfc8131bcb4eebe8849b8e5c773f3a1c582a53",
+      "url": "https://files.pythonhosted.org/packages/78/b6/6307fbef88d9b5ee7421e68d78a9f162e0da4900bc5f5793f6d3d0e34fb8/annotated_types-0.7.0-py3-none-any.whl",
+      "version": "0.7.0"
+    },
+    "anyio": {
+      "bytes": 109097,
+      "dependencies": [
+        "idna",
+        "sniffio",
+        "typing-extensions"
+      ],
+      "filename": "anyio-4.11.0-py3-none-any.whl",
+      "sha256": "0287e96f4d26d4149305414d4e3bc32f0dcd0862365a4bddea19d7a1ec38c4fc",
+      "url": "https://files.pythonhosted.org/packages/15/b3/9b1a8074496371342ec1e796a96f99c82c945a339cd81a8e73de28b4cf9e/anyio-4.11.0-py3-none-any.whl",
+      "version": "4.11.0"
+    },
+    "attrs": {
+      "bytes": 67615,
+      "dependencies": [],
+      "filename": "attrs-25.4.0-py3-none-any.whl",
+      "sha256": "adcf7e2a1fb3b36ac48d97835bb6d8ade15b8dcce26aba8bf1d14847b57a3373",
+      "url": "https://files.pythonhosted.org/packages/3a/2a/7cc015f5b9f5db42b7d48157e23356022889fc354a2813c15934b7cb5c0e/attrs-25.4.0-py3-none-any.whl",
+      "version": "25.4.0"
+    },
+    "certifi": {
+      "bytes": 159438,
+      "dependencies": [],
+      "filename": "certifi-2025.11.12-py3-none-any.whl",
+      "sha256": "97de8790030bbd5c2d96b7ec782fc2f7820ef8dba6db909ccf95449f2d062d4b",
+      "url": "https://files.pythonhosted.org/packages/70/7d/9bc192684cea499815ff478dfcdc13835ddf401365057044fb721ec6bddb/certifi-2025.11.12-py3-none-any.whl",
+      "version": "2025.11.12"
+    },
+    "charset-normalizer": {
+      "bytes": 153471,
+      "dependencies": [],
+      "filename": "charset_normalizer-3.4.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "11d694519d7f29d6cd09f6ac70028dba10f92f6cdd059096db198c283794ac86",
+      "url": "https://files.pythonhosted.org/packages/c0/10/d20b513afe03acc89ec33948320a5544d31f21b05368436d580dec4e234d/charset_normalizer-3.4.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "3.4.4"
+    },
+    "click": {
+      "bytes": 108274,
+      "dependencies": [],
+      "filename": "click-8.3.1-py3-none-any.whl",
+      "sha256": "981153a64e25f12d547d3426c367a4857371575ee7ad18df2a6183ab0545b2a6",
+      "url": "https://files.pythonhosted.org/packages/98/78/01c019cdb5d6498122777c1a43056ebb3ebfeef2076d9d026bfe15583b2b/click-8.3.1-py3-none-any.whl",
+      "version": "8.3.1"
+    },
+    "deepdiff": {
+      "bytes": 91979,
+      "dependencies": [
+        "orderly-set"
+      ],
+      "filename": "deepdiff-8.6.2-py3-none-any.whl",
+      "sha256": "4d22034a866c3928303a9332c279362f714192d9305bac17c498720d095fd1b4",
+      "url": "https://files.pythonhosted.org/packages/2b/5f/c52bd1255db763d0cdcb7084d2e90c42119cb229302c56bdf1d0aa78abd2/deepdiff-8.6.2-py3-none-any.whl",
+      "version": "8.6.2"
+    },
+    "distro": {
+      "bytes": 20277,
+      "dependencies": [],
+      "filename": "distro-1.9.0-py3-none-any.whl",
+      "sha256": "7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2",
+      "url": "https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl",
+      "version": "1.9.0"
+    },
+    "docstring-parser": {
+      "bytes": 36896,
+      "dependencies": [],
+      "filename": "docstring_parser-0.17.0-py3-none-any.whl",
+      "sha256": "cf2569abd23dce8099b300f9b4fa8191e9582dda731fd533daf54c4551658708",
+      "url": "https://files.pythonhosted.org/packages/55/e2/2537ebcff11c1ee1ff17d8d0b6f4db75873e3b0fb32c2d4a2ee31ecb310a/docstring_parser-0.17.0-py3-none-any.whl",
+      "version": "0.17.0"
+    },
+    "fastapi": {
+      "bytes": 109201,
+      "dependencies": [
+        "annotated-doc",
+        "pydantic",
+        "starlette",
+        "typing-extensions"
+      ],
+      "filename": "fastapi-0.121.2-py3-none-any.whl",
+      "sha256": "f2d80b49a86a846b70cc3a03eb5ea6ad2939298bf6a7fe377aa9cd3dd079d358",
+      "url": "https://files.pythonhosted.org/packages/eb/23/dfb161e91db7c92727db505dc72a384ee79681fe0603f706f9f9f52c2901/fastapi-0.121.2-py3-none-any.whl",
+      "version": "0.121.2"
+    },
+    "fastuuid": {
+      "bytes": 278105,
+      "dependencies": [],
+      "filename": "fastuuid-0.14.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "sha256": "808527f2407f58a76c916d6aa15d58692a4a019fdf8d4c32ac7ff303b7d7af09",
+      "url": "https://files.pythonhosted.org/packages/16/6e/c0fb547eef61293153348f12e0f75a06abb322664b34a1573a7760501336/fastuuid-0.14.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "version": "0.14.0"
+    },
+    "filelock": {
+      "bytes": 26759,
+      "dependencies": [],
+      "filename": "filelock-3.25.2-py3-none-any.whl",
+      "sha256": "ca8afb0da15f229774c9ad1b455ed96e85a81373065fb10446672f64444ddf70",
+      "url": "https://files.pythonhosted.org/packages/a4/a5/842ae8f0c08b61d6484b52f99a03510a3a72d23141942d216ebe81fefbce/filelock-3.25.2-py3-none-any.whl",
+      "version": "3.25.2"
+    },
+    "frozenlist": {
+      "bytes": 242411,
+      "dependencies": [],
+      "filename": "frozenlist-1.8.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+      "sha256": "494a5952b1c597ba44e0e78113a7266e656b9794eec897b19ead706bd7074383",
+      "url": "https://files.pythonhosted.org/packages/6a/bd/d91c5e39f490a49df14320f4e8c80161cfcce09f1e2cde1edd16a551abb3/frozenlist-1.8.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+      "version": "1.8.0"
+    },
+    "fsspec": {
+      "bytes": 200966,
+      "dependencies": [],
+      "filename": "fsspec-2025.10.0-py3-none-any.whl",
+      "sha256": "7c7712353ae7d875407f97715f0e1ffcc21e33d5b24556cb1e090ae9409ec61d",
+      "url": "https://files.pythonhosted.org/packages/eb/02/a6b21098b1d5d6249b7c5ab69dde30108a71e4e819d4a9778f1de1d5b70d/fsspec-2025.10.0-py3-none-any.whl",
+      "version": "2025.10.0"
+    },
+    "h11": {
+      "bytes": 37515,
+      "dependencies": [],
+      "filename": "h11-0.16.0-py3-none-any.whl",
+      "sha256": "63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86",
+      "url": "https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl",
+      "version": "0.16.0"
+    },
+    "hf-xet": {
+      "bytes": 3320214,
+      "dependencies": [],
+      "filename": "hf_xet-1.2.0-cp37-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "sha256": "3651fd5bfe0281951b988c0facbe726aa5e347b103a675f49a3fa8144c7968fd",
+      "url": "https://files.pythonhosted.org/packages/9a/92/cf3ab0b652b082e66876d08da57fcc6fa2f0e6c70dfbbafbd470bb73eb47/hf_xet-1.2.0-cp37-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "version": "1.2.0"
+    },
+    "httpcore": {
+      "bytes": 78784,
+      "dependencies": [
+        "certifi",
+        "h11"
+      ],
+      "filename": "httpcore-1.0.9-py3-none-any.whl",
+      "sha256": "2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55",
+      "url": "https://files.pythonhosted.org/packages/7e/f5/f66802a942d491edb555dd61e3a9961140fd64c90bce1eafd741609d334d/httpcore-1.0.9-py3-none-any.whl",
+      "version": "1.0.9"
+    },
+    "httpx": {
+      "bytes": 73517,
+      "dependencies": [
+        "anyio",
+        "certifi",
+        "httpcore",
+        "idna"
+      ],
+      "filename": "httpx-0.28.1-py3-none-any.whl",
+      "sha256": "d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad",
+      "url": "https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl",
+      "version": "0.28.1"
+    },
+    "huggingface-hub": {
+      "bytes": 515580,
+      "dependencies": [
+        "filelock",
+        "fsspec",
+        "hf-xet",
+        "httpx",
+        "packaging",
+        "pyyaml",
+        "shellingham",
+        "tqdm",
+        "typer-slim",
+        "typing-extensions"
+      ],
+      "filename": "huggingface_hub-1.1.4-py3-none-any.whl",
+      "sha256": "867799fbd2ef338b7f8b03d038d9c0e09415dfe45bb2893b48a510d1d746daa5",
+      "url": "https://files.pythonhosted.org/packages/33/3f/969137c9d9428ed8bf171d27604243dd950a47cac82414826e2aebbc0a4c/huggingface_hub-1.1.4-py3-none-any.whl",
+      "version": "1.1.4"
+    },
+    "idna": {
+      "bytes": 71008,
+      "dependencies": [],
+      "filename": "idna-3.11-py3-none-any.whl",
+      "sha256": "771a87f49d9defaf64091e6e6fe9c18d4833f140bd19464795bc32d966ca37ea",
+      "url": "https://files.pythonhosted.org/packages/0e/61/66938bbb5fc52dbdf84594873d5b51fb1f7c7794e9c0f5bd885f30bc507b/idna-3.11-py3-none-any.whl",
+      "version": "3.11"
+    },
+    "importlib-metadata": {
+      "bytes": 27656,
+      "dependencies": [
+        "zipp"
+      ],
+      "filename": "importlib_metadata-8.7.0-py3-none-any.whl",
+      "sha256": "e5dd1551894c77868a30651cef00984d50e1002d06942a7101d34870c5f02afd",
+      "url": "https://files.pythonhosted.org/packages/20/b0/36bd937216ec521246249be3bf9855081de4c5e06a0c9b4219dbeda50373/importlib_metadata-8.7.0-py3-none-any.whl",
+      "version": "8.7.0"
+    },
+    "jinja2": {
+      "bytes": 134899,
+      "dependencies": [
+        "markupsafe"
+      ],
+      "filename": "jinja2-3.1.6-py3-none-any.whl",
+      "sha256": "85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67",
+      "url": "https://files.pythonhosted.org/packages/62/a1/3d680cbfd5f4b8f15abc1d571870c5fc3e594bb582bc3b64ea099db13e56/jinja2-3.1.6-py3-none-any.whl",
+      "version": "3.1.6"
+    },
+    "jiter": {
+      "bytes": 361328,
+      "dependencies": [],
+      "filename": "jiter-0.12.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "sha256": "4321e8a3d868919bcb1abb1db550d41f2b5b326f72df29e53b2df8b006eb9403",
+      "url": "https://files.pythonhosted.org/packages/71/b3/7a69d77943cc837d30165643db753471aff5df39692d598da880a6e51c24/jiter-0.12.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "version": "0.12.0"
+    },
+    "jsonschema": {
+      "bytes": 90040,
+      "dependencies": [
+        "attrs",
+        "jsonschema-specifications",
+        "referencing",
+        "rpds-py"
+      ],
+      "filename": "jsonschema-4.25.1-py3-none-any.whl",
+      "sha256": "3fba0169e345c7175110351d456342c364814cfcf3b964ba4587f22915230a63",
+      "url": "https://files.pythonhosted.org/packages/bf/9c/8c95d856233c1f82500c2450b8c68576b4cf1c871db3afac5c34ff84e6fd/jsonschema-4.25.1-py3-none-any.whl",
+      "version": "4.25.1"
+    },
+    "jsonschema-specifications": {
+      "bytes": 18437,
+      "dependencies": [
+        "referencing"
+      ],
+      "filename": "jsonschema_specifications-2025.9.1-py3-none-any.whl",
+      "sha256": "98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe",
+      "url": "https://files.pythonhosted.org/packages/41/45/1a4ed80516f02155c51f51e8cedb3c1902296743db0bbc66608a0db2814f/jsonschema_specifications-2025.9.1-py3-none-any.whl",
+      "version": "2025.9.1"
+    },
+    "litellm": {
+      "bytes": 14491673,
+      "dependencies": [
+        "aiohttp",
+        "click",
+        "fastuuid",
+        "httpx",
+        "importlib-metadata",
+        "jinja2",
+        "jsonschema",
+        "openai",
+        "pydantic",
+        "python-dotenv",
+        "tiktoken",
+        "tokenizers"
+      ],
+      "filename": "litellm-1.81.11-py3-none-any.whl",
+      "sha256": "06a66c24742e082ddd2813c87f40f5c12fe7baa73ce1f9457eaf453dc44a0f65",
+      "url": "https://files.pythonhosted.org/packages/96/b5/9ab657ef5cc61bea0054c2a829282c1a2b7528ea4e64ada57b3fe36686a6/litellm-1.81.11-py3-none-any.whl",
+      "version": "1.81.11"
+    },
+    "loguru": {
+      "bytes": 61595,
+      "dependencies": [],
+      "filename": "loguru-0.7.3-py3-none-any.whl",
+      "sha256": "31a33c10c8e1e10422bfd431aeb5d351c7cf7fa671e3c4df004162264b28220c",
+      "url": "https://files.pythonhosted.org/packages/0c/29/0348de65b8cc732daa3e33e67806420b2ae89bdce2b04af740289c5c6c8c/loguru-0.7.3-py3-none-any.whl",
+      "version": "0.7.3"
+    },
+    "markdown-it-py": {
+      "bytes": 87321,
+      "dependencies": [
+        "mdurl"
+      ],
+      "filename": "markdown_it_py-4.0.0-py3-none-any.whl",
+      "sha256": "87327c59b172c5011896038353a81343b6754500a08cd7a4973bb48c6d578147",
+      "url": "https://files.pythonhosted.org/packages/94/54/e7d793b573f298e1c9013b8c4dade17d481164aa517d1d7148619c2cedbf/markdown_it_py-4.0.0-py3-none-any.whl",
+      "version": "4.0.0"
+    },
+    "markupsafe": {
+      "bytes": 22947,
+      "dependencies": [],
+      "filename": "markupsafe-3.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "d6dd0be5b5b189d31db7cda48b91d7e0a9795f31430b7f271219ab30f1d3ac9d",
+      "url": "https://files.pythonhosted.org/packages/3c/2e/8d0c2ab90a8c1d9a24f0399058ab8519a3279d1bd4289511d74e909f060e/markupsafe-3.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "3.0.3"
+    },
+    "mdurl": {
+      "bytes": 9979,
+      "dependencies": [],
+      "filename": "mdurl-0.1.2-py3-none-any.whl",
+      "sha256": "84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8",
+      "url": "https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl",
+      "version": "0.1.2"
+    },
+    "multidict": {
+      "bytes": 256107,
+      "dependencies": [],
+      "filename": "multidict-6.7.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "123e2a72e20537add2f33a79e605f6191fba2afda4cbb876e35c1a7074298a7d",
+      "url": "https://files.pythonhosted.org/packages/0d/e2/9baffdae21a76f77ef8447f1a05a96ec4bc0a24dae08767abc0a2fe680b8/multidict-6.7.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "6.7.0"
+    },
+    "numpy": {
+      "bytes": 16606086,
+      "dependencies": [],
+      "filename": "numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "0d8163f43acde9a73c2a33605353a4f1bc4798745a8b1d73183b28e5b435ae28",
+      "url": "https://files.pythonhosted.org/packages/b6/23/2a1b231b8ff672b4c450dac27164a8b2ca7d9b7144f9c02d2396518352eb/numpy-2.3.5-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "2.3.5"
+    },
+    "openai": {
+      "bytes": 1098479,
+      "dependencies": [
+        "anyio",
+        "distro",
+        "httpx",
+        "jiter",
+        "pydantic",
+        "sniffio",
+        "tqdm",
+        "typing-extensions"
+      ],
+      "filename": "openai-2.20.0-py3-none-any.whl",
+      "sha256": "38d989c4b1075cd1f76abc68364059d822327cf1a932531d429795f4fc18be99",
+      "url": "https://files.pythonhosted.org/packages/b5/a0/cf4297aa51bbc21e83ef0ac018947fa06aea8f2364aad7c96cbf148590e6/openai-2.20.0-py3-none-any.whl",
+      "version": "2.20.0"
+    },
+    "orderly-set": {
+      "bytes": 13068,
+      "dependencies": [],
+      "filename": "orderly_set-5.5.0-py3-none-any.whl",
+      "sha256": "46f0b801948e98f427b412fcabb831677194c05c3b699b80de260374baa0b1e7",
+      "url": "https://files.pythonhosted.org/packages/12/27/fb8d7338b4d551900fa3e580acbe7a0cf655d940e164cb5c00ec31961094/orderly_set-5.5.0-py3-none-any.whl",
+      "version": "5.5.0"
+    },
+    "packaging": {
+      "bytes": 65451,
+      "dependencies": [],
+      "filename": "packaging-24.2-py3-none-any.whl",
+      "sha256": "09abb1bccd265c01f4a3aa3f7a7db064b36514d2cba19a2f694fe6150451a759",
+      "url": "https://files.pythonhosted.org/packages/88/ef/eb23f262cca3c0c4eb7ab1933c3b1f03d021f2c48f54763065b6f0e321be/packaging-24.2-py3-none-any.whl",
+      "version": "24.2"
+    },
+    "pandas": {
+      "bytes": 12362693,
+      "dependencies": [
+        "numpy",
+        "python-dateutil",
+        "pytz",
+        "tzdata"
+      ],
+      "filename": "pandas-2.3.3-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "b3d11d2fda7eb164ef27ffc14b4fcab16a80e1ce67e9f57e19ec0afaf715ba89",
+      "url": "https://files.pythonhosted.org/packages/e5/63/cd7d615331b328e287d8233ba9fdf191a9c2d11b6af0c7a59cfcec23de68/pandas-2.3.3-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "2.3.3"
+    },
+    "propcache": {
+      "bytes": 221575,
+      "dependencies": [],
+      "filename": "propcache-0.4.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "15932ab57837c3368b024473a525e25d316d8353016e7cc0e5ba9eb343fbb1cf",
+      "url": "https://files.pythonhosted.org/packages/46/4b/3aae6835b8e5f44ea6a68348ad90f78134047b503765087be2f9912140ea/propcache-0.4.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "0.4.1"
+    },
+    "psutil": {
+      "bytes": 263261,
+      "dependencies": [],
+      "filename": "psutil-7.1.3-cp36-abi3-manylinux2010_x86_64.manylinux_2_12_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "3bb428f9f05c1225a558f53e30ccbad9930b11c3fc206836242de1091d3e7dd3",
+      "url": "https://files.pythonhosted.org/packages/ce/b1/5f49af514f76431ba4eea935b8ad3725cdeb397e9245ab919dbc1d1dc20f/psutil-7.1.3-cp36-abi3-manylinux2010_x86_64.manylinux_2_12_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "7.1.3"
+    },
+    "pydantic": {
+      "bytes": 463400,
+      "dependencies": [
+        "annotated-types",
+        "pydantic-core",
+        "typing-extensions",
+        "typing-inspection"
+      ],
+      "filename": "pydantic-2.12.4-py3-none-any.whl",
+      "sha256": "92d3d202a745d46f9be6df459ac5a064fdaa3c1c4cd8adcfa332ccf3c05f871e",
+      "url": "https://files.pythonhosted.org/packages/82/2f/e68750da9b04856e2a7ec56fc6f034a5a79775e9b9a81882252789873798/pydantic-2.12.4-py3-none-any.whl",
+      "version": "2.12.4"
+    },
+    "pydantic-core": {
+      "bytes": 2075366,
+      "dependencies": [
+        "typing-extensions"
+      ],
+      "filename": "pydantic_core-2.41.5-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "sha256": "eceb81a8d74f9267ef4081e246ffd6d129da5d87e37a77c9bde550cb04870c1c",
+      "url": "https://files.pythonhosted.org/packages/0d/76/941cc9f73529988688a665a5c0ecff1112b3d95ab48f81db5f7606f522d3/pydantic_core-2.41.5-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "version": "2.41.5"
+    },
+    "pygments": {
+      "bytes": 1225217,
+      "dependencies": [],
+      "filename": "pygments-2.19.2-py3-none-any.whl",
+      "sha256": "86540386c03d588bb81d44bc3928634ff26449851e99741617ecb9037ee5ec0b",
+      "url": "https://files.pythonhosted.org/packages/c7/21/705964c7812476f378728bdf590ca4b771ec72385c533964653c68e86bdc/pygments-2.19.2-py3-none-any.whl",
+      "version": "2.19.2"
+    },
+    "python-dateutil": {
+      "bytes": 229892,
+      "dependencies": [
+        "six"
+      ],
+      "filename": "python_dateutil-2.9.0.post0-py2.py3-none-any.whl",
+      "sha256": "a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427",
+      "url": "https://files.pythonhosted.org/packages/ec/57/56b9bcc3c9c6a792fcbaf139543cee77261f3651ca9da0c93f5c1221264b/python_dateutil-2.9.0.post0-py2.py3-none-any.whl",
+      "version": "2.9.0.post0"
+    },
+    "python-dotenv": {
+      "bytes": 21230,
+      "dependencies": [],
+      "filename": "python_dotenv-1.2.1-py3-none-any.whl",
+      "sha256": "b81ee9561e9ca4004139c6cbba3a238c32b03e4894671e181b671e8cb8425d61",
+      "url": "https://files.pythonhosted.org/packages/14/1b/a298b06749107c305e1fe0f814c6c74aea7b2f1e10989cb30f544a1b3253/python_dotenv-1.2.1-py3-none-any.whl",
+      "version": "1.2.1"
+    },
+    "pytz": {
+      "bytes": 509225,
+      "dependencies": [],
+      "filename": "pytz-2025.2-py2.py3-none-any.whl",
+      "sha256": "5ddf76296dd8c44c26eb8f4b6f35488f3ccbf6fbbd7adee0b7262d43f0ec2f00",
+      "url": "https://files.pythonhosted.org/packages/81/c4/34e93fe5f5429d7570ec1fa436f1986fb1f00c3e0f43a589fe2bbcd22c3f/pytz-2025.2-py2.py3-none-any.whl",
+      "version": "2025.2"
+    },
+    "pyyaml": {
+      "bytes": 807870,
+      "dependencies": [],
+      "filename": "pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "ba1cc08a7ccde2d2ec775841541641e4548226580ab850948cbfda66a1befcdc",
+      "url": "https://files.pythonhosted.org/packages/8b/9d/b3589d3877982d4f2329302ef98a8026e7f4443c765c46cfecc8858c6b4b/pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "6.0.3"
+    },
+    "referencing": {
+      "bytes": 26766,
+      "dependencies": [
+        "attrs",
+        "rpds-py",
+        "typing-extensions"
+      ],
+      "filename": "referencing-0.37.0-py3-none-any.whl",
+      "sha256": "381329a9f99628c9069361716891d34ad94af76e461dcb0335825aecc7692231",
+      "url": "https://files.pythonhosted.org/packages/2c/58/ca301544e1fa93ed4f80d724bf5b194f6e4b945841c5bfd555878eea9fcb/referencing-0.37.0-py3-none-any.whl",
+      "version": "0.37.0"
+    },
+    "regex": {
+      "bytes": 803501,
+      "dependencies": [],
+      "filename": "regex-2025.11.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "a12ab1f5c29b4e93db518f5e3872116b7e9b1646c9f9f426f777b50d44a09e8c",
+      "url": "https://files.pythonhosted.org/packages/84/bd/9ce9f629fcb714ffc2c3faf62b6766ecb7a585e1e885eb699bcf130a5209/regex-2025.11.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "2025.11.3"
+    },
+    "requests": {
+      "bytes": 64738,
+      "dependencies": [
+        "certifi",
+        "charset-normalizer",
+        "idna",
+        "urllib3"
+      ],
+      "filename": "requests-2.32.5-py3-none-any.whl",
+      "sha256": "2462f94637a34fd532264295e186976db0f5d453d1cdd31473c85a6a161affb6",
+      "url": "https://files.pythonhosted.org/packages/1e/db/4254e3eabe8020b458f1a747140d32277ec7a271daf1d235b70dc0b4e6e3/requests-2.32.5-py3-none-any.whl",
+      "version": "2.32.5"
+    },
+    "rich": {
+      "bytes": 243393,
+      "dependencies": [
+        "markdown-it-py",
+        "pygments"
+      ],
+      "filename": "rich-14.2.0-py3-none-any.whl",
+      "sha256": "76bc51fe2e57d2b1be1f96c524b890b816e334ab4c1e45888799bfaab0021edd",
+      "url": "https://files.pythonhosted.org/packages/25/7a/b0178788f8dc6cafce37a212c99565fa1fe7872c70c6c9c1e1a372d9d88f/rich-14.2.0-py3-none-any.whl",
+      "version": "14.2.0"
+    },
+    "rpds-py": {
+      "bytes": 395325,
+      "dependencies": [],
+      "filename": "rpds_py-0.29.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "sha256": "ad7bd570be92695d89285a4b373006930715b78d96449f686af422debb4d3949",
+      "url": "https://files.pythonhosted.org/packages/04/4c/f9b8a05faca3d9e0a6397c90d13acb9307c9792b2bff621430c58b1d6e76/rpds_py-0.29.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "version": "0.29.0"
+    },
+    "shellingham": {
+      "bytes": 9755,
+      "dependencies": [],
+      "filename": "shellingham-1.5.4-py2.py3-none-any.whl",
+      "sha256": "7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686",
+      "url": "https://files.pythonhosted.org/packages/e0/f9/0595336914c5619e5f28a1fb793285925a8cd4b432c9da0a987836c7f822/shellingham-1.5.4-py2.py3-none-any.whl",
+      "version": "1.5.4"
+    },
+    "six": {
+      "bytes": 11050,
+      "dependencies": [],
+      "filename": "six-1.17.0-py2.py3-none-any.whl",
+      "sha256": "4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274",
+      "url": "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl",
+      "version": "1.17.0"
+    },
+    "sniffio": {
+      "bytes": 10235,
+      "dependencies": [],
+      "filename": "sniffio-1.3.1-py3-none-any.whl",
+      "sha256": "2f6da418d1f1e0fddd844478f41680e794e6051915791a034ff65e5f100525a2",
+      "url": "https://files.pythonhosted.org/packages/e9/44/75a9c9421471a6c4805dbf2356f7c181a29c1879239abab1ea2cc8f38b40/sniffio-1.3.1-py3-none-any.whl",
+      "version": "1.3.1"
+    },
+    "starlette": {
+      "bytes": 74340,
+      "dependencies": [
+        "anyio",
+        "typing-extensions"
+      ],
+      "filename": "starlette-0.49.3-py3-none-any.whl",
+      "sha256": "b579b99715fdc2980cf88c8ec96d3bf1ce16f5a8051a7c2b84ef9b1cdecaea2f",
+      "url": "https://files.pythonhosted.org/packages/a3/e0/021c772d6a662f43b63044ab481dc6ac7592447605b5b35a957785363122/starlette-0.49.3-py3-none-any.whl",
+      "version": "0.49.3"
+    },
+    "tabulate": {
+      "bytes": 35252,
+      "dependencies": [],
+      "filename": "tabulate-0.9.0-py3-none-any.whl",
+      "sha256": "024ca478df22e9340661486f85298cff5f6dcdba14f3813e8830015b9ed1948f",
+      "url": "https://files.pythonhosted.org/packages/40/44/4a5f08c96eb108af5cb50b41f76142f0afa346dfa99d5296fe7202a11854/tabulate-0.9.0-py3-none-any.whl",
+      "version": "0.9.0"
+    },
+    "tenacity": {
+      "bytes": 28248,
+      "dependencies": [],
+      "filename": "tenacity-9.1.2-py3-none-any.whl",
+      "sha256": "f77bf36710d8b73a50b2dd155c97b870017ad21afe6ab300326b0371b3b05138",
+      "url": "https://files.pythonhosted.org/packages/e5/30/643397144bfbfec6f6ef821f36f33e57d35946c44a2352d3c9f0ae847619/tenacity-9.1.2-py3-none-any.whl",
+      "version": "9.1.2"
+    },
+    "tiktoken": {
+      "bytes": 1152665,
+      "dependencies": [
+        "regex",
+        "requests"
+      ],
+      "filename": "tiktoken-0.12.0-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "sha256": "edde1ec917dfd21c1f2f8046b86348b0f54a2c0547f68149d8600859598769ad",
+      "url": "https://files.pythonhosted.org/packages/f4/90/3dae6cc5436137ebd38944d396b5849e167896fc2073da643a49f372dc4f/tiktoken-0.12.0-cp312-cp312-manylinux_2_28_x86_64.whl",
+      "version": "0.12.0"
+    },
+    "tokenizers": {
+      "bytes": 3250221,
+      "dependencies": [
+        "huggingface-hub"
+      ],
+      "filename": "tokenizers-0.22.1-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "sha256": "e2ef6063d7a84994129732b47e7915e8710f27f99f3a3260b8a38fc7ccd083f4",
+      "url": "https://files.pythonhosted.org/packages/d0/c6/dc3a0db5a6766416c32c034286d7c2d406da1f498e4de04ab1b8959edd00/tokenizers-0.22.1-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+      "version": "0.22.1"
+    },
+    "toml": {
+      "bytes": 16588,
+      "dependencies": [],
+      "filename": "toml-0.10.2-py2.py3-none-any.whl",
+      "sha256": "806143ae5bfb6a3c6e736a764057db0e6a0e05e338b5630894a5f779cabb4f9b",
+      "url": "https://files.pythonhosted.org/packages/44/6f/7120676b6d73228c96e17f1f794d8ab046fc910d781c8d151120c3f1569e/toml-0.10.2-py2.py3-none-any.whl",
+      "version": "0.10.2"
+    },
+    "tqdm": {
+      "bytes": 78540,
+      "dependencies": [],
+      "filename": "tqdm-4.67.1-py3-none-any.whl",
+      "sha256": "26445eca388f82e72884e0d580d5464cd801a3ea01e63e5601bdff9ba6a48de2",
+      "url": "https://files.pythonhosted.org/packages/d0/30/dc54f88dd4a2b5dc8a0279bdd7270e735851848b762aeb1c1184ed1f6b14/tqdm-4.67.1-py3-none-any.whl",
+      "version": "4.67.1"
+    },
+    "typer": {
+      "bytes": 47028,
+      "dependencies": [
+        "click",
+        "rich",
+        "shellingham",
+        "typing-extensions"
+      ],
+      "filename": "typer-0.20.0-py3-none-any.whl",
+      "sha256": "5b463df6793ec1dca6213a3cf4c0f03bc6e322ac5e16e13ddd622a889489784a",
+      "url": "https://files.pythonhosted.org/packages/78/64/7713ffe4b5983314e9d436a90d5bd4f63b6054e2aca783a3cfc44cb95bbf/typer-0.20.0-py3-none-any.whl",
+      "version": "0.20.0"
+    },
+    "typer-slim": {
+      "bytes": 47087,
+      "dependencies": [
+        "click",
+        "typing-extensions"
+      ],
+      "filename": "typer_slim-0.20.0-py3-none-any.whl",
+      "sha256": "f42a9b7571a12b97dddf364745d29f12221865acef7a2680065f9bb29c7dc89d",
+      "url": "https://files.pythonhosted.org/packages/5e/dd/5cbf31f402f1cc0ab087c94d4669cfa55bd1e818688b910631e131d74e75/typer_slim-0.20.0-py3-none-any.whl",
+      "version": "0.20.0"
+    },
+    "typing-extensions": {
+      "bytes": 44614,
+      "dependencies": [],
+      "filename": "typing_extensions-4.15.0-py3-none-any.whl",
+      "sha256": "f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548",
+      "url": "https://files.pythonhosted.org/packages/18/67/36e9267722cc04a6b9f15c7f3441c2363321a3ea07da7ae0c0707beb2a9c/typing_extensions-4.15.0-py3-none-any.whl",
+      "version": "4.15.0"
+    },
+    "typing-inspection": {
+      "bytes": 14611,
+      "dependencies": [
+        "typing-extensions"
+      ],
+      "filename": "typing_inspection-0.4.2-py3-none-any.whl",
+      "sha256": "4ed1cacbdc298c220f1bd249ed5287caa16f34d44ef4e9c3d0cbad5b521545e7",
+      "url": "https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl",
+      "version": "0.4.2"
+    },
+    "tzdata": {
+      "bytes": 347839,
+      "dependencies": [],
+      "filename": "tzdata-2025.2-py2.py3-none-any.whl",
+      "sha256": "1a403fada01ff9221ca8044d701868fa132215d84beb92242d9acd2147f667a8",
+      "url": "https://files.pythonhosted.org/packages/5c/23/c7abc0ca0a1526a0774eca151daeb8de62ec457e77262b66b359c3c7679e/tzdata-2025.2-py2.py3-none-any.whl",
+      "version": "2025.2"
+    },
+    "urllib3": {
+      "bytes": 131584,
+      "dependencies": [],
+      "filename": "urllib3-2.6.3-py3-none-any.whl",
+      "sha256": "bf272323e553dfb2e87d9bfd225ca7b0f467b919d7bbd355436d3fd37cb0acd4",
+      "url": "https://files.pythonhosted.org/packages/39/08/aaaad47bc4e9dc8c725e68f9d04865dbcb2052843ff09c97b08904852d84/urllib3-2.6.3-py3-none-any.whl",
+      "version": "2.6.3"
+    },
+    "uvicorn": {
+      "bytes": 68109,
+      "dependencies": [
+        "click",
+        "h11"
+      ],
+      "filename": "uvicorn-0.38.0-py3-none-any.whl",
+      "sha256": "48c0afd214ceb59340075b4a052ea1ee91c16fbc2a9b1469cca0e54566977b02",
+      "url": "https://files.pythonhosted.org/packages/ee/d9/d88e73ca598f4f6ff671fb5fde8a32925c2e08a637303a1d12883c7305fa/uvicorn-0.38.0-py3-none-any.whl",
+      "version": "0.38.0"
+    },
+    "yarl": {
+      "bytes": 377267,
+      "dependencies": [
+        "idna",
+        "multidict",
+        "propcache"
+      ],
+      "filename": "yarl-1.22.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "sha256": "50678a3b71c751d58d7908edc96d332af328839eea883bb554a43f539101277a",
+      "url": "https://files.pythonhosted.org/packages/db/0f/0d52c98b8a885aeda831224b78f3be7ec2e1aa4a62091f9f9188c3c65b56/yarl-1.22.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl",
+      "version": "1.22.0"
+    },
+    "zipp": {
+      "bytes": 10276,
+      "dependencies": [],
+      "filename": "zipp-3.23.0-py3-none-any.whl",
+      "sha256": "071652d6115ed432f5ce1d34c336c0adfd6a884660d1e9712a256d3d3bd4b14e",
+      "url": "https://files.pythonhosted.org/packages/2e/54/647ade08bf0db230bfea292f893923872fd20be6ac6f53b2b936ba839d75/zipp-3.23.0-py3-none-any.whl",
+      "version": "3.23.0"
+    }
+  }
+}
