@@ -122,3 +122,12 @@ again passed, but the child still exited 1 at checkpoint 11 with only
 `finders=true`. Cleanup is confirmed. The adapter therefore does not resolve
 the observed startup failure. This result does not identify the remaining
 finder or prove which adapter paths executed; no serving or GPU run occurred.
+
+The [third attempt](../../evidence/p2/2026-10-20-cpu-finder-9833667/README.md)
+ran reviewed source `983366709ffb1bd0682fb7692bb71b1e4777a450` after green CI.
+The fixed diagnostic observed the three expected finders followed by `unknown`,
+with all four reference sources verified and no truncation or comparison
+failure. The pattern adapter was `pending`; the responsible finder remains
+unidentified. All five application stages passed, but entry again exited 1 at
+checkpoint 11 with only `finders=true`. Cleanup is confirmed. This is a failed
+software diagnostic, not an inference result or permission to admit the hook.

@@ -80,6 +80,11 @@ modules before NVIDIA and updates the initramfs. We still need the selected
 kernel's actual configuration/modules, correct initialization order, and a
 reviewed persistence service.
 
+The subsequent [kernel package inspection](p3-t1-kernel-package-audit.md)
+narrows this gap for candidate `6.8.0-147.147`: actual configuration and TDX/TSM/
+crypto module payloads are present, but initrd ordering, R595 compatibility and
+the complete dependency closure remain unverified.
+
 The [R595 release notes](https://docs.nvidia.com/595trd1-trusted-computing-solutions-release-notes.pdf#page=4)
 give the reference driver/CUDA pairing. They do not establish that our future
 UKI, kernel, driver userspace and initrd form a validated guest. See the existing
