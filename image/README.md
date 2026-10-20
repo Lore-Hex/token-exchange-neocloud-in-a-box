@@ -25,6 +25,9 @@ verifies the exact 27.1 source archive and a 203-package tools graph, then
 assembles their union with the guest packages without execution. Script review,
 expanded-tools APT/runtime checks and a reviewed Linux mount/namespace policy
 still block installation; its receipt cannot authorize a build.
+Its [local service-denial patch](patches/README.md) binds an exact executable-mode
+correction for each APT transaction; only synthetic behavior is tested, not an
+actual installation or observed service start.
 
 [P3.T1 prerequisite audit](../docs/tasks/p3-t1-guest-image-feasibility.md)
 records the source-backed build inputs and unresolved package/boot requirements.
