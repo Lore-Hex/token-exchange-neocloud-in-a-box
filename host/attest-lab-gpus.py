@@ -232,6 +232,7 @@ def successful_output(data):
 
 CLAIM_SOURCES = {"unspecified", "verified-cli", "signed-token", "attested-cli", "comparison"}
 CLAIM_FAILURES = {"claim-count", "claim-shape", "claim-identity", "claim-value",
+                  "claim-missing", "claim-type",
                   "claim-boolean", "claim-mismatch-records", "certificate-status",
                   "certificate-expiry-format", "certificate-expired",
                   "token-shape", "token-jwt-shape", "token-payload-encoding",
@@ -245,6 +246,7 @@ CLAIM_FIELDS.update("x-nvidia-gpu-" + name + "-cert-chain." + field
                     for name in CHAINS for field in
                     ("x-nvidia-cert-status", "x-nvidia-cert-ocsp-status",
                      "x-nvidia-cert-expiration-date"))
+CLAIM_FIELDS.update("x-nvidia-gpu-" + name + "-cert-chain" for name in CHAINS)
 
 
 class ClaimRejection(ValueError):
@@ -259,33 +261,45 @@ def claim_require(value, code, source, field):
         raise ClaimRejection(code, source, field)
 
 
+def claim_field(row, name, expected_type, source, field=None):
+    field = name if field is None else field
+    claim_require(name in row, "claim-missing", source, field)
+    value = row[name]
+    claim_require(type(value) is expected_type, "claim-type", source, field)
+    return value
+
+
 def claim_map(claims, nonce, source="unspecified"):
     require(source in CLAIM_SOURCES)
     claim_require(type(claims) is list and len(claims) == COUNT, "claim-count", source, "claims")
     found = {}
     for claim in claims:
         claim_require(type(claim) is dict, "claim-shape", source, "claims")
-        identity = claim.get("ueid")
+        identity = claim_field(claim, "ueid", str, source)
         claim_require(type(identity) is str and 0 < len(identity) <= 256 and identity not in found,
                       "claim-identity", source, "ueid")
         for name, expected in (("eat_nonce", nonce), ("x-nvidia-device-type", "gpu"),
                                ("x-nvidia-gpu-claims-version", "4.0"),
                                ("measres", "success"), ("dbgstat", "disabled")):
-            claim_require(claim.get(name) == expected, "claim-value", source, name)
+            claim_require(claim_field(claim, name, str, source) == expected,
+                          "claim-value", source, name)
         for name in TRUE_CLAIMS:
-            claim_require(claim.get(name) is True, "claim-boolean", source, name)
+            claim_require(claim_field(claim, name, bool, source) is True,
+                          "claim-boolean", source, name)
         for name in ("x-nvidia-mismatch-measurement-records", "x-nvidia-mismatch-opaque-data-records"):
-            claim_require(name in claim and claim[name] in (None, []),
+            claim_require(name in claim, "claim-missing", source, name)
+            claim_require(claim[name] is None or type(claim[name]) is list, "claim-type", source, name)
+            claim_require(claim[name] in (None, []),
                           "claim-mismatch-records", source, name)
         for name in CHAINS:
             prefix = "x-nvidia-gpu-" + name + "-cert-chain."
-            chain = claim.get(prefix[:-1])
+            chain = claim_field(claim, prefix[:-1], dict, source)
             for field, expected in (("x-nvidia-cert-status", "valid"),
                                     ("x-nvidia-cert-ocsp-status", "good")):
-                claim_require(type(chain) is dict and chain.get(field) == expected,
+                claim_require(claim_field(chain, field, str, source, prefix + field) == expected,
                               "certificate-status", source, prefix + field)
-            expiry = chain.get("x-nvidia-cert-expiration-date")
             field = prefix + "x-nvidia-cert-expiration-date"
+            expiry = claim_field(chain, "x-nvidia-cert-expiration-date", str, source, field)
             claim_require(type(expiry) is str and expiry.endswith("Z"),
                           "certificate-expiry-format", source, field)
             try:

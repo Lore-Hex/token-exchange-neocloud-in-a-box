@@ -259,9 +259,18 @@ class AttestationTests(unittest.TestCase):
                     lab.claim_map(rows, "private-nonce", source)
                 error = raised.exception
                 self.assertEqual((error.code, error.source, error.field),
-                                 ("claim-boolean", source, name))
+                                 ("claim-type", source, name))
                 self.assertNotIn("PRIVATE", str(error))
                 self.assertNotIn("private-nonce", str(error))
+        for name in ("x-nvidia-device-type", "x-nvidia-gpu-claims-version",
+                     "x-nvidia-mismatch-measurement-records",
+                     "x-nvidia-mismatch-opaque-data-records"):
+            rows = [claim(i, "nonce") for i in range(8)]
+            del rows[0][name]
+            with self.assertRaises(lab.ClaimRejection) as raised:
+                lab.claim_map(rows, "nonce", "signed-token")
+            self.assertEqual((raised.exception.code, raised.exception.source, raised.exception.field),
+                             ("claim-missing", "signed-token", name))
         field = "x-nvidia-gpu-attestation-report-cert-chain"
         for value, expected in (("PRIVATEZ", "certificate-expiry-format"),
                                 ("2001-01-01T00:00:00Z", "certificate-expired")):

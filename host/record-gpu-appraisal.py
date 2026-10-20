@@ -25,7 +25,7 @@ PROBE = "host/probe.py"
 SHARED = "host/record-probe.py"
 PINS = {
     SHARED: "77858e523ae744bc585b28aa68cc759afbdc542dd972466185f52e3a699c40e2",
-    APPRAISAL: "4cc9ad64438eb927621cfb4292d84ec52b343d8df167739dc130e476ad02cf6f",
+    APPRAISAL: "d27f1130c0d79dfd379d46a9da30ac1578aa504c2cfd6db38e780f649233ec4d",
 }
 LIMIT = 65536
 
