@@ -87,4 +87,17 @@ record one local run with `--slug <approved-slug>`. It needs the existing pinned
 raw OCI inputs in ignored `build/engine-image-metadata`, the cached exact image,
 and the offline pinned Go validator. Evidence is published without overwriting
 under `evidence/p2/<date>-<slug>/`, through the authoritative evidence schema.
-No image execution or actual diagnostic result is claimed by this source PR.
+The implementation alone claims no image execution or actual diagnostic result.
+Recorded attempts are listed separately below.
+
+## Recorded Local Attempt
+
+The [2026-10-20 attempt](../../evidence/p2/2026-10-20-cpu-entry-125036c/README.md)
+ran reviewed source `125036cb61a9d15d624f5d1c8a0c65d69076574c` after green CI.
+Image preflight took 8,562 ms, all five application stages 496,309 ms, and the
+entry child 9,148 ms. The child exited 1 after checkpoint 11, in the interval
+containing the `ServeSubcommand` import. The final observation reports only
+`finders=true`; all other mismatch bits are false. Cleanup is confirmed.
+The responsible dependency and exact first exception remain unproven by this
+observation. This is a local software failure, not a new GPU attempt, and it
+does not establish the cause of the previous hardware startup failure.
