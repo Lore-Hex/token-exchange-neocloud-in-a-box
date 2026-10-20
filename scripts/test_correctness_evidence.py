@@ -29,6 +29,38 @@ class CorrectnessEvidenceTests(unittest.TestCase):
         for key in ("functional_pass", "confidential", "deployable"):
             self.assertFalse(output[key])
 
+    def test_validated_startup_failure_is_not_inference_or_oom(self):
+        root = Path(__file__).resolve().parents[1] / "evidence/p2/2026-10-20-correctness-startup-failed"
+        values = {}
+        for name, digest in (
+            ("run.json", "b2d7749f0a5e3b400cd6525f202b95186f1b3b20bfd989df13b2a7ed717da8ae"),
+            ("output.log", "c229a6a25a0463b53d2bfe3eecae55235fe8b7af49852f682f01224fff9bfe26"),
+        ):
+            raw = (root / name).read_bytes()
+            self.assertEqual(hashlib.sha256(raw).hexdigest(), digest)
+            values[name] = json.loads(raw)
+        run, output = values["run.json"], values["output.log"]
+        self.assertEqual(run["git_sha"], "bac13b0fac39096a0990417f3cfcf4e623e911ac")
+        self.assertEqual(run["git_sha"], output["provenance"]["git_sha"])
+        self.assertEqual(run["execution"], "hardware")
+        self.assertFalse(run["hardware_validated"])
+        self.assertEqual(output["cleanup"], "confirmed")
+        self.assertEqual(output["experiment_step"], "completed")
+        self.assertEqual(output["container_observation"],
+                         {"status": "exited", "exit_code": 0, "oom_killed": False})
+        experiment = output["experiment"]
+        self.assertEqual(experiment["stage"], "startup")
+        self.assertEqual(experiment["application"]["stages"], 5)
+        self.assertTrue(experiment["hardware"]["system_ready"])
+        self.assertEqual(experiment["startup"],
+                         {"outcome": "child-exited", "exit_code": 1,
+                          "wait_ms": 8003, "health_probes": 8})
+        self.assertIsNone(experiment["completion"])
+        self.assertIsNone(experiment["correctness"])
+        for row in (output, experiment):
+            for key in ("functional_pass", "confidential", "deployable"):
+                self.assertFalse(row[key])
+
 
 if __name__ == "__main__":
     unittest.main()
