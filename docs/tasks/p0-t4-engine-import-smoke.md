@@ -100,6 +100,45 @@ No GPU, weights, model inference, ABI, hardware or confidentiality qualification
 occurred. Both prior failed-run artifacts remain unchanged. Any next source
 change belongs to a separate reviewed task; do not repeat this unchanged run.
 
+### Callsite Attempt
+
+The unchanged [run metadata](../../evidence/p0/2026-10-20-official-vllm-callsite-smoke/run.json)
+and [sanitized output](../../evidence/p0/2026-10-20-official-vllm-callsite-smoke/output.log)
+record source `094aa096293cdde51534dccbdc205ada67cc9653`, from
+2026-10-20 06:38:11 through 06:48:22 UTC. Payload SHA-256 is
+`3215f616de6bc6f88a563eb6e9a6e9d71165b3518c8df38b37eaf354b43adbd6`.
+
+All five application stages completed, with native inventory unchanged and
+2,879 bytecode removals. Phase durations were 9,112 ms preflight, 582,750 ms
+application and 7,036 ms imports. Fresh, spawn and grandchild each rejected the
+first API-entry import with `subprocess.Popen`, command `other`, caller `other`,
+process count 1, all other guard counts zero, `first_state_mismatch:null`, and
+zero permitted dependency entrypoint loads. The remaining three imports were
+not run. Bootstrap/pre-unpickle observations passed and the owned tracker
+exited zero.
+
+All three reports contain these ordered structural matches:
+`torch-init:module`, `vllm-env-torch-import`, `vllm-env:module`,
+`vllm-init-env-import`, and `vllm-init:module`. These place the observed stack
+inside env-override's initial Torch import, before its later Inductor patch
+phase; they do **not** identify the function or command that requested Popen.
+Fresh scanned 105 frames with 102 unmatched; spawn and grandchild each scanned
+111 with 108 unmatched. There was no scan/output truncation or comparison
+failure. Ten catalog sources verified, but `ctypes-util` and `platform` reported
+`source-mismatch` and therefore supplied no matchable references. The artifact
+does not explain those byte/size mismatches or establish either as the caller.
+Most frames remain outside the selected matched coverage. The exact cause is
+**still unknown**; no subprocess permission or compatibility exception follows.
+
+The result remains `smoke-rejected`, `smoke_pass:false`, `result:fail`,
+`deployable:false`. Cleanup is `confirmed`; the parent also reported an
+independent empty Docker label query, whose transcript is not in the artifact.
+No GPU, weights, model inference, ABI, hardware or confidentiality qualification
+occurred. All prior failed-run artifacts remain unchanged. The regression
+reconstructs this complete payload with its original committed producer and
+validates the failure using that producer's validator. Do not repeat the
+unchanged experiment; any next correction requires separate source review.
+
 ### Denied-Process Diagnostics
 
 The recorder diagnostics were exercised in the attempt above, which remained
@@ -141,9 +180,10 @@ parent-owned and gated on independent review and tests.
 
 ### Source-Bound Callsite Diagnostics
 
-The current change is **software-tested, not yet run against the image**. It
-does not identify the historical `other/other` event's cause or permit any new
-process. The same first-denial object now contains `callsites`: fixed public
+The diagnostics were exercised in the callsite attempt above, which remained
+non-qualifying with two source mismatches. They do not identify the historical
+`other/other` event's cause or permit any new process. The first-denial object
+contains `callsites`: fixed public
 IDs, per-source availability, scanned/unmatched frame counts, independent
 `scan_truncated` and `output_truncated` booleans, and `comparison_failed`.
 The old module-name caller remains only a hint; it does not establish an ID.
