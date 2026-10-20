@@ -65,7 +65,10 @@ base, BASE_SOURCE = bootstrap()
 require, digest, encoded = base.require, base.digest, base.encoded
 
 
-def committed():
+def committed(extra=()):
+    require(isinstance(extra, tuple) and len(extra) <= 16
+            and all(isinstance(p, str) and re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_./-]*", p)
+                    and not p.startswith("/") and ".." not in p.split("/") for p in extra))
     def git(*args):
         value = base.processes.execute_process_group(
             ["git", "-c", "core.hooksPath=" + os.devnull, "-C", str(ROOT), *args],
@@ -75,7 +78,7 @@ def committed():
     revision = git("rev-parse", "--verify", "HEAD^{commit}").decode().strip()
     require(re.fullmatch("[0-9a-f]{40}", revision))
     sources = {}
-    for path in FILES:
+    for path in dict.fromkeys((*FILES, *extra)):
         row = git("ls-tree", revision, "--", path).decode().split()
         require(len(row) == 4 and row[:2] == ["100644", "blob"] and row[3] == path)
         require(int(git("cat-file", "-s", row[2])) <= 2 << 20)
