@@ -227,13 +227,17 @@ class Tree:
         finally:
             os.close(fd)
 
-    def read(self, name, *, retain=True):
+    def read(self, name, *, retain=True, max_bytes=None):
+        limit = MAX_SMALL if retain else MAX_FILE
+        if max_bytes is not None:
+            require(type(max_bytes) is int and 0 <= max_bytes <= limit)
+            limit = max_bytes
         with self.parent(name) as (parent, leaf):
             fd = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
             with os.fdopen(fd, "rb") as stream:
                 before = os.fstat(stream.fileno())
                 require(stat.S_ISREG(before.st_mode) and before.st_nlink == 1
-                        and before.st_size <= (MAX_SMALL if retain else MAX_FILE))
+                        and before.st_size <= limit)
                 h, size, data, header = hashlib.sha256(), 0, bytearray(), b""
                 while chunk := stream.read(256 << 10):
                     size += len(chunk)

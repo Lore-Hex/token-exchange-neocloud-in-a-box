@@ -466,7 +466,7 @@ def census_report():
             "groups": {name: census_counts() for name in CENSUS_GROUPS}}
 
 
-def metadata_census(overlay, tree, report):
+def metadata_census(overlay, tree, report, *, observe=None):
     """Count directory entries using metadata only; never open non-directories."""
     deadline = min(tree.deadline, time.monotonic() + CENSUS_LIMITS["seconds"])
     device = os.fstat(tree.fd).st_dev
@@ -478,7 +478,7 @@ def metadata_census(overlay, tree, report):
     def timely():
         require(time.monotonic() < deadline, "time-limit")
 
-    def walk(fd, depth, group=None):
+    def walk(fd, depth, group=None, prefix=""):
         timely()
         before = os.fstat(fd)
         with os.scandir(fd) as entries:
@@ -514,7 +514,7 @@ def metadata_census(overlay, tree, report):
                     child = os.open(entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
                     try:
                         require(overlay.identity(info) == overlay.identity(os.fstat(child)), "directory-changed")
-                        walk(child, depth + 1, category)
+                        walk(child, depth + 1, category, prefix + entry.name + "/")
                         require(overlay.identity(info) == overlay.identity(os.fstat(child))
                                 == overlay.identity(os.stat(entry.name, dir_fd=fd, follow_symlinks=False)),
                                 "directory-changed")
@@ -524,6 +524,8 @@ def metadata_census(overlay, tree, report):
                     current = os.stat(entry.name, dir_fd=fd, follow_symlinks=False)
                     require(overlay.identity(info) == overlay.identity(current) and info.st_nlink == current.st_nlink,
                             "metadata-rejected")
+                if observe is not None:
+                    observe(prefix + entry.name, kind, info)
         require(overlay.identity(before) == overlay.identity(os.fstat(fd)), "directory-changed")
         timely()
 

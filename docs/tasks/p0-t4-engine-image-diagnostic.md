@@ -1,6 +1,6 @@
 # Read-Only Engine Image Diagnostic
 
-**Latest recorded outcome: complete selected-root inventory with four exact AOT
+**Recorded integrity-mode outcome: complete selected-root inventory with four exact AOT
 stub classifications; RECORD/wheel and admission rejected.** See the
 [measured result](p0-t4-cutlass-stubs.md#recorded-outcome). The earlier partial
 [recorded run](../../evidence/p0/2026-10-19-official-vllm-image-diagnostic/run.json)
@@ -9,6 +9,11 @@ remains `BLOCKED`, `deployable:false`, `image:null`. No engine import, patch
 application, model weights, image build/publication, GPU, ABI, confidentiality or
 hardware qualification is performed. The existing overlay admission rules remain
 fail-closed; diagnostics do not remove hooks or override package-root checks.
+
+The separate [Python layout descriptor](p0-t4-engine-python-descriptor.md#recorded-outcome)
+recorded a partial actual-image collection: packaging observations completed,
+interpreter-file checks rejected and child canaries were not attempted. It cannot
+admit an overlay; the earlier results below remain unchanged historical evidence.
 
 ## Recorded Run
 

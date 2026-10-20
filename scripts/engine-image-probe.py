@@ -37,7 +37,13 @@ def main():
         raise ValueError("payload contract rejected")
     contract = json.loads(contract_data)
     modules = []
-    for name in ("engine_overlay.py", "engine_image_diagnostic.py"):
+    names = ["engine_overlay.py", "engine_image_diagnostic.py"]
+    if contract.get("diagnostic_mode") == "python-descriptor":
+        names += ["engine_python_descriptor.py", "processes.py"]
+        for name in ("python-canary.py", "python-canary"):
+            if hashlib.sha256(read(name)).hexdigest() != contract["payload_sources"][name]:
+                raise ValueError("payload source differs")
+    for name in names:
         data = read(name)
         if hashlib.sha256(data).hexdigest() != contract["payload_sources"][name]:
             raise ValueError("payload source differs")
@@ -45,8 +51,13 @@ def main():
         module.__file__ = str(Path(__file__).parent / name)
         exec(compile(data, module.__file__, "exec"), module.__dict__)
         modules.append(module)
-    overlay, diagnostic = modules
-    report = diagnostic.collect(overlay, contract)
+    overlay, diagnostic = modules[:2]
+    if len(modules) == 4:
+        descriptor, processes = modules[2:]
+        report = descriptor.collect(overlay, diagnostic, contract, processes=processes,
+                                    payload=Path(__file__).parent)
+    else:
+        report = diagnostic.collect(overlay, contract)
     data = overlay.json_bytes(report)
     overlay.require(len(data) <= 2 << 20)
     sys.stdout.buffer.write(data)

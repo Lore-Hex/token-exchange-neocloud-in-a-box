@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S scripts/record-engine-image.py --python-descriptor --slug official-vllm-python-prerequisites",
+  "ended_utc": "2026-10-20T01:34:01Z",
+  "execution": "software",
+  "git_sha": "8ceec40b867460f9273a321a16798bb36bbfe1fa",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "local-software-diagnostic",
+    "provider": "local"
+  },
+  "notes": "Read-only software diagnostic, not ABI/hardware/confidential qualification. Python layout and synthetic child canaries do not evaluate admission; the run stays failed. Docker/OS/interpreter trusted. No pull, build, image deletion, engine import or application. Payload SHA-256: 2142fd5e894744adb1f92749f0a9d61f99615ee90562c64e22726f685592ac8b",
+  "phase": "P0",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-20T01:33:51Z",
+  "task": "T4"
+}
