@@ -14,6 +14,15 @@ It retains isolated/no-site/source-only Python, fixed paths and spawn-only
 reentry **before preparation and unpickling**. It is not a general sandbox
 against malicious native engine code.
 
+The application receipt's `before_inventory_sha256` hashes the complete
+pre-application inspection report, including file inventory, console and
+packaging metadata. It is not the files-only digest in the measured packaging
+record. The existing application preflight enforces that measured files-only
+digest before writes; the recorder retains the receipt writer's hash and the
+authoritative receipt validation. A valid application receipt remains
+recordable when subsequent engine startup fails. This is a software correction,
+not evidence that model startup or inference succeeded.
+
 ## Prerequisites
 
 - An individually approved host, spend limit and external VM deletion deadline.
