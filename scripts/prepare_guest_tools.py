@@ -297,6 +297,42 @@ def executable(tree, name):
             "runtime_linkage_validated": False}
 
 
+def docker_archive(layers, revision, *, entrypoint, purpose, tag_prefix):
+    """Serialize verified layers; this never loads or runs the resulting image."""
+    require(isinstance(layers, tuple) and 0 < len(layers) <= 2
+            and all(isinstance(layer, bytes) and 0 < len(layer) <= MAX_TREE for layer in layers)
+            and sum(map(len, layers)) <= MAX_TREE
+            and re.fullmatch("[0-9a-f]{40}", revision)
+            and re.fullmatch("nib-[a-z-]+", tag_prefix)
+            and re.fullmatch("[a-z-]+", purpose)
+            and isinstance(entrypoint, list) and 0 < len(entrypoint) <= 8
+            and all(isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_./-]+", value)
+                    for value in entrypoint)
+            and entrypoint[0].startswith("/"))
+    layer_hashes = [digest(layer) for layer in layers]
+    config = encoded({
+        "architecture": "amd64", "os": "linux", "created": "2026-10-20T00:00:00Z",
+        "config": {
+            "User": "65534:65534", "WorkingDir": "/work",
+            "Env": ["PATH=/usr/bin:/bin", "HOME=/nonexistent", "LANG=C", "LC_ALL=C"],
+            "Entrypoint": entrypoint,
+            "Labels": {"org.nib.purpose": purpose, "org.opencontainers.image.revision": revision},
+        },
+        "rootfs": {"type": "layers", "diff_ids": ["sha256:" + value for value in layer_hashes]},
+        "history": [{"created": "2026-10-20T00:00:00Z",
+                     "created_by": "nib nonexecuting authenticated package assembly"} for _ in layers],
+    })
+    config_hash = digest(config)
+    tag = tag_prefix + ":" + config_hash[:24]
+    names = ["layer.tar"] if len(layers) == 1 else ["layer0.tar", "layer1.tar"]
+    manifest = encoded([{"Config": config_hash + ".json", "RepoTags": [tag], "Layers": names}])
+    files = {config_hash + ".json": config, "manifest.json": manifest, **dict(zip(names, layers))}
+    image = tar_bytes({name: {"kind": "file", "mode": 0o600, "data": raw}
+                       for name, raw in files.items()})
+    require(len(image) <= MAX_TREE)
+    return image, config_hash, tag, layer_hashes
+
+
 def build(metadata, archives, revision, sources):
     tools, guest = (json.loads(sources[p]) for p in FILES[-2:])
     base.inputs.check(tools, metadata, scope="apt-tools-dependency-coverage")
@@ -338,27 +374,10 @@ def build(metadata, archives, revision, sources):
         tree[name] = {"kind": "file", "mode": 0o444, "data": raw}
     layer = tar_bytes(tree)
     layer_hash = digest(layer)
-    config = encoded({
-        "architecture": "amd64", "os": "linux",
-        "created": "2026-10-20T00:00:00Z",
-        "config": {
-            "User": "65534:65534", "WorkingDir": "/work",
-            "Env": ["PATH=/usr/bin:/bin", "HOME=/nonexistent", "LANG=C", "LC_ALL=C"],
-            "Entrypoint": ["/usr/bin/python3.12", "-I", "-S", "-B", "/nib/simulate.py"],
-            "Labels": {"org.nib.purpose": "offline-apt-simulation",
-                       "org.opencontainers.image.revision": revision},
-        },
-        "rootfs": {"type": "layers", "diff_ids": ["sha256:" + layer_hash]},
-        "history": [{"created": "2026-10-20T00:00:00Z",
-                     "created_by": "nib nonexecuting authenticated package assembly"}],
-    })
-    config_hash = digest(config)
-    tag = "nib-apt-simulation:" + config_hash[:24]
-    manifest = encoded([{"Config": config_hash + ".json", "RepoTags": [tag],
-                         "Layers": ["layer.tar"]}])
-    image = tar_bytes({name: {"kind": "file", "mode": 0o600, "data": raw}
-                       for name, raw in {config_hash + ".json": config, "manifest.json": manifest,
-                                         "layer.tar": layer}.items()})
+    image, config_hash, tag, _ = docker_archive(
+        (layer,), revision,
+        entrypoint=["/usr/bin/python3.12", "-I", "-S", "-B", "/nib/simulate.py"],
+        purpose="offline-apt-simulation", tag_prefix="nib-apt-simulation")
     report = {
         "schema": "nib.apt-tools-preparation/v1", "result": "pass",
         "git_sha": revision, "source_hashes": bindings, "platform": "linux/amd64",
