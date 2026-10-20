@@ -589,6 +589,201 @@ class HardwareTests(unittest.TestCase):
         instance.library.assert_not_called()
 
 
+class DiagnosticTests(unittest.TestCase):
+    def library(self, *, codes=None, count=4, feature=1, environment=2, devtools=0, multigpu=2,
+                ready=1, memory=180 << 20, name=b"NVIDIA B200 private-name-sentinel",
+                driver=b"595.91.07"):
+        codes = codes or {}
+        library = types.SimpleNamespace()
+        for symbol in probe.CALL_STAGES:
+            def call(*args, symbol=symbol):
+                code = codes.get(symbol, 0)
+                if isinstance(code, Exception):
+                    raise code
+                if code != 0:
+                    return code
+                if symbol == "nvmlDeviceGetCount_v2":
+                    args[0]._obj.value = count
+                elif symbol == "nvmlSystemGetConfComputeSettings":
+                    settings = args[0]._obj
+                    settings.ccFeature, settings.environment = feature, environment
+                    settings.devToolsMode, settings.multiGpuMode = devtools, multigpu
+                elif symbol == "nvmlSystemGetConfComputeGpusReadyState":
+                    args[0]._obj.value = ready
+                elif symbol == "nvmlSystemGetCudaDriverVersion_v2":
+                    args[0]._obj.value = 13000
+                elif symbol == "nvmlSystemGetDriverVersion":
+                    args[0].value = driver
+                elif symbol == "nvmlDeviceGetHandleByIndex_v2":
+                    args[1]._obj.value = 123456  # Never emitted.
+                elif symbol == "nvmlDeviceGetName":
+                    args[1].value = name
+                elif symbol == "nvmlDeviceGetConfComputeMemSizeInfo":
+                    args[1]._obj.protectedMemSizeKib = memory
+                    args[1]._obj.unprotectedMemSizeKib = 0
+                return 0
+            setattr(library, symbol, call)
+        return library
+
+    def diagnose(self, **kwargs):
+        with mock.patch.object(probe.c, "CDLL", return_value=self.library(**kwargs)):
+            row = probe.diagnose()
+        probe.validate_trace(row)
+        self.assertNotIn("sentinel", json.dumps(row))
+        return row
+
+    def child(self, trace=None):
+        return {"stage": "probe", "invocation": {key: True for key in
+                ("linux", "isolated", "no_site", "no_bytecode", "argument_shape")},
+                "bootstrap": {"stage": "complete", "source_index": None},
+                "probe": trace if trace is not None else self.diagnose()}
+
+    def test_numeric_success_is_never_functional_or_qualification(self):
+        row = self.diagnose()
+        self.assertTrue(row["policy_checks_passed"])
+        self.assertIsNone(row["first_failure"])
+        self.assertEqual(len(row["calls"]), 19)
+        self.assertEqual(row["observed"]["count"], 4)
+        self.assertEqual((row["settings_input_version"], row["settings_struct_bytes"]), (0x01000014, 20))
+        self.assertEqual(row["calls"][-1], {"stage": "shutdown", "device": None, "return_code": 0})
+        with mock.patch.object(lab, "GPU_PROBE", probe), \
+                mock.patch.object(lab, "quiet_command", return_value=json.dumps(self.child(row)).encode()) as command:
+            outer = lab.diagnostic_request()
+        command.assert_called_once_with(["/opt/nib/python", "probe-diagnostic"], 15, output=True)
+        probe.validate_diagnostic(outer)
+        self.assertFalse(outer["functional_pass"])
+        self.assertFalse(outer["confidential"])
+        self.assertFalse(outer["deployable"])
+
+    def test_load_each_call_failure_and_shutdown_are_separate(self):
+        with mock.patch.object(probe.c, "CDLL", side_effect=OSError("/private/loader-sentinel")):
+            row = probe.diagnose()
+        self.assertEqual(row["first_failure"], "ctypes-loading")
+        self.assertEqual(row["calls"], [])
+        for name, stage in probe.CALL_STAGES.items():
+            with self.subTest(stage=stage):
+                row = self.diagnose(codes={name: 26})
+                self.assertEqual(row["first_failure"], stage)
+                self.assertFalse(row["policy_checks_passed"])
+                self.assertIn(26, [c["return_code"] for c in row["calls"]])
+        row = self.diagnose(codes={"nvmlSystemGetConfComputeSettings": 26, "nvmlShutdown": 999})
+        self.assertEqual(row["first_failure"], "settings-abi")
+        self.assertEqual(row["calls"][-1], {"stage": "shutdown", "device": None, "return_code": 999})
+        row = self.diagnose(codes={"nvmlDeviceGetCount_v2": AttributeError("private-symbol-sentinel")})
+        self.assertEqual(row["first_failure"], "count")
+        self.assertIsNone(row["calls"][1]["return_code"])
+
+    def test_original_count_cc_readiness_memory_policies_still_reject(self):
+        for values, stage in (({"count": 8}, "required-count"), ({"feature": 0}, "cc-policy"),
+                              ({"environment": 1}, "cc-policy"), ({"devtools": 1}, "cc-policy"),
+                              ({"multigpu": 0}, "cc-policy"), ({"ready": 0}, "readiness-policy"),
+                              ({"memory": 0}, "memory-policy"), ({"name": b"private-name-sentinel"}, "memory-policy"),
+                              ({"driver": b"private-driver-sentinel"}, "driver-policy")):
+            with self.subTest(values=values):
+                row = self.diagnose(**values)
+                self.assertEqual(row["first_failure"], stage)
+                self.assertFalse(row["policy_checks_passed"])
+        row = self.diagnose(count=8)
+        self.assertEqual(row["observed"]["count"], 8)
+        self.assertEqual([c["stage"] for c in row["calls"]], ["init", "count", "shutdown"])
+        self.assertIsNone(row["observed"]["feature"])
+
+    def test_child_source_binding_bootstrap_and_flags_fail_closed(self):
+        fake_sys = types.SimpleNamespace(platform="linux", flags=types.SimpleNamespace(isolated=1, no_site=1),
+                                         dont_write_bytecode=True, argv=["fixed", "a" * 64, "probe-diagnostic"],
+                                         modules={lab.__name__: lab})
+        contract = {"operation": "hardware-diagnostic", "paths": ["/stdlib", "/stdlib/lib-dynload", "/selected"]}
+        for failing in ("invocation", "source-binding", "bootstrap", None):
+            with self.subTest(failing=failing), mock.patch.object(lab, "sys", fake_sys), \
+                    mock.patch.object(lab, "lab_context", return_value=(contract, {}, [], {}, {})) as context, \
+                    mock.patch.object(lab, "install_lab", create=True) as install, \
+                    mock.patch.object(lab, "GPU_PROBE", probe), \
+                    mock.patch.object(probe, "diagnose", return_value=self.diagnose()) as inspect:
+                fake_sys.flags.isolated = failing != "invocation"
+                if failing == "source-binding":
+                    context.side_effect = ValueError("private-source-sentinel")
+                if failing == "bootstrap":
+                    def fail(*args, checkpoint):
+                        checkpoint("setuptools-source", 2)
+                        raise ValueError("private-bootstrap-sentinel")
+                    install.side_effect = fail
+                else:
+                    install.side_effect = lambda *args, checkpoint: checkpoint("complete", None)
+                row = lab.diagnostic_child("a" * 64)
+                self.assertEqual(row["stage"], failing or "probe")
+                if failing:
+                    inspect.assert_not_called()
+                if failing == "invocation":
+                    context.assert_not_called()
+                if failing == "bootstrap":
+                    self.assertEqual(row["bootstrap"], {"stage": "setuptools-source", "source_index": 2})
+                probe.validate_diagnostic({"schema": "nib.deepseek-hardware-diagnostic/v1", "status": "BLOCKED",
+                                          "deployable": False, "confidential": False, "functional_pass": False,
+                                          "stage": "diagnostic", "probe_execution": "completed", "child": row})
+                self.assertNotIn("sentinel", json.dumps(row))
+
+    def test_timeout_failed_malformed_children_never_invent_observations(self):
+        for effect, expected in ((subprocess.TimeoutExpired("private-sentinel", 15), "timeout"),
+                                 (subprocess.CalledProcessError(1, "private-sentinel"), "failed"),
+                                 (b'{"private":"sentinel"}', "malformed"), (b"not JSON", "malformed")):
+            with self.subTest(expected=expected), mock.patch.object(lab, "GPU_PROBE", probe), \
+                    mock.patch.object(lab, "quiet_command") as command:
+                if isinstance(effect, Exception):
+                    command.side_effect = effect
+                else:
+                    command.return_value = effect
+                row = lab.diagnostic_request()
+                probe.validate_diagnostic(row)
+                self.assertEqual(row["probe_execution"], expected)
+                self.assertIsNone(row["child"])
+                self.assertFalse(row["functional_pass"])
+                self.assertNotIn("sentinel", json.dumps(row))
+
+    def test_diagnostic_dispatch_never_enters_application_or_hardware_acceptance(self):
+        fake_sys = types.SimpleNamespace(flags=types.SimpleNamespace(isolated=1, no_site=1),
+                                         dont_write_bytecode=True, argv=["fixed", "a" * 64, "diagnose-hardware"])
+        contract = {"operation": "hardware-diagnostic"}
+        result = {"fixed": "diagnostic"}
+        with mock.patch.object(lab, "sys", fake_sys), \
+                mock.patch.object(lab, "lab_context", return_value=(contract, {}, [], {}, {})), \
+                mock.patch.object(lab, "diagnostic_request", return_value=result) as diagnostic, \
+                mock.patch.object(lab, "application_and_request") as application, \
+                mock.patch.object(lab, "hardware") as acceptance, \
+                mock.patch.object(lab.signal, "signal"), mock.patch.object(lab.signal, "alarm") as alarm, \
+                mock.patch("builtins.print") as output:
+            lab.lab_entry()
+            diagnostic.assert_called_once_with()
+            application.assert_not_called()
+            acceptance.assert_not_called()
+            alarm.assert_called_once_with(60)
+            output.assert_called_once_with(json.dumps(result, sort_keys=True))
+            for mode in ("apply", "probe", "engine"):
+                fake_sys.argv[-1] = mode
+                with self.subTest(mode=mode), self.assertRaises(ValueError):
+                    lab.lab_entry()
+            self.assertEqual(diagnostic.call_count, 1)
+
+    def test_numeric_and_shape_tamper_rejected(self):
+        good = self.diagnose()
+        for key, value in (("private", "sentinel"), ("required_count", 8),
+                           ("settings_struct_bytes", 24), ("first_failure", "private-stage-sentinel")):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                probe.validate_trace({**good, key: value})
+        for key, value in (("count", True), ("count", 1 << 32), ("ready", "sentinel")):
+            bad = copy.deepcopy(good)
+            bad["observed"][key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                probe.validate_trace(bad)
+        bad = copy.deepcopy(good)
+        bad["calls"][2]["return_code"] = 26
+        with self.assertRaises(ValueError):
+            probe.validate_trace(bad)
+        bad = copy.deepcopy(good)
+        bad["devices"][0]["private"] = "sentinel"
+        with self.assertRaises(ValueError):
+            probe.validate_trace(bad)
+
+
 class PayloadTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -624,6 +819,28 @@ class PayloadTests(unittest.TestCase):
         self.assertEqual(env["VLLM_PLUGINS"], "")
         self.assertNotIn("TORCHINDUCTOR_VEC_ISA_OK", env)
         self.assertFalse(contract["deployable"])
+
+    def test_diagnostic_payload_is_explicit_source_bound_and_denial_only(self):
+        files, contract = host.make_payload(self.builder, "1"*40, self.bundle, self.extra,
+                                            b"fake-linux-binary", "hardware-diagnostic")
+        self.assertEqual(contract["operation"], "hardware-diagnostic")
+        self.assertEqual(contract["sources"]["probe.py"], hashlib.sha256(self.extra[host.PROBE]).hexdigest())
+        self.assertNotEqual(files["lab.json"], self.files["lab.json"])
+        with self.assertRaises(ValueError):
+            host.make_payload(self.builder, "1"*40, self.bundle, self.extra, b"fake", "unreviewed")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / "payload").mkdir()
+            (root / "payload/lab.json").write_bytes(files["lab.json"])
+            (root / "payload/probe.py").write_bytes(files["probe.py"])
+            args = host.create_command("owned", "owner", root, "/empty-weights", contract, {"config": {"Env": []}})
+            self.assertEqual(args[-1], "diagnose-hardware")
+            row = {"schema": "nib.deepseek-hardware-diagnostic/v1", "status": "BLOCKED",
+                   "deployable": False, "confidential": False, "functional_pass": False,
+                   "stage": "diagnostic", "probe_execution": "timeout", "child": None}
+            host.validate_result(row, root, contract, None)
+            with self.assertRaises(ValueError):
+                host.validate_result({**row, "functional_pass": True}, root, contract, None)
 
     def test_authoritative_application_receipt_reused_not_relaxed(self):
         fixtures = self.fixtures
@@ -805,7 +1022,7 @@ class ReportTests(unittest.TestCase):
             (root / "payload").mkdir()
             (root / "payload/lab.json").write_text("{}")
             args = host.create_command("nib-deepseek-" + "a"*32, "b"*32, root, "/weights",
-                                       {"base_image": "pinned", "environment": {"VLLM_PLUGINS": ""}},
+                                       {"base_image": "pinned", "environment": {"VLLM_PLUGINS": ""}, "operation": "functional"},
                                        {"config": {"Env": ["SECRET_IMAGE_DEFAULT=unused"]}})
         for flag, value in (("--network", "none"), ("--pull", "never"), ("--ipc", "private"),
                             ("--shm-size", "2g"), ("--memory", "768g"), ("--pids-limit", "1024")):
@@ -821,7 +1038,7 @@ class ReportTests(unittest.TestCase):
         config = {"config": {"Env": ["NVIDIA_REQUIRE_CUDA=cuda>=13.0 driver>=580",
                                     "NVIDIA_REQUIRE_BRAND=brand=tesla", "NVIDIA_DISABLE_REQUIRE=true",
                                     "UNRELATED=private-sentinel"]}}
-        contract = {"base_image": "pinned", "environment": {"VLLM_PLUGINS": ""}}
+        contract = {"base_image": "pinned", "environment": {"VLLM_PLUGINS": ""}, "operation": "functional"}
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             (root / "payload").mkdir()

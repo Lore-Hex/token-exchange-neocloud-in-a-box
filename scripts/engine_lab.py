@@ -81,6 +81,7 @@ def lab_context(expected):
     contract = json.loads(raw)
     require(contract["schema"] == "nib.deepseek-lab-input/v1" and contract["status"] == "BLOCKED"
             and contract["deployable"] is False and contract["confidential"] is False
+            and contract["operation"] in ("functional", "hardware-diagnostic")
             and platform.system() == "Linux" and platform.machine() == "x86_64"
             and platform.python_version() == "3.12.3" and sys.pycache_prefix is None
             and os.getcwd() == "/" and dict(os.environ) == contract["environment"])
@@ -126,6 +127,50 @@ def quiet_command(argv, timeout, *, output=False):
 def hardware():
     raw = quiet_command([ROOT + "/python", "probe"], 15, output=True)
     return GPU_PROBE.validate_report(json.loads(raw))
+
+
+def diagnostic_child(expected):
+    """Same pre-NVML startup as probe; no weights, application or engine path."""
+    row = {"stage": "invocation", "invocation": {
+        "linux": sys.platform == "linux", "isolated": bool(sys.flags.isolated),
+        "no_site": bool(sys.flags.no_site), "no_bytecode": bool(sys.dont_write_bytecode),
+        "argument_shape": len(sys.argv) == 3 and sys.argv[2] == "probe-diagnostic"},
+        "bootstrap": {"stage": "not-run", "source_index": None}, "probe": None}
+    def checkpoint(stage, source_index):
+        require(stage in ("preconditions", "setuptools-source", "vendor-root", "install", "complete")
+                and (type(source_index) is int and 0 <= source_index < 4 if stage == "setuptools-source" else source_index is None))
+        row["bootstrap"] = {"stage": stage, "source_index": source_index}
+    try:
+        require(all(row["invocation"].values()))
+        row["stage"] = "source-binding"
+        contract, _, _, _, _ = lab_context(expected)
+        require(contract["operation"] == "hardware-diagnostic")
+        row["stage"] = "bootstrap"
+        install_lab({"paths": contract["paths"], "stdlib_roots": contract["paths"][:2],
+                     "wrapper": ROOT + "/python", "launcher": ROOT + "/launch.py"}, sys.modules[__name__], checkpoint=checkpoint)
+        row["stage"] = "probe-unavailable"
+        row["probe"] = GPU_PROBE.diagnose()
+        row["stage"] = "probe"
+    except Exception:
+        pass
+    return row
+
+
+def diagnostic_request():
+    row = {"schema": "nib.deepseek-hardware-diagnostic/v1", "status": "BLOCKED",
+           "deployable": False, "confidential": False, "functional_pass": False,
+           "stage": "diagnostic", "probe_execution": "failed", "child": None}
+    try:
+        raw = quiet_command([ROOT + "/python", "probe-diagnostic"], 15, output=True)
+        row["probe_execution"] = "malformed"
+        candidate = {**row, "probe_execution": "completed", "child": json.loads(raw)}
+        GPU_PROBE.validate_diagnostic(candidate)
+        row = candidate
+    except subprocess.TimeoutExpired:
+        row["probe_execution"] = "timeout"
+    except Exception:
+        pass
+    return row
 
 
 def http_request(path, *, data=None, timeout=2):
@@ -276,9 +321,19 @@ def application_and_request(contract, sources, modules, application, measured):
 
 
 def lab_entry():
+    if len(sys.argv) == 3 and sys.argv[2] == "probe-diagnostic":
+        print(json.dumps(diagnostic_child(sys.argv[1]), sort_keys=True))
+        return
     require(sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode and len(sys.argv) >= 3)
     contract, sources, modules, application, measured = lab_context(sys.argv[1])
     mode, rest = sys.argv[2], sys.argv[2:]
+    if contract["operation"] == "hardware-diagnostic":
+        require(mode == "diagnose-hardware" and len(rest) == 1)
+        signal.signal(signal.SIGALRM, lambda *_: os._exit(124))
+        signal.alarm(60)
+        print(json.dumps(diagnostic_request(), sort_keys=True))
+        return
+    require(contract["operation"] == "functional")
     if mode == "apply" and len(rest) == 1:
         for path in ("/cache/home", "/cache/tmp", "/cache/hf", "/cache/deep-gemm", "/cache/triton",
                      "/cache/inductor", "/cache/torch", "/cache/xdg"):
