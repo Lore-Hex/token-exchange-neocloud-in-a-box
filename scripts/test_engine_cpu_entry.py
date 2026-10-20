@@ -30,6 +30,21 @@ lab_fixture = load("cpu_lab_fixture", "scripts/test_deepseek_lab.py")
 cpu, lab = tool.cpu, lab_fixture.lab
 cpu.os, cpu.sys, cpu.json = os, sys, json
 cpu.types, cpu.hashlib = types, hashlib
+helpers = lab_fixture.helpers
+cpu.compiled_catalog, cpu.same_code = helpers.compiled_catalog, helpers.same_code
+
+
+def finder_empty():
+    with mock.patch.object(sys, "_nib_lab_bootstrap", None, create=True):
+        return cpu.finder_packet(None)
+
+
+def finder_same():
+    expected = [object(), object(), object()]
+    with mock.patch.object(sys, "_nib_lab_bootstrap",
+                           {"finders": expected, "pattern_status": "pending"}, create=True), \
+            mock.patch.object(sys, "meta_path", expected):
+        return cpu.finder_packet(None)
 
 
 class EntryTests(unittest.TestCase):
@@ -83,7 +98,10 @@ class EntryTests(unittest.TestCase):
                     first = second = None
                     checkpoints.finish()
                     self.assertEqual(checkpoints.observation, {"status": "eof", "last_id": failed + 3})
-                    self.assertEqual(os.read(state.reader, 3), b"\xff\xff")
+                    packet = os.read(state.reader, cpu.STATE_PACKET_BYTES + 1)
+                    self.assertEqual(packet[:2], b"\xff\xff")
+                    self.assertEqual(len(packet), cpu.STATE_PACKET_BYTES)
+                    cpu.validate_finders(cpu.decode_finders(packet[2:]))
             finally:
                 for fd in (first, second):
                     if fd is not None:
@@ -120,7 +138,9 @@ class EntryTests(unittest.TestCase):
                 checkpoints.finish()
                 self.assertEqual(checkpoints.observation, {"status": "eof", "last_id": 16})
                 if not write_failure:
-                    self.assertEqual(cpu.decode_state(os.read(state.reader, 3)), dict.fromkeys(cpu.STATE_FIELDS, False))
+                    packet = os.read(state.reader, cpu.STATE_PACKET_BYTES + 1)
+                    self.assertEqual(cpu.decode_state(packet[:2]), dict.fromkeys(cpu.STATE_FIELDS, False))
+                    cpu.validate_finders(cpu.decode_finders(packet[2:]))
             finally:
                 checkpoints.finish()
                 state.finish()
@@ -175,9 +195,10 @@ class EntryTests(unittest.TestCase):
                 self.assertEqual(argv[:3], ["/opt/nib/python", "entry", "--checkpoint-fd"])
                 self.assertEqual(argv[4], "--state-fd")
                 self.assertEqual(kwargs["pass_fds"], (int(argv[3]), int(argv[5])))
+                packet = bits + finder_same()
                 program = ("import os,sys\nprint('PRIVATE stdout')\nprint('PRIVATE stderr',file=sys.stderr)\n"
                            "os.write(int(sys.argv[1]),bytes(range(1," + str(code + 1) + ")))\n"
-                           "os.write(int(sys.argv[2])," + repr(bits) + ")\nsys.exit(" + str(exit_code) + ")")
+                           "os.write(int(sys.argv[2])," + repr(packet) + ")\nsys.exit(" + str(exit_code) + ")")
                 return popen([sys.executable, "-I", "-S", "-B", "-c", program, argv[3], argv[5]], **kwargs)
             with self.subTest(code=code, bits=bits), mock.patch.object(cpu.subprocess, "Popen", side_effect=start):
                 row = cpu.observe_entry(lab)
@@ -240,6 +261,170 @@ class EntryTests(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout), {"fixed": "only"})
 
 
+class FinderTests(unittest.TestCase):
+    def setUp(self):
+        self.expected = [object(), object(), object()]
+        self.state = {"finders": self.expected, "pattern_status": "pending"}
+        self.sources = [{"id": spec["id"], "status": "verified"} for spec in cpu.FINDER_SPECS]
+
+    def observe(self, actual, catalog=None):
+        with mock.patch.object(sys, "_nib_lab_bootstrap", self.state, create=True), \
+                mock.patch.object(sys, "meta_path", actual):
+            raw = cpu.finder_packet(catalog)
+        self.assertEqual(len(raw), cpu.STATE_PACKET_BYTES - 2)
+        row = cpu.decode_finders(raw)
+        cpu.validate_finders(row)
+        self.assertNotIn("PRIVATE", json.dumps(row))
+        return row
+
+    def test_unchanged_add_remove_reorder_duplicate_and_bound(self):
+        same = self.observe(self.expected)
+        self.assertTrue(same["same_identity_list"])
+        self.assertEqual(same["entries"], ["builtin", "frozen", "sealed"])
+        self.assertEqual(same["pattern_adapter_stage"], "pending")
+        added = self.observe([object(), *self.expected])
+        self.assertEqual(added["entries"], ["unknown", "builtin", "frozen", "sealed"])
+        self.assertFalse(added["same_identity_list"])
+        self.assertFalse(added["expected_order_changed"])
+        self.assertEqual(self.observe(self.expected[:2])["missing_expected_in_scan"], ["sealed"])
+        self.assertTrue(self.observe(self.expected[::-1])["expected_order_changed"])
+        self.assertTrue(self.observe([*self.expected, self.expected[2]])["expected_duplicated"])
+        capped = self.observe([object()] * 33 + self.expected)
+        self.assertEqual(capped["entries"], ["unknown"] * 32)
+        self.assertTrue(capped["scan_truncated"])
+        self.assertEqual(capped["missing_expected_in_scan"], ["builtin", "frozen", "sealed"])
+
+    def synthetic(self, source_index, method, classmethod=False):
+        # Original synthetic fixture, not an upstream import or copied class.
+        raw = ("class Hook:\n" + (" @classmethod\n" if classmethod else "")
+               + " def " + method + "(self, *args):\n  return -0.0\n")
+        name = cpu.FINDER_MODULES[source_index]
+        module = types.ModuleType(name)
+        module.__file__ = "/selected/" + cpu.FINDER_SPECS[source_index]["installed"]
+        exec(compile(raw, "/PRIVATE/name.py", "exec", dont_inherit=True), module.__dict__)
+        function = vars(module.Hook)[method]
+        if classmethod:
+            function = function.__func__
+        return module, function
+
+    def test_each_fixed_category_requires_complete_code_and_exact_module_binding(self):
+        for index, spec in enumerate(cpu.FINDER_SPECS):
+            for site in spec["sites"]:
+                method = site["qualname"].split(".")[-1]
+                module, function = self.synthetic(index, method, index == 2)
+                catalog = (self.sources, [(site["id"], spec["id"], function.__code__, None)], "/selected")
+                with self.subTest(category=site["id"]), mock.patch.dict(sys.modules, {module.__name__: module}):
+                    row = self.observe([*self.expected, module.Hook()], catalog)
+                    self.assertEqual(row["entries"][-1], site["id"])
+                    self.assertEqual(self.observe([module.Hook], catalog)["entries"], [site["id"]])
+                    # Neither public-looking names nor filename establish identity.
+                    original = function.__code__
+                    function.__code__ = original.replace(co_firstlineno=original.co_firstlineno + 1)
+                    self.assertEqual(self.observe([module.Hook()], catalog)["entries"], ["unknown"])
+                    function.__code__ = original.replace(co_consts=tuple(
+                        0.0 if type(value) is float and value == 0 else value for value in original.co_consts))
+                    self.assertEqual(self.observe([module.Hook()], catalog)["entries"], ["unknown"])
+                    function.__code__ = original
+                    module.__file__ = "/PRIVATE/shadow.py"
+                    self.assertEqual(self.observe([module.Hook()], catalog)["entries"], ["unknown"])
+                    module.__file__ = "/selected/" + spec["installed"]
+                self.assertEqual(self.observe([module.Hook()], catalog)["entries"], ["unknown"])
+
+    def test_unknown_never_invokes_finder_descriptors_equality_or_stringification(self):
+        called = []
+        class Hostile:
+            def __getattribute__(self, key):
+                called.append("instance")
+                raise AssertionError("PRIVATE attribute")
+            def __eq__(self, other):
+                called.append("equality")
+                raise AssertionError("PRIVATE equality")
+            def __repr__(self):
+                called.append("repr")
+                raise AssertionError("PRIVATE repr")
+            @property
+            def find_spec(self):
+                called.append("descriptor")
+                raise AssertionError("PRIVATE descriptor")
+        module, function = self.synthetic(3, "find_spec")
+        catalog = (self.sources, [("six", "six", function.__code__, None)], "/selected")
+        self.assertEqual(self.observe([Hostile()], catalog)["entries"], ["unknown"])
+        class Meta(type):
+            def __getattribute__(self, name):
+                called.append("metaclass")
+                raise AssertionError("PRIVATE metaclass lookup")
+            def __hash__(self):
+                called.append("hash")
+                raise AssertionError("PRIVATE metaclass hash")
+            def __eq__(self, other):
+                called.append("metaclass-equality")
+                raise AssertionError("PRIVATE metaclass equality")
+            @property
+            def __mro__(self):
+                called.append("mro-descriptor")
+                raise AssertionError("PRIVATE mro descriptor")
+            @property
+            def __dict__(self):
+                called.append("class-dict-descriptor")
+                raise AssertionError("PRIVATE class dict descriptor")
+        class MetaHook(metaclass=Meta):
+            pass
+        class DictHook:
+            @property
+            def __dict__(self):
+                called.append("dict-descriptor")
+                raise AssertionError("PRIVATE dict descriptor")
+        self.assertEqual(self.observe([MetaHook, MetaHook(), DictHook()], catalog)["entries"], ["unknown"] * 3)
+        self.assertEqual(called, [])
+        with mock.patch.object(cpu, "same_code", side_effect=ValueError("PRIVATE comparison")), \
+                mock.patch.dict(sys.modules, {module.__name__: module}):
+            row = self.observe([module.Hook()], catalog)
+        self.assertEqual(row["entries"], ["unknown"])
+        self.assertTrue(row["comparison_failed"])
+
+    def test_reference_compilation_statuses_are_bounded_and_do_not_execute(self):
+        raw = b"class Hook:\n def find_spec(self, *args):\n  return None\nraise RuntimeError('PRIVATE source execution')\n"
+        spec = {"id": "synthetic", "root": "selected", "installed": "hook.py", "bytes": len(raw),
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "sites": [{"id": "synthetic", "qualname": "Hook.find_spec"}]}
+        for content, expected in ((raw, "verified"), (raw + b"\n", "source-mismatch")):
+            with mock.patch.object(helpers, "read_source", return_value=content):
+                sources, references = helpers.compiled_catalog([spec], {"selected": "/selected"})
+            self.assertEqual(sources, [{"id": "synthetic", "status": expected}])
+            self.assertEqual(len(references), int(expected == "verified"))
+        for failure, status in ((FileNotFoundError("PRIVATE"), "missing"), (ValueError("PRIVATE"), "read-rejected")):
+            with mock.patch.object(helpers, "read_source", side_effect=failure):
+                self.assertEqual(helpers.compiled_catalog([spec], {"selected": "/selected"}),
+                                 ([{"id": "synthetic", "status": status}], []))
+        with mock.patch.object(cpu, "compiled_catalog", side_effect=ValueError("PRIVATE")):
+            self.assertIsNone(cpu.finder_catalog("/selected"))
+        for stage in cpu.PATTERN_STAGES[1:-1]:
+            self.state["pattern_status"] = stage
+            self.assertEqual(self.observe(self.expected)["pattern_adapter_stage"], stage)
+        self.state["pattern_status"] = "PRIVATE stage"
+        self.assertEqual(self.observe(self.expected)["pattern_adapter_stage"], "unknown")
+
+    def test_packet_and_report_reject_raw_values_and_contradictions(self):
+        good = finder_empty()
+        for raw in (b"", b"PRIVATE", good + b"x", good[:-1], bytes([255]) + good[1:]):
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                cpu.decode_finders(raw)
+        row = self.observe(self.expected)
+        for key, value in (("status", "PRIVATE"), ("entries", ["PRIVATE"]),
+                           ("sources", [{"id": "PRIVATE", "status": "verified"}]),
+                           ("pattern_adapter_stage", "PRIVATE"), ("same_identity_list", 1),
+                           ("missing_expected_in_scan", ["builtin", "builtin"]),
+                           ("expected_order_changed", True), ("scan_truncated", True)):
+            bad = copy.deepcopy(row)
+            bad[key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                cpu.validate_finders(bad)
+        with mock.patch.object(sys, "_nib_lab_bootstrap", {"finders": "PRIVATE"}, create=True):
+            failed = cpu.decode_finders(cpu.finder_packet(None))
+        self.assertEqual(failed["status"], "failed")
+        self.assertNotIn("PRIVATE", json.dumps(failed))
+
+
 class ContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -258,7 +443,8 @@ class ContractTests(unittest.TestCase):
                 "entry_pass": True, "stage": "complete", "application": fixture.SmokeTests().application_receipt(),
                 "phase_elapsed_ms": {"application-preflight": 100, "application": 1000, "entry": 200},
                 "entry": {"outcome": "exited", "exit_code": 0, "checkpoints": {"status": "eof", "last_id": 16},
-                          "state_observation": "observed", "state_mismatches": dict.fromkeys(cpu.STATE_FIELDS, False)}}
+                          "state_observation": "observed", "state_mismatches": dict.fromkeys(cpu.STATE_FIELDS, False),
+                          "finder_diagnostic": cpu.decode_finders(finder_same())}}
 
     def validate(self, row):
         # Use the current CPU contract's source identity with the real fake-tree receipt.
@@ -321,6 +507,34 @@ class ContractTests(unittest.TestCase):
         report["entry_pass"] = False
         report["entry"].update(state_observation="unavailable", state_mismatches=None, exit_code=1)
         self.assertFalse(self.validate(report))
+
+    def test_finder_observation_disagreement_or_unavailable_never_claims_pass(self):
+        report = self.valid_report()
+        for packet in (finder_empty(),):
+            bad = copy.deepcopy(report)
+            bad["entry"]["finder_diagnostic"] = cpu.decode_finders(packet)
+            with self.assertRaises(ValueError):
+                self.validate(bad)
+            bad["entry_pass"] = False
+            self.assertFalse(self.validate(bad))
+        state = {"finders": [object(), object(), object()], "pattern_status": "pending"}
+        for actual in ([*state["finders"], object()], state["finders"][::-1], [object()] * 33):
+            with mock.patch.object(sys, "_nib_lab_bootstrap", state, create=True), \
+                    mock.patch.object(sys, "meta_path", actual):
+                packet = cpu.finder_packet(None)
+            bad = copy.deepcopy(report)
+            bad["entry"]["finder_diagnostic"] = cpu.decode_finders(packet)
+            self.assertFalse(cpu.diagnostic_pass(bad["entry"]))
+            with self.assertRaises(ValueError):
+                self.validate(bad)
+            bad["entry_pass"] = False
+            self.assertFalse(self.validate(bad))
+        bad = copy.deepcopy(report)
+        bad["entry"]["finder_diagnostic"]["comparison_failed"] = True
+        with self.assertRaises(ValueError):
+            self.validate(bad)
+        bad["entry_pass"] = False
+        self.assertFalse(self.validate(bad))
 
     def daemon(self, result, failure=None):
         temporary = tempfile.TemporaryDirectory(dir="/private/tmp" if sys.platform == "darwin" else None)
