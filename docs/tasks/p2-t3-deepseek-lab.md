@@ -14,6 +14,15 @@ It retains isolated/no-site/source-only Python, fixed paths and spawn-only
 reentry **before preparation and unpickling**. It is not a general sandbox
 against malicious native engine code.
 
+The application receipt's `before_inventory_sha256` hashes the complete
+pre-application inspection report, including file inventory, console and
+packaging metadata. It is not the files-only digest in the measured packaging
+record. The existing application preflight enforces that measured files-only
+digest before writes; the recorder retains the receipt writer's hash and the
+authoritative receipt validation. A valid application receipt remains
+recordable when subsequent engine startup fails. This is a software correction,
+not evidence that model startup or inference succeeded.
+
 ## Startup Observations
 
 Newly prepared bundles include a content-free `startup` record. The parent
@@ -33,6 +42,27 @@ completions, request bodies or tokens are added to evidence. The recorder
 rejects unknown fields, unbounded values and inconsistent startup states.
 The existing runtime limits and fail-closed admission remain unchanged.
 Older prepared bundles retain their original source and evidence shape.
+
+New engine-entry checkpoint bundles pass one explicit numeric FD through
+`Popen(pass_fds=...)` and the exact `engine --checkpoint-fd N` route. The child
+requires a write-only, nonblocking FIFO, makes it non-inheritable, and closes
+it before calling `serve.cmd`, including on earlier failures. Worker, tracker,
+VecISA and other reentry routes do not accept checkpoint arguments.
+
+Only ordered one-byte IDs are emitted: 1 source binding, 2 patched-source
+recheck, 3 bootstrap preconditions, 4-7 the four pinned setuptools sources,
+8 vendor root, 9 bootstrap installation, 10 bootstrap completed, 11 serve
+import, 12 parser import, 13 parser construction, 14 parsing, 15 argument
+validation, 16 boundary check, and 17 immediately before the serve call.
+An ID marks entry to a boundary, not its successful completion or root cause.
+ID 17 does not prove workers, health, inference or qualification.
+
+The parent drains at most 18 bytes per nonblocking poll, retaining only the
+last valid ID and fixed status (`not-started`, `eof`, `incomplete`, `invalid`,
+`overflow`, or `read-failed`). It closes its read endpoint before engine
+cleanup. EOF or a partial prefix is not success. Raw bytes, errors, engine
+logs and arbitrary metadata are never copied to evidence. These diagnostics
+do not authorize inference or relax any finder, admission or worker guard.
 
 The outer recorder also identifies its fixed experiment step: `attach`,
 `decode`, `terminal`, `validation`, or `completed`. Before cleanup it inspects

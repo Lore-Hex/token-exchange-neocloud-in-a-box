@@ -1,0 +1,31 @@
+{
+  "cleanup": "confirmed",
+  "confidential": false,
+  "deployable": false,
+  "failure": "bounded-lab-stage-failed",
+  "functional_pass": false,
+  "image": {
+    "binding": "local-manifest-reference-platform-and-diffids",
+    "daemon_os_interpreter_trusted": true,
+    "docker_reported_id": "sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "local_config_bytes_rehashed": false,
+    "local_layers_rehashed": false,
+    "manifest_sha256": "6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "platform": "linux/amd64",
+    "raw_config_link_verified": true,
+    "raw_config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d"
+  },
+  "provenance": {
+    "config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d",
+    "git_sha": "26a7240b53ee0590d98655b12c6b57ca4779c2aa",
+    "image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "manifest_sha256": "b74ae635c35372cf6c350e4b33ef60c90ff01fe6426ad0fa7bc99b1982fe5bed",
+    "pack_revision": "1bae0e1088993b9b82de08f59de5be5a34e42170",
+    "payload_sha256": "3cb65760ee46c48340dee07291e9eb5238ff10878ad7aded537b8e6970fd25a4",
+    "receipt_sha256": "c013a3c48806a88ce90d56933c2689c82ab911e12090fa2a6ab9663a79067818",
+    "source_bundle_sha256": "a4f87b4964750d98913b873d6dabd6ec0890cca14e744d93045d230f19d5c432"
+  },
+  "result": "fail",
+  "stage": "experiment",
+  "status": "BLOCKED"
+}
