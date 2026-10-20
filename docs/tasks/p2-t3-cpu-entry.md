@@ -47,11 +47,16 @@ Each endpoint is an explicitly passed write-only nonblocking FIFO, made
 non-inheritable and closed on every owned exit path. No FD number is assumed.
 The parent retains only a fixed status and last checkpoint.
 
-A second dedicated pipe carries exactly two bytes: ten fixed mismatch bits,
-or the unavailable sentinel. It reports only the existing comparisons for
+A second dedicated pipe carries a fixed 44-byte packet. Its first two bytes
+remain the ten fixed mismatch bits or the unavailable sentinel. They report
+only the existing comparisons for
 paths, executable, spawn executable, start method, cwd, pycache prefix, plugin
-setting, worker method, NUMA environment presence and finders. No values,
-module/finder names, exception text, stack, argv or logs are retained.
+setting, worker method, NUMA environment presence and finders. The remaining
+bytes carry the [fixed finder diagnostic](p2-t3-finder-identity.md): public
+catalog IDs, bounded identity-list observations and the pattern adapter stage.
+No runtime-derived values, module/class names, exception text, stack, argv or
+logs are retained. Historical producers used only the two-byte bitset; their
+artifacts are unchanged and validated against their historical producer.
 Unavailable or malformed observations cannot pass. These are observations at
 child termination, not proof of which mutation first caused a rejection.
 They do not encode every loader or source-verification failure. In particular,
