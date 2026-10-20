@@ -516,6 +516,10 @@ class LifecycleTests(unittest.TestCase):
     def test_create_timeout_late_daemon_and_inspection_timeout_cannot_certify_cleanup(self):
         self.exercise_lifecycle(("create_timeout", "create_late", "inspect_timeout"))
 
+    def test_explicit_platform_inspection_fails_closed_before_container_creation(self):
+        self.exercise_lifecycle(("image_unsupported_platform", "image_wrong_arch",
+                                 "image_wrong_digest", "image_volumes"))
+
     def exercise_lifecycle(self, failures):
         for failure in failures:
             with self.subTest(failure=failure):
@@ -544,8 +548,19 @@ class LifecycleTests(unittest.TestCase):
                     config = json.loads((Path(env["DOCKER_CONFIG"]) / "config.json").read_bytes())
                     self.assertEqual(config, {"auths": {"https://index.docker.io/v1/": {}}})
                     if args[:2] == ["image", "inspect"]:
-                        return tau.encoded([{"Id": "sha256:" + "c" * 64, "Os": "linux", "Architecture": "amd64",
-                                             "RepoDigests": [runner.runtime.TARGET["image"]], "Config": {}}])
+                        self.assertEqual(args, ["image", "inspect", "--platform", "linux/amd64",
+                                                runner.runtime.TARGET["image"]])
+                        if failure == "image_unsupported_platform":
+                            raise ValueError(CANARY)
+                        image = {"Id": "sha256:" + "c" * 64, "Os": "linux", "Architecture": "amd64",
+                                 "RepoDigests": [runner.runtime.TARGET["image"]], "Config": {}}
+                        if failure == "image_wrong_arch":
+                            image["Architecture"] = "arm64"
+                        if failure == "image_wrong_digest":
+                            image["RepoDigests"] = ["python@sha256:" + "f" * 64]
+                        if failure == "image_volumes":
+                            image["Config"]["Volumes"] = {"/unexpected": {}}
+                        return tau.encoded([image])
                     if args[0] == "create":
                         if failure in ("create_timeout", "create_late"):
                             raise TimeoutError(CANARY)
@@ -603,10 +618,14 @@ class LifecycleTests(unittest.TestCase):
                 self.assertEqual(summary["cleanup_confirmed"], failure != "cleanup" and not uncertain)
                 self.assertEqual(summary["cleanup"], "create-completion-unknown" if uncertain else
                                  "failed" if failure == "cleanup" else "confirmed")
-                if failure in ("create_timeout", "create_late"):
+                if failure in ("create_timeout", "create_late") or (failure or "").startswith("image_"):
                     self.assertFalse(any(args[0] in ("inspect", "start", "rm") for args in calls))
                 else:
                     self.assertTrue(any(args[0] == "rm" for args in calls))
+                if (failure or "").startswith("image_"):
+                    self.assertFalse(any(args[0] == "create" for args in calls))
+                    self.assertEqual(summary["stage"], "image")
+                    self.assertIsNone(summary["diagnostic"])
                 if failure == "create_late":
                     self.assertTrue(state["exists"])
                     self.assertEqual(state["queries"], 2)

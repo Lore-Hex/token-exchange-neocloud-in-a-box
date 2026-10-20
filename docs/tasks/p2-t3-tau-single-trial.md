@@ -114,7 +114,14 @@ read-only rootfs, all capabilities dropped, no-new-privileges, 2 CPUs, 4 GiB
 memory/swap ceiling, 64 PIDs, and a 256 MiB noexec scratch tmpfs. No image pull
 is allowed. Docker uses a private credential-free config and an explicitly
 selected local Unix socket. Inspection rejects policy drift before start;
-normal completion requires no OOM, exit zero and stopped state. The owned
+image inspection explicitly selects the same `linux/amd64` platform as create.
+The [Docker inspection contract](https://docs.docker.com/reference/cli/docker/image/inspect/)
+requires API 1.49+ for `--platform`; unsupported daemons fail before create,
+without falling back to host-default inspection. A multi-platform digest can
+otherwise inspect the host's ARM member despite an AMD64 pull. The inspected
+member must still match the pinned repository digest, platform and no-volumes
+policy; its immutable ID is used for container creation.
+Normal completion requires no OOM, exit zero and stopped state. The owned
 container is force-removed and an independent label query must be empty.
 Create completion is uncertain from immediately before dispatch until exact
 owned-container inspection succeeds. Client timeout or failed inspection keeps
