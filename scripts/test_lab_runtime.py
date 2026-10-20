@@ -59,13 +59,43 @@ class LabRuntimeTests(unittest.TestCase):
     def test_expected_image_identity(self):
         with patch.object(pull.subprocess, "run") as run:
             run.return_value.returncode = 0
-            run.return_value.stdout = (pull.CONFIG + " linux/amd64\n").encode()
+            run.return_value.stdout = json.dumps([{
+                "Id": pull.CONFIG, "Os": "linux", "Architecture": "amd64",
+                "RepoDigests": [pull.IMAGE]}]).encode()
             self.assertTrue(pull.image_identity(pull.ENV))
+
+    def test_containerd_manifest_id(self):
+        with patch.object(pull.subprocess, "run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = json.dumps([{
+                "Id": pull.MANIFEST, "Os": "linux", "Architecture": "amd64",
+                "Descriptor": {"digest": pull.MANIFEST}}]).encode()
+            self.assertTrue(pull.image_identity(pull.ENV))
+
+    def test_wrong_manifest_binding(self):
+        with patch.object(pull.subprocess, "run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = json.dumps([{
+                "Id": pull.CONFIG, "Os": "linux", "Architecture": "amd64",
+                "RepoDigests": ["wrong"]}]).encode()
+            with self.assertRaises(ValueError):
+                pull.image_identity(pull.ENV)
+
+    def test_conflicting_descriptor(self):
+        with patch.object(pull.subprocess, "run") as run:
+            run.return_value.returncode = 0
+            run.return_value.stdout = json.dumps([{
+                "Id": pull.CONFIG, "Os": "linux", "Architecture": "amd64",
+                "RepoDigests": [pull.IMAGE], "Descriptor": {"digest": "wrong"}}]).encode()
+            with self.assertRaises(ValueError):
+                pull.image_identity(pull.ENV)
 
     def test_unexpected_image_identity(self):
         with patch.object(pull.subprocess, "run") as run:
             run.return_value.returncode = 0
-            run.return_value.stdout = b"sha256:wrong linux/arm64\n"
+            run.return_value.stdout = json.dumps([{
+                "Id": "wrong", "Os": "linux", "Architecture": "arm64",
+                "RepoDigests": [pull.IMAGE]}]).encode()
             with self.assertRaises(ValueError):
                 pull.image_identity(pull.ENV)
 

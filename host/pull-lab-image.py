@@ -18,6 +18,7 @@ import tempfile
 
 IMAGE = "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9"
 CONFIG = "sha256:bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d"
+MANIFEST = IMAGE.rsplit("@", 1)[1]
 ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/nonexistent",
        "LANG": "C", "LC_ALL": "C"}
 
@@ -36,12 +37,26 @@ def docker_environment():
 
 def image_identity(env):
     value = subprocess.run(
-        ["/usr/bin/docker", "image", "inspect", "--format",
-         "{{.Id}} {{.Os}}/{{.Architecture}}", IMAGE],
+        ["/usr/bin/docker", "image", "inspect", IMAGE],
         env=env, stdin=subprocess.DEVNULL, capture_output=True, timeout=30)
     if value.returncode:
         return False
-    if value.stdout.decode().strip() != CONFIG + " linux/amd64":
+    if len(value.stdout) > 65536:
+        raise ValueError("image-metadata-too-large")
+    rows = json.loads(value.stdout)
+    if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+        raise ValueError("image-metadata-rejected")
+    row = rows[0]
+    descriptor = row.get("Descriptor") or {}
+    digests = row.get("RepoDigests") or []
+    # Docker's classic store reports the config ID; its containerd store reports
+    # the manifest ID. Both must still identify this exact requested manifest.
+    if (row.get("Id") not in (CONFIG, MANIFEST) or row.get("Os") != "linux"
+            or row.get("Architecture") != "amd64" or not isinstance(descriptor, dict)
+            or not isinstance(digests, list) or not all(isinstance(item, str) for item in digests)
+            or (descriptor and descriptor.get("digest") != MANIFEST)
+            or (IMAGE not in digests
+                and descriptor.get("digest") != MANIFEST)):
         raise ValueError("image-identity-mismatch")
     return True
 
@@ -64,7 +79,8 @@ def main():
         if not image_identity(env):
             raise ValueError("image-not-present")
     print(json.dumps({"result": "pass", "cached": cached, "image": IMAGE,
-                      "config": CONFIG, "executed": False, "confidential_qualified": False,
+                      "expected_config": CONFIG, "binding": "manifest-reference-and-platform",
+                      "config_bytes_verified": False, "executed": False, "confidential_qualified": False,
                       "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()},
                      sort_keys=True))
     return 0
