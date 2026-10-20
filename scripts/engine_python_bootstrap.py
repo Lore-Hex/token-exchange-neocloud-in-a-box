@@ -2,12 +2,15 @@
 """Restricted spawn bootstrap for the bounded import smoke, not a Python sandbox."""
 
 import ast
+import dis
 import hashlib
 import importlib.machinery
 import json
+import math
 import os
 import stat
 import sys
+import types
 
 # Exact public dependency sources; immutable revisions and provenance in the task
 # doc. Only these loaders receive a compatibility adapter, never generic hooks.
@@ -37,6 +40,130 @@ PROCESS_CALLERS = {
     "triton.knobs": "triton-knobs",
 }
 PROCESS_CALLER_FRAMES = 32
+CALLSITE_FRAMES = 128
+CALLSITE_IDS = 8
+CALLSITE_STATUSES = ("verified", "missing", "read-rejected", "source-mismatch", "compile-rejected", "selector-rejected")
+
+
+def compiled_catalog(specs, roots):
+    """Compile verified installed public bytes once; never execute references."""
+    sources, references = [], []
+    for spec in specs:
+        row = {"id": spec["id"], "status": "read-rejected"}
+        sources.append(row)
+        try:
+            raw = read_source(roots[spec["root"]] + "/" + spec["installed"], 256 << 10)
+        except FileNotFoundError:
+            row["status"] = "missing"
+            continue
+        except (OSError, ValueError):
+            continue
+        if len(raw) != spec["bytes"] or hashlib.sha256(raw).hexdigest() != spec["sha256"]:
+            row["status"] = "source-mismatch"
+            continue
+        row["status"] = "compile-rejected"
+        try:
+            code = compile(raw, "<public-callsite-reference>", "exec", flags=0, dont_inherit=True, optimize=0)
+            pending, codes = [code], []
+            while pending:
+                require(len(codes) < 4096)
+                current = pending.pop()
+                codes.append(current)
+                pending.extend(c for c in current.co_consts if type(c) is types.CodeType)
+            row["status"] = "selector-rejected"
+            selected = []
+            for site in spec["sites"]:
+                matches = [c for c in codes if c.co_qualname == site["qualname"]
+                           and ("firstline" not in site or c.co_firstlineno == site["firstline"])]
+                require(len(matches) == 1)
+                reference = matches[0]
+                offsets = None
+                if "line" in site:
+                    # Offsets come only from the pinned reference, never f_lineno.
+                    instructions = list(dis.get_instructions(reference, show_caches=True))
+                    require(any(i.opname == site["op"] and i.argval == site["arg"]
+                                and i.positions.lineno == site["line"] for i in instructions))
+                    offsets = tuple(i.offset for i in instructions if i.positions.lineno == site["line"])
+                    require(offsets)
+                selected.append((site["id"], spec["id"], reference, offsets))
+            references.extend(selected)
+            row["status"] = "verified"
+        except (ValueError, TypeError, SyntaxError, RecursionError, OverflowError):
+            # No raw source, exception or partial references escape this section.
+            continue
+    return sources, references
+
+
+def same_code(actual, expected):
+    """Bounded complete structure comparison, excluding co_filename only.
+
+    No frame globals, private hashes/serialization, or arbitrary object equality.
+    Matching structure is not proof of origin, globals, or authorization.
+    """
+    budget = 20000
+    fields = ("co_name", "co_qualname", "co_argcount", "co_posonlyargcount", "co_kwonlyargcount",
+              "co_nlocals", "co_stacksize", "co_flags", "co_code", "co_consts", "co_names",
+              "co_varnames", "co_freevars", "co_cellvars", "co_firstlineno", "co_linetable", "co_exceptiontable")
+    def equal(left, right, depth=0):
+        nonlocal budget
+        budget -= 1
+        if budget < 0 or depth > 64:
+            raise ValueError("callsite comparison budget")
+        kind = type(left)
+        if kind is not type(right):
+            return False
+        if kind is types.CodeType:
+            return all(equal(getattr(left, field), getattr(right, field), depth + 1) for field in fields)
+        if kind is tuple:
+            return len(left) == len(right) and all(equal(a, b, depth + 1) for a, b in zip(left, right))
+        if kind is frozenset:
+            return len(left) == len(right) and all(any(equal(a, b, depth + 1) for b in right) for a in left)
+        if kind in (str, bytes):
+            return len(left) == len(right) and left == right
+        if kind is float:
+            return left == right and (left != 0.0 or math.copysign(1.0, left) == math.copysign(1.0, right))
+        if kind is complex:
+            return equal(left.real, right.real, depth + 1) and equal(left.imag, right.imag, depth + 1)
+        if kind in (int, bool, type(None), type(Ellipsis)):
+            return left == right
+        return False
+    return equal(actual, expected)
+
+
+def callsite_observation(catalog, frame):
+    sources, references = catalog
+    result = {"sources": [dict(row) for row in sources], "ids": [], "frames_scanned": 0,
+              "unmatched_frames": 0, "scan_truncated": False, "output_truncated": False,
+              "comparison_failed": False}
+    try:
+        for _ in range(CALLSITE_FRAMES):
+            if frame is None:
+                break
+            result["frames_scanned"] += 1
+            matched = False
+            code = frame.f_code
+            for identifier, _, reference, offsets in references:
+                try:
+                    # Cheap exact-type name filter only; it never establishes a match.
+                    if type(code) is not types.CodeType or type(code.co_name) is not str or code.co_name != reference.co_name:
+                        continue
+                    if same_code(code, reference) and (offsets is None or frame.f_lasti in offsets):
+                        matched = True
+                        if identifier not in result["ids"]:
+                            if len(result["ids"]) < CALLSITE_IDS:
+                                result["ids"].append(identifier)
+                            else:
+                                result["output_truncated"] = True
+                except Exception:
+                    result["comparison_failed"] = True
+            result["unmatched_frames"] += int(not matched)
+            frame = frame.f_back
+        result["scan_truncated"] = frame is not None
+    except Exception:
+        result["comparison_failed"] = True
+    finally:
+        del frame
+    return result
 
 
 def process_command(executable, argv):
@@ -136,7 +263,7 @@ def check_preparation(data, layout):
             and ("log_level" not in data or type(data["log_level"]) is int))
 
 
-def install(layout):
+def install(layout, catalog=None):
     """Called from a hash-bound launcher before any engine import or unpickle.
 
     Low-level API for fake-package tests. Production layout validation and
@@ -179,6 +306,8 @@ def install(layout):
              "backport_loading": False, "backport_class": None, "entrypoint_loads": 0,
              "context_module": None, "context_entrypoint": None, "first_state_mismatch": None,
              "first_denied_process": None}
+    if catalog is None:
+        catalog = ([], [])  # Fake-package callers; production always supplies its fixed catalog.
 
     def reject(kind):
         failures[kind] += 1
@@ -186,8 +315,14 @@ def install(layout):
 
     def reject_process(event, executable=None, argv=None):
         if state["first_denied_process"] is None:
+            try:
+                callsites = callsite_observation(catalog, sys._getframe(1))
+            except Exception:
+                callsites = {"sources": catalog[0], "ids": [], "frames_scanned": 0, "unmatched_frames": 0,
+                             "scan_truncated": False, "output_truncated": False, "comparison_failed": True}
             state["first_denied_process"] = {"event": event, "command": process_command(executable, argv),
-                                             "caller": process_caller()}
+                                             "caller": process_caller(),
+                                             "callsites": callsites}
         reject("process")
 
     def state_check(field, matches):

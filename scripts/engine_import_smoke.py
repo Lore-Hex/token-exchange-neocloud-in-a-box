@@ -39,6 +39,90 @@ ENVIRONMENT_SOURCES = (
      "sha256": "1fde7ecd24f4087ea99e739b8d75175e23e0b6e6fd337e4804669813eab8c2b5"},
 )
 
+# Diagnostic references only. Installed bytes must match before compilation;
+# these source observations do not assert installed coverage or permit a process.
+CALLSITE_ADDITIONS = (
+    ("ctypes-util", "python/cpython", "f6650f9ad73359051f3e558c2431a109bc016664", "Lib/ctypes/util.py", "stdlib", "ctypes/util.py", 13959,
+     "a54310b64a080b0103f3de5df86b21d884bc2985760f3596ab85d458eae8cba5"),
+    ("platform", "python/cpython", "f6650f9ad73359051f3e558c2431a109bc016664", "Lib/platform.py", "stdlib", "platform.py", 43331,
+     "df2625b046c8aec56d87f0f46544ef879bdb899dced0b1d94dabbd4830bad60a"),
+    ("triton-nvidia", "triton-lang/triton", "f797708c0626e5f9840ca5b0a98790e2c7cb09ad", "third_party/nvidia/backend/driver.py", "packages", "triton/backends/nvidia/driver.py", 13312,
+     "992ba21e12ee170a904f3a1caca24a78ce3dd66b661087faea5973b995480f63"),
+    ("triton-amd", "triton-lang/triton", "f797708c0626e5f9840ca5b0a98790e2c7cb09ad", "third_party/amd/backend/driver.py", "packages", "triton/backends/amd/driver.py", 18168,
+     "532c1ca88181eba940d9e95dc5f1645ead4823c93d6d0c42d84251dd2ec30b7c"),
+    ("triton-build", "triton-lang/triton", "f797708c0626e5f9840ca5b0a98790e2c7cb09ad", "python/triton/runtime/build.py", "packages", "triton/runtime/build.py", 3928,
+     "26c6ddd4dba3534ce54790f12d2b75729f51e467c48b2f740dd62b7c75a85b39"),
+    ("triton-knobs", "triton-lang/triton", "f797708c0626e5f9840ca5b0a98790e2c7cb09ad", "python/triton/knobs.py", "packages", "triton/knobs.py", 18341,
+     "b0e6a0a241cbc52067b04c230b2ec149ae109ee4bf48d3b7706a18a8e526fc60"),
+    ("torch-extension", "pytorch/pytorch", "cf30153c4c131c8164ee7798e5022d810682e2cb", "torch/utils/cpp_extension.py", "packages", "torch/utils/cpp_extension.py", 146418,
+     "1494e212b205f4485267c7a89017929dca30f748ae55aec792557d460a83447a"),
+    ("torch-builder", "pytorch/pytorch", "cf30153c4c131c8164ee7798e5022d810682e2cb", "torch/_inductor/cpp_builder.py", "packages", "torch/_inductor/cpp_builder.py", 104277,
+     "cb369b351ac1021ecd6127e536ef35c1a6d57de6ae3689e95d097c9ab3ebad02"),
+    ("torch-vec", "pytorch/pytorch", "cf30153c4c131c8164ee7798e5022d810682e2cb", "torch/_inductor/cpu_vec_isa.py", "packages", "torch/_inductor/cpu_vec_isa.py", 22427,
+     "6cd49584e3cfdab9f0883c5a24d088f992909775f7d400ff0a4cefccbe6998a0"),
+)
+# Fixed public function IDs. A selector covers its complete compiled code, not
+# an observed function/module name. Phase selectors additionally restrict offsets.
+CALLSITE_FUNCTIONS = {
+    "vllm-init": ("<module>",), "vllm-env": ("<module>", "_patch_inductor_fallback_allow_list"),
+    "torch-init": ("<module>",),
+    "ctypes-util": ("_findSoname_ldconfig", "_findLib_gcc", "_findLib_ld"),
+    "platform": ("_Processor.from_subprocess", "_syscmd_file"),
+    "triton-nvidia": ("libcuda_dirs", "library_dirs"),
+    "triton-amd": ("_get_path_to_hip_runtime_dylib",),
+    "triton-build": ("_build", "compile_module_from_src"),
+    "triton-knobs": ("NvidiaTool.from_path",),
+    "torch-extension": ("_find_cuda_home", "_find_rocm_home", "_find_sycl_home", "check_compiler_ok_for_platform",
+                        "get_compiler_abi_compatibility_and_version", "_check_cuda_version", "is_ninja_available", "_run_ninja_build"),
+    "torch-builder": ("cpp_compiler_search", "get_cpp_compiler", "get_compiler_version_info", "_run_compile_cmd"),
+    "torch-vec": ("VecISA._probe_load", "VecISA.check_build", "VecISA.__bool__", "valid_vec_isa_list"),
+}
+CALLSITE_PHASES = {
+    "vllm-init": (("vllm-init-env-import", "<module>", 14, "IMPORT_NAME", "vllm.env_override"),),
+    "vllm-env": (("vllm-env-torch-import", "<module>", 150, "IMPORT_NAME", "torch"),
+                 ("vllm-env-lowering-import", "_patch_inductor_fallback_allow_list", 894, "IMPORT_NAME", "torch._inductor"),
+                 ("vllm-env-graph-import", "_patch_inductor_fallback_allow_list", 909, "IMPORT_NAME", "torch._inductor"),
+                 ("vllm-env-fallback-call", "<module>", 917, "LOAD_NAME", "_patch_inductor_fallback_allow_list")),
+}
+
+
+def callsite_specs():
+    sources = [{**source, "id": identifier, "root": "packages", "installed": source["path"]}
+               for identifier, source in zip(("vllm-init", "vllm-env", "torch-init"), ENVIRONMENT_SOURCES[:3])]
+    sources += [dict(zip(("id", "repository", "revision", "path", "root", "installed", "bytes", "sha256"), row))
+                for row in CALLSITE_ADDITIONS]
+    for source in sources:
+        identifier = source["id"]
+        # Specific phases precede their broader function within each frame.
+        source["sites"] = [dict(zip(("id", "qualname", "line", "op", "arg"), row))
+                           for row in CALLSITE_PHASES.get(identifier, ())]
+        source["sites"] += [{"id": identifier + ":" + ("module" if name == "<module>" else name), "qualname": name}
+                            for name in CALLSITE_FUNCTIONS[identifier]]
+    return sources
+
+
+def validate_callsites(require, value):
+    specs = callsite_specs()
+    require(type(value) is dict and set(value) == {"sources", "ids", "frames_scanned", "unmatched_frames",
+            "scan_truncated", "output_truncated", "comparison_failed"})
+    require(type(value["sources"]) is list and len(value["sources"]) == len(specs))
+    eligible = []
+    for row, spec in zip(value["sources"], specs):
+        require(type(row) is dict and set(row) == {"id", "status"} and row["id"] == spec["id"]
+                and row["status"] in ("verified", "missing", "read-rejected", "source-mismatch", "compile-rejected", "selector-rejected"))
+        if row["status"] == "verified":
+            eligible.extend(site["id"] for site in spec["sites"])
+    require(type(value["ids"]) is list and len(value["ids"]) <= 8
+            and all(type(item) is str and item in eligible for item in value["ids"])
+            and len(value["ids"]) == len(set(value["ids"])))
+    require(type(value["frames_scanned"]) is int and 0 <= value["frames_scanned"] <= 128
+            and type(value["unmatched_frames"]) is int and 0 <= value["unmatched_frames"] <= value["frames_scanned"]
+            and all(type(value[key]) is bool for key in ("scan_truncated", "output_truncated", "comparison_failed"))
+            and (not value["scan_truncated"] or value["frames_scanned"] == 128)
+            and (not value["output_truncated"] or len(value["ids"]) == 8)
+            and (value["frames_scanned"] > 0 or value["comparison_failed"])
+            and (not value["ids"] or value["unmatched_frames"] < value["frames_scanned"]))
+
 
 def json_bytes(value):
     return (json.dumps(value, sort_keys=True, indent=2) + "\n").encode()
@@ -101,6 +185,7 @@ def context(expected):
             and contract["environment"]["VLLM_PLUGINS"] == "" and "NUMACTL_PYTHON" not in contract["environment"])
     require(contract["import_environment_sources"] == list(ENVIRONMENT_SOURCES)
             and all(contract["environment"].get(key) == value for key, value in IMPORT_ENVIRONMENT.items()))
+    require(contract["process_callsite_sources"] == callsite_specs())
     require(contract["metadata_source_sha256"] == METADATA_SOURCES
             and contract["permitted_dependency_entrypoint"] == list(CONTEXT_ENTRYPOINT))
     return contract, sources, modules, application, measured
@@ -260,7 +345,8 @@ def entry():
             final_sources(modules[0], application, measured)
             layout = {"paths": contract["paths"], "stdlib_roots": contract["paths"][:2],
                       "wrapper": ROOT + "/python", "launcher": ROOT + "/launch.py", "environment": contract["environment"]}
-            state = install(layout)
+            catalog = compiled_catalog(callsite_specs(), {"stdlib": contract["paths"][0], "packages": contract["paths"][-1]})
+            state = install(layout, catalog)
             if args[1:] == ["fresh"]:
                 result = {"state": current(), "imports": imports(), "guard_rejections": dict(state["failures"]),
                           "first_state_mismatch": state["first_state_mismatch"],
@@ -385,12 +471,13 @@ def validate(overlay, report, application, measured):
         denied = row["first_denied_process"]
         overlay.require((denied is None) == (row["guard_rejections"]["process"] == 0))
         if denied is not None:
-            overlay.require(type(denied) is dict and set(denied) == {"event", "command", "caller"}
+            overlay.require(type(denied) is dict and set(denied) == {"event", "command", "caller", "callsites"}
                             and denied["event"] in ("subprocess.Popen", "multiprocessing.spawnv_passfds", "os.exec",
                                 "os.posix_spawn", "os.system", "os.fork", "os.forkpty")
                             and denied["command"] in ("uname-processor", "gxx-version", "ptxas-version", "other")
                             and denied["caller"] in ("stdlib-platform", "torch-cpp-builder", "triton-nvidia-compiler", "triton-knobs", "other")
                             and (denied["command"] == "other" or denied["event"] in ("subprocess.Popen", "os.exec", "os.posix_spawn")))
+            validate_callsites(overlay.require, denied["callsites"])
         overlay.require(type(row["dependency_entrypoint_loads"]) is int and 0 <= row["dependency_entrypoint_loads"] <= 1000000)
         overlay.require(type(row["imports"]) is list and len(row["imports"]) == len(MODULES))
         seen_failure = False

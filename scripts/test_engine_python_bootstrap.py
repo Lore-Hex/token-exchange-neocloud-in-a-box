@@ -593,7 +593,7 @@ class BootstrapTests(unittest.TestCase):
         for shape, expected in bootstrap.PROCESS_SHAPES.items():
             row = self.process_fixture(f"subprocess.run({list(shape)!r}, check=True)")
             self.assertEqual(row["first_denied_process"],
-                             {"event": "subprocess.Popen", "command": expected, "caller": "other"})
+                             {"event": "subprocess.Popen", "command": expected, "caller": "other", "callsites": row["first_denied_process"]["callsites"]})
             self.assertEqual(row["failures"], {key: int(key == "process") for key in row["failures"]})
             self.assertIsNone(row["first_state_mismatch"])
             self.assertEqual(row["message"], "sealed Python operation rejected")
@@ -608,7 +608,8 @@ class BootstrapTests(unittest.TestCase):
         for event, operation in cases.items():
             row = self.process_fixture(operation)
             self.assertEqual(row["first_denied_process"], {"event": event,
-                "command": "gxx-version" if event in ("os.exec", "os.posix_spawn") else "other", "caller": "other"})
+                "command": "gxx-version" if event in ("os.exec", "os.posix_spawn") else "other", "caller": "other",
+                "callsites": row["first_denied_process"]["callsites"]})
             self.assertEqual(row["failures"]["process"], 1)
             self.assertNotIn("private", json.dumps(row))
         sentinel = self.root / "sentinel"
@@ -629,7 +630,7 @@ except ValueError:
 STATE['check']()
 sys.audit('os.system', b'private')''')
         self.assertEqual(row["first_denied_process"],
-                         {"event": "subprocess.Popen", "command": "uname-processor", "caller": "other"})
+                         {"event": "subprocess.Popen", "command": "uname-processor", "caller": "other", "callsites": row["first_denied_process"]["callsites"]})
         self.assertEqual(row["failures"]["process"], 2)
         self.assertEqual(row["failures"]["state"], 0)
         self.assertNotIn("private", json.dumps(row))
@@ -639,7 +640,7 @@ except ValueError:
     pass
 subprocess.run(['uname', '-p'])''')
         self.assertEqual(row["first_denied_process"],
-                         {"event": "os.system", "command": "other", "caller": "other"})
+                         {"event": "os.system", "command": "other", "caller": "other", "callsites": row["first_denied_process"]["callsites"]})
         self.assertEqual(row["failures"]["process"], 2)
         self.assertNotIn("private", json.dumps(row))
 
@@ -679,7 +680,74 @@ subprocess.run(['uname', '-p'])''')
         row = self.run_fixture("positive")
         for observed in (row["metadata_parent"], row["metadata"], row["grandchild"]["metadata"], row["fresh"]["metadata"]):
             self.assertEqual(observed["first_denied_process"],
-                             {"event": "subprocess.Popen", "command": "gxx-version", "caller": "other"})
+                             {"event": "subprocess.Popen", "command": "gxx-version", "caller": "other", "callsites": observed["first_denied_process"]["callsites"]})
+        self.assertEqual(row["tracker"], {"launched": True, "exit_zero": True})
+
+    def test_callsite_catalog_matches_known_ancestor_for_unknown_command_in_all_children(self):
+        raw = ("import subprocess\ntry:\n    subprocess.run(['synthetic-private-command', '-c', 'synthetic-private-script'])\n"
+               "except ValueError:\n    pass\nVALUE = 'synthetic-only'\n").encode()
+        path = self.root / "packages/fake_engine.py"
+        path.write_bytes(raw)
+        spec = {"id": "synthetic-source", "root": "packages", "installed": "fake_engine.py", "bytes": len(raw),
+                "sha256": bootstrap.hashlib.sha256(raw).hexdigest(),
+                "sites": [{"id": "synthetic-import", "qualname": "<module>"}]}
+        driver = DRIVER.replace("STATE = install(LAYOUT)",
+            f"CATALOG = compiled_catalog([{spec!r}], {{'packages': LAYOUT['paths'][-1]}})\nSTATE = install(LAYOUT, CATALOG)")
+        driver = driver.replace('    points = metadata.entry_points(group="review.test")',
+                                '    import fake_engine\n    points = metadata.entry_points(group="review.test")')
+        self.launcher.write_bytes(SOURCE + driver.encode())
+        row = self.run_fixture("positive")
+        for observed in (row["metadata_parent"], row["metadata"], row["grandchild"]["metadata"], row["fresh"]["metadata"]):
+            denied = observed["first_denied_process"]
+            self.assertEqual(denied["command"], "other")
+            self.assertEqual(denied["callsites"]["ids"], ["synthetic-import"])
+            self.assertEqual(denied["callsites"]["sources"], [{"id": "synthetic-source", "status": "verified"}])
+            self.assertFalse(denied["callsites"]["comparison_failed"])
+            self.assertNotIn("synthetic-private", json.dumps(denied))
+        self.assertEqual(row["tracker"], {"launched": True, "exit_zero": True})
+
+    def test_diagnostic_failure_cannot_mask_original_sticky_deny(self):
+        row = self.process_fixture('''def broken(*args): raise RuntimeError('synthetic-private')
+globals()['callsite_observation'] = broken
+try:
+    subprocess.run(['uname', '-p'])
+except ValueError:
+    pass
+STATE['check']()
+sys.audit('os.system', b'private')''')
+        self.assertEqual(row["message"], "sealed Python operation rejected")
+        self.assertEqual(row["failures"]["process"], 2)
+        self.assertEqual(row["first_denied_process"]["command"], "uname-processor")
+        self.assertTrue(row["first_denied_process"]["callsites"]["comparison_failed"])
+        self.assertNotIn("private", json.dumps(row))
+
+    def test_source_pin_does_not_false_match_valid_stale_bytecode(self):
+        import importlib.util
+        raw = ("import subprocess\ntry:\n    subprocess.run(['synthetic-private', '-c', 'synthetic-private'])\n"
+               "except ValueError:\n    pass\nVALUE = 'synthetic-only'\n").encode()
+        path = self.root / "packages/fake_engine.py"
+        path.write_bytes(raw)
+        forged = compile(raw.replace(b"synthetic-only", b"forged-bytecode"), str(path), "exec")
+        cached = Path(importlib.util.cache_from_source(str(path)))
+        cached.parent.mkdir(exist_ok=True)
+        cached.write_bytes(importlib.util.MAGIC_NUMBER + struct.pack("<III", 0, int(path.stat().st_mtime), len(raw)) + marshal.dumps(forged))
+        spec = {"id": "synthetic-source", "root": "packages", "installed": "fake_engine.py", "bytes": len(raw),
+                "sha256": bootstrap.hashlib.sha256(raw).hexdigest(),
+                "sites": [{"id": "synthetic-import", "qualname": "<module>"}]}
+        driver = DRIVER.replace("STATE = install(LAYOUT)",
+            f"CATALOG = compiled_catalog([{spec!r}], {{'packages': LAYOUT['paths'][-1]}})\nSTATE = install(LAYOUT, CATALOG)")
+        driver = driver.replace('    points = metadata.entry_points(group="review.test")',
+                                '    import fake_engine\n    points = metadata.entry_points(group="review.test")')
+        self.launcher.write_bytes(SOURCE + driver.encode())
+        row = self.run_fixture("positive")
+        self.assertEqual(row["imported"], "forged-bytecode")
+        self.assertEqual(row["grandchild"]["imported"], "forged-bytecode")
+        for observed in (row["metadata_parent"], row["metadata"], row["grandchild"]["metadata"], row["fresh"]["metadata"]):
+            denied = observed["first_denied_process"]
+            self.assertEqual(denied["callsites"]["sources"], [{"id": "synthetic-source", "status": "verified"}])
+            self.assertEqual(denied["callsites"]["ids"], [])
+            self.assertGreater(denied["callsites"]["unmatched_frames"], 0)
+        self.assertEqual(path.read_bytes(), raw)
         self.assertEqual(row["tracker"], {"launched": True, "exit_zero": True})
 
     def test_only_exact_spawn_and_tracker_forms_parse(self):

@@ -36,6 +36,11 @@ overlay, smoke = tool.overlay, tool.smoke
 
 
 class SmokeTests(unittest.TestCase):
+    def callsites(self):
+        return {"sources": [{"id": row["id"], "status": "verified"} for row in smoke.callsite_specs()],
+                "ids": [], "frames_scanned": 1, "unmatched_frames": 1, "scan_truncated": False,
+                "output_truncated": False, "comparison_failed": False}
+
     @classmethod
     def setUpClass(cls):
         fixtures.ApplicationTests.setUpClass()
@@ -102,6 +107,9 @@ class SmokeTests(unittest.TestCase):
             "OTEL_PYTHON_CONTEXT": "contextvars_context", "OTEL_PROPAGATORS": "none",
             "OPENBLAS_MAIN_FREE": "1", "GOTOBLAS_MAIN_FREE": "1"})
         self.assertEqual(contract["import_environment_sources"], list(smoke.ENVIRONMENT_SOURCES))
+        self.assertEqual(contract["process_callsite_sources"], smoke.callsite_specs())
+        self.assertEqual(len(contract["process_callsite_sources"]), 12)
+        self.assertEqual(sum(row["bytes"] for row in contract["process_callsite_sources"]), 537634)
         self.assertEqual(contract["metadata_source_sha256"], tool.bootstrap.METADATA_SOURCES)
         self.assertEqual(contract["permitted_dependency_entrypoint"], list(tool.bootstrap.CONTEXT_ENTRYPOINT))
         self.assertEqual([p["revision"] for p in contract["import_environment_sources"]],
@@ -153,7 +161,7 @@ class SmokeTests(unittest.TestCase):
         report = copy.deepcopy(original)
         report["smoke"]["fresh"]["guard_rejections"]["process"] = 1
         report["smoke"]["fresh"]["first_denied_process"] = {
-            "event": "subprocess.Popen", "command": "other", "caller": "other"}
+            "event": "subprocess.Popen", "command": "other", "caller": "other", "callsites": self.callsites()}
         self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
 
     def test_process_diagnostics_are_required_bounded_and_counter_consistent(self):
@@ -165,14 +173,14 @@ class SmokeTests(unittest.TestCase):
             for event in tool.bootstrap.PROCESS_EVENTS:
                 for command in tool.bootstrap.PROCESS_COMMANDS:
                     for caller in (*tool.bootstrap.PROCESS_CALLERS.values(), "other"):
-                        row["first_denied_process"] = {"event": event, "command": command, "caller": caller}
+                        row["first_denied_process"] = {"event": event, "command": command, "caller": caller, "callsites": self.callsites()}
                         if command != "other" and event not in ("subprocess.Popen", "os.exec", "os.posix_spawn"):
                             with self.assertRaises(ValueError):
                                 smoke.validate(overlay, report, self.application, self.measured)
                         else:
                             # A caught denial must fail even if all imports claim pass.
                             self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
-            valid = {"event": "subprocess.Popen", "command": "gxx-version", "caller": "torch-cpp-builder"}
+            valid = {"event": "subprocess.Popen", "command": "gxx-version", "caller": "torch-cpp-builder", "callsites": self.callsites()}
             for invalid in (None, {}, [], "private", True, {**valid, "args": ["private"]},
                             {"event": "subprocess.Popen", "command": "gxx-version"},
                             *({**valid, field: value} for field in valid for value in (None, True, [], {}, "private"))):
