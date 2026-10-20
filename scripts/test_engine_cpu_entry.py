@@ -468,7 +468,8 @@ class ContractTests(unittest.TestCase):
     def setUpClass(cls):
         fixture.SmokeTests.setUpClass()
         cls.extra = dict(fixture.SmokeTests.extra)
-        for name in (tool.SCRIPT, tool.BASE, tool.RUNTIME, tool.LAB, tool.LAB_BOOTSTRAP, tool.TEST, "scripts/test_deepseek_lab.py"):
+        for name in (tool.SCRIPT, tool.BASE, tool.RUNTIME, tool.LAB, tool.LAB_BOOTSTRAP,
+                     tool.TEST, tool.SIX_TEST, "scripts/test_deepseek_lab.py"):
             cls.extra[name] = (ROOT / name).read_bytes()
         cls.bundle = tool.checker.working_bundle(ROOT)
         cls.files, cls.contract = tool.prepare_files("1" * 40, cls.bundle, cls.extra)
@@ -496,6 +497,9 @@ class ContractTests(unittest.TestCase):
         self.assertEqual((files, contract), (self.files, self.contract))
         self.assertEqual(set(files) - set(contract["sources"]), {"python", "entry.json"})
         self.assertEqual(contract["source_bundle_sha256"], tool.checker.bundle_digest({**self.bundle, **self.extra}))
+        changed = {**self.extra, tool.SIX_TEST: self.extra[tool.SIX_TEST] + b"\n"}
+        _, changed_contract = tool.prepare_files("1" * 40, self.bundle, changed)
+        self.assertNotEqual(changed_contract["source_bundle_sha256"], contract["source_bundle_sha256"])
         for name, digest in contract["sources"].items():
             self.assertEqual(tool.overlay.digest(files[name]), digest)
         self.assertFalse(any(name.startswith("pack/") or name == "nib" for name in files))

@@ -11,6 +11,11 @@ one exact upstream registration conflict without permitting arbitrary finder
 changes. Its source-backed synthetic reproduction is not proof of the finder
 identity in an earlier diagnostic.
 
+The [pinned Botocore Six adapter](p2-t3-botocore-six-compat.md) handles its
+finite virtual-module registry within the same sealed finder, without
+permitting an additional meta-path hook. Post-change execution remains a
+separate reviewed, parent-owned diagnostic.
+
 ## Boundary
 
 The committed recorder is

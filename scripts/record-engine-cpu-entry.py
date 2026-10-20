@@ -27,6 +27,7 @@ RUNTIME = "scripts/engine_cpu_entry.py"
 LAB = "scripts/engine_lab.py"
 LAB_BOOTSTRAP = "scripts/engine_lab_bootstrap.py"
 TEST = "scripts/test_engine_cpu_entry.py"
+SIX_TEST = "scripts/test_botocore_six.py"
 LABEL = "nib.cpu-entry"
 
 
@@ -75,7 +76,7 @@ builder, overlay, recorder, checker = base.builder, base.overlay, base.recorder,
 
 def inputs(root=ROOT):
     revision, bundle, extra = base.inputs(root)
-    for name in (SCRIPT, BASE, RUNTIME, LAB, LAB_BOOTSTRAP, TEST, "scripts/test_deepseek_lab.py"):
+    for name in (SCRIPT, BASE, RUNTIME, LAB, LAB_BOOTSTRAP, TEST, SIX_TEST, "scripts/test_deepseek_lab.py"):
         row = checker.git(root, "ls-tree", revision, "--", name).decode().split()
         overlay.require(len(row) == 4 and row[:2] == ["100644", "blob"] and row[3] == name)
         overlay.require(int(checker.git(root, "cat-file", "-s", row[2])) <= checker.LIMIT)
