@@ -34,6 +34,7 @@ PROBE = "scripts/engine_lab_probe.py"
 CORRECTNESS = "scripts/engine_local_correctness.py"
 SMOKE = "scripts/engine_import_smoke.py"
 TEST = "scripts/test_deepseek_lab.py"
+SIX_TEST = "scripts/test_botocore_six.py"
 PACK = "models/deepseek-v4.1-flash-1017/1"
 SUPPORT = ("scripts/record-engine-image.py", "scripts/prepare-engine-overlay.py",
            "scripts/check-engine-candidate.py", "scripts/engine_overlay.py",
@@ -131,7 +132,8 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
 def prepare(destination, operation="functional"):
     builder = load("lab_application_builder", ROOT / BUILDER, BUILDER_SHA)
     revision, bundle, extra = builder.inputs(ROOT)
-    for name in (SCRIPT, HELPER, RUNTIME, LAB_BOOTSTRAP, PROBE, SMOKE, TEST, PACK + "/pack.yaml", PACK + "/files.sha256"):
+    for name in (SCRIPT, HELPER, RUNTIME, LAB_BOOTSTRAP, PROBE, SMOKE, TEST, SIX_TEST,
+                 PACK + "/pack.yaml", PACK + "/files.sha256"):
         extra[name] = committed(builder, revision, name)
     if operation == "local-correctness":
         for name in (CORRECTNESS, "scripts/test_engine_local_correctness.py"):

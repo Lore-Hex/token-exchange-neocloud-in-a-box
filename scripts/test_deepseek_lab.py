@@ -1139,7 +1139,7 @@ class PayloadTests(unittest.TestCase):
         cls.builder = host.load("lab_test_builder", ROOT / host.BUILDER, host.BUILDER_SHA)
         cls.extra = dict(cls.fixtures.ApplicationTests.extra)
         for name in (host.SCRIPT, host.HELPER, host.RUNTIME, host.LAB_BOOTSTRAP, host.PROBE, host.SMOKE, host.CORRECTNESS,
-                     host.TEST, host.PACK + "/pack.yaml", host.PACK + "/files.sha256"):
+                     host.TEST, host.SIX_TEST, host.PACK + "/pack.yaml", host.PACK + "/files.sha256"):
             cls.extra[name] = (ROOT / name).read_bytes()
         cls.bundle = cls.builder.checker.working_bundle(ROOT)
         cls.files, cls.contract = host.make_payload(cls.builder, "1"*40, cls.bundle, cls.extra, b"fake-linux-binary")
@@ -1147,6 +1147,9 @@ class PayloadTests(unittest.TestCase):
     def test_deterministic_payload_complete_hash_binding_and_unchanged_p0(self):
         again, contract = host.make_payload(self.builder, "1"*40, self.bundle, self.extra, b"fake-linux-binary")
         self.assertEqual((again, contract), (self.files, self.contract))
+        changed = {**self.extra, host.SIX_TEST: self.extra[host.SIX_TEST] + b"\n"}
+        _, changed_contract = host.make_payload(self.builder, "1"*40, self.bundle, changed, b"fake-linux-binary")
+        self.assertNotEqual(changed_contract["source_bundle_sha256"], contract["source_bundle_sha256"])
         self.assertEqual(set(self.files) - set(contract["sources"]), {"lab.json", "python"})
         for name, sha in contract["sources"].items():
             self.assertEqual(hashlib.sha256(self.files[name]).hexdigest(), sha)
