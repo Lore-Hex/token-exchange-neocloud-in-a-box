@@ -42,9 +42,23 @@ DIAGNOSTIC_INVENTORY_POLICY = {
     "census_output_sha256": "006235bf2a5ce571a307efc942b33978f4ef79ab4be91d88db1824470e8f0fd0",
     "entry_limit": 225000,
 }
+# Public wheel pins and upstream AOT documentation: docs/tasks/p0-t4-cutlass-stubs.md.
+# This is a diagnostic classification, never host-native or runtime admission.
+CUTLASS_STUB_POLICY = {
+    "base_image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d",
+    "sha256": "0e0fc2fbde506983308e2d02a9c7673f43e07b7638224cebd00ebcba1b1e5645",
+    "bytes": 71320,
+    "paths": [
+        "nvidia_cutlass_dsl/cu12/lib/stubs/aarch64-unknown-linux-gnu/libcute_dsl_runtime.so",
+        "nvidia_cutlass_dsl/cu12/lib/stubs/aarch64-unknown-nto-qnx8.0.0/libcute_dsl_runtime.so",
+        "nvidia_cutlass_dsl/cu13/lib/stubs/aarch64-unknown-linux-gnu/libcute_dsl_runtime.so",
+        "nvidia_cutlass_dsl/cu13/lib/stubs/aarch64-unknown-nto-qnx8.0.0/libcute_dsl_runtime.so",
+    ],
+}
 INVENTORY_REASONS = frozenset({"depth-limit", "entry-limit", "time-limit", "unsafe-name",
     "symlink", "non-regular-file", "hardlink", "file-size-limit", "total-size-limit",
-    "native-header", "python-abi", "entry-read-rejected"})
+    "native-header", "python-abi", "entry-read-rejected", "nonhost-asset-mismatch", "nonhost-asset-missing"})
 
 
 class InventoryRejected(ValueError):
@@ -59,6 +73,19 @@ class InventoryRejected(ValueError):
 def inventory_require(condition, reason, path=None):
     if not condition:
         raise InventoryRejected(reason, path)
+
+
+def classify_cutlass_stub(name, item):
+    """Check fully hashed file metadata; not an independent image-origin check."""
+    header = item["header"]
+    inventory_require(name in CUTLASS_STUB_POLICY["paths"]
+        and item["sha256"] == CUTLASS_STUB_POLICY["sha256"] and item["bytes"] == CUTLASS_STUB_POLICY["bytes"]
+        and len(header) == 64 and header[:7] == b"\x7fELF\x02\x01\x01"
+        and int.from_bytes(header[16:18], "little") == 3
+        and int.from_bytes(header[18:20], "little") == 183
+        and int.from_bytes(header[20:24], "little") == 1, "nonhost-asset-mismatch", name)
+    return {"path": name, "sha256": item["sha256"], "bytes": item["bytes"],
+            "classification": "published-cutlass-aot-crosscompile-stub"}
 
 
 def require(condition):
@@ -201,11 +228,16 @@ class Tree:
                 return bytes(data) if retain else {"sha256": h.hexdigest(), "bytes": size,
                                                    "mode": stat.S_IMODE(before.st_mode), "header": header}
 
-    def inventory(self, *, diagnostic_policy=None):
+    def inventory(self, *, diagnostic_policy=None, nonhost_policy=None, classified=None):
         entry_limit = MAX_FILES
         if diagnostic_policy is not None:
             require(diagnostic_policy == DIAGNOSTIC_INVENTORY_POLICY)
             entry_limit = DIAGNOSTIC_INVENTORY_POLICY["entry_limit"]
+        if nonhost_policy is not None:
+            require(nonhost_policy == CUTLASS_STUB_POLICY and diagnostic_policy == DIAGNOSTIC_INVENTORY_POLICY
+                    and type(classified) is list and not classified)
+        else:
+            require(classified is None)
         result, total, visited = {}, 0, 0
         def walk(fd, prefix, depth):
             nonlocal total, visited
@@ -239,7 +271,11 @@ class Tree:
                             raise InventoryRejected("entry-read-rejected", diagnostic_name) from None
                         total += item["bytes"]
                         inventory_require(total <= MAX_BYTES, "total-size-limit", diagnostic_name)
-                        if re.search(r"\.so(?:\.|$)", entry.name):
+                        if nonhost_policy is not None and name in CUTLASS_STUB_POLICY["paths"]:
+                            inventory_require(not any(row["path"] == name for row in classified), "nonhost-asset-mismatch", name)
+                            classified.append(classify_cutlass_stub(name, item))
+                            classified.sort(key=lambda row: row["path"])
+                        elif re.search(r"\.so(?:\.|$)", entry.name):
                             header = item["header"]
                             inventory_require(len(header) == 64 and header[:6] == b"\x7fELF\x02\x01"
                                     and int.from_bytes(header[16:18], "little") == 3
@@ -250,6 +286,10 @@ class Tree:
                         del item["header"]
                         result[name] = item
         walk(self.fd, "", 0)
+        if nonhost_policy is not None:
+            found = {row["path"] for row in classified}
+            for name in CUTLASS_STUB_POLICY["paths"]:
+                inventory_require(name in found, "nonhost-asset-missing", name)
         return result
 
     def write(self, name, data, mode):

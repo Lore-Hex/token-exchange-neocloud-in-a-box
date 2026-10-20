@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-image-diagnostic"
 CENSUS_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-metadata-census"
 BOUNDED_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-bounded-integrity"
+STUBS_RECORDED = ROOT / "evidence/p0/2026-10-19-official-vllm-cutlass-stubs"
 
 
 def source(name, relative):
@@ -466,6 +467,181 @@ class ImageTests(unittest.TestCase):
         with self.layout([other]), self.assertRaises(ValueError):
             overlay.installed_root()
 
+    @contextmanager
+    def cutlass_stubs(self):
+        # Synthetic bytes only. The real filesystem/hash/header path executes;
+        # only the expected digest is substituted, never a runtime override.
+        data = bytearray(71320)
+        data[:7] = b"\x7fELF\x02\x01\x01"
+        data[16:24] = b"\x03\x00\xb7\x00\x01\x00\x00\x00"
+        data = bytes(data)
+        with mock.patch.dict(overlay.CUTLASS_STUB_POLICY, sha256=overlay.digest(data)):
+            self.contract["diagnostic_inventory_policy"] = copy.deepcopy(overlay.DIAGNOSTIC_INVENTORY_POLICY)
+            self.contract["diagnostic_nonhost_policy"] = copy.deepcopy(overlay.CUTLASS_STUB_POLICY)
+            for name in overlay.CUTLASS_STUB_POLICY["paths"]:
+                self.fixture.write(name, data)
+            yield data
+
+    def stub_inventory(self, classified):
+        with overlay.directory(self.root) as fd:
+            return overlay.Tree(fd).inventory(diagnostic_policy=overlay.DIAGNOSTIC_INVENTORY_POLICY,
+                                              nonhost_policy=overlay.CUTLASS_STUB_POLICY, classified=classified)
+
+    def test_all_four_stubs_classified_without_generic_admission_or_writes(self):
+        self.assertEqual(overlay.CUTLASS_STUB_POLICY["sha256"],
+                         "0e0fc2fbde506983308e2d02a9c7673f43e07b7638224cebd00ebcba1b1e5645")
+        with self.cutlass_stubs() as data:
+            rows = []
+            inventory = self.stub_inventory(rows)
+            self.assertEqual([row["path"] for row in rows], overlay.CUTLASS_STUB_POLICY["paths"])
+            for row in rows:
+                self.assertEqual(row["classification"], "published-cutlass-aot-crosscompile-stub")
+                self.assertEqual(row["sha256"], overlay.digest(data))
+                self.assertEqual(row["bytes"], 71320)
+                self.assertEqual(inventory[row["path"]]["sha256"], row["sha256"])
+            with overlay.directory(self.root) as fd, \
+                    mock.patch.object(overlay.Tree, "write", side_effect=AssertionError("no writes")), \
+                    mock.patch.object(overlay.Tree, "unlink", side_effect=AssertionError("no writes")):
+                tree = overlay.Tree(fd)
+                for action in (lambda: tree.inventory(), lambda: overlay.inspect(tree, self.contract),
+                               lambda: overlay.apply_overlay(tree, self.contract, self.fixture.stages, {})):
+                    with self.assertRaises(overlay.InventoryRejected) as failure:
+                        action()
+                    self.assertEqual(failure.exception.reason, "native-header")
+            report = self.collect()
+            self.assertEqual(report["classified_nonhost_assets"], rows)
+            self.assertEqual(report["collection"], "pass")
+            for check in ("filesystem_inventory", "record_integrity", "wheel_integrity"):
+                self.assertEqual(report["checks"][check], "pass")
+            self.assertEqual(report["checks"]["selected_root_admission"], "rejected")
+            self.assertEqual(report["overlay_admission"], "rejected")
+            fake = FakeDocker(self.image, report)
+            run = recorder.run_container(self.payload, self.contract, self.config, {}, fake)
+            self.assertEqual((run["result"], run["cleanup"]), ("fail", "confirmed"))
+
+    def test_stub_full_digest_size_and_every_required_header_field(self):
+        with self.cutlass_stubs() as data:
+            names = overlay.CUTLASS_STUB_POLICY["paths"]
+            for name in names:
+                self.fixture.write(name, data[:-1] + b"x")  # Beyond the retained 64-byte header.
+                with self.subTest(name=name), self.assertRaises(overlay.InventoryRejected) as failure:
+                    self.stub_inventory([])
+                self.assertEqual((failure.exception.reason, failure.exception.path), ("nonhost-asset-mismatch", name))
+                self.fixture.write(name, data)
+            for changed in (data[:-1], data + b"x"):
+                self.fixture.write(names[0], changed)
+                with self.assertRaises(overlay.InventoryRejected):
+                    self.stub_inventory([])
+            # Match each synthetic digest so header and size requirements are
+            # tested independently, including an x86 replacement at a known path.
+            variants = [data[:-1], data + b"x"]
+            for offset, value in ((0, 0), (4, 1), (5, 2), (6, 0), (16, 2), (18, 62), (20, 0)):
+                changed = bytearray(data)
+                changed[offset] = value
+                variants.append(bytes(changed))
+            for changed in variants:
+                self.fixture.write(names[0], changed)
+                with mock.patch.dict(overlay.CUTLASS_STUB_POLICY, sha256=overlay.digest(changed)), \
+                        self.assertRaises(overlay.InventoryRejected) as failure:
+                    self.stub_inventory([])
+                self.assertEqual(failure.exception.reason, "nonhost-asset-mismatch")
+
+    def test_stub_missing_asset_is_failure_with_bounded_partial_classifications(self):
+        with self.cutlass_stubs() as data:
+            names = overlay.CUTLASS_STUB_POLICY["paths"]
+            for name in names:
+                (self.root / name).unlink()
+                report = self.collect()
+                self.assertEqual(report["inventory_failure"], {"reason": "nonhost-asset-missing", "path": name})
+                self.assertEqual(report["collection"], "partial")
+                self.assertEqual(len(report["classified_nonhost_assets"]), 3)
+                self.assertEqual(report["checks"]["wheel_integrity"], "unavailable")
+                self.assertEqual(report["overlay_admission"], "rejected")
+                forged = {**report, "inventory_failure": {"reason": "nonhost-asset-missing",
+                                                         "path": report["classified_nonhost_assets"][0]["path"]}}
+                with self.assertRaises(ValueError):
+                    diagnostic.validate_report(overlay, forged, self.contract)
+                self.fixture.write(name, data)
+            for name in names:
+                (self.root / name).unlink()
+            report = self.collect()
+            self.assertEqual(report["inventory_failure"]["reason"], "nonhost-asset-missing")
+            self.assertEqual(report["classified_nonhost_assets"], [])
+
+    def test_stub_relocation_extra_native_and_nonregular_files_remain_rejected(self):
+        with self.cutlass_stubs() as data:
+            names = overlay.CUTLASS_STUB_POLICY["paths"]
+            for extra in ("foreign.so", names[0] + ".1", names[0].replace("/stubs/", "/other/")):
+                self.fixture.write(extra, data)
+                with self.subTest(extra=extra), self.assertRaises(overlay.InventoryRejected) as failure:
+                    self.stub_inventory([])
+                self.assertEqual((failure.exception.reason, failure.exception.path), ("native-header", extra))
+                (self.root / extra).unlink()
+            path = self.root / names[0]
+            for kind, reason in (("symlink", "symlink"), ("hardlink", "hardlink"), ("fifo", "non-regular-file")):
+                path.unlink()
+                if kind == "symlink":
+                    path.symlink_to(self.root / names[1])
+                elif kind == "hardlink":
+                    os.link(self.root / "vllm/_version.py", path)
+                else:
+                    os.mkfifo(path)
+                with self.subTest(kind=kind), self.assertRaises(overlay.InventoryRejected) as failure:
+                    self.stub_inventory([])
+                self.assertEqual(failure.exception.reason, reason)
+                path.unlink()
+                path.write_bytes(data)
+
+    def test_stub_policy_retains_root_hook_and_resource_gates(self):
+        with self.cutlass_stubs():
+            self.fixture.write("unknown.pth", b"raise AssertionError('never execute')\n")
+            other = self.work / "other"
+            other.mkdir()
+            (other / "os-package.py").write_bytes(b"never imported")
+            report = self.collect([other])
+            self.assertEqual(report["checks"]["filesystem_inventory"], "pass")
+            self.assertEqual(report["checks"]["wheel_integrity"], "pass")
+            self.assertEqual(report["checks"]["root_admission"], "rejected")
+            self.assertEqual(report["checks"]["selected_root_admission"], "rejected")
+            self.assertEqual(report["overlay_admission"], "rejected")
+            for key in ("MAX_FILE", "MAX_BYTES"):
+                with self.subTest(key=key), mock.patch.object(overlay, key, 1), \
+                        self.assertRaises(overlay.InventoryRejected):
+                    self.stub_inventory([])
+
+    def test_stub_policy_unknown_identity_and_changed_policy_rejected(self):
+        with self.cutlass_stubs():
+            for key, value in (("base_image", "unknown"), ("official_config", {"sha256": "0" * 64}),
+                               ("diagnostic_nonhost_policy", {**overlay.CUTLASS_STUB_POLICY, "bytes": 71321})):
+                with self.subTest(key=key), mock.patch.dict(self.contract, {key: value}):
+                    report = self.collect()
+                    self.assertEqual(report["checks"]["filesystem_inventory"], "rejected")
+                    self.assertNotIn("classified_nonhost_assets", report)
+            with overlay.directory(self.root) as fd:
+                tree = overlay.Tree(fd)
+                for kwargs in ({"nonhost_policy": overlay.CUTLASS_STUB_POLICY, "classified": []},
+                               {"diagnostic_policy": overlay.DIAGNOSTIC_INVENTORY_POLICY,
+                                "nonhost_policy": {**overlay.CUTLASS_STUB_POLICY, "extra": True}, "classified": []}):
+                    with self.assertRaises(ValueError):
+                        tree.inventory(**kwargs)
+
+    def test_stub_report_cannot_forge_complete_inventory_or_admission(self):
+        with self.cutlass_stubs():
+            report = self.collect()
+            rows = report["classified_nonhost_assets"]
+            for changed in (rows[:-1], rows + rows[:1], list(reversed(rows)),
+                            [{**rows[0], "sha256": "0" * 64}] + rows[1:],
+                            [{**rows[0], "path": "foreign.so"}] + rows[1:]):
+                with self.assertRaises(ValueError):
+                    diagnostic.validate_report(overlay, {**report, "classified_nonhost_assets": changed}, self.contract)
+            for key in ("classified_nonhost_assets", "nonhost_policy", "inventory_policy"):
+                with self.subTest(key=key), self.assertRaises((ValueError, KeyError)):
+                    diagnostic.validate_report(overlay, {k: v for k, v in report.items() if k != key}, self.contract)
+            with self.assertRaises(ValueError):
+                diagnostic.validate_report(overlay, {**report, "overlay_admission": "accepted"}, self.contract)
+            with self.assertRaises(ValueError):
+                diagnostic.validate_report(overlay, {**report, "checks": {k: "pass" for k in report["checks"]}}, self.contract)
+
     def test_unknown_or_forged_hook_content_never_published(self):
         report = self.collect()
         report["roots"][0]["hooks"] = [{"name": "distutils-precedence.pth", "sha256": "c" * 64,
@@ -715,8 +891,10 @@ class ImageTests(unittest.TestCase):
             self.assertEqual(contract["payload_sources"]["engine_image_diagnostic.py"], recorder.DIAGNOSTIC_SHA)
             if mode == "integrity":
                 self.assertEqual(contract["diagnostic_inventory_policy"], overlay.DIAGNOSTIC_INVENTORY_POLICY)
+                self.assertEqual(contract["diagnostic_nonhost_policy"], overlay.CUTLASS_STUB_POLICY)
             else:
                 self.assertNotIn("diagnostic_inventory_policy", contract)
+                self.assertNotIn("diagnostic_nonhost_policy", contract)
         revision, bundle, captured = result
         for replacement in (b"{}\n", b"forged census"):
             with self.assertRaises(ValueError):
@@ -783,7 +961,7 @@ class ImageTests(unittest.TestCase):
         env = recorder.offline_environment(self.work / "control")
         binary, source_hash = recorder.build_validator(ROOT, revision, self.work, env)
         self.assertRegex(source_hash, r"^[0-9a-f]{64}$")
-        for index, source_directory in enumerate((RECORDED, CENSUS_RECORDED, BOUNDED_RECORDED)):
+        for index, source_directory in enumerate((RECORDED, CENSUS_RECORDED, BOUNDED_RECORDED, STUBS_RECORDED)):
             recorded = self.work / "recorded/evidence/p0" / ("official-image-" + str(index))
             recorded.mkdir(parents=True)
             (recorded / "run.json").write_bytes(recorder.prep.read_source(source_directory / "run.json"))
@@ -926,6 +1104,55 @@ class ImageTests(unittest.TestCase):
         for item in (child, report):
             self.assertEqual(item["candidate_status"], "BLOCKED")
             self.assertTrue(all(item[key] is False for key in ("deployable", "abi_validated", "hardware_validated")))
+        self.assertEqual(overlay.MAX_FILES, 100000)
+
+    def test_recorded_stubs_complete_inventory_without_integrity_or_admission(self):
+        hashes = {"run.json": "d9d8aade573234c5db08ac3cd9e9adf026e130cb43686a3e852675474402aee8",
+                  "output.log": "53888d555e37984f67dbe526a6dff482250c12c577971bade0007278ec007f19"}
+        files = {}
+        for name, digest in hashes.items():
+            data = recorder.prep.read_source(STUBS_RECORDED / name)
+            self.assertLessEqual(len(data), 65536)
+            self.assertEqual(overlay.digest(data), digest)
+            files[name] = overlay.load_json(data)
+        run, report = files["run.json"], files["output.log"]
+        child, provenance = report["diagnostic"], report["provenance"]
+        contract = {**self.contract, "diagnostic_inventory_policy": overlay.DIAGNOSTIC_INVENTORY_POLICY,
+                    "diagnostic_nonhost_policy": overlay.CUTLASS_STUB_POLICY}
+        diagnostic.validate_report(overlay, child, contract)
+        self.assertEqual(run["git_sha"], "2dea53cd9ab7556de9dd1a705266496c949735b7")
+        self.assertEqual(provenance["git_sha"], run["git_sha"])
+        self.assertEqual(provenance["payload_sha256"], "4abc71cc78671cd1dfa0cbdcb03c560da0de6520a2ec56657d30848737ce4525")
+        self.assertEqual(provenance["source_bundle_sha256"], "a0c9377d29f76e6e5677b7e27274feebc8fef5983ae968e6b5400a92d9437821")
+        self.assertEqual(provenance["diagnostic_mode"], "integrity")
+        self.assertEqual(run["execution"], "software")
+        self.assertEqual(run["command"], "python3 -I -S scripts/record-engine-image.py --slug official-vllm-cutlass-stubs")
+        self.assertEqual((run["started_utc"], run["ended_utc"]), ("2026-10-19T23:18:25Z", "2026-10-19T23:19:34Z"))
+        self.assertFalse(run["hardware_validated"])
+        self.assertEqual(run["result"], report["result"])
+        self.assertEqual(report["result"], "fail")
+        self.assertEqual(report["cleanup"], "confirmed")
+        self.assertEqual(report["stage"], "overlay-rejected")
+        self.assertEqual(child["collection"], "pass")
+        self.assertEqual(child["overlay_admission"], "rejected")
+        self.assertNotIn("inventory_failure", child)
+        self.assertEqual(child["checks"], dict(filesystem_inventory="pass", record_integrity="rejected",
+            wheel_integrity="rejected", root_admission="rejected", selected_root_admission="rejected"))
+        self.assertEqual(child["inventory_policy"], overlay.DIAGNOSTIC_INVENTORY_POLICY)
+        self.assertEqual(child["nonhost_policy"], overlay.CUTLASS_STUB_POLICY)
+        self.assertEqual(child["classified_nonhost_assets"], [
+            {"path": name, "bytes": 71320, "sha256": "0e0fc2fbde506983308e2d02a9c7673f43e07b7638224cebd00ebcba1b1e5645",
+             "classification": "published-cutlass-aot-crosscompile-stub"} for name in overlay.CUTLASS_STUB_POLICY["paths"]])
+        self.assertEqual(len(child["source_files"]), 13)
+        self.assertTrue(all(item["matches_base"] for item in child["source_files"]))
+        self.assertEqual(sum(item["status"] == "absent" for item in child["source_files"]), 1)
+        for item in (child, report):
+            self.assertEqual(item["candidate_status"], "BLOCKED")
+            self.assertTrue(all(item[key] is False for key in ("deployable", "abi_validated", "hardware_validated")))
+        self.assertTrue(report["image"]["raw_config_link_verified"])
+        self.assertEqual(report["image"]["raw_config_sha256"], overlay.CUTLASS_STUB_POLICY["config_sha256"])
+        self.assertFalse(report["image"]["local_config_bytes_rehashed"])
+        self.assertFalse(report["image"]["local_layers_rehashed"])
         self.assertEqual(overlay.MAX_FILES, 100000)
 
     def test_validator_toolchain_resolution_is_cache_only_and_exact(self):

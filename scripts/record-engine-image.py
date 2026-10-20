@@ -31,9 +31,9 @@ TEST = "scripts/test_engine_image.py"
 CENSUS = "evidence/p0/2026-10-19-official-vllm-metadata-census/output.log"
 MAX_REPORT = 2 << 20
 GO_TOOLCHAIN = "go1.27.2"
-PREPARER_SHA = "29a85545d773e19485958ac31a6fbff604345336b8b9a3b36b50d21dcda4504f"
+PREPARER_SHA = "928161b5e8aa973b10ac4ae968edc904e2896e4a9b0434352194870553fa7b9d"
 SNAPSHOT_SHA = "b7f5753ecacde3cda2bf5fdc673b6f2af239875f2a9468e34a5219a797b78b3a"
-DIAGNOSTIC_SHA = "fb13e974d9b4448addfc5d8d726a012e0d71c1d24ce64d9ae20c4161114d6bcf"
+DIAGNOSTIC_SHA = "1e30fd4dcfae33a4b2bd1e4ab4b1f2a969c83a8342ec649e27f75ba977f92be6"
 CANCELLED = False
 
 
@@ -120,6 +120,10 @@ def payload_files(revision, bundle, extra, *, mode="integrity"):
                         and contract["official_config"]["sha256"] == policy["config_sha256"]
                         and overlay.digest(extra[CENSUS]) == policy["census_output_sha256"])
         contract["diagnostic_inventory_policy"] = dict(policy)
+        nonhost = overlay.CUTLASS_STUB_POLICY
+        overlay.require(contract["base_image"] == nonhost["base_image"]
+                        and contract["official_config"]["sha256"] == nonhost["config_sha256"])
+        contract["diagnostic_nonhost_policy"] = nonhost
     files = {"engine_overlay.py": extra[prep.INSPECTOR], "engine_image_diagnostic.py": extra[DIAGNOSTIC],
              "probe.py": extra[PROBE]}
     contract["payload_sources"] = {name: overlay.digest(data) for name, data in files.items()}

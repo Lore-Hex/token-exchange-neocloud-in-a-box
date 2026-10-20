@@ -1,8 +1,10 @@
 # Read-Only Engine Image Diagnostic
 
-**Recorded against the official cached image: partial collection, rejected
-admission.** The [recorded run](../../evidence/p0/2026-10-19-official-vllm-image-diagnostic/run.json)
-is a failed P0.T4 software diagnostic, not qualification. The candidate
+**Latest recorded outcome: complete selected-root inventory with four exact AOT
+stub classifications; RECORD/wheel and admission rejected.** See the
+[measured result](p0-t4-cutlass-stubs.md#recorded-outcome). The earlier partial
+[recorded run](../../evidence/p0/2026-10-19-official-vllm-image-diagnostic/run.json)
+below remains a failed P0.T4 software diagnostic, not qualification. The candidate
 remains `BLOCKED`, `deployable:false`, `image:null`. No engine import, patch
 application, model weights, image build/publication, GPU, ABI, confidentiality or
 hardware qualification is performed. The existing overlay admission rules remain
@@ -201,7 +203,7 @@ The inventory failed its existing `native-header` check at
 `nvidia_cutlass_dsl/cu12/lib/stubs/aarch64-unknown-linux-gnu/libcute_dsl_runtime.so`.
 This is the reported relative path and fixed rejection class, not proof of the
 file's purpose, actual runtime use or safety to ignore. No native-file exception
-was added and no image content was changed.
+was added by that recorded source and no image content was changed.
 
 External source context only: NVIDIA CUTLASS at
 [`098de2a652cf8f00fd70b2df54051c7eccbb855a`](https://github.com/NVIDIA/cutlass/blob/098de2a652cf8f00fd70b2df54051c7eccbb855a/python/CuTeDSL/cutlass/cute/export/aot_config.py#L27-L33)
@@ -223,6 +225,20 @@ file is NVIDIA-proprietary; no implementation code was copied.
 - Candidate status stays `BLOCKED`, with no deployable image, ABI/GPU/hardware or
   confidential-runtime qualification. SDK stub usage, native admission and the
   existing hook/root blockers require separate source-backed investigation.
+
+### Exact Published Stub Classification
+
+The subsequent [four-asset diagnostic policy](p0-t4-cutlass-stubs.md) has now
+[completed a recorded inventory](p0-t4-cutlass-stubs.md#recorded-outcome) from
+source `2dea53cd9ab7556de9dd1a705266496c949735b7`: all four assets match,
+collection and filesystem inventory pass, and cleanup is confirmed. RECORD,
+wheel, root and selected-root admission checks reject; overall result remains
+`fail`. The exact RECORD/wheel rejection causes remain unresolved.
+It requires the exact image/config, path, whole-file hash, size and AArch64 header
+for four published CUTLASS 4.8.0 AOT link-time stubs. It does not alter generic
+native checks, overlay admission, root/startup gates or historical evidence.
+All four assets are required for a complete classified inventory; missing or
+changed assets fail closed. Even complete classification never grants admission.
 
 ## Fixed Inputs And Identity
 
