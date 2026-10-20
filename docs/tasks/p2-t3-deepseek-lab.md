@@ -73,6 +73,50 @@ because it does not establish qualification; inspect committed
 `run.json`/`output.log`, `functional_pass`, stage and cleanup separately.
 Failed attempts remain evidence. Never rerun automatically.
 
+### Local Correctness Smoke
+
+An optional bundle exercises eight fixed synthetic cases inside the same
+container and engine lifecycle:
+
+```sh
+python3 -I -S host/record-deepseek-lab.py \
+  --prepare-local-correctness "$PRIVATE_CORRECTNESS_BUNDLE"
+```
+
+Use the same bounded `--run` command with the complete verified weights.
+The original functional and diagnostic modes remain separate. This mode
+checks four exact arithmetic/order/logic/extraction answers, two exact JSON
+objects, and two two-turn read-only lookup tool calls. The lookup values
+are fixed test fixtures; no model-supplied command is executed. Unexpected
+tool names, arguments, duplicate JSON keys, refusals, reasoning-only answers,
+truncation, malformed usage and wrong answers fail.
+
+There are at most ten requests, one at a time, no retries, temperature zero,
+reasoning effort `none`, and 512 output tokens per request. Each complete HTTP
+request has a 60-second deadline, including header/body reads. The phase has a
+ten-minute budget with 90 seconds reserved for hardware recheck and teardown;
+the existing whole-run 80-minute watchdog and external deletion deadline do
+not increase. Unrun cases remain visible and cannot become a passing score.
+The existing engine, device, network and memory constraints are unchanged.
+
+Before startup, ten protocol/parser/tokenizer source files must match their
+SHA-256 pins at
+[vLLM revision 5df63a7](https://github.com/vllm-project/vllm/tree/5df63a7203cdb9328d824a27b682e77c7b9928be).
+The immutable protocol supports `max_completion_tokens`, `reasoning_effort`,
+named function tools and `tool_choice`; the DeepSeek V4.1 parser handles the
+tool continuation. A source mismatch rejects before any engine process starts.
+Public source review alone is not proof that an installed wheel matches it.
+
+Results retain only case IDs, fixed outcomes, elapsed time, integer token
+usage and the fixed case-set hash. They never retain prompts, answers, tool
+arguments, raw exceptions or raw transport output. `functional_pass` requires
+all eight cases plus normal engine stop and the existing host cleanup checks.
+The enclosing result remains nonqualifying and `tau_acceptance:false`.
+This is **not tau2, a quality comparison, or evidence of confidential service**.
+It is implemented and tested against synthetic responses, not a claimed GPU
+result. The separate [tau validation plan](../benchmarks/tau-validation.md)
+still requires a matched reference and approved simulator-call budget.
+
 ### Denial-Only Readiness Diagnostic
 
 A separately prepared diagnostic bundle uses the same pinned image, sealed
