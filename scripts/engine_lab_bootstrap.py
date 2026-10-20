@@ -35,12 +35,17 @@ PATTERN_SOURCES = {
     PATTERN_TARGET: ("torch/_inductor/pattern_matcher.py", "56e229fddc235768b78ca50118d1ec935c16ecf131578efebeebb391c71ed5d4"),
 }
 PATTERN_REGISTER = "_nib_register_pattern_matcher"
-# botocore 1.43.114, fca45a8afc1294fb6c1fc3d2d4a9187e415f37e1.
-# The pinned six implementation owns virtual packages, not filesystem paths.
-SIX_MODULE = "botocore.vendored.six"
-SIX_PATH = "botocore/vendored/six.py"
-SIX_SHA = "4ce39f422ee71467ccac8bed76beb05f8c321c7f0ceda9279ae2dfa3670106b3"
-SIX_REGISTER = "_nib_register_botocore_six"
+# Exactly two pinned implementations of the same virtual-module protocol.
+# six 1.17.0: ebd9b3af90247b8858d415a05e96e9ee61e48d07;
+# botocore 1.43.114: fca45a8afc1294fb6c1fc3d2d4a9187e415f37e1.
+SIX_SOURCES = {
+    "six": {"path": "six.py", "bytes": 34703, "distribution": "six", "version": "1.17.0",
+            "sha256": "c51c91f703d3d4b3696c923cb5fec213e05e75d9215393befac7f2fa6a3904df"},
+    "botocore.vendored.six": {"path": "botocore/vendored/six.py", "bytes": 34549,
+                              "distribution": "botocore", "version": "1.43.114",
+                              "sha256": "4ce39f422ee71467ccac8bed76beb05f8c321c7f0ceda9279ae2dfa3670106b3"},
+}
+SIX_REGISTER = "_nib_register_six"
 SIX_NAMES = (
     "moves", "moves.BaseHTTPServer", "moves.CGIHTTPServer", "moves.SimpleHTTPServer",
     "moves._dummy_thread", "moves._thread", "moves.builtins", "moves.cPickle",
@@ -60,9 +65,11 @@ SIX_NAMES = (
 )
 
 
-def six_source_code(raw, path, require):
+def six_source_code(raw, path, name, require):
     """Replace only the final pinned registration, not six's alias machinery."""
-    require(len(raw) == 34549 and hashlib.sha256(raw).hexdigest() == SIX_SHA)
+    require(name in SIX_SOURCES)
+    expected_source = SIX_SOURCES[name]
+    require(len(raw) == expected_source["bytes"] and hashlib.sha256(raw).hexdigest() == expected_source["sha256"])
     tree = ast.parse(raw, filename=path)
     require(not any(isinstance(node, ast.Name) and node.id == SIX_REGISTER for node in ast.walk(tree)))
     expected = ast.parse("sys.meta_path.append(_importer)").body[0]
@@ -156,7 +163,8 @@ def install_lab(layout, helpers, checkpoint=None):
         return old
     require(not any(name == "vllm" or name.startswith("vllm.") or name == "torch" for name in sys.modules)
             and PATTERN_TARGET not in sys.modules
-            and not any(name == SIX_MODULE or name.startswith(SIX_MODULE + ".") for name in sys.modules)
+            and not any(name == source or name.startswith(source + ".")
+                        for name in sys.modules for source in SIX_SOURCES)
             and not {"sitecustomize", "usercustomize"} & set(sys.modules)
             and not any(name.split(".", 1)[0] in ("setuptools", "_distutils_hack", "distutils")
                         for name in sys.modules))
@@ -197,17 +205,18 @@ def install_lab(layout, helpers, checkpoint=None):
              "distutils_active": False, "distutils_delegate": None,
              "pattern_status": "not-registered", "pattern_module": None, "pattern_loading": None,
              "pattern_callback": None,
-             "six_status": "not-loaded", "six_module": None, "six_importer": None,
-             "six_class": None, "six_class_fields": None,
-             "six_registry": None, "six_registry_object": None,
-             "six_moved": (), "six_aliases": {}, "six_pending": set()}
+             "six": {name: {"status": "not-loaded", "module": None, "importer": None,
+                            "class": None, "class_fields": None, "registry": None,
+                            "registry_object": None, "moved": (), "aliases": {}, "pending": set()}
+                     for name in SIX_SOURCES}}
 
     def reject():
         state["rejections"] += 1
         raise ValueError("lab Python boundary rejected")
 
     def check():
-        check_six()
+        for name, six in state["six"].items():
+            check_six(name, six)
         if ((PATTERN_TARGET in sys.modules and (sys.modules[PATTERN_TARGET] is None
                 or all(sys.modules[PATTERN_TARGET] is not item
                        for item in (state["pattern_module"], state["pattern_loading"]))))
@@ -224,43 +233,43 @@ def install_lab(layout, helpers, checkpoint=None):
                 or (state["finders"] is not None and sys.meta_path != state["finders"])):
             reject()
 
-    def check_six():
-        if state["six_status"] == "failed":
+    def check_six(source, six):
+        if six["status"] == "failed":
             reject()
-        if state["six_status"] not in ("active", "loading"):
-            if any(name == SIX_MODULE or name.startswith(SIX_MODULE + ".") for name in sys.modules):
-                state["six_status"] = "failed"
+        if six["status"] not in ("active", "loading"):
+            if any(name == source or name.startswith(source + ".") for name in sys.modules):
+                six["status"] = "failed"
                 reject()
             return
         try:
-            require(sys.modules.get(SIX_MODULE) is state["six_module"])
-            registry = state["six_registry"]
+            require(sys.modules.get(source) is six["module"])
+            registry = six["registry"]
             if registry is None:
-                require(state["six_status"] == "loading")
+                require(six["status"] == "loading")
                 return
-            importer = state["six_importer"]
-            require(type(importer) is state["six_class"]
+            importer = six["importer"]
+            require(type(importer) is six["class"]
                     and set(vars(importer)) == {"name", "known_modules"}
-                    and type(vars(importer)["name"]) is str and vars(importer)["name"] == SIX_MODULE)
-            fields = vars(state["six_class"])
-            require(len(fields) == len(state["six_class_fields"])
+                    and type(vars(importer)["name"]) is str and vars(importer)["name"] == source)
+            fields = vars(six["class"])
+            require(len(fields) == len(six["class_fields"])
                     and all(name in fields and fields[name] is value
-                            for name, value in state["six_class_fields"].items()))
+                            for name, value in six["class_fields"].items()))
             actual = vars(importer).get("known_modules")
-            require(state["six_module"].__dict__.get("_importer") is importer
-                    and actual is state["six_registry_object"] and type(actual) is dict
+            require(six["module"].__dict__.get("_importer") is importer
+                    and actual is six["registry_object"] and type(actual) is dict
                     and len(actual) == len(registry)
                     and all(type(key) is str and key in registry and actual[key] is registry[key] for key in actual))
             require(all(type(item) is cls and type(vars(item).get("name")) is str and vars(item)["name"] == name
                         and type(vars(item).get("mod")) is str and vars(item)["mod"] == target
-                        for item, cls, name, target in state["six_moved"]))
-            aliases, pending = state["six_aliases"], state["six_pending"]
+                        for item, cls, name, target in six["moved"]))
+            aliases, pending = six["aliases"], six["pending"]
             for name, value in list(sys.modules.items()):
-                if name.startswith(SIX_MODULE + "."):
+                if name.startswith(source + "."):
                     require(name in aliases and value is aliases[name])
             require(all(name in pending or sys.modules.get(name) is value for name, value in aliases.items()))
         except BaseException:
-            state["six_status"] = "failed"
+            six["status"] = "failed"
             raise
 
     original_context = contexts.BaseContext.get_context
@@ -401,91 +410,95 @@ def install_lab(layout, helpers, checkpoint=None):
 
     class SixSource(SourceOnly):
         def exec_module(self, module):
+            name = self.name
+            six, source = state["six"][name], SIX_SOURCES[name]
             try:
-                require(state["six_status"] == "not-loaded" and self.path == selected + "/" + SIX_PATH
-                        and module.__name__ == SIX_MODULE and sys.modules.get(SIX_MODULE) is module
-                        and not any(name.startswith(SIX_MODULE + ".") for name in sys.modules))
-                state["six_status"] = "loading"
-                state["six_module"] = module
+                require(six["status"] == "not-loaded" and self.path == selected + "/" + source["path"]
+                        and module.__name__ == name and sys.modules.get(name) is module
+                        and not any(key.startswith(name + ".") for key in sys.modules))
+                six["status"] = "loading"
+                six["module"] = module
                 check()
                 from importlib import metadata
-                require(metadata.version("botocore") == "1.43.114")
+                require(metadata.version(source["distribution"]) == source["version"])
                 raw = helpers.read_source(self.path, 64 << 10)
 
                 def register(importer):
                     check()
-                    require(state["six_registry"] is None
+                    require(six["registry"] is None
                             and type(importer) is module.__dict__["_SixMetaPathImporter"]
                             and module.__dict__.get("_importer") is importer
-                            and vars(importer).get("name") == SIX_MODULE)
+                            and vars(importer).get("name") == name)
                     registry = vars(importer).get("known_modules")
-                    expected = {SIX_MODULE + "." + name for name in SIX_NAMES}
+                    expected = {name + "." + suffix for suffix in SIX_NAMES}
                     require(type(registry) is dict and len(registry) == len(expected)
                             and all(type(name) is str and name in expected for name in registry))
                     moved = [(value, type(value), vars(value).get("name"), vars(value).get("mod"))
                              for value in registry.values() if type(value) is module.__dict__["MovedModule"]]
                     require(all(type(name) is str and type(target) is str for _, _, name, target in moved))
-                    state["six_importer"] = importer
-                    state["six_class"] = type(importer)
-                    state["six_class_fields"] = dict(vars(type(importer)))
-                    state["six_registry"] = dict(registry)
-                    state["six_registry_object"] = registry
-                    state["six_moved"] = tuple(moved)
+                    six["importer"] = importer
+                    six["class"] = type(importer)
+                    six["class_fields"] = dict(vars(type(importer)))
+                    six["registry"] = dict(registry)
+                    six["registry_object"] = registry
+                    six["moved"] = tuple(moved)
 
                 require(SIX_REGISTER not in module.__dict__)
                 module.__dict__[SIX_REGISTER] = register
                 try:
-                    exec(six_source_code(raw, self.path, require), module.__dict__)
+                    exec(six_source_code(raw, self.path, name, require), module.__dict__)
                 finally:
                     module.__dict__.pop(SIX_REGISTER, None)
-                require(state["six_registry"] is not None)
-                state["six_status"] = "active"
+                require(six["registry"] is not None)
+                six["status"] = "active"
                 check()
             except BaseException:
-                state["six_status"] = "failed"
+                six["status"] = "failed"
                 raise
 
     class SixAliasLoader:
-        def __init__(self, fullname, delegate):
-            self.fullname, self.delegate = fullname, delegate
+        def __init__(self, fullname, delegate, six):
+            self.fullname, self.delegate, self.six = fullname, delegate, six
 
         def create_module(self, spec):
             name = self.fullname
+            six = self.six
             try:
                 check()
-                require(state["six_status"] == "active" and name not in sys.modules
-                        and name not in state["six_aliases"] and name not in state["six_pending"]
+                require(six["status"] == "active" and name not in sys.modules
+                        and name not in six["aliases"] and name not in six["pending"]
                         and spec.name == name and spec.loader is self)
-                state["six_pending"].add(name)
+                six["pending"].add(name)
                 module = self.delegate.create_module(spec)
                 require(sys.modules.get(name) is module)
-                state["six_aliases"][name] = module
+                six["aliases"][name] = module
                 check()
                 return module
             except BaseException:
-                state["six_status"] = "failed"
+                six["status"] = "failed"
                 raise
 
         def exec_module(self, module):
+            six = self.six
             try:
                 check()
                 name = self.fullname
-                require(name in state["six_pending"] and state["six_aliases"].get(name) is module
+                require(name in six["pending"] and six["aliases"].get(name) is module
                         and sys.modules.get(name) is module)
                 self.delegate.exec_module(module)
-                state["six_pending"].remove(name)
+                six["pending"].remove(name)
                 check()
             except BaseException:
-                state["six_status"] = "failed"
+                six["status"] = "failed"
                 raise
 
         def get_code(self, fullname):
             try:
                 check()
-                require(fullname == self.fullname and fullname in state["six_registry"])
+                require(fullname == self.fullname and fullname in self.six["registry"])
                 return None
             except BaseException:
-                state["six_status"] = "failed"
+                self.six["status"] = "failed"
                 raise
 
         get_source = get_code
@@ -569,20 +582,22 @@ def install_lab(layout, helpers, checkpoint=None):
             check()
             if fullname.split(".", 1)[0] in ("sitecustomize", "usercustomize"):
                 reject()
-            if fullname.startswith(SIX_MODULE + "."):
+            source_name = next((name for name in SIX_SOURCES if fullname.startswith(name + ".")), None)
+            if source_name is not None:
+                six = state["six"][source_name]
                 try:
-                    require(state["six_status"] == "active" and target is None
-                            and fullname in state["six_registry"]
-                            and fullname not in state["six_aliases"])
-                    delegate = state["six_importer"]
+                    require(six["status"] == "active" and target is None
+                            and fullname in six["registry"]
+                            and fullname not in six["aliases"])
+                    delegate = six["importer"]
                     spec = delegate.find_spec(fullname, path, target)
                     check()
                     require(type(spec) is importlib.machinery.ModuleSpec and spec.name == fullname and spec.loader is delegate
                             and spec.origin is None and not spec.has_location)
-                    spec.loader = SixAliasLoader(fullname, delegate)
+                    spec.loader = SixAliasLoader(fullname, delegate, six)
                     return spec
                 except BaseException:
-                    state["six_status"] = "failed"
+                    six["status"] = "failed"
                     raise
             if fullname == "distutils":
                 require(state["distutils_active"] and state["distutils_delegate"] is not None and path is None)
@@ -591,10 +606,10 @@ def install_lab(layout, helpers, checkpoint=None):
                 return spec
             try:
                 spec = importlib.machinery.PathFinder.find_spec(fullname, path, target)
-                if fullname == SIX_MODULE:
-                    require(state["six_status"] == "not-loaded" and target is None
+                if fullname in SIX_SOURCES:
+                    require(state["six"][fullname]["status"] == "not-loaded" and target is None
                             and spec is not None and type(spec.loader) is importlib.machinery.SourceFileLoader
-                            and spec.origin == selected + "/" + SIX_PATH)
+                            and spec.origin == selected + "/" + SIX_SOURCES[fullname]["path"])
                     spec.loader = SixSource(fullname, spec.origin)
                     return spec
                 if fullname in PATTERN_SOURCES:
@@ -603,8 +618,8 @@ def install_lab(layout, helpers, checkpoint=None):
                     spec.loader = PatternSource(fullname, spec.origin)
                     return spec
             except BaseException:
-                if fullname == SIX_MODULE:
-                    state["six_status"] = "failed"
+                if fullname in SIX_SOURCES:
+                    state["six"][fullname]["status"] = "failed"
                 if fullname in PATTERN_SOURCES:
                     state["pattern_status"] = "failed"
                 raise
