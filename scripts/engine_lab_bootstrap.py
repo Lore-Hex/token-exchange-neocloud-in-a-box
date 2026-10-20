@@ -587,18 +587,22 @@ def install_lab(layout, helpers, checkpoint=None):
                 six = state["six"][source_name]
                 try:
                     require(six["status"] == "active" and target is None
-                            and fullname in six["registry"]
                             and fullname not in six["aliases"])
-                    delegate = six["importer"]
-                    spec = delegate.find_spec(fullname, path, target)
-                    check()
-                    require(type(spec) is importlib.machinery.ModuleSpec and spec.name == fullname and spec.loader is delegate
-                            and spec.origin is None and not spec.has_location)
-                    spec.loader = SixAliasLoader(fullname, delegate, six)
-                    return spec
+                    if fullname in six["registry"]:
+                        delegate = six["importer"]
+                        spec = delegate.find_spec(fullname, path, target)
+                        check()
+                        require(type(spec) is importlib.machinery.ModuleSpec and spec.name == fullname and spec.loader is delegate
+                                and spec.origin is None and not spec.has_location)
+                        spec.loader = SixAliasLoader(fullname, delegate, six)
+                        return spec
+                    # Both pinned Six registries omit winreg outside Windows.
+                    # dateutil catches ImportError for this optional probe.
+                    require(sys.platform != "win32" and fullname == source_name + ".moves.winreg")
                 except BaseException:
                     six["status"] = "failed"
                     raise
+                raise ModuleNotFoundError("Windows-only module unavailable", name=fullname)
             if fullname == "distutils":
                 require(state["distutils_active"] and state["distutils_delegate"] is not None and path is None)
                 spec = state["distutils_delegate"](fullname, path, target)

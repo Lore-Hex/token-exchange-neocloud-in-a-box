@@ -68,6 +68,13 @@ replacement or mutation, target changes, and source/create/exec failures
 reject. Failure is sticky: catching an import error or supplying a cached
 module cannot restore the next guarded boundary.
 
+One expected absence is distinguished from corruption: on non-Windows systems,
+the unregistered `moves.winreg` name raises `ModuleNotFoundError` without
+poisoning a healthy registry. It never falls through to a filesystem finder.
+This preserves dateutil's optional Windows-support probe, as documented in the
+[compatibility correction](p2-t3-six-optional-winreg.md). All other unknown names
+and state violations remain sticky failures.
+
 The importer itself is never appended to `sys.meta_path`. Its initial
 three-finder list remains unchanged, and a genuine arbitrary finder addition
 still rejects. This is source-bound compatibility for trusted pinned engine
