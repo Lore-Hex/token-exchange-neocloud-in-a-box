@@ -139,6 +139,39 @@ reconstructs this complete payload with its original committed producer and
 validates the failure using that producer's validator. Do not repeat the
 unchanged experiment; any next correction requires separate source review.
 
+### Distro Callsite Attempt
+
+The unchanged [run metadata](../../evidence/p0/2026-10-20-official-vllm-distro-callsite-smoke/run.json)
+and [sanitized output](../../evidence/p0/2026-10-20-official-vllm-distro-callsite-smoke/output.log)
+record source `303990335ee6c65fc3ba01f8148d7c9c9029375a`, from
+2026-10-20 07:52:24 through 08:01:25 UTC. Payload SHA-256 is
+`deb91df6333f37a58fc1b87dd3136f7ba83217994b740af5a5a5ae403a46fda8`.
+
+All twelve reference sources verified, including the two Ubuntu stdlib files.
+All five application stages passed with native inventory unchanged and the same
+2,879 bytecode removals. Phase durations were 8,620 ms preflight, 512,969 ms
+application and 8,531 ms imports.
+
+Fresh, spawn and grandchild each rejected the first API-entry import with
+`subprocess.Popen` and command `ldconfig-cache`, the exact classifier for
+`/sbin/ldconfig -p`. All three matched `ctypes-util:_findSoname_ldconfig` and
+`torch-init-extension-call`, followed by the previously observed Torch/vLLM
+ancestors. This identifies the denied library-cache query during Torch extension
+initialization; it does not authorize that query or establish runtime safety.
+The coarse caller remains `other`. Fresh scanned 105 frames, 101 unmatched;
+spawn and grandchild each scanned 111, 107 unmatched. No scan/output truncation
+or comparison failure occurred.
+
+Each process recorded process-guard count 1, every other guard count zero,
+`first_state_mismatch:null`, and zero permitted dependency entrypoint loads.
+The remaining three imports were not run. Bootstrap/pre-unpickle observations
+and tracker exit passed. Cleanup is `confirmed`; the parent independently
+observed an empty Docker label listing, not included in the artifact.
+The result remains `smoke-rejected`, `smoke_pass:false`, `result:fail`,
+`deployable:false`. No GPU, weights, model inference, ABI or confidentiality
+qualification occurred. Historical payload reconstruction checks preserve this
+failure and all earlier artifacts. Do not repeat the unchanged experiment.
+
 ### Denied-Process Diagnostics
 
 The recorder diagnostics were exercised in the attempt above, which remained
