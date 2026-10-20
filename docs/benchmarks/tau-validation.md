@@ -1,6 +1,9 @@
 # DeepSeek serving-quality validation
 
-Status: **planned, not implemented or run** (2026-10-20). This is an additional
+Status: **offline manifest/budget foundation implemented; live runner and
+evaluation not implemented or run** (2026-10-20). The
+[preflight foundation](../tasks/p2-t3-tau-preflight.md) verifies pinned public
+inputs without importing upstream or contacting endpoints. This is an additional
 P2.T3 acceptance requirement requested by Joseph, repeated under confidential
 computing in P5.T5. We serve DeepSeek's existing weights; this is not a new
 trained model. An HTTP 200 or PONG proves neither model quality nor confidentiality.
@@ -122,6 +125,6 @@ rates for the full-run estimate. Benchmarks stay outside the guest image and
 do not add benchmark dependencies or debug logging to the attested service.
 
 The serving endpoint, reference identity, simulator/evaluator versions,
-non-content runner, limits and run-cost approvals are still pending. Follow
+live non-content runner, measured limits and run-cost approvals are still pending. Follow
 the [run gates](../gates.md); this plan does not rent resources, spend credits,
 extend a rental or publish a score.
