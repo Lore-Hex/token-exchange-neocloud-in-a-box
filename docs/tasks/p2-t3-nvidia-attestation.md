@@ -1,13 +1,16 @@
 # P2.T3: pinned lab GPU appraisal
 
-`host/attest-lab-gpus.py` is an operator-invoked, bounded, verification-only
+`host/attest-lab-gpus.py` is an operator-invoked, bounded
 helper for the approved eight-GPU lab. Its default only inspects already
 installed files and CLI metadata. An explicit, separate offline install mode
-accepts only the two pinned local packages. It contains no NVML setter and does
-not change readiness, persistence, driver or CC mode.
-**No actual attestation run has been performed with this helper.**
+accepts only the two pinned local packages. Audit-only `--attest` never sets
+readiness. A separate, explicitly authorized
+[gated transition](p2-t3-gated-readiness.md) requires fresh authenticated appraisal
+before its sole readiness setter. No mode changes persistence, driver or CC mode.
+The initial audit implementation and this transition's software tests are not
+evidence of a successful real appraisal or transition.
 Remote appraisal requires separate operator authorization and contacts NVIDIA.
-The pending readiness approval does not authorize this author to operate the VM.
+The author does not operate the VM.
 
 This is not the production GPU verifier. A successful appraisal is not CPU,
 NVSwitch/fabric, application, storage, TLS or confidential-service qualification.
@@ -59,10 +62,11 @@ returns appraisal results without setting readiness. Its
 loads the setter symbol but never calls it. Do not infer installed behavior from
 Verda's sentence or treat the existence of that symbol as a call.
 
-This helper checks readiness before/after appraisal and rejects an unexpected
-change. It does not infer persistence after its final NVML shutdown. An explicitly
-approved, independently reviewed readiness-transition implementation is still
-needed; there is no manual bypass in this task.
+Audit mode checks readiness before/after appraisal and rejects an unexpected
+change. It does not infer persistence after its final NVML shutdown. The separate
+explicit transition mode retains that appraisal check, then requires all eight
+devices' existing persistence flags and rechecks the same live inventory before
+setting readiness. There is no manual bypass.
 
 ## Invocation and bounds
 
@@ -152,9 +156,11 @@ as an independently observed OCSP nonce check.
 Only fixed stages, booleans, counts, public source/artifact hashes and
 readiness values are emitted. No UUID, UEID, nonce value, certificate, token,
 claim body, environment, service response, raw exception or host path is emitted.
-The JSON report is not by itself a `nib.evidence/v1` acceptance record: the parent
-must preserve the committed invocation, source and sanitized outcome in the
-existing evidence workflow before claiming an actual run.
+The JSON report alone is not a `nib.evidence/v1` acceptance record.
+[`host/record-gpu-appraisal.py`](../../host/record-gpu-appraisal.py) records the
+committed invocation, source hashes, UTC interval and sanitized outcome using
+the existing private evidence writer. See the
+[recording contract](p2-t3-gated-readiness.md#source-bound-recording).
 
 ## Software verification
 

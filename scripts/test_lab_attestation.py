@@ -49,6 +49,7 @@ class FakeNvml:
                      for i in range(8)}
         self.state = 0
         self.queries = 0
+        self.transitions = 0
 
     def inventory(self):
         self.queries += 1
@@ -59,6 +60,10 @@ class FakeNvml:
 
     def close(self):
         pass
+
+    def enable_ready(self):
+        self.transitions += 1
+        self.state = 1
 
 
 class FakeCapture:
@@ -244,6 +249,67 @@ class AttestationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 lab.run_attestation(FakeCapture(verified_mutation=change), FakeNvml(), {},
                                     check=lambda: None)
+
+    def test_claim_failure_fixed_fields_never_include_untrusted_values(self):
+        for source in ("verified-cli", "signed-token", "attested-cli"):
+            for name in lab.TRUE_CLAIMS:
+                rows = [claim(i, "private-nonce") for i in range(8)]
+                rows[0][name] = "PRIVATE_TOKEN"
+                with self.assertRaises(lab.ClaimRejection) as raised:
+                    lab.claim_map(rows, "private-nonce", source)
+                error = raised.exception
+                self.assertEqual((error.code, error.source, error.field),
+                                 ("claim-type", source, name))
+                self.assertNotIn("PRIVATE", str(error))
+                self.assertNotIn("private-nonce", str(error))
+        for name in ("x-nvidia-device-type", "x-nvidia-gpu-claims-version",
+                     "x-nvidia-mismatch-measurement-records",
+                     "x-nvidia-mismatch-opaque-data-records"):
+            rows = [claim(i, "nonce") for i in range(8)]
+            del rows[0][name]
+            with self.assertRaises(lab.ClaimRejection) as raised:
+                lab.claim_map(rows, "nonce", "signed-token")
+            self.assertEqual((raised.exception.code, raised.exception.source, raised.exception.field),
+                             ("claim-missing", "signed-token", name))
+        field = "x-nvidia-gpu-attestation-report-cert-chain"
+        for value, expected in (("PRIVATEZ", "certificate-expiry-format"),
+                                ("2001-01-01T00:00:00Z", "certificate-expired")):
+            rows = [claim(i, "nonce") for i in range(8)]
+            rows[0][field]["x-nvidia-cert-expiration-date"] = value
+            with self.assertRaises(lab.ClaimRejection) as raised:
+                lab.claim_map(rows, "nonce", "signed-token")
+            self.assertEqual(raised.exception.code, expected)
+            self.assertEqual(raised.exception.field, field + ".x-nvidia-cert-expiration-date")
+        for payload, expected in (("PRIVATE", "token-jwt-shape"),
+                                  ("h.%%%PRIVATE.s", "token-payload-encoding"),
+                                  ("h.bm90LWpzb24.s", "token-payload-json")):
+            envelope = [["JWT", "PRIVATE_OVERALL"], {str(i): payload for i in range(8)}]
+            with self.assertRaises(lab.ClaimRejection) as raised:
+                lab.token_claims(envelope)
+            self.assertEqual(raised.exception.code, expected)
+            self.assertNotIn("PRIVATE", str(raised.exception))
+
+    def test_worker_keeps_claim_rejection_before_shutdown_failure(self):
+        nvml = FakeNvml()
+        with mock.patch.object(lab.sys, "platform", "linux"), \
+             mock.patch.object(lab.platform, "machine", return_value="x86_64"), \
+             mock.patch.object(lab, "verify_installation"), \
+             mock.patch.object(lab, "cli_contract"), \
+             mock.patch.object(lab, "Nvml", return_value=nvml), \
+             mock.patch.object(lab, "load_capture"), \
+             mock.patch.object(nvml, "close", side_effect=ValueError("PRIVATE_SHUTDOWN")):
+            def reject(capture, instance, report, **kwargs):
+                report["stage"] = "claims-policy"
+                raise lab.ClaimRejection("claim-value", "verified-cli", "eat_nonce")
+            with mock.patch.object(lab, "run_attestation", side_effect=reject):
+                result = lab.worker(True, None)
+        self.assertEqual(result["result"], "fail")
+        self.assertEqual(result["stage"], "claims-policy")
+        self.assertEqual(result["claim_failure"],
+                         {"code": "claim-value", "source": "verified-cli", "field": "eat_nonce"})
+        self.assertEqual(nvml.transitions, 0)
+        self.assertFalse(result["nvml_shutdown"])
+        self.assertNotIn("PRIVATE", json.dumps(result))
 
     def test_revoked_expired_and_unavailable_certificates_fail(self):
         for chain in lab.CHAINS:
@@ -485,6 +551,9 @@ class AttestationTests(unittest.TestCase):
                     else:
                         self.assertEqual(len(nvml.inventory()), 8)
                         self.assertEqual(nvml.ready(), 0)
+                        state["settings"] = (2, 1, 0, 1)
+                        with self.assertRaises(ValueError):
+                            nvml.inventory()
                 finally:
                     nvml.close()
             self.assertEqual(state["calls"][-1], "nvmlShutdown")
@@ -496,6 +565,171 @@ class AttestationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertEqual(result.stderr, b"Invalid appraisal arguments.\n")
         self.assertEqual(result.stdout, b"")
+
+    def test_enable_is_after_appraisal_persistence_and_rechecks_only(self):
+        nvml, report = FakeNvml(), {}
+        capture = FakeCapture()
+        original = nvml.enable_ready
+
+        def transition():
+            self.assertEqual(len(capture.calls), 2)
+            self.assertGreaterEqual(nvml.queries, 3)
+            self.assertTrue(report["gpu_appraisal_verified"])
+            self.assertEqual(report["readiness_transition"], "attempted-unverified")
+            original()
+        nvml.enable_ready = transition
+        lab.run_attestation(capture, nvml, report, check=lambda: None, enable_readiness=True)
+        self.assertEqual(nvml.transitions, 1)
+        self.assertEqual(report["readiness_transition"], "enabled-readback-verified")
+        self.assertEqual(report["ready_after"], 1)
+        self.assertEqual(nvml.queries, 4)
+
+    def test_all_prerequisite_failures_prevent_setter(self):
+        for failure in ("nonce", "count", "persistence", "inventory", "deadline"):
+            nvml, report, capture = FakeNvml(), {}, FakeCapture()
+            options = {}
+            if failure == "nonce":
+                capture = FakeCapture(lambda rows: rows[0].update(eat_nonce="PRIVATE"))
+            if failure == "count":
+                capture = FakeCapture(lambda rows: rows.pop())
+            if failure == "persistence":
+                nvml.rows["1"] = (b"PRIVATE", b"CERT", 0)
+            if failure == "inventory":
+                original = nvml.inventory
+                def inventory():
+                    rows = original()
+                    if nvml.queries == 3:
+                        rows["1"] = (b"CHANGED", b"CERT", 1)
+                    return rows
+                nvml.inventory = inventory
+            if failure == "deadline":
+                options["clock"] = mock.Mock(side_effect=[1024.0, 1025.0, 1026.0,
+                                                         1027.0, 1028.0, 1264.0])
+            with self.subTest(failure=failure), self.assertRaises(ValueError):
+                lab.run_attestation(capture, nvml, report, check=lambda: None,
+                                    enable_readiness=True, **options)
+            self.assertEqual(nvml.transitions, 0)
+
+    def test_already_ready_does_not_set_and_missing_persistence_still_rejects(self):
+        nvml, report = FakeNvml(), {}
+        nvml.state = 1
+        lab.run_attestation(FakeCapture(), nvml, report, check=lambda: None, enable_readiness=True)
+        self.assertEqual(nvml.transitions, 0)
+        self.assertEqual(report["readiness_transition"], "already-ready-verified")
+        nvml.rows["1"] = (b"PRIVATE", b"CERT", 0)
+        with self.assertRaises(ValueError):
+            lab.run_attestation(FakeCapture(), nvml, {}, check=lambda: None, enable_readiness=True)
+        self.assertEqual(nvml.transitions, 0)
+
+    def test_set_failure_and_bad_readback_are_not_success_or_retried(self):
+        for failure in ("setter", "readback", "identity"):
+            nvml, report = FakeNvml(), {}
+            def transition():
+                nvml.transitions += 1
+                if failure == "setter":
+                    raise ValueError("PRIVATE_NVML")
+                nvml.state = 0 if failure == "readback" else 1
+                if failure == "identity":
+                    nvml.rows["1"] = (b"CHANGED", b"CERT", 1)
+            nvml.enable_ready = transition
+            with self.subTest(failure=failure), self.assertRaises(ValueError):
+                lab.run_attestation(FakeCapture(), nvml, report, check=lambda: None,
+                                    enable_readiness=True)
+            self.assertEqual(nvml.transitions, 1)
+            self.assertEqual(report["readiness_transition"], "attempted-unverified")
+            self.assertTrue(report["gpu_appraisal_verified"])
+            self.assertNotIn("PRIVATE", json.dumps(report))
+
+    def test_transition_lock_is_private_nonblocking_and_no_follow(self):
+        with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as temporary:
+            root = Path(temporary)
+            fd = lab.readiness_lock(root)
+            try:
+                with self.assertRaises(BlockingIOError):
+                    lab.readiness_lock(root)
+            finally:
+                os.close(fd)
+            path = root / "nib-lab-gpu-readiness.lock"
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            path.unlink()
+            path.symlink_to(root / "PRIVATE")
+            with self.assertRaises(OSError):
+                lab.readiness_lock(root)
+            path.unlink()
+            os.mkfifo(path, 0o600)
+            with self.assertRaises(ValueError):
+                lab.readiness_lock(root)
+
+    def test_enable_cli_requires_attest_and_default_remains_read_only(self):
+        result = subprocess.run([sys.executable, "-I", "-S", "-B",
+                                 str(ROOT / "host/attest-lab-gpus.py"), "--enable-readiness"],
+                                capture_output=True, timeout=5, check=False)
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stderr, b"Invalid appraisal arguments.\n")
+        nvml = FakeNvml()
+        lab.run_attestation(FakeCapture(), nvml, {}, check=lambda: None)
+        self.assertEqual(nvml.transitions, 0)
+
+    def test_exact_readiness_setter_abi_and_return_failure(self):
+        names, values = [], []
+        class Function:
+            def __init__(self, name, result):
+                self.name, self.result = name, result
+            def __call__(self, *args):
+                if self.name == "nvmlSystemSetConfComputeGpusReadyState":
+                    values.extend(args)
+                    self_test.assertEqual(self.argtypes, [ctypes.c_uint])
+                    self_test.assertEqual(self.restype, ctypes.c_int)
+                    return self.result
+                return 0
+        class Library:
+            def __init__(self, result):
+                self.result = result
+            def __getattr__(self, name):
+                names.append(name)
+                return Function(name, self.result)
+        self_test = self
+        for code in (0, 3):
+            with mock.patch.object(lab.C, "CDLL", return_value=Library(code)):
+                nvml = lab.Nvml()
+                if code:
+                    with self.assertRaises(ValueError):
+                        nvml.enable_ready()
+                else:
+                    nvml.enable_ready()
+                nvml.close()
+        self.assertEqual(values, [1, 1])
+        self.assertNotIn("nvmlDeviceSetPersistenceMode", names)
+
+    def test_worker_transition_shutdown_failure_preserves_observations_and_unlocks(self):
+        with tempfile.TemporaryDirectory(dir=TEMP_ROOT) as temporary:
+            root = Path(temporary)
+            nvml = FakeNvml()
+            original_lock = lab.readiness_lock
+            original_attestation = lab.run_attestation
+            with mock.patch.object(lab.sys, "platform", "linux"), \
+                 mock.patch.object(lab.platform, "machine", return_value="x86_64"), \
+                 mock.patch.object(lab.os, "geteuid", return_value=0), \
+                 mock.patch.object(lab, "readiness_lock", side_effect=lambda: original_lock(root)), \
+                 mock.patch.object(lab, "verify_installation"), \
+                 mock.patch.object(lab, "cli_contract"), \
+                 mock.patch.object(lab, "Nvml", return_value=nvml), \
+                 mock.patch.object(lab, "load_capture", return_value=FakeCapture()), \
+                 mock.patch.object(lab, "run_attestation", side_effect=lambda *args, **kwargs:
+                                   original_attestation(*args, check=lambda: None, **kwargs)), \
+                 mock.patch.object(nvml, "close", side_effect=ValueError("PRIVATE_SHUTDOWN")):
+                # The fake root account must agree with the real temporary directory's owner.
+                with mock.patch.object(lab.os, "geteuid", side_effect=[0, root.stat().st_uid,
+                                                                     root.stat().st_uid]):
+                    result = lab.worker(True, temporary, enable_readiness=True)
+            self.assertEqual(result["result"], "fail")
+            self.assertEqual(result["stage"], "nvml-shutdown")
+            self.assertTrue(result["gpu_appraisal_verified"])
+            self.assertEqual(result["readiness_transition"], "enabled-readback-verified")
+            self.assertFalse(result["nvml_shutdown"])
+            self.assertNotIn("PRIVATE", json.dumps(result))
+            fd = original_lock(root)
+            os.close(fd)
 
     def test_capture_isolated_no_site_flags_timeout_overflow(self):
         capture = lab.load_capture()

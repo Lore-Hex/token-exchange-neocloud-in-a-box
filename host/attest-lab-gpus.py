@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Pinned NVIDIA lab GPU appraisal; explicit offline install, never a readiness setter."""
+"""Pinned lab GPU appraisal; readiness requires fresh appraisal and explicit approval."""
 
 import sys
 
@@ -12,6 +12,7 @@ import argparse
 import base64
 import ctypes as C
 import datetime
+import fcntl
 import hashlib
 import json
 import os
@@ -58,6 +59,7 @@ TRUE_CLAIMS = (
     "x-nvidia-gpu-vbios-index-no-conflict",
 )
 CHAINS = ("attestation-report", "driver-rim", "vbios-rim")
+READINESS_HEADER = "1a1e86da474d340d7cf58274588f4a4afc8772e7"
 
 
 def require(value):
@@ -228,45 +230,111 @@ def successful_output(data):
     return result
 
 
-def claim_map(claims, nonce):
-    require(type(claims) is list and len(claims) == COUNT)
+CLAIM_SOURCES = {"unspecified", "verified-cli", "signed-token", "attested-cli", "comparison"}
+CLAIM_FAILURES = {"claim-count", "claim-shape", "claim-identity", "claim-value",
+                  "claim-missing", "claim-type",
+                  "claim-boolean", "claim-mismatch-records", "certificate-status",
+                  "certificate-expiry-format", "certificate-expired",
+                  "token-shape", "token-jwt-shape", "token-payload-encoding",
+                  "token-payload-json", "device-binding", "claims-disagree"}
+CLAIM_FIELDS = set(TRUE_CLAIMS) | {
+    "claims", "ueid", "eat_nonce", "x-nvidia-device-type", "x-nvidia-gpu-claims-version",
+    "measres", "dbgstat", "x-nvidia-mismatch-measurement-records",
+    "x-nvidia-mismatch-opaque-data-records", "detached_eat",
+}
+CLAIM_FIELDS.update("x-nvidia-gpu-" + name + "-cert-chain." + field
+                    for name in CHAINS for field in
+                    ("x-nvidia-cert-status", "x-nvidia-cert-ocsp-status",
+                     "x-nvidia-cert-expiration-date"))
+CLAIM_FIELDS.update("x-nvidia-gpu-" + name + "-cert-chain" for name in CHAINS)
+
+
+class ClaimRejection(ValueError):
+    def __init__(self, code, source, field):
+        require(code in CLAIM_FAILURES and source in CLAIM_SOURCES and field in CLAIM_FIELDS)
+        super().__init__("claims-policy-rejected")
+        self.code, self.source, self.field = code, source, field
+
+
+def claim_require(value, code, source, field):
+    if not value:
+        raise ClaimRejection(code, source, field)
+
+
+def claim_field(row, name, expected_type, source, field=None):
+    field = name if field is None else field
+    claim_require(name in row, "claim-missing", source, field)
+    value = row[name]
+    claim_require(type(value) is expected_type, "claim-type", source, field)
+    return value
+
+
+def claim_map(claims, nonce, source="unspecified"):
+    require(source in CLAIM_SOURCES)
+    claim_require(type(claims) is list and len(claims) == COUNT, "claim-count", source, "claims")
     found = {}
     for claim in claims:
-        require(type(claim) is dict)
-        identity = claim.get("ueid")
-        require(type(identity) is str and 0 < len(identity) <= 256 and identity not in found)
-        require(claim.get("eat_nonce") == nonce and claim.get("x-nvidia-device-type") == "gpu"
-                and claim.get("x-nvidia-gpu-claims-version") == "4.0"
-                and claim.get("measres") == "success" and claim.get("dbgstat") == "disabled")
-        require(all(claim.get(name) is True for name in TRUE_CLAIMS))
+        claim_require(type(claim) is dict, "claim-shape", source, "claims")
+        identity = claim_field(claim, "ueid", str, source)
+        claim_require(type(identity) is str and 0 < len(identity) <= 256 and identity not in found,
+                      "claim-identity", source, "ueid")
+        for name, expected in (("eat_nonce", nonce), ("x-nvidia-device-type", "gpu"),
+                               ("x-nvidia-gpu-claims-version", "4.0"),
+                               ("measres", "success"), ("dbgstat", "disabled")):
+            claim_require(claim_field(claim, name, str, source) == expected,
+                          "claim-value", source, name)
+        for name in TRUE_CLAIMS:
+            claim_require(claim_field(claim, name, bool, source) is True,
+                          "claim-boolean", source, name)
         for name in ("x-nvidia-mismatch-measurement-records", "x-nvidia-mismatch-opaque-data-records"):
-            require(name in claim and claim[name] in (None, []))
+            claim_require(name in claim, "claim-missing", source, name)
+            claim_require(claim[name] is None or type(claim[name]) is list, "claim-type", source, name)
+            claim_require(claim[name] in (None, []),
+                          "claim-mismatch-records", source, name)
         for name in CHAINS:
-            chain = claim.get("x-nvidia-gpu-" + name + "-cert-chain")
-            require(type(chain) is dict and chain.get("x-nvidia-cert-status") == "valid"
-                    and chain.get("x-nvidia-cert-ocsp-status") == "good")
-            expiry = chain.get("x-nvidia-cert-expiration-date")
-            require(type(expiry) is str and expiry.endswith("Z"))
-            require(datetime.datetime.fromisoformat(expiry.replace("Z", "+00:00"))
-                    > datetime.datetime.now(datetime.timezone.utc))
+            prefix = "x-nvidia-gpu-" + name + "-cert-chain."
+            chain = claim_field(claim, prefix[:-1], dict, source)
+            for field, expected in (("x-nvidia-cert-status", "valid"),
+                                    ("x-nvidia-cert-ocsp-status", "good")):
+                claim_require(claim_field(chain, field, str, source, prefix + field) == expected,
+                              "certificate-status", source, prefix + field)
+            field = prefix + "x-nvidia-cert-expiration-date"
+            expiry = claim_field(chain, "x-nvidia-cert-expiration-date", str, source, field)
+            claim_require(type(expiry) is str and expiry.endswith("Z"),
+                          "certificate-expiry-format", source, field)
+            try:
+                parsed = datetime.datetime.fromisoformat(expiry.replace("Z", "+00:00"))
+            except ValueError:
+                raise ClaimRejection("certificate-expiry-format", source, field) from None
+            claim_require(parsed > datetime.datetime.now(datetime.timezone.utc),
+                          "certificate-expired", source, field)
         found[identity] = claim
     return found
 
 
 def token_claims(token):
     """Decode only after verify-token succeeded; this is NOT a JWT verifier."""
-    require(type(token) is list and len(token) == 2 and type(token[0]) is list
+    claim_require(type(token) is list and len(token) == 2 and type(token[0]) is list
             and len(token[0]) == 2 and token[0][0] == "JWT"
-            and type(token[1]) is dict and len(token[1]) == COUNT)
+            and type(token[1]) is dict and len(token[1]) == COUNT,
+            "token-shape", "signed-token", "detached_eat")
     result = []
     for value in token[1].values():
-        require(type(value) is str and len(value) <= LIMIT // COUNT)
+        claim_require(type(value) is str and len(value) <= LIMIT // COUNT,
+                      "token-jwt-shape", "signed-token", "detached_eat")
         parts = value.split(".")
-        require(len(parts) == 3 and all(parts))
-        payload = parts[1].encode("ascii")
-        data = base64.b64decode(payload + b"=" * (-len(payload) % 4),
-                                altchars=b"-_", validate=True)
-        result.append(strict_json(data))
+        claim_require(len(parts) == 3 and all(parts),
+                      "token-jwt-shape", "signed-token", "detached_eat")
+        try:
+            payload = parts[1].encode("ascii")
+            data = base64.b64decode(payload + b"=" * (-len(payload) % 4),
+                                    altchars=b"-_", validate=True)
+        except ValueError:
+            raise ClaimRejection("token-payload-encoding", "signed-token", "detached_eat") from None
+        try:
+            result.append(strict_json(data))
+        except (ValueError, RecursionError):
+            raise ClaimRejection("token-payload-json", "signed-token", "detached_eat") from None
     return result
 
 
@@ -326,6 +394,7 @@ class Nvml:
     def __init__(self):
         self.library = C.CDLL("libnvidia-ml.so.1")
         self.functions = {}
+        self.configuration = None
         signatures = {
             "nvmlInit_v2": [], "nvmlShutdown": [],
             "nvmlDeviceGetCount_v2": [C.POINTER(C.c_uint)],
@@ -359,6 +428,11 @@ class Nvml:
         self.call("nvmlSystemGetConfComputeSettings", C.byref(settings))
         require((settings.environment, settings.feature, settings.devtools) == (2, 1, 0)
                 and settings.multigpu in (1, 2))
+        configuration = (settings.version, settings.environment, settings.feature,
+                         settings.devtools, settings.multigpu)
+        require(settings.version == 0x01000014)
+        require(self.configuration is None or self.configuration == configuration)
+        self.configuration = configuration
         rows = {}
         for index in range(COUNT):
             handle, persistence = C.c_void_p(), C.c_uint()
@@ -380,9 +454,42 @@ class Nvml:
     def close(self):
         self.call("nvmlShutdown")
 
+    def enable_ready(self):
+        # NVIDIA/go-nvml at READINESS_HEADER, pkg/nvml/nvml.h:
+        # NVML_CC_ACCEPTING_CLIENT_REQUESTS_TRUE == 1; unsigned int ABI.
+        function = getattr(self.library, "nvmlSystemSetConfComputeGpusReadyState")
+        function.argtypes, function.restype = [C.c_uint], C.c_int
+        require(function(1) == 0)
+
+
+def readiness_lock(directory=Path("/run")):
+    """Serialize this helper's system-wide transitions; never remove the lock."""
+    parent = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    fd = None
+    try:
+        info = os.fstat(parent)
+        require(info.st_uid == os.geteuid() and not info.st_mode & 0o022)
+        fd = os.open("nib-lab-gpu-readiness.lock",
+                     os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600,
+                     dir_fd=parent)
+        info = os.fstat(fd)
+        require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_size == 0
+                and info.st_uid == os.geteuid() and stat.S_IMODE(info.st_mode) == 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        named = os.stat("nib-lab-gpu-readiness.lock", dir_fd=parent, follow_symlinks=False)
+        require((info.st_dev, info.st_ino) == (named.st_dev, named.st_ino))
+        return fd
+    except BaseException:
+        if fd is not None:
+            os.close(fd)
+        raise
+    finally:
+        os.close(parent)
+
 
 def run_attestation(capture, nvml, report, *,
-                    check=verify_installation, clock=time.monotonic, directory=None):
+                    check=verify_installation, clock=time.monotonic, directory=None,
+                    enable_readiness=False):
     # No ambient credentials, proxy, NVAT endpoint/policy/CA or loader overrides.
     deadline = clock() + SECONDS
     nonce = secrets.token_hex(32)
@@ -423,10 +530,12 @@ def run_attestation(capture, nvml, report, *,
         # requires each claim from the exact authenticated signed token, not just
         # the CLI's reserialized fields (which have some compatibility defaults).
         report["stage"] = "claims-policy"
-        authenticated = claim_map(verified.get("claims"), nonce)
-        original = claim_map(token_claims(token), nonce)
-        require(set(authenticated) == set(original) == set(local))
-        require(claim_map(attested.get("claims"), nonce) == authenticated)
+        authenticated = claim_map(verified.get("claims"), nonce, "verified-cli")
+        original = claim_map(token_claims(token), nonce, "signed-token")
+        claim_require(set(authenticated) == set(original) == set(local),
+                      "device-binding", "comparison", "ueid")
+        claim_require(claim_map(attested.get("claims"), nonce, "attested-cli") == authenticated,
+                      "claims-disagree", "comparison", "claims")
         check()
         require(clock() < deadline)
         report["stage"] = "inventory-recheck"
@@ -434,23 +543,46 @@ def run_attestation(capture, nvml, report, *,
         report["ready_after"] = nvml.ready()
         require(report["ready_after"] == report["ready_before"])
         require(clock() < deadline)
-    return {"authenticated_gpu_count": COUNT, "distinct_devices": True,
-            "nonce_matches": True, "measurements_match": True,
-            "certificates_and_revocation_valid": True, "secure_boot": True,
-            "debug_disabled": True, "local_device_identity_matches": True}
+        summary = {"authenticated_gpu_count": COUNT, "distinct_devices": True,
+                   "nonce_matches": True, "measurements_match": True,
+                   "certificates_and_revocation_valid": True, "secure_boot": True,
+                   "debug_disabled": True, "local_device_identity_matches": True}
+        report["claims"], report["gpu_appraisal_verified"] = summary, True
+        if enable_readiness:
+            report["stage"] = "readiness-precondition"
+            require(all(row[2] == 1 for row in local.values()))
+            # The same live session rechecks identity, CC policy and persistence.
+            require(nvml.inventory() == local and clock() < deadline)
+            if report["ready_after"] == 0:
+                report["stage"] = "readiness-transition"
+                report["readiness_transition"] = "attempted-unverified"
+                nvml.enable_ready()
+                report["stage"] = "readiness-readback"
+                report["ready_after"] = nvml.ready()
+                require(report["ready_after"] == 1 and nvml.inventory() == local
+                        and clock() < deadline)
+                report["readiness_transition"] = "enabled-readback-verified"
+            else:
+                report["readiness_transition"] = "already-ready-verified"
+        else:
+            report["readiness_transition"] = "unchanged"
+    return summary
 
 
-def worker(attest, directory, packages=None):
+def worker(attest, directory, packages=None, enable_readiness=False):
     report = {"schema": "nib.lab-gpu-appraisal/v1", "result": "fail",
               "stage": "platform", "gpu_appraisal_verified": False, "claims": None,
               "runtime_ready": False, "confidential_qualified": False, "deployable": False,
               "readiness_transition": "unverified", "source_reference": SOURCE,
+              "readiness_requested": enable_readiness,
+              "readiness_header_reference": READINESS_HEADER,
+              "claim_failure": None,
               "package_version": VERSION, "package_sha256": PACKAGES,
               "cli_contract_verified": False,
               "installation_completed": False,
               "ready_before": None, "ready_after": None,
               "persistence_enabled_count": None, "nvml_shutdown": None}
-    nvml = None
+    nvml, lock = None, None
     try:
         require(sys.platform == "linux" and platform.machine() == "x86_64")
         if packages is not None:
@@ -465,15 +597,22 @@ def worker(attest, directory, packages=None):
         cli_contract(load_capture(), directory)
         report["cli_contract_verified"] = True
         if not attest:
+            require(not enable_readiness)
             report["stage"] = "inspection-complete-unappraised"
             return report
+        if enable_readiness:
+            report["stage"] = "readiness-lock"
+            require(os.geteuid() == 0)
+            lock = readiness_lock()
         report["stage"] = "nvml-initialization"
         nvml = Nvml()
-        report["claims"] = run_attestation(load_capture(), nvml, report, directory=directory)
+        report["claims"] = run_attestation(load_capture(), nvml, report, directory=directory,
+                                           enable_readiness=enable_readiness)
         report["gpu_appraisal_verified"] = True
-        report["readiness_transition"] = "unchanged"
         report["result"] = "pass"
         report["stage"] = "complete"
+    except ClaimRejection as error:
+        report["claim_failure"] = {"code": error.code, "source": error.source, "field": error.field}
     except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError,
             subprocess.SubprocessError):
         pass
@@ -487,6 +626,8 @@ def worker(attest, directory, packages=None):
                 if report["result"] == "pass":
                     report["stage"] = "nvml-shutdown"
                 report["result"] = "fail"
+        if lock is not None:
+            os.close(lock)
     return report
 
 
@@ -501,10 +642,15 @@ def main():
                             help="Contacts NVIDIA; operator approval is required before invocation.")
     operations.add_argument("--install-packages", metavar="DIRECTORY",
                             help="Explicitly install the two pinned local archives; requires approval.")
+    parser.add_argument("--enable-readiness", action="store_true",
+                        help="Requires --attest and separate explicit operator approval.")
     parser.add_argument("--worker", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.enable_readiness and not args.attest:
+        parser.error("invalid-operation")
     if args.worker:
-        print(json.dumps(worker(args.attest, args.worker, args.install_packages), sort_keys=True))
+        print(json.dumps(worker(args.attest, args.worker, args.install_packages,
+                                args.enable_readiness), sort_keys=True))
         return 0
     try:
         with tempfile.TemporaryDirectory(prefix="nib-attestation-") as temporary:
@@ -513,6 +659,8 @@ def main():
                        "--worker", temporary]
             if args.attest:
                 command.append("--attest")
+            if args.enable_readiness:
+                command.append("--enable-readiness")
             if args.install_packages is not None:
                 command.extend(["--install-packages", str(Path(args.install_packages).absolute())])
             report = strict_json(load_capture()(command, timeout=SECONDS + 45,
