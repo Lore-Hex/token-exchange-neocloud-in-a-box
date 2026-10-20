@@ -22,7 +22,7 @@ TEST = "scripts/test_engine_overlay.py"
 SOURCE_LIMIT = 2 << 20
 MODULE_HASHES = {
     "overlay_candidate": "a295d3ec5ccda0794e3d830570d1d78c1b562e3cdb49ceb42aef37e6b25fd266",
-    "overlay_inspector": "dc3c2cfc8926f05516c082e61784c0e8711784772ceb5a95f95388bd3a1e6723",
+    "overlay_inspector": "077980a3e82a7cb0b7a44bd8df506b3dea8802c2a37ad3344fe56414a0801d01",
 }
 
 
@@ -128,8 +128,10 @@ def prepare_files(revision, bundle, extra):
     inspector.require(pins["base_image"] == inspector.BASE_IMAGE and pins["base_revision"] == checker.BASE)
     contract = {**pins, "schema": "nib.engine-overlay-input/v1", "status": "BLOCKED",
                 "deployable": False, "image": None, "git_sha": revision,
+                "experimental_packaging": inspector.PACKAGING_POLICY,
                 "candidate_bundle_sha256": checker.bundle_digest(bundle), "files": manifest["files"],
                 "source_bundle_sha256": checker.bundle_digest({**bundle, **extra})}
+    inspector.require_packaging_contract(contract)
     payload = {"inspector.py": extra[INSPECTOR], "contract.json": inspector.json_bytes(contract),
                "LICENSE": local["LICENSE"], "NOTICE": local["NOTICE"]}
     for n, stage in enumerate(stages, 1):

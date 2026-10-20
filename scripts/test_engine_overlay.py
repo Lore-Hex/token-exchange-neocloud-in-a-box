@@ -3,6 +3,7 @@
 
 import base64
 from contextlib import contextmanager
+import copy
 import csv
 import importlib.machinery as machinery
 import io
@@ -255,6 +256,204 @@ class OverlayTests(unittest.TestCase):
         self.assertEqual(report["removed_bytecode_files"], 3)
         self.assertFalse(any((self.root / name).exists() for name in names[:-1]))
         self.assertTrue((self.root / names[-1]).exists())
+
+    @contextmanager
+    def packaging_console(self):
+        entries = (b"[console_scripts]\nvllm = vllm.entrypoints.cli.main:main\n\n[vllm.general_plugins]\n"
+                   b"lora_filesystem_resolver = vllm.plugins.lora_resolvers.filesystem_resolver:register_filesystem_resolver\n"
+                   b"lora_hf_hub_resolver = vllm.plugins.lora_resolvers.hf_hub_resolver:register_hf_hub_resolver\n")
+        self.write(self.dist + "/entry_points.txt", entries)
+        scripts = self.work / "bin"
+        scripts.mkdir()
+        data = b"raise RuntimeError('CONSOLE MUST NOT EXECUTE')\n"
+        (scripts / "vllm").write_bytes(data)
+        row = ("../bin/vllm", "sha256=" + base64.urlsafe_b64encode(bytes.fromhex(overlay.digest(data))).decode().rstrip("="), len(data))
+        self.refresh_record(extra=[row])
+        with overlay.directory(scripts) as fd:
+            yield ("../bin/vllm", overlay.Tree(fd)), row, entries
+
+    def test_packaging_exact_map_and_unlisted_bytecode_removal_before_five_stages(self):
+        with self.packaging_console() as (console, _, _):
+            names = ["vllm/__pycache__/envs.cpython-312.pyc", "vllm/__pycache__/__init__.cpython-312.pyc"]
+            for name in names:
+                self.write(name, b"opaque untrusted bytes; never imported or interpreted")
+            with self.assertRaises(ValueError):
+                self.inspect(console=console)  # Contract availability never relaxes the default.
+            before = self.inspect(console=console, packaging=True)
+            self.assertEqual([row["path"] for row in before["packaging_removals"]], sorted(names))
+            self.assertTrue(all(row["source_sha256"] == before["files"][row["source"]]["sha256"]
+                                for row in before["packaging_removals"]))
+            original = overlay.Tree.write
+            def write(tree, name, data, mode):
+                self.assertTrue(all(not (self.root / path).exists() for path in names))
+                original(tree, name, data, mode)
+            with overlay.directory(self.root) as fd, mock.patch.object(overlay.Tree, "write", write):
+                report = overlay.apply_overlay(overlay.Tree(fd), self.contract, self.stages, before,
+                                               console=console, packaging=True)
+            self.assertEqual(report["stages"], 5)
+            self.assertTrue(report["native_inventory_unchanged"])
+            self.assertEqual(report["packaging"]["removal_plan_sha256"], overlay.digest(overlay.json_bytes(before["packaging_removals"])))
+            self.assertEqual(report["packaging"]["removed_unlisted_bytecode_files"], 2)
+            self.assertTrue(report["packaging"]["removal_verified_before_patch"])
+            self.assertFalse(report["packaging"]["bytecode_executed"])
+            self.assertFalse(report["packaging"]["plugins_loaded"])
+            self.assertNotIn(str(self.work), json.dumps(report))
+            for item in self.contract["files"]:
+                self.assertEqual(overlay.digest((self.root / item["path"]).read_bytes()), item["sha256"][-1])
+
+    def test_packaging_entrypoints_reject_defaults_case_duplicates_unknowns_and_interpolation(self):
+        with self.packaging_console() as (_, _, entries):
+            self.assertTrue(overlay.packaging_entrypoints_match(entries))
+            variants = [entries + b"[DEFAULT]\n", entries + b"[DEFAULT]\nvllm = bad\n",
+                        entries.replace(b"vllm =", b"VLLM ="), entries.replace(b"[console_scripts]", b"[Console_scripts]"),
+                        entries + b"unknown = module:target\n", entries + b"[unknown]\n",
+                        entries + b"[console_scripts]\n", entries.replace(b"vllm =", b"vllm = bad\nvllm ="),
+                        entries.replace(b"vllm.entrypoints.cli.main:main", b"%(unsafe)s"),
+                        entries.replace(b":main", b":wrong"), b"\xef\xbb\xbf" + entries,
+                        entries + b"[\0]\n", entries.replace(b" = ", b": "), entries.replace(b" = ", b" = bad\n  ")]
+            for data in variants:
+                with self.subTest(data=data):
+                    try:
+                        self.assertFalse(overlay.packaging_entrypoints_match(data))
+                    except ValueError as failure:
+                        self.assertEqual(str(failure), "offline overlay validation failed")
+
+    def test_packaging_rejects_unknown_identity_contract_or_plugin_policy(self):
+        with self.packaging_console() as (console, _, _):
+            for keys, value in ((["base_image"], "unknown"), (["base_revision"], "0" * 40),
+                                (["official_config", "sha256"], "0" * 64),
+                                (["upstream_files", "pyproject.toml"], "0" * 64),
+                                (["experimental_packaging", "required_environment", "VLLM_PLUGINS"], "SYNTHETIC_PRIVATE_VALUE"),
+                                (["experimental_packaging", "unlisted_bytecode"], "trust"), (["deployable"], True)):
+                contract = copy.deepcopy(self.contract)
+                current = contract
+                for key in keys[:-1]:
+                    current = current[key]
+                current[keys[-1]] = value
+                with self.subTest(keys=keys), overlay.directory(self.root) as fd, self.assertRaisesRegex(ValueError, "^offline overlay validation failed$"):
+                    overlay.inspect(overlay.Tree(fd), contract, console=console, packaging=True)
+            contract = {k: v for k, v in self.contract.items() if k != "experimental_packaging"}
+            with overlay.directory(self.root) as fd, self.assertRaises(ValueError):
+                overlay.inspect(overlay.Tree(fd), contract, console=console, packaging=True)
+            self.assertEqual(prep.launch_plan()["fixed_engine_environment"]["VLLM_PLUGINS"], "")
+
+    def test_packaging_unlisted_must_be_unique_recorded_source_bytecode(self):
+        with self.packaging_console() as (console, row, _):
+            for name in ("vllm/unlisted.txt", "vllm/unlisted.py", "vllm/envs.pyc",
+                         "vllm/__pycache__/missing.cpython-312.pyc", "vllm/__pycache__/envs.cpython-311.pyc",
+                         self.dist + "/__pycache__/metadata.cpython-312.pyc"):
+                with self.subTest(name=name):
+                    self.write(name, b"not trusted")
+                    with self.assertRaises(ValueError):
+                        self.inspect(console=console, packaging=True)
+                    (self.root / name).unlink()
+            # Both names are present and recorded, so the cache cannot be assigned uniquely.
+            self.write("vllm/envs.cpython-312.py", b"not executed\n")
+            self.refresh_record(extra=[row])
+            self.write("vllm/__pycache__/envs.cpython-312.pyc", b"not trusted")
+            with self.assertRaises(ValueError):
+                self.inspect(console=console, packaging=True)
+
+    def test_packaging_listed_hashed_bytecode_is_not_relaxed(self):
+        with self.packaging_console() as (console, row, _):
+            name, data = "vllm/__pycache__/envs.cpython-312.pyc", b"not trusted"
+            self.write(name, data)
+            self.refresh_record(extra=[row])
+            self.assertEqual(self.inspect(console=console, packaging=True)["packaging_removals"], [])
+            record = self.root / self.dist / "RECORD"
+            encoded = "sha256=" + base64.urlsafe_b64encode(bytes.fromhex(overlay.digest(data))).decode().rstrip("=")
+            self.write(self.dist + "/RECORD", record.read_bytes().replace((name + ",,").encode(), f"{name},{encoded},{len(data)}".encode()))
+            with self.assertRaises(ValueError):
+                self.inspect(console=console, packaging=True)
+
+    def test_packaging_tamper_or_suppressed_removal_fails_before_patch_writes(self):
+        with self.packaging_console() as (console, _, _):
+            name = "vllm/__pycache__/envs.cpython-312.pyc"
+            self.write(name, b"opaque")
+            before = self.inspect(console=console, packaging=True)
+            with overlay.directory(self.root) as fd, mock.patch.object(overlay.Tree, "write") as write:
+                tree = overlay.Tree(fd)
+                altered = copy.deepcopy(before)
+                altered["packaging_removals"] = []
+                with self.assertRaises(ValueError):
+                    overlay.apply_overlay(tree, self.contract, self.stages, altered, console=console, packaging=True)
+                self.write(name, b"changed")
+                with self.assertRaises(ValueError):
+                    overlay.apply_overlay(tree, self.contract, self.stages, before, console=console, packaging=True)
+                self.write(name, b"opaque")
+                with mock.patch.object(overlay.Tree, "unlink"), self.assertRaises(ValueError):
+                    overlay.apply_overlay(tree, self.contract, self.stages, before, console=console, packaging=True)
+                write.assert_not_called()
+
+    def test_packaging_root_hook_native_and_source_gates_still_reject(self):
+        with self.packaging_console() as (console, _, _):
+            before = self.inspect(console=console, packaging=True)
+            for name, data in (("unknown.pth", b"import forbidden\n"), ("sitecustomize.py", b"raise AssertionError\n"),
+                               ("vllm/envs.py", b"changed source"), ("vllm/_C.abi3.so", b"changed native")):
+                path = self.root / name
+                old = path.read_bytes() if path.exists() else None
+                self.write(name, data)
+                try:
+                    with overlay.directory(self.root) as fd, mock.patch.object(overlay.Tree, "unlink") as unlink, \
+                            mock.patch.object(overlay.Tree, "write") as write, self.assertRaises(ValueError):
+                        overlay.apply_overlay(overlay.Tree(fd), self.contract, self.stages, before, console=console, packaging=True)
+                    unlink.assert_not_called()
+                    write.assert_not_called()
+                finally:
+                    path.unlink() if old is None else path.write_bytes(old)
+
+    def test_packaging_unlisted_links_special_files_and_unrecorded_source_rejected(self):
+        with self.packaging_console() as (console, _, _):
+            name = "vllm/__pycache__/envs.cpython-312.pyc"
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            other = self.work / "opaque"
+            other.write_bytes(b"opaque not executed")
+            for kind in ("symlink", "hardlink", "fifo"):
+                with self.subTest(kind=kind):
+                    if kind == "symlink":
+                        path.symlink_to(other)
+                    elif kind == "hardlink":
+                        os.link(other, path)
+                    else:
+                        os.mkfifo(path)
+                    try:
+                        with self.assertRaises((ValueError, OSError)):
+                            self.inspect(console=console, packaging=True)
+                    finally:
+                        path.unlink()
+            self.write("vllm/unrecorded.py", b"not executed\n")
+            self.write("vllm/__pycache__/unrecorded.cpython-312.pyc", b"opaque")
+            with self.assertRaises(ValueError):
+                self.inspect(console=console, packaging=True)
+
+    def test_packaging_failed_removal_or_recreated_bytecode_never_yields_receipt(self):
+        with self.packaging_console() as (console, _, _):
+            name = "vllm/__pycache__/envs.cpython-312.pyc"
+            self.write(name, b"opaque")
+            before = self.inspect(console=console, packaging=True)
+            with overlay.directory(self.root) as fd, mock.patch.object(overlay.Tree, "write") as write, \
+                    mock.patch.object(overlay.Tree, "unlink", side_effect=OSError("SYNTHETIC_PRIVATE_VALUE")), self.assertRaises(OSError):
+                overlay.apply_overlay(overlay.Tree(fd), self.contract, self.stages, before, console=console, packaging=True)
+            write.assert_not_called()
+            original = overlay.Tree.write
+            def write_and_recreate(tree, path, data, mode):
+                original(tree, path, data, mode)
+                self.write(name, b"opaque recreated")
+            with overlay.directory(self.root) as fd, mock.patch.object(overlay.Tree, "write", write_and_recreate), self.assertRaises(ValueError):
+                overlay.apply_overlay(overlay.Tree(fd), self.contract, self.stages, before, console=console, packaging=True)
+
+    def test_packaging_invalid_stage_and_plan_bound_reject_before_deletion(self):
+        with self.packaging_console() as (console, _, _):
+            self.write("vllm/__pycache__/envs.cpython-312.pyc", b"opaque")
+            before = self.inspect(console=console, packaging=True)
+            stages = [dict(stage) for stage in self.stages]
+            stages[4]["vllm/envs.py"] += b"changed"
+            with overlay.directory(self.root) as fd, mock.patch.object(overlay.Tree, "unlink") as unlink, self.assertRaises(ValueError):
+                overlay.apply_overlay(overlay.Tree(fd), self.contract, stages, before, console=console, packaging=True)
+            unlink.assert_not_called()
+            with mock.patch.object(overlay, "MAX_CONTEXT", 1), self.assertRaises(ValueError):
+                self.inspect(console=console, packaging=True)
 
     def test_dependency_missing_wrong_version_and_wheel_constraint_mismatch(self):
         target = self.root / "torch-2.13.0.dist-info/METADATA"

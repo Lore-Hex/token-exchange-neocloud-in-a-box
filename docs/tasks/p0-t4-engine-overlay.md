@@ -7,6 +7,10 @@ an endpoint. No ABI, GPU, attestation, confidentiality or hardware success is
 claimed. The [candidate](p0-t4-cc-candidate.md) remains `BLOCKED`,
 `deployable:false`, `image:null`; all five existing patches are unchanged.
 
+The separate [exact-image packaging contract](p0-t4-engine-packaging-contract.md)
+is available to explicit offline API calls only. It does not relax this CLI or
+recipe, remove root/startup blockers, or authorize image/engine execution.
+
 ## Prepare From Committed Source
 
 Use an existing private, non-symlink parent and a new absolute destination:
