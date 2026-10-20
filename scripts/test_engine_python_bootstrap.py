@@ -3,10 +3,12 @@
 
 import copy
 import json
+import marshal
 import os
 from pathlib import Path
 import shlex
 import subprocess
+import struct
 import sys
 import sysconfig
 import tempfile
@@ -142,6 +144,46 @@ if __name__ == "__main__":
     main()
 '''
 
+# Original synthetic model of the pinned backport's separate Context and
+# registration decorator. It delegates filesystem parsing to stdlib metadata;
+# no upstream package or engine is imported by these regression fixtures.
+BACKPORT_COMPAT = '''import sys
+def install(cls):
+    sys.meta_path.append(cls())
+    return cls
+'''
+BACKPORT = '''from importlib import metadata as std
+import importlib, itertools, sys
+from ._compat import install
+class DistributionFinder:
+    class Context:
+        name = None
+        def __init__(self, **kwargs): self.__dict__.update(kwargs)
+        @property
+        def path(self): return self.__dict__.get('path', sys.path)
+@install
+class MetadataPathFinder(DistributionFinder):
+    @classmethod
+    def find_distributions(cls, context=DistributionFinder.Context()):
+        return (PathDistribution(d._path) for d in std.MetadataPathFinder.find_distributions(
+            std.DistributionFinder.Context(path=context.path, name=context.name)))
+class EntryPoint(std.EntryPoint):
+    def load(self):
+        module, attr = self.value.split(':')
+        return getattr(importlib.import_module(module), attr)
+class PathDistribution(std.PathDistribution):
+    @property
+    def entry_points(self):
+        return std.EntryPoints(EntryPoint(p.name, p.value, p.group)._for(self) for p in super().entry_points)
+def distributions(**kwargs):
+    context = kwargs.pop('context', None) or DistributionFinder.Context(**kwargs)
+    return itertools.chain.from_iterable(f.find_distributions(context) for f in sys.meta_path if hasattr(f, 'find_distributions'))
+def distribution(name): return next(iter(distributions(name=name)))
+def version(name): return distribution(name).version
+def entry_points(**kwargs):
+    return std.EntryPoints(p for d in distributions() for p in d.entry_points).select(**kwargs)
+'''
+
 
 class BootstrapTests(unittest.TestCase):
     def setUp(self):
@@ -185,6 +227,68 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(result.stderr, b"", result.stderr.decode())
         return json.loads(result.stdout)
 
+    def metadata_fixture(self):
+        package = self.root / "packages"
+        backport = package / "importlib_metadata"
+        backport.mkdir()
+        (backport / "__init__.py").write_text(BACKPORT)
+        (backport / "_compat.py").write_text(BACKPORT_COMPAT)
+        distribution = package / "importlib_metadata-8.7.1.dist-info"
+        distribution.mkdir()
+        (distribution / "METADATA").write_text("Metadata-Version: 2.1\nName: importlib_metadata\nVersion: 8.7.1\n")
+        context = package / "opentelemetry/context"
+        context.mkdir(parents=True)
+        (context.parent / "__init__.py").write_text("")
+        (context / "__init__.py").write_text(
+            "import os\nfrom importlib_metadata import entry_points\n"
+            "RUNTIME = next(iter(entry_points(group='opentelemetry_context', name=os.environ['OTEL_PYTHON_CONTEXT']))).load()()\n"
+            "assert os.environ['OTEL_PROPAGATORS'] == 'none'\n")
+        (context / "contextvars_context.py").write_text("class ContextVarsRuntimeContext:\n    VALUE = 'synthetic-context'\n")
+        dist = package / "opentelemetry_api-1.40.0.dist-info"
+        dist.mkdir()
+        (dist / "METADATA").write_text("Metadata-Version: 2.1\nName: opentelemetry-api\nVersion: 1.40.0\n")
+        (dist / "entry_points.txt").write_text(
+            "[opentelemetry_context]\ncontextvars_context = opentelemetry.context.contextvars_context:ContextVarsRuntimeContext\n"
+            "[opentelemetry_propagator]\ntracecontext = never_load_plugin:entry\n"
+            "[vllm.general_plugins]\nforbidden = never_load_plugin:entry\n")
+        pins = {path: bootstrap.hashlib.sha256((package / path).read_bytes()).hexdigest() for path in bootstrap.METADATA_SOURCES}
+        self.fixture_prefix = SOURCE + ("\nMETADATA_SOURCES = " + repr(pins) + "\n").encode()
+        driver = DRIVER.replace("STATE = install(LAYOUT)",
+            "STATE = install(LAYOUT)\nimport importlib_metadata as backport\nimport opentelemetry.context as otel_context\n"
+            "assert not getattr(sys.modules[CONTEXT_MODULE], 'unexpected_pyc_executed', False)")
+        driver = driver.replace('    points = metadata.entry_points(group="review.test")',
+            '    points = metadata.entry_points(group="review.test")\n'
+            '    assert backport.version("review-fake") == metadata.version("review-fake") == "1.0"\n'
+            '    assert [(p.name, p.value) for p in backport.entry_points(group="review.test")] == [(p.name, p.value) for p in points]\n'
+            '    assert otel_context.RUNTIME.VALUE == "synthetic-context"\n'
+            '    assert STATE["entrypoint_loads"] >= 1\n'
+            '    before_loads = STATE["entrypoint_loads"]\n'
+            '    for api in (metadata, backport):\n'
+            '        entry = next(iter(api.entry_points(group="opentelemetry_context", name="contextvars_context")))\n'
+            '        assert entry.load()().VALUE == "synthetic-context"\n'
+            '    assert STATE["entrypoint_loads"] == before_loads + 2\n'
+            '    assert len(sys.meta_path) == 3\n'
+            '    assert not any(isinstance(f, backport.MetadataPathFinder) for f in sys.meta_path)')
+        driver = driver.replace('            if name == "fork":',
+            '            if name == "backport-outside": list(backport.distributions(path=["/private"]))\n'
+            '            elif name == "backport-direct-outside": list(backport.MetadataPathFinder.find_distributions(backport.DistributionFinder.Context(path=["/private"])))\n'
+            '            elif name == "backport-extra": list(backport.distributions(private="private"))\n'
+            '            elif name == "unknown-finder": sys.meta_path.append(object()); metadata.version("review-fake")\n'
+            '            elif name == "unrestricted-finder": sys.meta_path.append(importlib.machinery.PathFinder); backport.version("review-fake")\n'
+            '            elif name.startswith("entry-"):\n'
+            '                api = metadata if name.startswith("entry-stdlib-") else backport\n'
+            '                variant = name.rsplit("-", 1)[1]\n'
+            '                group, label, target = CONTEXT_ENTRYPOINT\n'
+            '                if variant == "target": target = "never_load_plugin:entry"\n'
+            '                if variant == "name": label = "unexpected"\n'
+            '                if variant == "group": group = "vllm.general_plugins"\n'
+            '                entry = api.EntryPoint(label, target, group)\n'
+            '                if variant != "unowned": entry._for(api.distribution("opentelemetry-api"))\n'
+            '                entry.load()\n'
+            '            elif name == "fork":')
+        self.launcher.write_bytes(self.fixture_prefix + driver.encode())
+        return driver
+
     def assert_state(self, row):
         self.assertTrue(all(row[key] for key in ("isolated", "no_site", "dont_write_bytecode", "before_unpickle")))
         self.assertFalse(any(row["rejections"].values()))
@@ -215,6 +319,100 @@ class BootstrapTests(unittest.TestCase):
                 self.assertGreater(rejected["failures"]["import"], 0)
                 self.assertNotIn("private", json.dumps(rejected))
 
+    def test_backport_and_stdlib_metadata_child_propagation_with_exact_context_entrypoint(self):
+        self.metadata_fixture()
+        row = self.run_fixture("positive")
+        for observation in (row["metadata_parent"], row["metadata"], row["grandchild"]["metadata"], row["fresh"]["metadata"]):
+            self.assertEqual(observation["version"], "1.0")
+            self.assertFalse(observation["plugin_loaded"])
+            self.assertFalse(observation["pathfinder_restored"])
+        for stage in (row, row["grandchild"]):
+            self.assert_state(stage["before"])
+            self.assert_state(stage["after"])
+
+    def test_backport_rejects_unknown_finders_contexts_and_entrypoint_loads(self):
+        self.metadata_fixture()
+        names = ["backport-outside", "backport-direct-outside", "backport-extra", "unknown-finder", "unrestricted-finder"]
+        names += ["entry-" + api + "-" + variant for api in ("stdlib", "backport") for variant in ("target", "name", "group", "unowned")]
+        for name in names:
+            with self.subTest(name=name):
+                row = self.run_fixture("reject", name)
+                self.assertTrue(row["rejected"])
+                self.assertEqual(row["message"], "sealed Python operation rejected")
+                self.assertGreater(sum(row["failures"].values()), 0)
+                self.assertNotIn("private", json.dumps(row))
+
+    def test_backport_and_context_source_or_version_changes_reject(self):
+        self.metadata_fixture()
+        paths = list(bootstrap.METADATA_SOURCES) + ["importlib_metadata-8.7.1.dist-info/METADATA", "opentelemetry_api-1.40.0.dist-info/METADATA"]
+        for name in paths:
+            with self.subTest(name=name):
+                path = self.root / "packages" / name
+                original = path.read_bytes()
+                path.write_bytes(original.replace(b"Version: ", b"Version: changed-") if name.endswith("METADATA") else original + b"\n# changed\n")
+                try:
+                    result = subprocess.run([str(self.wrapper), "positive"], cwd="/", env=self.env, capture_output=True, timeout=15)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(result.stdout, b"")
+                finally:
+                    path.write_bytes(original)
+
+    def test_context_loader_executes_verified_source_not_timestamp_valid_bytecode(self):
+        self.metadata_fixture()
+        source = self.root / "packages/opentelemetry/context/contextvars_context.py"
+        original = source.read_bytes()
+        cache = Path(bootstrap.importlib.util.cache_from_source(str(source)))
+        cache.parent.mkdir()
+        forged = compile(b"unexpected_pyc_executed = True\n" + original, str(source), "exec")
+        cache.write_bytes(bootstrap.importlib.util.MAGIC_NUMBER + struct.pack("<III", 0, int(source.stat().st_mtime), len(original))
+                          + marshal.dumps(forged))
+        # Positive control: ordinary source loading accepts the forged cache
+        # despite -B, which only disables writes. No upstream code is involved.
+        control = subprocess.run([sys.executable, "-I", "-S", "-B", "-c",
+            "import importlib.util,sys; s=importlib.util.spec_from_file_location('control',sys.argv[1]); "
+            "m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(m.unexpected_pyc_executed)", str(source)],
+            cwd="/", env=self.env, capture_output=True, check=True, timeout=10)
+        self.assertEqual(control.stdout, b"True\n")
+        self.assertEqual(source.read_bytes(), original)
+        row = self.run_fixture("positive")
+        for stage in (row, row["grandchild"]):
+            self.assert_state(stage["after"])
+        self.assertEqual(source.read_bytes(), original)
+
+    def test_context_loader_rejects_alternate_sealed_root_shadow(self):
+        self.metadata_fixture()
+        alternate = self.root / "alternate"
+        package = alternate / "opentelemetry/context"
+        package.mkdir(parents=True)
+        (package.parent / "__init__.py").write_text("")
+        (package / "__init__.py").write_bytes((self.root / "packages/opentelemetry/context/__init__.py").read_bytes())
+        (package / "contextvars_context.py").write_text("print('unexpected-shadow-executed')\n")
+        self.layout["paths"].insert(-1, str(alternate))
+        (self.root / "layout.json").write_text(json.dumps(self.layout))
+        result = subprocess.run([str(self.wrapper), "positive"], cwd="/", env=self.env, capture_output=True, timeout=15)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, b"")
+        self.assertIn(b"sealed Python operation rejected", result.stderr)
+
+    def test_context_loader_rejects_preloaded_injected_or_replaced_module_cache(self):
+        driver = self.metadata_fixture()
+        injection = "import types\nsys.modules[CONTEXT_MODULE] = types.ModuleType(CONTEXT_MODULE)\n"
+        for variant in ("before-install", "before-import", "after-import", "changed-target"):
+            with self.subTest(variant=variant):
+                if variant == "before-install":
+                    changed = driver.replace("STATE = install(LAYOUT)", injection + "STATE = install(LAYOUT)")
+                elif variant == "before-import":
+                    changed = driver.replace("import opentelemetry.context as otel_context", injection + "import opentelemetry.context as otel_context")
+                else:
+                    alteration = (injection if variant == "after-import" else
+                                  "sys.modules[CONTEXT_MODULE].ContextVarsRuntimeContext = lambda: None\n")
+                    changed = driver.replace("def distribution_observation():", alteration + "\ndef distribution_observation():")
+                self.launcher.write_bytes(self.fixture_prefix + changed.encode())
+                result = subprocess.run([str(self.wrapper), "fresh"], cwd="/", env=self.env, capture_output=True, timeout=15)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, b"")
+                self.assertIn(b"sealed Python", result.stderr)
+
     def test_real_smoke_child_functions_import_only_fake_package_after_bootstrap(self):
         runtime = (ROOT / "scripts/engine_import_smoke.py").read_bytes()
         (self.root / "packages/smoke_runtime.py").write_bytes(SOURCE + b"\n" + runtime)
@@ -231,7 +429,7 @@ class BootstrapTests(unittest.TestCase):
         for stage in (row, row["grandchild"]):
             self.assert_state(stage["before_unpickle"])
             self.assert_state(stage["state"])
-            self.assertEqual(stage["imports"], [{"module": "fake_engine", "status": "pass"}])
+            self.assertEqual(stage["imports"], [{"module": "fake_engine", "status": "pass", "error_category": None}])
             self.assertFalse(any(stage["guard_rejections"].values()))
 
     def test_pinned_import_environment_actions_do_not_mutate_sealed_state(self):

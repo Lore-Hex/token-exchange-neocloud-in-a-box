@@ -22,7 +22,8 @@ remain the gates. The recorder reuses their source-pinned helpers, complete
 measured inventory, bytecode-removal plan, fixed entrypoints, dependency/source
 checks and all five patch-stage receipts. It does not add a generic admission
 exception, normalize the image, change native libraries, execute `.pth` hooks,
-delete alternate roots or import plugins.
+or delete alternate roots. Application is pre-import; the later smoke permits
+only the exact dependency context entrypoint described below.
 
 - Base manifest: `6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9`.
 - Raw config: `bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d`.
@@ -49,10 +50,11 @@ the exact paths, own main file, argv, cwd and `spawn` method. The ordinary Pytho
 entrypoint, fork/forkserver, NUMA executable replacement, external shells,
 `site.main`, `addsitedir`, startup customization imports and changed paths/env
 are rejected. Caught guard errors still prevent a passing import result.
-Distribution metadata discovery delegates to the stdlib metadata finder with
-a copied, validated subset of the sealed roots. It preserves version and
-entrypoint enumeration, not entrypoint loading; outside-root, alias and malformed
-contexts reject with fixed diagnostics. Unrestricted `PathFinder` is not restored.
+Distribution metadata discovery supports both stdlib and pinned backport APIs
+with a copied, validated subset of the sealed roots. It preserves version and
+entrypoint enumeration; outside-root, alias and malformed contexts reject with
+fixed diagnostics. Neither unrestricted `PathFinder` nor an additional metadata
+finder is installed. Entry loading has the separate exact restriction below.
 
 Primary source for these boundaries:
 
@@ -88,7 +90,9 @@ The immutable environment reuses the candidate's all-off collective and
 telemetry controls, `VLLM_PLUGINS=''`, and `VLLM_WORKER_MULTIPROC_METHOD=spawn`.
 The [pinned plugin loader](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/plugins/__init__.py)
 applies this allowlist across its plugin groups; the exact known entrypoint
-names cannot match the empty string. No plugin loader is called by our harness.
+names cannot match the empty string. This does not disable dependency
+entrypoints: OpenTelemetry context initialization loads its reviewed context
+provider during engine imports. The harness constrains that load separately.
 No user args/env/paths are accepted. TP4, EP off, Engram `cpu_offload:false`,
 zero explicit weight offload and fusion-disabled controls remain in the
 unchanged non-executable launch plan; no engine configuration is instantiated
@@ -130,6 +134,55 @@ proof that all imports succeed. The existing full measured inventory, installed
 dependency pins and source checks remain mandatory. Local fake imports exercise
 these environment actions without importing upstream engine/dependency code.
 
+### Metadata And Dependency Context
+
+The observed image contains `importlib_metadata==8.7.1` and
+`opentelemetry-api==1.40.0`. Pinned OpenTelemetry
+[uses the backport API](https://github.com/open-telemetry/opentelemetry-python/blob/dd2202172982d1b3cc896ddecc2bef27d7956acb/opentelemetry-api/src/opentelemetry/util/_importlib_metadata.py).
+The backport has its own
+[Context and finder](https://github.com/python/importlib_metadata/blob/84e9028d39062af975d0659c0e987c28bcc808a5/importlib_metadata/__init__.py),
+and its [registration decorator](https://github.com/python/importlib_metadata/blob/84e9028d39062af975d0659c0e987c28bcc808a5/importlib_metadata/_compat.py)
+normally appends a finder and disables stdlib discovery. Only the two exact
+hash-verified backport sources receive an in-memory loader adapter: registration
+retains the single sealed finder, accepts the two exact Context types, and
+delegates each query to its own metadata implementation after root validation.
+An unexpected finder, source, version or registration attempt rejects. This is
+not a generic finder exemption or a change to installed source/RECORD bytes.
+
+The exact [upstream entrypoint map](https://github.com/open-telemetry/opentelemetry-python/blob/dd2202172982d1b3cc896ddecc2bef27d7956acb/opentelemetry-api/pyproject.toml)
+permits only group `opentelemetry_context`, name `contextvars_context`, target
+`opentelemetry.context.contextvars_context:ContextVarsRuntimeContext`, owned by
+the selected-root `opentelemetry-api==1.40.0` distribution. Both APIs reject other
+entry loads before importing their target. The permitted target source is
+rehashed before each load, and its exact selected-root loader compiles those
+verified bytes rather than accepting cached bytecode. Preloaded, injected or
+replaced target modules, changed target attributes and alternate-root shadows
+reject; `-B` alone would not prevent reading a timestamp-valid `.pyc`.
+`OTEL_PYTHON_CONTEXT=contextvars_context` fixes the
+[context choice](https://github.com/open-telemetry/opentelemetry-python/blob/dd2202172982d1b3cc896ddecc2bef27d7956acb/opentelemetry-api/src/opentelemetry/context/__init__.py);
+`OTEL_PROPAGATORS=none` disables the otherwise default tracecontext/baggage
+[propagator loads](https://github.com/open-telemetry/opentelemetry-python/blob/dd2202172982d1b3cc896ddecc2bef27d7956acb/opentelemetry-api/src/opentelemetry/propagate/__init__.py).
+The context provider uses stdlib `ContextVar`; it is not an exporter. This scope
+does not claim that arbitrary Python/native dependencies are sandboxed.
+
+These immutable public source hashes are bound into `smoke.json` and checked
+against installed bytes before the adapter or permitted entrypoint is used:
+
+| Source (Revisions Above) | SHA-256 |
+| --- | --- |
+| `importlib_metadata/__init__.py` | `bbb130e3e524a73358fa46ba93e591903850652d5a9242cc7d6b367849d4986a` |
+| `importlib_metadata/_compat.py` | `542e590cb953f8172c85ab824a174526f30d2e7b4925f67334ad667866be7a7c` |
+| `opentelemetry/context/contextvars_context.py` | `6074f62ec7694e56c9d1fdbfc5e927805e24d59796f94fbfe27ccf91c67fa41d` |
+
+`application.packaging.plugins_loaded:false` describes **only the pre-import
+application phase**. It is not a claim about the overall experiment. Later
+process reports count successful permitted loads in `dependency_entrypoint_loads`;
+zero does not imply that initialization was reached. Historical application
+receipts are unchanged. Tests use an original synthetic backport/context model
+and real local parent/spawn/grandchild/fresh processes, including an ordinary
+loader positive control for forged timestamp-valid bytecode, not installed upstream
+engine/dependency imports or evidence that the real image smoke succeeds.
+
 ## Bounds And Failure
 
 There is no image pull/build/commit/publication. The already-cached exact base
@@ -163,9 +216,12 @@ All entry/byte/depth/link/native checks and exact-image 225,000-entry policy sta
 unchanged. A slower host fails safely; nothing skips rehashes to finish on time.
 
 Both raw import streams go to `/dev/null`. Only fixed module identifiers,
-statuses, guard counters, hashes and reviewed application receipts can leave
+statuses, guard/load counters, hashes and reviewed application receipts can leave
 the payload; host validation rejects extra/arbitrary fields. Partial failures
-remain failed evidence. `phase_elapsed_ms` has exactly three fixed keys:
+remain failed evidence. A rejected import has one fixed `error_category`:
+`guard`, `missing-module`, `import`, `OS`, `runtime` or `other`; a guard rejection
+takes priority. Passing/not-run rows have `null`. No exception text, traceback
+or missing-module name is published. `phase_elapsed_ms` has exactly three fixed keys:
 `application-preflight`, `application`, and `import-smoke`. Integer monotonic
 elapsed milliseconds include a failed phase; `null` means not started. Import
 timing includes process-group cleanup. These are observations, not renewed

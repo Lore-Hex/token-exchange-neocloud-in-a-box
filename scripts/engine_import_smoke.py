@@ -18,6 +18,7 @@ IMPORT_ENVIRONMENT = {
     "PYTORCH_NVML_BASED_CUDA_CHECK": "1", "TORCHINDUCTOR_COMPILE_THREADS": "1",
     "TRITON_CACHE_AUTOTUNING": "1", "TILELANG_CLEANUP_TEMP_FILES": "1",
     "TORCH_DEVICE_BACKEND_AUTOLOAD": "0",
+    "OTEL_PYTHON_CONTEXT": "contextvars_context", "OTEL_PROPAGATORS": "none",
 }
 ENVIRONMENT_SOURCES = (
     {"repository": "vllm-project/vllm", "revision": "5df63a7203cdb9328d824a27b682e77c7b9928be",
@@ -96,6 +97,8 @@ def context(expected):
             and contract["environment"]["VLLM_PLUGINS"] == "" and "NUMACTL_PYTHON" not in contract["environment"])
     require(contract["import_environment_sources"] == list(ENVIRONMENT_SOURCES)
             and all(contract["environment"].get(key) == value for key, value in IMPORT_ENVIRONMENT.items()))
+    require(contract["metadata_source_sha256"] == METADATA_SOURCES
+            and contract["permitted_dependency_entrypoint"] == list(CONTEXT_ENTRYPOINT))
     return contract, sources, modules, application, measured
 
 
@@ -125,12 +128,17 @@ def imports():
             importlib.import_module(name)
             current()
             require(not any(sys._nib_smoke_guard["failures"].values()))
-            status = "pass"
-        except (Exception, SystemExit):
+            status, category = "pass", None
+        except (Exception, SystemExit) as error:
             status = "rejected"
-        result.append({"module": name, "status": status})
+            category = ("guard" if any(sys._nib_smoke_guard["failures"].values()) else
+                        "missing-module" if isinstance(error, ModuleNotFoundError) else
+                        "import" if isinstance(error, ImportError) else
+                        "OS" if isinstance(error, OSError) else
+                        "runtime" if isinstance(error, RuntimeError) else "other")
+        result.append({"module": name, "status": status, "error_category": category})
         if status != "pass":
-            result.extend({"module": item, "status": "not-run"} for item in MODULES[len(result):])
+            result.extend({"module": item, "status": "not-run", "error_category": None} for item in MODULES[len(result):])
             break
     return result
 
@@ -143,6 +151,7 @@ def child_target(writer, prepared, depth):
         result["grandchild"] = child(0)
     result["imports"] = imports()
     result["guard_rejections"] = dict(sys._nib_smoke_guard["failures"])
+    result["dependency_entrypoint_loads"] = sys._nib_smoke_guard["entrypoint_loads"]
     writer.send_bytes(json_bytes(result))
     writer.close()
 
@@ -247,7 +256,8 @@ def entry():
                       "wrapper": ROOT + "/python", "launcher": ROOT + "/launch.py", "environment": contract["environment"]}
             state = install(layout)
             if args[1:] == ["fresh"]:
-                result = {"state": current(), "imports": imports(), "guard_rejections": dict(state["failures"])}
+                result = {"state": current(), "imports": imports(), "guard_rejections": dict(state["failures"]),
+                          "dependency_entrypoint_loads": state["entrypoint_loads"]}
             elif args[1:] == ["smoke"]:
                 import multiprocessing as mp
                 import subprocess
@@ -357,16 +367,19 @@ def validate(overlay, report, application, measured):
     rows = []
     for key in ("spawn", "grandchild", "fresh"):
         row = smoke["spawn"]["grandchild"] if key == "grandchild" else smoke[key]
-        keys = {"state", "imports", "guard_rejections"} | ({"before_unpickle"} if key != "fresh" else set()) | ({"grandchild"} if key == "spawn" else set())
+        keys = {"state", "imports", "guard_rejections", "dependency_entrypoint_loads"} | ({"before_unpickle"} if key != "fresh" else set()) | ({"grandchild"} if key == "spawn" else set())
         overlay.require(type(row) is dict and set(row) == keys and same(row["state"], expected_state)
                         and (key == "fresh" or same(row["before_unpickle"], expected_state)))
         overlay.require(type(row["guard_rejections"]) is dict and set(row["guard_rejections"]) == set(failures)
                         and all(type(value) is int and 0 <= value <= 1000000 for value in row["guard_rejections"].values()))
+        overlay.require(type(row["dependency_entrypoint_loads"]) is int and 0 <= row["dependency_entrypoint_loads"] <= 1000000)
         overlay.require(type(row["imports"]) is list and len(row["imports"]) == len(MODULES))
         seen_failure = False
         for name, item in zip(MODULES, row["imports"]):
-            overlay.require(type(item) is dict and set(item) == {"module", "status"} and item["module"] == name
+            overlay.require(type(item) is dict and set(item) == {"module", "status", "error_category"} and item["module"] == name
                             and item["status"] in ({"not-run"} if seen_failure else {"pass", "rejected"}))
+            overlay.require(item["error_category"] in {"guard", "missing-module", "import", "OS", "runtime", "other"}
+                            if item["status"] == "rejected" else item["error_category"] is None)
             seen_failure |= item["status"] == "rejected"
         rows.append(row)
     return all(not any(row["guard_rejections"].values()) and all(item["status"] == "pass" for item in row["imports"]) for row in rows)

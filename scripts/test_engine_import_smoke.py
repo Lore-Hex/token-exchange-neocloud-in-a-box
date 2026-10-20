@@ -64,8 +64,8 @@ class SmokeTests(unittest.TestCase):
         failures = dict.fromkeys(("state", "method", "executable", "preparation", "process", "import", "site"), 0)
         state = {"isolated": True, "no_site": True, "dont_write_bytecode": True, "before_unpickle": True,
                  "path_sha256": overlay.digest(overlay.json_bytes(self.measured["proposed_paths"])), "rejections": failures}
-        row = {"state": state, "guard_rejections": failures,
-               "imports": [{"module": name, "status": "pass"} for name in smoke.MODULES]}
+        row = {"state": state, "guard_rejections": failures, "dependency_entrypoint_loads": 1,
+               "imports": [{"module": name, "status": "pass", "error_category": None} for name in smoke.MODULES]}
         grandchild = {**copy.deepcopy(row), "before_unpickle": state}
         report = {"schema": "nib.engine-import-smoke/v1", "status": "BLOCKED", "deployable": False, "image": None,
                 "abi_validated": False, "hardware_validated": False, "inference_started": False, "stage": "complete",
@@ -92,8 +92,11 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(contract["environment"]["VLLM_WORKER_MULTIPROC_METHOD"], "spawn")
         self.assertEqual({key: contract["environment"][key] for key in smoke.IMPORT_ENVIRONMENT}, {
             "PYTORCH_NVML_BASED_CUDA_CHECK": "1", "TORCHINDUCTOR_COMPILE_THREADS": "1",
-            "TRITON_CACHE_AUTOTUNING": "1", "TILELANG_CLEANUP_TEMP_FILES": "1", "TORCH_DEVICE_BACKEND_AUTOLOAD": "0"})
+            "TRITON_CACHE_AUTOTUNING": "1", "TILELANG_CLEANUP_TEMP_FILES": "1", "TORCH_DEVICE_BACKEND_AUTOLOAD": "0",
+            "OTEL_PYTHON_CONTEXT": "contextvars_context", "OTEL_PROPAGATORS": "none"})
         self.assertEqual(contract["import_environment_sources"], list(smoke.ENVIRONMENT_SOURCES))
+        self.assertEqual(contract["metadata_source_sha256"], tool.bootstrap.METADATA_SOURCES)
+        self.assertEqual(contract["permitted_dependency_entrypoint"], list(tool.bootstrap.CONTEXT_ENTRYPOINT))
         self.assertEqual([p["revision"] for p in contract["import_environment_sources"]],
                          ["5df63a7203cdb9328d824a27b682e77c7b9928be"] * 2 + ["cf30153c4c131c8164ee7798e5022d810682e2cb"] * 2)
         self.assertNotIn("DISABLE_CUPTI_LAZY_REINIT", contract["environment"])
@@ -111,6 +114,9 @@ class SmokeTests(unittest.TestCase):
                             (["smoke", "tracker", "exit_zero"], False),
                             (["smoke", "spawn", "grandchild", "state", "path_sha256"], "0" * 64),
                             (["smoke", "fresh", "imports", 0, "module"], "private-url"),
+                            (["smoke", "fresh", "imports", 0, "error_category"], "synthetic-private"),
+                            (["smoke", "fresh", "dependency_entrypoint_loads"], True),
+                            (["smoke", "fresh", "dependency_entrypoint_loads"], -1),
                             (["private"], "synthetic-secret")):
             bad = copy.deepcopy(report)
             node = bad
@@ -126,6 +132,7 @@ class SmokeTests(unittest.TestCase):
             report = copy.deepcopy(original)
             row = report["smoke"]["spawn"]["grandchild"] if name == "grandchild" else report["smoke"][name]
             row["imports"][0]["status"] = "rejected"
+            row["imports"][0]["error_category"] = "import"
             for item in row["imports"][1:]:
                 item["status"] = "not-run"
             self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
@@ -336,10 +343,28 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(result.stderr, b"")
         runtime = types.ModuleType("smoke_failure_unit")
         exec(compile(self.extra[tool.BOOTSTRAP_FILE] + b"\n" + self.extra[tool.SMOKE], "unit", "exec"), runtime.__dict__)
-        with mock.patch("importlib.import_module", side_effect=ValueError("synthetic-secret")):
+        with mock.patch("importlib.import_module", side_effect=ValueError("synthetic-secret")), \
+             mock.patch.object(sys, "_nib_smoke_guard", {"failures": {"import": 0}}, create=True):
             rows = runtime.imports()
-        self.assertEqual(rows, [{"module": name, "status": "rejected" if i == 0 else "not-run"} for i, name in enumerate(smoke.MODULES)])
+        self.assertEqual(rows, [{"module": name, "status": "rejected" if i == 0 else "not-run",
+                                "error_category": "other" if i == 0 else None} for i, name in enumerate(smoke.MODULES)])
         self.assertNotIn("synthetic-secret", json.dumps(rows))
+
+    def test_import_error_categories_are_fixed_and_guard_rejection_takes_priority(self):
+        runtime = types.ModuleType("smoke_error_unit")
+        exec(compile(self.extra[tool.BOOTSTRAP_FILE] + b"\n" + self.extra[tool.SMOKE], "unit", "exec"), runtime.__dict__)
+        for kind, expected in ((ModuleNotFoundError, "missing-module"), (ImportError, "import"), (RuntimeError, "runtime"),
+                               (OSError, "OS"), (ValueError, "other"), (SystemExit, "other")):
+            for rejected in (0, 1):
+                with self.subTest(kind=kind, rejected=rejected), \
+                     mock.patch("importlib.import_module", side_effect=kind("synthetic-private")), \
+                     mock.patch.object(sys, "_nib_smoke_guard", {"failures": {"import": rejected}}, create=True):
+                    rows = runtime.imports()
+                self.assertEqual(rows[0]["error_category"], "guard" if rejected else expected)
+                self.assertNotIn("synthetic-private", json.dumps(rows))
+                report = self.valid_report()
+                report["smoke"]["fresh"]["imports"] = rows
+                self.assertFalse(smoke.validate(overlay, report, self.application, self.measured))
 
     def daemon(self, result, *, failure=None):
         commands = []

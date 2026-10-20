@@ -9,6 +9,17 @@ import os
 import stat
 import sys
 
+# Exact public dependency sources; immutable revisions and provenance in the task
+# doc. Only these loaders receive a compatibility adapter, never generic hooks.
+METADATA_SOURCES = {
+    "importlib_metadata/__init__.py": "bbb130e3e524a73358fa46ba93e591903850652d5a9242cc7d6b367849d4986a",
+    "importlib_metadata/_compat.py": "542e590cb953f8172c85ab824a174526f30d2e7b4925f67334ad667866be7a7c",
+    "opentelemetry/context/contextvars_context.py": "6074f62ec7694e56c9d1fdbfc5e927805e24d59796f94fbfe27ccf91c67fa41d",
+}
+CONTEXT_ENTRYPOINT = ("opentelemetry_context", "contextvars_context",
+                     "opentelemetry.context.contextvars_context:ContextVarsRuntimeContext")
+CONTEXT_MODULE = "opentelemetry.context.contextvars_context"
+
 
 def require(value):
     if not value:
@@ -93,6 +104,8 @@ def install(layout):
         previous["check"]()
         return previous
     require(not any(name == "vllm" or name.startswith(("vllm.", "torch", "nvidia_cutlass_dsl")) for name in sys.modules))
+    require(not any(name == "importlib_metadata" or name.startswith("importlib_metadata.") for name in sys.modules))
+    require(CONTEXT_MODULE not in sys.modules)
     require("sitecustomize" not in sys.modules and "usercustomize" not in sys.modules)
     import multiprocessing as mp
     import multiprocessing.context as context
@@ -100,6 +113,7 @@ def install(layout):
     import multiprocessing.spawn as spawn
     import multiprocessing.util as util
     import site
+    from importlib import metadata
 
     require(os.getcwd() == "/" and dict(os.environ) == layout["environment"]
             and os.environ.get("VLLM_WORKER_MULTIPROC_METHOD") == "spawn"
@@ -111,7 +125,9 @@ def install(layout):
     mp.set_executable(layout["wrapper"])
     failures = {key: 0 for key in ("state", "method", "executable", "preparation", "process", "import", "site")}
     state = {"layout": layout, "failures": failures, "before_unpickle": True, "spawn_entry": False,
-             "finders": None, "tracker_pids": []}
+             "finders": None, "tracker_pids": [], "backport_context": None, "backport_delegate": None,
+             "backport_loading": False, "backport_class": None, "entrypoint_loads": 0,
+             "context_module": None, "context_entrypoint": None}
 
     def reject(kind):
         failures[kind] += 1
@@ -197,6 +213,91 @@ def install(layout):
         return pid
     util.spawnv_passfds = spawnv
 
+    def pinned_source(relative):
+        try:
+            raw = read_source(layout["paths"][-1] + "/" + relative)
+            if hashlib.sha256(raw).hexdigest() != METADATA_SOURCES[relative]:
+                reject("import")
+            return raw
+        except (OSError, ValueError, KeyError):
+            reject("import")
+
+    def guard_entrypoint(api):
+        original_load = api.EntryPoint.load
+        def load(entry):
+            check()
+            distribution = entry.dist
+            if ((entry.group, entry.name, entry.value) != CONTEXT_ENTRYPOINT
+                    or type(distribution) is not api.PathDistribution
+                    or os.path.realpath(distribution._path.parent) != layout["paths"][-1]
+                    or distribution.metadata["Name"] != "opentelemetry-api" or distribution.version != "1.40.0"):
+                reject("import")
+            pinned_source("opentelemetry/context/contextvars_context.py")
+            if CONTEXT_MODULE in sys.modules and (state["context_module"] is None
+                    or sys.modules[CONTEXT_MODULE] is not state["context_module"]):
+                reject("import")
+            result = original_load(entry)
+            if (state["context_module"] is None or sys.modules.get(CONTEXT_MODULE) is not state["context_module"]
+                    or result is not state["context_entrypoint"]):
+                reject("import")
+            check()
+            state["entrypoint_loads"] += 1
+            return result
+        api.EntryPoint.load = load
+
+    def register_metadata(cls):
+        check()
+        module = sys.modules.get("importlib_metadata")
+        if (not state["backport_loading"] or state["backport_class"] is not None or module is None
+                or cls.__module__ != "importlib_metadata" or cls.__name__ != "MetadataPathFinder"
+                or not issubclass(cls, module.DistributionFinder)):
+            reject("import")
+        state["backport_class"] = cls
+        state["backport_context"] = module.DistributionFinder.Context
+        state["backport_delegate"] = cls.find_distributions
+        cls.find_distributions = classmethod(lambda cls, context=None: Finder.find_distributions(
+            module.DistributionFinder.Context() if context is None else context))
+        # Do not append an unrestricted finder or disable stdlib discovery.
+        return cls
+
+    class VerifiedLoader:
+        def __init__(self, original, relative):
+            self.original, self.relative = original, relative
+
+        def create_module(self, spec):
+            return self.original.create_module(spec)
+
+        def exec_module(self, module):
+            check()
+            raw = pinned_source(self.relative)
+            main = self.relative == "importlib_metadata/__init__.py"
+            context_target = self.relative == "opentelemetry/context/contextvars_context.py"
+            if main:
+                if metadata.version("importlib_metadata") != "8.7.1":
+                    reject("import")
+                state["backport_loading"] = True
+            elif context_target:
+                if state["context_module"] is not None:
+                    reject("import")
+            elif not state["backport_loading"]:
+                reject("import")
+            try:
+                # Execute verified source, not a possibly precompiled counterpart.
+                exec(compile(raw, module.__file__, "exec"), module.__dict__)
+                if main:
+                    if module.MetadataPathFinder is not state["backport_class"]:
+                        reject("import")
+                    guard_entrypoint(module)
+                elif context_target:
+                    state["context_module"] = module
+                    state["context_entrypoint"] = module.ContextVarsRuntimeContext
+                else:
+                    module.install = register_metadata
+            finally:
+                if main:
+                    state["backport_loading"] = False
+            check()
+
     class Finder:
         @staticmethod
         def find_distributions(context=None):
@@ -204,7 +305,7 @@ def install(layout):
             from importlib import metadata
             if context is None:
                 context = metadata.DistributionFinder.Context()
-            if (type(context) is not metadata.DistributionFinder.Context
+            if (type(context) not in (metadata.DistributionFinder.Context, state["backport_context"])
                     or set(vars(context)) - {"name", "path"}):
                 reject("import")
             paths, name = context.path, context.name
@@ -215,8 +316,11 @@ def install(layout):
             paths = tuple(paths)
             # Copy the validated search roots; neither lazy discovery nor an
             # explicit context may widen them. Enumeration never loads entries.
-            sealed = metadata.DistributionFinder.Context(path=paths, name=name)
-            for distribution in metadata.MetadataPathFinder.find_distributions(sealed):
+            kind = type(context)
+            sealed = kind(path=paths, name=name)
+            delegate = (metadata.MetadataPathFinder.find_distributions if kind is metadata.DistributionFinder.Context
+                        else state["backport_delegate"])
+            for distribution in delegate(sealed):
                 check()
                 if not any(os.path.realpath(distribution._path).startswith(root + os.sep) for root in paths):
                     reject("import")
@@ -234,9 +338,17 @@ def install(layout):
             if not origins or not all(type(p) is str and any(os.path.realpath(p).startswith(root + os.sep)
                 or os.path.realpath(p) == root for root in layout["paths"]) for p in origins):
                 reject("import")
+            if fullname in ("importlib_metadata", "importlib_metadata._compat", CONTEXT_MODULE):
+                relative = ("opentelemetry/context/contextvars_context.py" if fullname == CONTEXT_MODULE else
+                            "importlib_metadata/" + ("__init__.py" if fullname == "importlib_metadata" else "_compat.py"))
+                if (spec.origin != layout["paths"][-1] + "/" + relative
+                        or type(spec.loader) is not importlib.machinery.SourceFileLoader):
+                    reject("import")
+                spec.loader = VerifiedLoader(spec.loader, relative)
             return spec
     sys.meta_path[:] = [importlib.machinery.BuiltinImporter, importlib.machinery.FrozenImporter, Finder]
     state["finders"] = list(sys.meta_path)
+    guard_entrypoint(metadata)
 
     def audit(event, args):
         if event in ("os.exec", "os.posix_spawn", "os.system", "os.fork", "os.forkpty"):
