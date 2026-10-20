@@ -1,7 +1,7 @@
 # Bounded Engine Import Smoke
 
 **Experimental software only.** This recorder can apply the five unchanged
-candidate patches inside one disposable container and import four pinned
+candidate patches inside one disposable container and attempt imports of four pinned
 API/engine modules. It does not start an API server, construct a model or TP
 worker, load weights, expose ports, allocate a GPU, or enable a production
 profile. Imports execute engine/dependency/native initialization code. They are
@@ -9,10 +9,41 @@ not a Python sandbox, ABI proof, hardware qualification or confidential service.
 The candidate remains `BLOCKED`, `deployable:false`, `image:null`.
 
 Implementation tests use fake wheel trees, fake Docker lifecycle responses and
-real local stdlib processes. **No actual image experiment has been run for this
-change.** An actual run requires final independent source review, parent
-coordination and committed-source evidence. Earlier read-only collections are
-not application or real engine import evidence.
+real local stdlib processes. The first actual bounded run applied all five
+stages, then **rejected the first engine import** in each observed process. It
+did not qualify a working engine. Earlier read-only collections are not
+application or real engine import evidence; the actual result is recorded below.
+
+## Recorded Attempt
+
+The unchanged [run metadata](../../evidence/p0/2026-10-20-official-vllm-import-smoke/run.json)
+and [sanitized output](../../evidence/p0/2026-10-20-official-vllm-import-smoke/output.log)
+record source `4b6b90613cfcd806ea0d40bf0b1aa7a415880313`, from
+2026-10-20 04:03:31 through 04:11:55 UTC. Payload SHA-256 is
+`069c23588dc7e2381dd14ef6fc4a41561bed2cfbcaa7e45424779afe56734938`.
+
+- Application completed all five patch stages, removed the 2,879 planned
+  source-backed bytecode files, and retained the native inventory unchanged.
+  This is exact-image experimental application evidence, not generic admission.
+- Observed phase durations were 8,342 ms preflight, 482,225 ms application and
+  4,611 ms imports. The shared application budget was not exhausted.
+- Fresh, spawn and grandchild processes each rejected
+  `vllm.entrypoints.launchers.api_server.entry` with fixed category `guard` and
+  state-guard count 2; other guard counts were zero. The remaining three modules
+  were **not run**, not independently failed. These counters do not identify
+  the changed state field or its source; the root cause is unresolved here.
+- Pre-unpickle/bootstrap observations passed, the owned tracker exited zero,
+  and no permitted dependency entrypoint loads were recorded. The application
+  receipt's `engine_executed:false` and `plugins_loaded:false` are pre-import
+  scope only; the subsequent rejected import executed initialization code.
+- Cleanup is `confirmed`; the parent also reported an independent empty Docker
+  label query. The artifact does not contain that external query transcript.
+
+The recorder's outer stage is `smoke-rejected`, `smoke_pass:false`, and
+`result:fail`. The inner `stage:complete` means collection completed, not that
+imports passed. No GPU, weights, inference, ABI, hardware or confidentiality
+qualification occurred. Do not repeat this unchanged run or weaken a guard;
+any source-backed correction belongs to a separate reviewed change.
 
 ## Exact Inputs
 
@@ -210,8 +241,9 @@ single shared 720-second deadline, without resetting it between phases.
 The import process group has a separate 300-second cap. The 1080-second outer
 attach bound leaves `1080 - 720 - 300 = 60` seconds: the unchanged process helper
 allows up to 25 seconds for TERM/KILL/group-absence cleanup, leaving 35 seconds
-for startup/report overhead. Neither allowance has been validated in an actual
-application/import run. The outer bound still stops an overrun.
+for startup/report overhead. The recorded attempt completed application within
+these bounds and reached a rejected import; one run does not guarantee future
+throughput or successful engine initialization. The outer bound still stops an overrun.
 All entry/byte/depth/link/native checks and exact-image 225,000-entry policy stay
 unchanged. A slower host fails safely; nothing skips rehashes to finish on time.
 
