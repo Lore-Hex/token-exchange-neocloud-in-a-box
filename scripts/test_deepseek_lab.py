@@ -1932,15 +1932,17 @@ writer.close()
             finally:
                 channel.finish()
 
-    def test_entry_closes_error_channel_before_serve_can_spawn_workers(self):
+    def test_serve_retains_noninheritable_error_channel(self):
         checkpoints = mock.Mock()
         errors = self.reader()
         writer = lab.EntryCheckpointWriter(str(os.dup(errors.writer)))
         errors.close_writer()
         serve = mock.Mock()
         def call(_):
-            self.assertIsNone(writer.fd)
-            self.assertIsNone(lab.read_entry_exception(errors))
+            self.assertIsNotNone(writer.fd)
+            self.assertFalse(os.get_inheritable(writer.fd))
+            with self.assertRaises(BlockingIOError):
+                lab.read_entry_exception(errors)
         serve.cmd.side_effect = call
         try:
             with mock.patch.object(lab, "prepare_engine", return_value=(serve, object())):
@@ -1949,6 +1951,42 @@ writer.close()
             checkpoints.close.assert_called_once()
         finally:
             writer.close()
+            errors.finish()
+
+    @mock.patch.object(sys, "flags", types.SimpleNamespace(isolated=True, no_site=True))
+    @mock.patch.object(sys, "dont_write_bytecode", True)
+    def test_exception_from_actual_serve_boundary_is_recorded_without_content(self):
+        channel, errors = self.reader(), self.reader()
+        child, error_child = os.dup(channel.writer), os.dup(errors.writer)
+        channel.close_writer()
+        errors.close_writer()
+        channel.observation["status"] = "open"
+        contract = {"operation": "local-correctness", "paths": ["/stdlib", "/dyn", "/selected"]}
+        serve = mock.Mock()
+        serve.cmd.side_effect = RuntimeError("PRIVATE model prompt credential")
+        def prepared(actual, writer):
+            self.assertIs(actual, contract)
+            for code in range(3, 17):
+                writer.emit(code)
+            return serve, object()
+        try:
+            with mock.patch.object(sys, "argv", ["launch.py", "a" * 64, "engine", "--checkpoint-fd", str(child),
+                                                "--error-fd", str(error_child)]), \
+                    mock.patch.object(lab, "lab_context", return_value=(contract, {}, [None], {}, {})), \
+                    mock.patch.object(lab, "recheck_sources"), \
+                    mock.patch.object(lab, "prepare_engine", side_effect=prepared):
+                with self.assertRaises(RuntimeError):
+                    lab.lab_entry()
+            row = lab.read_entry_exception(errors)
+            self.assertEqual(row["type"], "runtime")
+            self.assertNotIn("PRIVATE", json.dumps(row))
+            channel.finish()
+            self.assertEqual(channel.observation, {"status": "eof", "last_id": 17})
+            for fd in (child, error_child):
+                with self.assertRaises(OSError):
+                    os.fstat(fd)
+        finally:
+            channel.finish()
             errors.finish()
 
 
@@ -2054,9 +2092,12 @@ class LifecycleTests(unittest.TestCase):
                 return json.dumps(body).encode()
             with self.subTest(terminal=terminal), mock.patch.object(lab, "hardware", return_value={"fixed": True}), \
                     mock.patch.object(lab, "quiet_command"), mock.patch.object(lab, "http_request", side_effect=http), \
-                    mock.patch.object(lab.subprocess, "Popen", return_value=engine) as start, mock.patch.object(lab.os, "killpg"):
+                    mock.patch.object(lab.subprocess, "Popen", return_value=engine) as start, mock.patch.object(lab.os, "killpg"), \
+                    mock.patch.object(lab, "read_entry_exception", wraps=lab.read_entry_exception) as diagnostic:
                 row = lab.application_and_request({"operation": "functional"}, {},
                                                   [None, None, None, app], application, {})
+                if terminal != "dead-worker":
+                    diagnostic.assert_not_called()
             argv = start.call_args.args[0]
             self.assertEqual(argv[:3], [lab.ROOT + "/python", "engine", "--checkpoint-fd"])
             self.assertEqual(argv[4], "--error-fd")

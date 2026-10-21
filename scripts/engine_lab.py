@@ -363,10 +363,11 @@ def prepare_engine(contract, checkpoints):
 def run_engine(contract, checkpoints, errors=None):
     serve, args = prepare_engine(contract, checkpoints)
     checkpoints.emit(17)
-    # No checkpoint endpoint remains open when real workers may be launched.
+    # Checkpoints end here. Keep the non-inheritable error pipe in this process
+    # so an exception from serve.cmd is observable before readiness.
     checkpoints.close()
     if errors is not None:
-        errors.close()
+        require(errors.fd is not None and not os.get_inheritable(errors.fd))
     serve.cmd(args)
 
 
@@ -519,7 +520,9 @@ def application_and_request(contract, sources, modules, application, measured):
             else:
                 observe_startup(engine, result["startup"], checkpoints)
         finally:
-            if engine.poll() is not None or result["startup"]["outcome"] in ("ready", "prepared"):
+            # A live server keeps its error writer open. Read only after exit,
+            # when a complete fixed packet or EOF can be required without blocking.
+            if engine.poll() is not None:
                 result["startup"]["exception_diagnostic"] = read_entry_exception(errors)
         if pre_serve:
             require(result["startup"]["exception_diagnostic"] is None
