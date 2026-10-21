@@ -31,6 +31,24 @@ inputs = load("scripts/guest_package_inputs.py")
 
 
 class BuildTests(unittest.TestCase):
+    def test_candidate_tools_alias_names_only_the_private_root(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            config, prepared = root / "config", root / "prepared"
+            config.mkdir()
+            prepared.mkdir()
+            original = b"[Build]\nToolsTree=tools-tree\nWithNetwork=no\n"
+            (prepared / "mkosi.conf.candidate").write_bytes(original)
+            worker.prepare_configuration(config, prepared)
+            self.assertEqual((config / "mkosi.conf").read_bytes(), original)
+            self.assertEqual((config / "tools-tree").readlink(), Path("/"))
+            self.assertEqual({p.name for p in config.iterdir()},
+                             {"mkosi.conf", "tools-tree", "repo", "mkosi-skeleton"})
+            for name in ("repo", "mkosi-skeleton"):
+                self.assertEqual((config / name).readlink(), prepared / name)
+            with self.assertRaises(FileExistsError):
+                worker.prepare_configuration(config, prepared)
+
     def test_private_build_identity_does_not_require_or_inherit_host_accounts(self):
         with mock.patch.dict(os.environ, {"USER": "private-host-user", "LOGNAME": "private-host-login",
                                           "SECRET": "private-secret"}, clear=True):
