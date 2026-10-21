@@ -312,6 +312,10 @@ class ParentSession:
                 and response["usage"].get("prompt_tokens") == record["bounds"]["prompt_tokens"])
         return response
 
+    def prepare_record(self, role, body, deadline):
+        require(self.sequence < len(self.records))
+        return self.records[self.sequence]
+
     def serve_once(self):
         if self.bridge.failed:
             raise worker.Abort(self.bridge.failed)
@@ -326,9 +330,9 @@ class ParentSession:
                 require(type(packet) is dict and set(packet) == {"schema", "kind", "sequence", "role", "arguments"}
                         and packet["schema"] == SCHEMA and packet["kind"] == "completion"
                         and type(packet["sequence"]) is int and packet["sequence"] == self.sequence + 1
-                        and packet["role"] in ALIASES and self.sequence < len(self.records))
+                        and packet["role"] in ALIASES)
                 role, body = request_body(self.manifest, self.role, packet["role"], packet["arguments"])
-                record = self.records[self.sequence]
+                record = self.prepare_record(role, body, deadline)
                 check_bounds(record["bounds"], self.manifest, self.manifest_sha, role, body)
                 self.current = body, record
                 response = self.bridge.complete(model=ALIASES[packet["role"]], messages=body["messages"],
