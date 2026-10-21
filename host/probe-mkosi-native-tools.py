@@ -90,14 +90,19 @@ def command(root, payload, *, pid_isolation=False):
     require(type(pid_isolation) is bool)
     original = [os.readlink("/proc/self/ns/" + name) for name in ("user", "mnt", "net", "ipc")]
     prefix = []
+    proc_source = "/proc/self/ns"
     if pid_isolation:
         original.append(os.readlink("/proc/self/ns/pid"))
         # Pinned util-linux 2.39.3: mount-proc implies a private mount namespace;
         # kill-child + PID namespace bounds descendants when the launcher dies.
         prefix = ["/usr/bin/unshare", "--pid", "--fork", "--mount-proc=/proc", "--kill-child=KILL", "--"]
+        # Linux mnt_already_visible requires a complete procfs during creation
+        # of the replacement. Only the pinned launcher sees this read-only bind;
+        # unshare replaces it before exec, and the worker proves private procfs.
+        proc_source = "/proc"
     return [native.PYTHON, "-I", "-S", "-B", str(payload / "mkosi-sandbox.py"),
         "--ro-bind", str(root), "/", "--ro-bind", str(payload), "/nib",
-        "--ro-bind", "/proc/self/ns", "/proc/self/ns", "--dev", "/dev", "--tmpfs", "/tmp",
+        "--ro-bind", proc_source, proc_source, "--dev", "/dev", "--tmpfs", "/tmp",
         "--unshare-net", "--unshare-ipc", "--become-root",
         *prefix, "/usr/bin/python3.12", "-I", "-S", "-B", "/nib/native-tools.py", *original]
 

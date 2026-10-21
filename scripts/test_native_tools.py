@@ -206,6 +206,10 @@ class LifecycleTests(unittest.TestCase):
         report, execute = self.run_probe(pid_isolation=True)
         argv = execute.call_args.args[0]
         offset = argv.index("/usr/bin/unshare")
+        proc = argv.index("/proc")
+        self.assertEqual(argv[proc - 1:proc + 2], ["--ro-bind", "/proc", "/proc"])
+        self.assertNotIn("/proc/self/ns", argv)
+        self.assertLess(proc, offset)
         self.assertEqual(argv[offset:offset + 6], ["/usr/bin/unshare", "--pid", "--fork",
             "--mount-proc=/proc", "--kill-child=KILL", "--"])
         self.assertEqual(argv[-5:], [*ORIGINAL, "pid:[100]"])
