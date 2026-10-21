@@ -32,6 +32,18 @@ GUEST_SCOPE = "kernel-driver-build-dependency-coverage"
 MAX_METADATA = 64 << 20
 
 
+class FetchFailure(ValueError):
+    """Only public lock identities and fixed failure categories leave the fetcher."""
+
+    def __init__(self, name, size, sha, category, returncode=None):
+        super().__init__("pinned input fetch rejected")
+        self.report = {"schema": "nib.input-fetch-failure/v1", "result": "fail",
+                       "input_kind": "metadata" if name.startswith("metadata/") else "archive",
+                       "expected_sha256": sha, "expected_bytes": size,
+                       "failure": category, "returncode": returncode,
+                       "package_execution": False}
+
+
 def public_url(value, *, nvidia=False):
     require(type(value) is str)
     url = urlsplit(value)
@@ -166,16 +178,37 @@ def fetch(lock_raw, execute, *, clock=time.monotonic, guest_raw=None, metadata=N
         if name in files:
             continue
         seconds = min(60, deadline - clock())
-        require(seconds > 0)
+        def failed(category, returncode=None):
+            raise FetchFailure(name, size, sha, category, returncode) from None
+        if seconds <= 0:
+            failed("deadline")
         # No curlrc, proxy, redirect, credentials, retry or unbounded diagnostics.
-        result = execute(["/usr/bin/curl", "--disable", "--noproxy", "*", "--fail", "--silent",
-            "--show-error", "--proto", "=https", "--tlsv1.2", "--connect-timeout", "10",
-            "--max-time", str(seconds), "--max-filesize", str(size), url],
-            env=dict(ENV), timeout=seconds, max_output_bytes=size + 65536,
-            stdin=subprocess.DEVNULL)
-        result.check_returncode()
-        require(clock() < deadline and type(result.stdout) is bytes and result.stderr == b""
-                and len(result.stdout) == size and base.digest(result.stdout) == sha)
+        try:
+            result = execute(["/usr/bin/curl", "--disable", "--noproxy", "*", "--fail", "--silent",
+                "--show-error", "--proto", "=https", "--tlsv1.2", "--connect-timeout", "10",
+                "--max-time", str(seconds), "--max-filesize", str(size), url],
+                env=dict(ENV), timeout=seconds, max_output_bytes=size + 65536,
+                stdin=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired:
+            failed("timeout")
+        except base.processes.OutputLimitExceeded:
+            failed("output-limit")
+        except OSError:
+            failed("io")
+        except (ValueError, subprocess.SubprocessError):
+            failed("process-rejected")
+        if type(result.returncode) is not int or not -255 <= result.returncode <= 255:
+            failed("process-rejected")
+        if result.returncode:
+            failed("process-exit", result.returncode)
+        if clock() >= deadline:
+            failed("deadline")
+        if result.stderr != b"":
+            failed("stderr")
+        if type(result.stdout) is not bytes or len(result.stdout) != size:
+            failed("size")
+        if base.digest(result.stdout) != sha:
+            failed("digest")
         files[name] = result.stdout
     return files
 
@@ -230,5 +263,8 @@ def main():
 if __name__ == "__main__":
     try:
         main()
+    except FetchFailure as error:
+        print(json.dumps(error.report, sort_keys=True))
+        sys.exit("Pinned input fetch failed; see content-free diagnostic.")
     except (OSError, ValueError, KeyError, TypeError, EOFError, tarfile.TarError, subprocess.SubprocessError):
         sys.exit("Pinned tools fetch rejected; no installation or execution.")

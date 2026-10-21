@@ -202,6 +202,48 @@ class FetchTests(unittest.TestCase):
         self.assertEqual(execute.call_count, 1)
         self.assertEqual(execute.call_args.kwargs["timeout"], 10)
 
+    def test_fetch_failure_reports_only_fixed_category_and_public_lock_identity(self):
+        cases = ((b"bad", b"", 0, "digest"), (b"id", b"", 0, "size"),
+                 (b"idx", b"private response", 0, "stderr"), (b"private", b"private", 22, "process-exit"),
+                 (b"idx", b"", True, "process-rejected"), (b"idx", b"", 256, "process-rejected"))
+        for output, stderr, code, category in cases:
+            with self.subTest(category=category):
+                execute = mock.Mock(return_value=subprocess.CompletedProcess([], code, output, stderr))
+                with self.assertRaises(fetcher.FetchFailure) as caught:
+                    fetcher.fetch(base.encoded(lock()), execute, clock=lambda: 0)
+                report = caught.exception.report
+                self.assertEqual(report, {"schema": "nib.input-fetch-failure/v1", "result": "fail",
+                    "input_kind": "metadata", "expected_sha256": base.digest(b"idx"), "expected_bytes": 3,
+                    "failure": category, "returncode": 22 if category == "process-exit" else None,
+                    "package_execution": False})
+                self.assertNotIn("private", json.dumps(report) + str(caught.exception))
+                execute.assert_called_once()
+
+    def test_fetch_exception_diagnostics_do_not_include_exception_text_or_output(self):
+        cases = ((subprocess.TimeoutExpired("private command", 1, b"private output"), "timeout"),
+                 (OSError("private path"), "io"), (ValueError("private message"), "process-rejected"),
+                 (subprocess.CalledProcessError(22, "private command", b"private"), "process-rejected"),
+                 (base.processes.OutputLimitExceeded("stdout", b"private", b"private"), "output-limit"))
+        for error, category in cases:
+            with self.subTest(category=category):
+                execute = mock.Mock(side_effect=error)
+                with self.assertRaises(fetcher.FetchFailure) as caught:
+                    fetcher.fetch(base.encoded(lock()), execute, clock=lambda: 0,
+                                  metadata={"metadata/noble-main.xz": b"idx"})
+                report = caught.exception.report
+                self.assertEqual(report["failure"], category)
+                self.assertEqual(report["input_kind"], "archive")
+                self.assertEqual(report["expected_sha256"], base.digest(b"deb"))
+                self.assertNotIn("private", json.dumps(report) + str(caught.exception))
+                execute.assert_called_once()
+
+    def test_expired_fetch_budget_never_starts_network(self):
+        execute = mock.Mock()
+        with self.assertRaises(fetcher.FetchFailure) as caught:
+            fetcher.fetch(base.encoded(lock()), execute, clock=mock.Mock(side_effect=[0, 601]))
+        self.assertEqual(caught.exception.report["failure"], "deadline")
+        execute.assert_not_called()
+
     def test_no_untrusted_network_destinations_or_paths(self):
         for url in ("http://archive.ubuntu.com/ubuntu/a", "https://evil.test/ubuntu/a",
                     "https://user@archive.ubuntu.com/ubuntu/a", "https://archive.ubuntu.com:443/ubuntu/a",

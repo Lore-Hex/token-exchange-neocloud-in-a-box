@@ -37,7 +37,7 @@ jobs:
             build/native-install/metadata.tar.gz | sha256sum --check --strict
           /usr/bin/python3.10 -I -S -B scripts/fetch_mkosi_tools.py --include-guest \
             --metadata-archive "$PWD/build/native-install/metadata.tar.gz" \
-            --output "$PWD/build/native-install/inputs"
+            --output "$PWD/build/native-install/inputs" > build/native-install/input-fetch.log
       - name: Install only in the resource-bounded offline namespace
         run: |
           sudo -- /usr/bin/python3.10 -I -S -B host/run-mkosi-build.py \
@@ -50,6 +50,7 @@ jobs:
         with:
           name: native-mkosi-install-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            build/native-install/input-fetch.log
             build/native-install/evidence/
             build/native-install/evidence-resources.json
           if-no-files-found: error
