@@ -88,3 +88,21 @@ No host passwd/group database is mounted, no account is created, and no
 privilege, capability, network or filesystem permission is broadened. A test
 reproduces missing-passwd failure, then verifies the fixed isolated identity
 without calling the host account lookup or inheriting ambient variables.
+
+## Third native run: candidate tools path
+
+[Run 39664917892](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39664917892)
+passed the identity boundary but rejected `tools-tree does not exist`. The
+[result](../../evidence/p3/2026-10-21-native-install-tools-path/result.json),
+[diagnostic](../../evidence/p3/2026-10-21-native-install-tools-path/installer.stderr)
+and [cleanup receipt](../../evidence/p3/2026-10-21-native-install-tools-path/resources.json)
+preserve the failure; installation, boot and DKMS remain unproven.
+
+Pinned mkosi's
+[`parse_path`](https://github.com/systemd/mkosi/blob/ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b/mkosi/config.py#L736)
+validates the candidate's `ToolsTree=tools-tree` while reading configuration;
+the later `--tools-tree=/` override does not avoid that validation. The worker
+now supplies the missing relative alias, pointing to `/` inside its existing
+private mount namespace. That root is already the authenticated extracted
+tools tree, not the host filesystem. Candidate bytes, offline package sources,
+namespace boundaries, resource limits and the final command are unchanged.

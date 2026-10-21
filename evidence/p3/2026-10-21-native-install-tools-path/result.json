@@ -1,0 +1,31 @@
+{
+  "bootable": false,
+  "deployable": false,
+  "failure_kind": "process-exit",
+  "git_sha": "16cb8a3ba9d9d470956ad05195e0f5570a2087ad",
+  "mapping_helper_hashes": {
+    "/usr/bin/newgidmap": "076d35f3dd11680a17725ea7b694715bc909182eeb930f1771ef0550e4779459",
+    "/usr/bin/newuidmap": "e26eed17f29ce6ee829855064b83f9ab20afdd9503ec4517f1ce8c1230bebaad"
+  },
+  "payload_removed": true,
+  "prepared_receipt_sha256": "76cd50d4a14d7e266e085163b0a5173913460a8bd811cd226dbb74eb5bb76610",
+  "process_cleanup_confirmed": true,
+  "result": "fail",
+  "schema": "nib.mkosi-installation/v1",
+  "stage": "installation",
+  "tools_receipt_sha256": "f0626ae847b079a6260f2ac30c5392c1f2f019d008c9d6c16f8dfae554d97dc7",
+  "worker": {
+    "bootable": false,
+    "configured_state_verified": false,
+    "deployable": false,
+    "dkms_built": false,
+    "failure_kind": "process-exit",
+    "installed_packages": 0,
+    "installer_exit_code": 1,
+    "package_installation_executed": null,
+    "reproducibility_verified": false,
+    "result": "fail",
+    "schema": "nib.mkosi-install-worker/v1",
+    "stage": "installation"
+  }
+}

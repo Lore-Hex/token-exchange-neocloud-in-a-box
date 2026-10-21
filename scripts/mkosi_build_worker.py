@@ -46,6 +46,15 @@ def installation_environment():
             "PYTHONDONTWRITEBYTECODE": "1", "SOURCE_DATE_EPOCH": "1792454400"}
 
 
+def prepare_configuration(config, prepared):
+    (config / "mkosi.conf").write_bytes((prepared / "mkosi.conf.candidate").read_bytes())
+    for name in ("repo", "mkosi-skeleton"):
+        (config / name).symlink_to(prepared / name)
+    # Config paths are validated before command-line overrides take effect.
+    # Here / is the authenticated private tools root, never the host root.
+    (config / "tools-tree").symlink_to("/", target_is_directory=True)
+
+
 def main():
     stage = "preflight"
     report = {"schema": "nib.mkosi-install-worker/v1", "result": "fail", "stage": stage,
@@ -71,9 +80,7 @@ def main():
         for name in ("config", "output", "workspaces", "cache", "pkgcache"):
             Path("/work", name).mkdir(mode=0o700)
         config = Path("/work/config")
-        (config / "mkosi.conf").write_bytes(Path("/nib/prepared/mkosi.conf.candidate").read_bytes())
-        for name in ("repo", "mkosi-skeleton"):
-            (config / name).symlink_to("/nib/prepared/" + name)
+        prepare_configuration(config, Path("/nib/prepared"))
         stage = "installation"
         report["package_installation_executed"] = None
         result = processes.execute_process_group(COMMAND, env=installation_environment(),
