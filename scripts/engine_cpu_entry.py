@@ -49,7 +49,84 @@ FINDER_ID_SOURCES = {site["id"]: index for index, spec in enumerate(FINDER_SPECS
 PATTERN_STAGES = ("unavailable", "not-registered", "pending", "applying", "applied", "failed", "unknown")
 # State bitset plus fixed finder header and 32 one-byte categories. No strings
 # from the child are transported. Historical two-byte producers stay historical.
-STATE_PACKET_BYTES = 2 + 6 + len(FINDER_SPECS) + FINDER_LIMIT
+FINDER_PACKET_BYTES = 6 + len(FINDER_SPECS) + FINDER_LIMIT
+EXCEPTION_TYPES = (None, ModuleNotFoundError, ImportError, ValueError, RuntimeError,
+                   AssertionError, TypeError, AttributeError, KeyError, OSError,
+                   PermissionError, TimeoutError, SystemExit)
+EXCEPTION_NAMES = ("none", "module-not-found", "import", "value", "runtime", "assertion",
+                   "type", "attribute", "key", "os", "permission", "timeout", "system-exit", "other")
+EXCEPTION_FRAMES = 8
+EXCEPTION_PACKET_BYTES = 3 + EXCEPTION_FRAMES * 36
+STATE_PACKET_BYTES = 2 + FINDER_PACKET_BYTES + EXCEPTION_PACKET_BYTES
+
+
+def exception_packet(error, roots):
+    """Fixed classes and source digests only; never format an exception or frame."""
+    if error is None:
+        return bytes(EXCEPTION_PACKET_BYTES)
+    code = next((i for i, cls in enumerate(EXCEPTION_TYPES[1:], 1) if type(error) is cls),
+                len(EXCEPTION_TYPES))
+    frames, flags = [], 0
+    try:
+        require(type(roots) is tuple and len(roots) <= 5
+                and all(type(root) is str and root.startswith("/") and root.endswith("/") for root in roots))
+        tb = BaseException.__traceback__.__get__(error)
+        scanned = 0
+        while tb is not None and scanned < 64:
+            require(type(tb) is types.TracebackType)
+            scanned += 1
+            path, line = tb.tb_frame.f_code.co_filename, tb.tb_lineno
+            if type(path) is str and any(path.startswith(root) for root in roots) and 0 < line <= 1000000:
+                try:
+                    source = read_source(path, 2 << 20)
+                    frames.append(line.to_bytes(4, "big") + hashlib.sha256(source).digest())
+                    if len(frames) > EXCEPTION_FRAMES:
+                        del frames[0]
+                        flags |= 1
+                except Exception:
+                    flags |= 2
+            else:
+                flags |= 2
+            tb = tb.tb_next
+        if tb is not None:
+            flags |= 1
+    except BaseException:
+        flags |= 4
+    return bytes([code, flags, len(frames)]) + b"".join(frames) + bytes(36 * (EXCEPTION_FRAMES - len(frames)))
+
+
+def decode_exception(raw):
+    require(type(raw) is bytes and len(raw) == EXCEPTION_PACKET_BYTES)
+    code, flags, count = raw[:3]
+    require(code < len(EXCEPTION_NAMES) and flags < 8 and count <= EXCEPTION_FRAMES)
+    require(not any(raw[3 + count * 36:]))
+    if code == 0:
+        require(flags == 0 and count == 0)
+        return None
+    frames = []
+    for i in range(count):
+        offset = 3 + i * 36
+        line = int.from_bytes(raw[offset:offset + 4], "big")
+        digest = raw[offset + 4:offset + 36]
+        require(0 < line <= 1000000 and any(digest))
+        frames.append({"source_sha256": digest.hex(), "line": line})
+    return {"type": EXCEPTION_NAMES[code], "frames": frames, "truncated": bool(flags & 1),
+            "source_unavailable": bool(flags & 2), "observer_failed": bool(flags & 4)}
+
+
+def validate_exception(row):
+    if row is None:
+        return
+    require(type(row) is dict and set(row) == {"type", "frames", "truncated", "source_unavailable", "observer_failed"}
+            and type(row["type"]) is str and row["type"] in EXCEPTION_NAMES[1:]
+            and type(row["frames"]) is list and len(row["frames"]) <= EXCEPTION_FRAMES
+            and all(type(row[key]) is bool for key in ("truncated", "source_unavailable", "observer_failed")))
+    for frame in row["frames"]:
+        require(type(frame) is dict and set(frame) == {"source_sha256", "line"}
+                and type(frame["line"]) is int and 0 < frame["line"] <= 1000000
+                and type(frame["source_sha256"]) is str and len(frame["source_sha256"]) == 64
+                and all(c in "0123456789abcdef" for c in frame["source_sha256"])
+                and frame["source_sha256"] != "0" * 64)
 
 
 def finder_catalog(selected):
@@ -129,7 +206,7 @@ def finder_packet(catalog):
 
 
 def decode_finders(raw):
-    require(type(raw) is bytes and len(raw) == STATE_PACKET_BYTES - 2)
+    require(type(raw) is bytes and len(raw) == FINDER_PACKET_BYTES)
     status, *rest = raw
     source_count = len(FINDER_SPECS)
     source_codes, missing, flags, count, same, stage = rest[:source_count], *rest[source_count:source_count + 5]
@@ -279,11 +356,14 @@ def entry_child(expected, checkpoint_fd, state_fd, lab):
     checkpoints = lab.EntryCheckpointWriter(checkpoint_fd)
     state_writer = None
     catalog = None
+    fault = bytes(EXCEPTION_PACKET_BYTES)
+    source_roots = (ROOT + "/",)
     try:
         require(state_fd != checkpoint_fd)
         state_writer = lab.EntryCheckpointWriter(state_fd)
         checkpoints.emit(1)
         contract, _, modules, application, _, verified_lab = context(expected)
+        source_roots = (ROOT + "/", *tuple(path.rstrip("/") + "/" for path in contract["paths"]))
         require(verified_lab.__file__ == lab.__file__)
         checkpoints.emit(2)
         verified_lab.recheck_sources(modules[0], application, contract["paths"])
@@ -291,11 +371,14 @@ def entry_child(expected, checkpoint_fd, state_fd, lab):
         # The shared helper stops after the original state check. No ID 17,
         # serve.cmd, HTTP client, model loader, probe, or worker route is called.
         verified_lab.prepare_engine(contract, checkpoints)
+    except BaseException as error:
+        fault = exception_packet(error, source_roots)
+        raise
     finally:
         try:
             if state_writer is not None:
                 try:
-                    packet = state_bytes() + finder_packet(catalog)
+                    packet = state_bytes() + finder_packet(catalog) + fault
                     require(os.write(state_writer.fd, packet) == STATE_PACKET_BYTES)
                 finally:
                     state_writer.close()
@@ -306,7 +389,8 @@ def entry_child(expected, checkpoint_fd, state_fd, lab):
 def observe_entry(lab):
     result = {"outcome": "launch-failed", "exit_code": None,
               "checkpoints": {"status": "not-started", "last_id": None},
-              "state_observation": "unavailable", "state_mismatches": None, "finder_diagnostic": None}
+              "state_observation": "unavailable", "state_mismatches": None, "finder_diagnostic": None,
+              "exception_diagnostic": None}
     checkpoints = lab.EntryCheckpointReader(result["checkpoints"])
     state = lab.EntryCheckpointReader({"status": "not-started", "last_id": None})
     process = None
@@ -341,9 +425,12 @@ def observe_entry(lab):
             # One fixed packet only, not stdout or a stack; extra bytes fail.
             raw = os.read(state.reader, STATE_PACKET_BYTES + 1)
             if len(raw) == STATE_PACKET_BYTES and os.read(state.reader, 1) == b"":
-                observed, finders = decode_state(raw[:2]), decode_finders(raw[2:])
+                observed = decode_state(raw[:2])
+                finders = decode_finders(raw[2:2 + FINDER_PACKET_BYTES])
+                fault = decode_exception(raw[2 + FINDER_PACKET_BYTES:])
                 result["state_mismatches"] = observed
                 result["finder_diagnostic"] = finders
+                result["exception_diagnostic"] = fault
                 result["state_observation"] = "unavailable" if result["state_mismatches"] is None else "observed"
             elif raw:
                 result["state_observation"] = "invalid"
@@ -357,6 +444,7 @@ def observe_entry(lab):
 def diagnostic_pass(entry):
     finders = entry["finder_diagnostic"]
     return (entry["outcome"] == "exited" and entry["exit_code"] == 0
+            and entry["exception_diagnostic"] is None
             and entry["checkpoints"] == {"status": "eof", "last_id": 16}
             and entry["state_observation"] == "observed"
             and entry["state_mismatches"] is not None and not any(entry["state_mismatches"].values())
@@ -442,7 +530,7 @@ def validate(overlay, report, application, measured, receipt_validator):
     if row is None:
         return False
     require(type(row) is dict and set(row) == {"outcome", "exit_code", "checkpoints", "state_observation", "state_mismatches",
-                                            "finder_diagnostic"}
+                                            "finder_diagnostic", "exception_diagnostic"}
             and row["outcome"] in ("launch-failed", "supervisor-failure", "timeout", "exited")
             and row["state_observation"] in ("observed", "unavailable", "invalid"))
     require((type(row["exit_code"]) is int and -128 <= row["exit_code"] <= 255)
@@ -461,6 +549,8 @@ def validate(overlay, report, application, measured, receipt_validator):
         require(row["state_observation"] != "invalid")
         validate_finders(row["finder_diagnostic"])
     require(row["state_observation"] != "observed" or row["finder_diagnostic"] is not None)
+    validate_exception(row["exception_diagnostic"])
+    require(row["exception_diagnostic"] is None or row["state_observation"] != "invalid")
     require(report["entry_pass"] == diagnostic_pass(row))
     return report["entry_pass"]
 

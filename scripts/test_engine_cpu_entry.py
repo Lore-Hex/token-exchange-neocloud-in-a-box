@@ -50,6 +50,89 @@ def finder_same():
         return cpu.finder_packet(None)
 
 
+class ExceptionTests(unittest.TestCase):
+    def capture(self, source, error_type=ValueError):
+        namespace = {"Error": error_type}
+        try:
+            exec(compile(source, "/selected/synthetic.py", "exec"), namespace)
+        except BaseException as error:
+            with mock.patch.object(cpu, "read_source", return_value=source.encode(), create=True) as read:
+                packet = cpu.exception_packet(error, ("/selected/",))
+            return packet, read
+        self.fail("fixture did not raise")
+
+    def test_fixed_kind_source_hash_line_and_no_content(self):
+        source = "raise Error('PRIVATE secret prompt')\n"
+        packet, read = self.capture(source)
+        self.assertEqual(len(packet), cpu.EXCEPTION_PACKET_BYTES)
+        self.assertLess(cpu.STATE_PACKET_BYTES, 512)
+        row = cpu.decode_exception(packet)
+        cpu.validate_exception(row)
+        self.assertEqual(row["type"], "value")
+        self.assertEqual(row["frames"], [{"source_sha256": hashlib.sha256(source.encode()).hexdigest(), "line": 1}])
+        self.assertNotIn("PRIVATE", json.dumps(row))
+        self.assertNotIn("synthetic.py", json.dumps(row))
+        read.assert_called_once_with("/selected/synthetic.py", 2 << 20)
+
+    def test_custom_exception_hooks_are_not_invoked(self):
+        class PrivateError(Exception):
+            def __str__(self):
+                raise AssertionError("formatted PRIVATE")
+            def __repr__(self):
+                raise AssertionError("formatted PRIVATE")
+            def __getattribute__(self, key):
+                raise AssertionError("looked up PRIVATE")
+        packet, _ = self.capture("raise Error()\n", PrivateError)
+        row = cpu.decode_exception(packet)
+        self.assertEqual(row["type"], "other")
+        self.assertFalse(row["observer_failed"])
+        self.assertEqual(len(row["frames"]), 1)
+
+    def test_none_and_each_known_builtin(self):
+        self.assertIsNone(cpu.decode_exception(cpu.exception_packet(None, ())))
+        for index, cls in enumerate(cpu.EXCEPTION_TYPES[1:], 1):
+            row = cpu.decode_exception(cpu.exception_packet(cls("PRIVATE"), ()))
+            self.assertEqual(row["type"], cpu.EXCEPTION_NAMES[index])
+            self.assertEqual(row["frames"], [])
+            cpu.validate_exception(row)
+
+    def test_stack_depth_and_source_reads_are_bounded(self):
+        source = "def recurse(n):\n if n: recurse(n-1)\n else: raise Error('PRIVATE')\nrecurse(100)\n"
+        packet, read = self.capture(source)
+        row = cpu.decode_exception(packet)
+        self.assertTrue(row["truncated"])
+        self.assertEqual(len(row["frames"]), cpu.EXCEPTION_FRAMES)
+        self.assertLessEqual(read.call_count, 64)
+
+    def test_unreadable_source_is_not_replaced_with_path_or_message(self):
+        try:
+            raise ValueError("PRIVATE")
+        except ValueError as error:
+            with mock.patch.object(cpu, "read_source", side_effect=OSError("PRIVATE"), create=True):
+                row = cpu.decode_exception(cpu.exception_packet(error, (str(ROOT) + "/",)))
+        self.assertTrue(row["source_unavailable"])
+        self.assertEqual(row["frames"], [])
+        self.assertNotIn("PRIVATE", json.dumps(row))
+
+    def test_malformed_packets_and_rows_reject(self):
+        good, _ = self.capture("raise Error()\n")
+        for raw in (good[:-1], good + b"x", bytes([255]) + good[1:],
+                    good[:1] + b"\xff" + good[2:], good[:2] + b"\xff" + good[3:],
+                    bytes([0]) + good[1:], good[:-1] + b"x"):
+            with self.subTest(raw=raw[:3]), self.assertRaises(ValueError):
+                cpu.decode_exception(raw)
+        row = cpu.decode_exception(good)
+        for key, value in (("type", "PRIVATE"), ("frames", ["PRIVATE"]),
+                           ("truncated", 1), ("observer_failed", "PRIVATE")):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                cpu.validate_exception({**row, key: value})
+        for frame in ({"source_sha256": "PRIVATE", "line": 1},
+                      {"source_sha256": "a" * 64, "line": True},
+                      {"source_sha256": "a" * 64, "line": 1000001}):
+            with self.assertRaises(ValueError):
+                cpu.validate_exception({**row, "frames": [frame]})
+
+
 class EntryTests(unittest.TestCase):
     def test_shared_entry_prepares_but_does_not_serve(self):
         parser, serve, check, checkpoints = (mock.Mock() for _ in range(4))
@@ -104,7 +187,10 @@ class EntryTests(unittest.TestCase):
                     packet = os.read(state.reader, cpu.STATE_PACKET_BYTES + 1)
                     self.assertEqual(packet[:2], b"\xff\xff")
                     self.assertEqual(len(packet), cpu.STATE_PACKET_BYTES)
-                    cpu.validate_finders(cpu.decode_finders(packet[2:]))
+                    cpu.validate_finders(cpu.decode_finders(packet[2:2 + cpu.FINDER_PACKET_BYTES]))
+                    fault = cpu.decode_exception(packet[2 + cpu.FINDER_PACKET_BYTES:])
+                    self.assertEqual(fault["type"], "value")
+                    self.assertNotIn("PRIVATE", json.dumps(fault))
             finally:
                 for fd in (first, second):
                     if fd is not None:
@@ -143,7 +229,8 @@ class EntryTests(unittest.TestCase):
                 if not write_failure:
                     packet = os.read(state.reader, cpu.STATE_PACKET_BYTES + 1)
                     self.assertEqual(cpu.decode_state(packet[:2]), dict.fromkeys(cpu.STATE_FIELDS, False))
-                    cpu.validate_finders(cpu.decode_finders(packet[2:]))
+                    cpu.validate_finders(cpu.decode_finders(packet[2:2 + cpu.FINDER_PACKET_BYTES]))
+                    self.assertIsNone(cpu.decode_exception(packet[2 + cpu.FINDER_PACKET_BYTES:]))
             finally:
                 checkpoints.finish()
                 state.finish()
@@ -198,7 +285,7 @@ class EntryTests(unittest.TestCase):
                 self.assertEqual(argv[:3], ["/opt/nib/python", "entry", "--checkpoint-fd"])
                 self.assertEqual(argv[4], "--state-fd")
                 self.assertEqual(kwargs["pass_fds"], (int(argv[3]), int(argv[5])))
-                packet = bits + finder_same()
+                packet = bits + finder_same() + bytes(cpu.EXCEPTION_PACKET_BYTES)
                 program = ("import os,sys\nprint('PRIVATE stdout')\nprint('PRIVATE stderr',file=sys.stderr)\n"
                            "os.write(int(sys.argv[1]),bytes(range(1," + str(code + 1) + ")))\n"
                            "os.write(int(sys.argv[2])," + repr(packet) + ")\nsys.exit(" + str(exit_code) + ")")
@@ -274,7 +361,7 @@ class FinderTests(unittest.TestCase):
         with mock.patch.object(sys, "_nib_lab_bootstrap", self.state, create=True), \
                 mock.patch.object(sys, "meta_path", actual):
             raw = cpu.finder_packet(catalog)
-        self.assertEqual(len(raw), cpu.STATE_PACKET_BYTES - 2)
+        self.assertEqual(len(raw), cpu.FINDER_PACKET_BYTES)
         row = cpu.decode_finders(raw)
         cpu.validate_finders(row)
         self.assertNotIn("PRIVATE", json.dumps(row))
@@ -483,7 +570,7 @@ class ContractTests(unittest.TestCase):
                 "phase_elapsed_ms": {"application-preflight": 100, "application": 1000, "entry": 200},
                 "entry": {"outcome": "exited", "exit_code": 0, "checkpoints": {"status": "eof", "last_id": 16},
                           "state_observation": "observed", "state_mismatches": dict.fromkeys(cpu.STATE_FIELDS, False),
-                          "finder_diagnostic": cpu.decode_finders(finder_same())}}
+                          "finder_diagnostic": cpu.decode_finders(finder_same()), "exception_diagnostic": None}}
 
     def validate(self, row):
         # Use the current CPU contract's source identity with the real fake-tree receipt.
@@ -509,6 +596,13 @@ class ContractTests(unittest.TestCase):
         self.assertIn(self.extra[tool.LAB_BOOTSTRAP], files["lab.py"])
         self.assertIn(self.extra[tool.RUNTIME], files["launch.py"])
         self.assertEqual(hashlib.sha256(self.extra[tool.BASE]).hexdigest(), tool.BASE_SHA)
+
+    def test_exception_observer_accepts_exact_prepared_source_layout(self):
+        roots = (cpu.ROOT + "/", *tuple(path.rstrip("/") + "/" for path in self.contract["paths"]))
+        self.assertEqual(len(roots), 5)
+        row = cpu.decode_exception(cpu.exception_packet(ValueError("PRIVATE"), roots))
+        self.assertFalse(row["observer_failed"])
+        self.assertTrue(cpu.decode_exception(cpu.exception_packet(ValueError(), roots + ("/extra/",)))["observer_failed"])
 
     def test_validator_reuses_exact_five_stage_receipt_and_rejects_unearned_pass(self):
         report = self.valid_report()
@@ -549,6 +643,16 @@ class ContractTests(unittest.TestCase):
         report["entry_pass"] = False
         report["entry"].update(state_observation="unavailable", state_mismatches=None, exit_code=1)
         self.assertFalse(self.validate(report))
+
+    def test_exception_observation_cannot_be_claimed_as_entry_success(self):
+        report = self.valid_report()
+        report["entry"]["exception_diagnostic"] = cpu.decode_exception(
+            cpu.exception_packet(RuntimeError("PRIVATE"), ()))
+        with self.assertRaises(ValueError):
+            self.validate(report)
+        report["entry_pass"] = False
+        self.assertFalse(self.validate(report))
+        self.assertNotIn("PRIVATE", json.dumps(report))
 
     def test_finder_observation_disagreement_or_unavailable_never_claims_pass(self):
         report = self.valid_report()
