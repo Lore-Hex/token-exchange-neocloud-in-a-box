@@ -303,7 +303,8 @@ def run_upstream(root, manifest, selection, bridge):
     llm_utils._write_llm_log = lambda *args, **kwargs: None
     def complete(**kwargs):
         value = bridge.complete(**kwargs)
-        return ModelResponse(**value)
+        # Tau parses this field before its cost callback; keep the validated role alias.
+        return ModelResponse(model=kwargs["model"], **value)
     llm_utils.completion = complete
     llm_utils.completion_cost = lambda *args, **kwargs: 0.0
     evaluator_nl_assertions.DEFAULT_LLM_NL_ASSERTIONS = "nib-scripted-evaluator"
