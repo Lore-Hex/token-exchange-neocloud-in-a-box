@@ -134,12 +134,11 @@ an OS memory sandbox; host Python, Git and bounded host zstd remain trusted.
    `/boot/config-*`, and invokes DKMS; kernel postinst runs depmod and kernel
    hooks. The package source bytes are pinned, but they are not yet an approved
    installation program.
-3. Constrain the explicit target kernel, GCC and compiler parallelism. Static
-   inspection of the selected DKMS `common.postinst` confirms the
-   `/etc/dkms/no-autoinstall` guard, but that is not proof that every kernel hook
-   is suppressed. NVIDIA's `dkms.conf` uses quoted `make`, `-j$(nproc)` and
-   `IGNORE_CC_MISMATCH=1`; do not assume a generic job limit or matching compiler
-   evidence. No module compilation or LKCA conftest has occurred.
+3. Apply and verify the [prepared DKMS controls](p3-t1-dkms-build-controls.md)
+   before installation: no auto-build, explicit target/compiler and two jobs.
+   Their receipt and source-reviewed hook behavior are not runtime proof.
+   Verify compiler/header identity independently, including the presence of
+   required compiler metadata. No module compilation or LKCA conftest has occurred.
 4. Review a Linux namespace/mount policy for mkosi's pinned
    [sandbox implementation](https://github.com/systemd/mkosi/blob/ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b/mkosi/sandbox.py).
    It uses namespace/mount syscalls itself. PR87's unprivileged APT container

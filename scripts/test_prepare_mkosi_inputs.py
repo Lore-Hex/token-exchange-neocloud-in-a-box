@@ -213,7 +213,8 @@ class PreparationTests(unittest.TestCase):
                         tool.tools.FILES[-1]: tool.base.encoded(self.lock)}
 
     def prepare(self):
-        with mock.patch.object(tool, "validate_tools_lock"), mock.patch.object(tool.base.inputs, "check"):
+        with (mock.patch.object(tool, "validate_tools_lock"), mock.patch.object(tool.base.inputs, "check"),
+              mock.patch.object(tool, "validate_build_targets")):
             return tool.prepare(self.metadata, self.archives, self.raw, "a" * 40, self.sources)
 
     def test_real_writer_verifier_deterministic_and_no_execution_claims(self):
@@ -238,6 +239,15 @@ class PreparationTests(unittest.TestCase):
         self.assertIs(contract["bounds_runtime_validated"], False)
         self.assertEqual(contract["clean_builds_required"], 2)
         self.assertIn("matching-apt-rehearsal-pass", contract["required_before_execution"])
+        self.assertEqual(files["mkosi.conf.candidate"],
+                         tool.base.recipe(self.lock, skeleton_tree="mkosi-skeleton"))
+        controls = contract["preinstall_controls"]
+        self.assertFalse(controls["runtime_validated"])
+        self.assertFalse(controls["automatic_dkms_builds"])
+        self.assertFalse(controls["module_loading_on_install"])
+        for name, raw in tool.dkms_build_controls().items():
+            self.assertEqual(files[name], raw)
+            self.assertEqual(controls["files"][name], tool.base.digest(raw))
         self.assertNotIn(str(self.root), json.dumps(report))
         destination = self.root / "output"
         tool.base.publish(destination, files)
@@ -247,7 +257,7 @@ class PreparationTests(unittest.TestCase):
         with self.assertRaises(FileExistsError):
             tool.base.publish(destination, files)
         for name in ("mkosi-service-denial.patch", "mkosi-service-denial.json",
-                     "mkosi-overlay/" + tool.PATCH_TARGET):
+                     "mkosi-overlay/" + tool.PATCH_TARGET, *tool.dkms_build_controls()):
             path = destination / name
             path.write_bytes(b"changed")
             with self.subTest(name=name), self.assertRaises(ValueError):
@@ -256,6 +266,45 @@ class PreparationTests(unittest.TestCase):
         (destination / "mkosi-source.tar.gz").write_bytes(b"changed")
         with self.assertRaises(ValueError):
             tool.base.verify(destination, files)
+
+    def test_dkms_controls_pin_target_compiler_and_jobs_without_ignoring_mismatch(self):
+        files = tool.dkms_build_controls()
+        config = files["mkosi-skeleton/etc/dkms/nvidia-595.91.07-6.8.0-147-generic-x86_64.conf"]
+        self.assertIn(b"'make' -j2 KERNEL_UNAME=6.8.0-147-generic", config)
+        self.assertIn(b"SYSSRC=/lib/modules/6.8.0-147-generic/build", config)
+        self.assertIn(b"CC=/usr/bin/x86_64-linux-gnu-gcc-13", config)
+        self.assertIn(b"IGNORE_CC_MISMATCH= ", config)
+        self.assertIn(b"IGNORE_PREEMPT_RT_PRESENCE= ", config)
+        self.assertIn(b"IGNORE_XEN_PRESENCE= ", config)
+        self.assertNotIn(b"=1", config)
+        self.assertNotIn(b"nproc", config)
+        self.assertNotIn(b"uname", config)
+        self.assertNotIn(b"$", config)
+        framework = files["mkosi-skeleton/etc/dkms/framework.conf.d/99-nib-build.conf"]
+        # DKMS tests string non-emptiness, so 'false' would still load modules.
+        self.assertIn(b'modprobe_on_install=""\n', framework)
+        self.assertNotIn(b"try_sign_modules", framework)
+        self.assertTrue(files["mkosi-skeleton/etc/dkms/no-autoinstall"])
+        self.assertNotIn(b"SkeletonTrees", tool.base.recipe(self.lock))
+        with self.assertRaises(ValueError):
+            tool.base.recipe(self.lock, skeleton_tree="/arbitrary")
+
+    def test_build_controls_require_the_reviewed_target_package_versions(self):
+        guest = json.loads((ROOT / tool.tools.FILES[-1]).read_bytes())
+        tool.validate_build_targets(guest)
+        for name in ("dkms", "nvidia-dkms-open", "gcc-13", "gcc-13-x86-64-linux-gnu",
+                     "linux-headers-6.8.0-147", "linux-headers-6.8.0-147-generic"):
+            for mode in ("missing", "version", "duplicate"):
+                bad = copy.deepcopy(guest)
+                row = next(r for r in bad["packages"] if r["Package"] == name)
+                if mode == "missing":
+                    bad["packages"].remove(row)
+                elif mode == "version":
+                    row["Version"] = "new-unreviewed"
+                else:
+                    bad["packages"].append(row.copy())
+                with self.subTest(name=name, mode=mode), self.assertRaises(ValueError):
+                    tool.validate_build_targets(bad)
 
     def test_package_union_conflict_missing_hash_and_special_files_reject(self):
         bad = copy.deepcopy(self.lock)
