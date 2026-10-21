@@ -42,3 +42,18 @@ The corrected trial used the unchanged network-disabled container, pinned
 Python image, source archive, wheelhouse, manifest, task and seed. Only the
 toolkit revision and its bound payload digest changed. No credentials or model
 endpoints were used. The exact command and times are in the evidence record.
+
+## Current-Main Integration Rerun
+
+After integrating main through the response-model fix, producer
+`7afb53b2b375318ad1ae2e0ef3fdbf918fca5574` repeated the same frozen trial on
+2026-10-21, 00:04:21-00:04:30 UTC:
+[`run.json`](../../evidence/p2/2026-10-21-tau-integrated-7afb53b/run.json),
+[`output.log`](../../evidence/p2/2026-10-21-tau-integrated-7afb53b/output.log).
+All four role calls completed with eight synthetic tokens and a synthetic cost
+of $0.00001900. Cleanup was confirmed. The plan SHA-256 is
+`195b654605d13943bc0e124830ff0480f989d68c2a472feb9556849479bb9239`;
+the frozen manifest remains
+`3db55c0ca09f19cf2a2b77ae3b2443d41a61100b145b6b92a4181f6f7314294b`.
+The original runs are unchanged. This rerun does not add live model execution,
+quality acceptance, GPU qualification, or confidentiality evidence.
