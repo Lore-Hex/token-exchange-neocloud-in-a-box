@@ -169,7 +169,7 @@ at merged main `28e40cf38ab2f0002e23d16b69e64fb85665c20a`. The original
 mapping, actual ownership changes, seven tool startups and cleanup passed.
 No package installation or image qualification is inferred.
 
-## Final Confinement Candidate
+## Final Confinement
 
 `--final-confinement` requires both ownership and PID modes. After the pinned
 launcher creates the namespaces and replaces procfs, pinned util-linux
@@ -196,6 +196,15 @@ and Linux 6.8 [clone flags](https://github.com/torvalds/linux/blob/v6.8/include/
 and [capabilities](https://github.com/torvalds/linux/blob/v6.8/include/uapi/linux/capability.h).
 Executable/library bytes remain the existing authenticated tools lock.
 
-This is a candidate pending real Linux execution. Aggregate OS build resource
-limits, exact build controls and two independent builds remain required before
-image qualification. This probe still never executes package hooks or installs.
+The full boundary passed on merged main
+`6e4c4d2a412e4a1678234c26416e8c3af13f5a57` in
+[workflow 39633495751](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39633495751).
+The unaltered [result](../../evidence/p3/2026-10-21-final-confinement/result.json)
+and [run record](../../evidence/p3/2026-10-21-final-confinement/run.json) show
+namespace, ownership, capability/syscall checks, seven tool startups and cleanup
+passed. No package hooks or installations ran.
+
+The separate [resource-controller probe](p3-t1-build-resource-probe.md) also
+passed, on a different lab host. Combining both boundaries in the actual
+installer, exact build controls and two independent builds remain required
+before image qualification. Two separate probes are not a completed builder.
