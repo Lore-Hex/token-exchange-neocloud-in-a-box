@@ -40,7 +40,7 @@ onboarding steps; running the toolkit does not automatically list a provider.
 ## Status
 
 Pre-alpha. **No fully verified confidential inference service yet.** Real
-8xB200 lab checks and a complete DeepSeek weight download have run. Fresh
+8xB200 and 8xB300 lab checks and complete DeepSeek weight downloads have run. Fresh
 eight-GPU appraisal and readiness readback have passed; DeepSeek inference and
 quality remain unproven. The lab uses AMD SEV-SNP, not the plan's Intel TDX
 deployment.
@@ -75,7 +75,7 @@ deployment.
 | Tau evaluation preparation | actual scripted upstream trial passed with confirmed cleanup. [Original evidence and limits](docs/tasks/p2-t3-tau-integration-evidence.md); synthetic replies and usage, not live-model quality or tau acceptance |
 | CPU-only startup diagnosis | exact-image application passes all five stages; serving imports now reach checkpoint 13 with clean guard state, then device autodetection rejects the GPU-free environment. Overall pre-serve run remains FAIL; cleanup confirmed; no inference/GPU/confidentiality acceptance ([latest run](evidence/p2/2026-10-20-cpu-opencv-runtime-9115b95/run.json), [root cause and limits](docs/tasks/p2-t3-opencv-native-loader.md#exact-image-result), [earlier Botocore observation](evidence/p2/2026-10-20-cpu-native-39467970211-1/README.md)) |
 | GPU appraisal and gated readiness | fresh eight-device appraisal PASS; nonce, measurements, certificates/revocation, secure boot, debug-disabled and local identity checks passed; readiness 0 to 1 readback and NVML shutdown verified. Not full hardware/runtime/confidential qualification ([success](evidence/p2/2026-10-20-gpu-appraisal-121447763215/run.json), [prior failure](evidence/p2/2026-10-20-gpu-appraisal-120201396352/run.json), [checkpoint](docs/tasks/p2-t3-appraisal-checkpoint.md)) |
-| Bounded DeepSeek CC functional lab | latest attempt completed weight validation and five application stages, then engine startup exited 1 after 8 seconds; Docker reported no OOM and cleanup confirmed. No inference or quality success ([latest failure](evidence/p2/2026-10-20-correctness-startup-failed/run.json), [prior recorder failure](evidence/p2/2026-10-20-correctness-recorder-failed/run.json), [limits](docs/tasks/p2-t3-correctness-checkpoint.md), [scope](docs/tasks/p2-t3-deepseek-lab.md)) |
+| Bounded DeepSeek CC functional lab | latest B300 attempt completed weight validation and five application stages, then ModelConfig startup exited 1 after 25 seconds; cleanup confirmed. No inference or quality success ([latest failure](evidence/p2/2026-10-21-b300-model-config-rejected/run.json), [complete checkpoint and limits](docs/tasks/p2-t3-b300-complete-checkpoint.md), [scope](docs/tasks/p2-t3-deepseek-lab.md)) |
 | Confidential pipeline on a 1-GPU TDX VM | not started (P3) |
 | TrustedRouter generic verifier | not started (P4) |
 | Bare-metal 8×B200 confidential node | not started (P5) |

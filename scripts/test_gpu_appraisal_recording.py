@@ -263,7 +263,8 @@ class AppraisalRecordingTests(unittest.TestCase):
 
 
 class RecordedAppraisalEvidenceTests(unittest.TestCase):
-    def check_record(self, slug, revision, hashes, *, passed):
+    def check_record(self, slug, revision, hashes, *, passed, enable=None):
+        enable = passed if enable is None else enable
         directory = ROOT / "evidence/p2" / slug
         self.assertEqual({path.name for path in directory.iterdir()}, {"run.json", "output.log"})
         raw = {name: (directory / name).read_bytes() for name in hashes}
@@ -280,7 +281,7 @@ class RecordedAppraisalEvidenceTests(unittest.TestCase):
         self.assertIsNone(run["host"]["cuda"])
         self.assertLess(run["started_utc"], run["ended_utc"])
         self.assertEqual(run["command"], "python3 -I -S -B host/record-gpu-appraisal.py --attest"
-                         + (" --enable-readiness" if passed else ""))
+                         + (" --enable-readiness" if enable else ""))
         names = {tool.RECORDER, tool.APPRAISAL, tool.PROBE, tool.SHARED}
         self.assertEqual(set(output["source"]["files"]), names)
         source = {name: shared.git(ROOT, "show", revision + ":" + name) for name in names}
@@ -297,7 +298,7 @@ class RecordedAppraisalEvidenceTests(unittest.TestCase):
             checked = historical.validate(json.dumps(output["appraisal"]).encode(),
                                           original_appraiser,
                                           output["source"]["files"][tool.APPRAISAL],
-                                          attest=True, enable=passed)
+                                          attest=True, enable=enable)
         self.assertEqual(checked, output["appraisal"])
         for flag in ("runtime_ready", "confidential_qualified", "deployable"):
             self.assertFalse(output[flag])
@@ -366,6 +367,20 @@ class RecordedAppraisalEvidenceTests(unittest.TestCase):
         self.assertFalse(inventory["inventory"]["eight_b200_reported"])
         self.assertEqual(inventory["result"], "fail")
         self.assertFalse(inventory["confidential_qualified"])
+
+    def test_pre_inference_appraisal_is_read_only_and_still_not_qualification(self):
+        checked = self.check_record(
+            "2026-10-21-gpu-appraisal-184213652419",
+            "6e864bebbb123a79f063ca562bcd686b8ab5365c",
+            {"run.json": "7048cb57d1f651c1cadaafdeec1f1d675d80a060f132540bcffc43779c07d8b5",
+             "output.log": "2292f036c58f2a8bbc9b155d119d3e35a66342bd29688b9841bc16fdf95191ec"},
+            passed=True, enable=False)
+        self.assertFalse(checked["readiness_requested"])
+        self.assertEqual((checked["ready_before"], checked["ready_after"]), (1, 1))
+        self.assertEqual(checked["readiness_transition"], "unchanged")
+        self.assertEqual(checked["claims"]["authenticated_gpu_count"], 8)
+        self.assertTrue(all(value is True for name, value in checked["claims"].items()
+                            if name != "authenticated_gpu_count"))
 
 
 if __name__ == "__main__":
