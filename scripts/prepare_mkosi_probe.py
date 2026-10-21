@@ -20,6 +20,7 @@ HELPER = "scripts/prepare_mkosi_tools.py"
 SCRIPT = "scripts/prepare_mkosi_probe.py"
 WORKER = "scripts/mkosi_tools_probe.py"
 RUNNER = "host/probe-mkosi-tools.py"
+CHECKER = "scripts/mkosi_namespace_check.py"
 
 
 def bootstrap():
@@ -48,22 +49,35 @@ tools, base, require = prep.tools, prep.base, prep.require
 
 
 def committed():
-    return tools.committed((*prep.mkosi.EXTRA, HELPER, prep.POLICY, SCRIPT, WORKER, RUNNER))
+    return tools.committed((*prep.mkosi.EXTRA, HELPER, prep.POLICY, SCRIPT, WORKER, RUNNER, CHECKER))
 
 
-def build(inputs, revision, sources):
+def build(inputs, revision, sources, *, sandbox=False):
+    require(type(sandbox) is bool)
     files, receipt = prep.assemble(inputs, revision, sources)
     inventory = json.loads(files["root-inventory.json"])
     require(not any(name == "nib" or name.startswith("nib/") for name in inventory))
     config = {"schema": "nib.mkosi-tools-probe-input/v1", "git_sha": revision,
               "tools_receipt_sha256": base.digest(files["receipt.json"]),
               "snapshot_sha256": base.digest(sources[tools.FILES[4]])}
-    overlay = tools.tar_bytes({name: {"kind": "file", "mode": 0o444, "data": raw}
-                               for name, raw in {
-                                   "nib/probe.py": sources[WORKER],
-                                   "nib/snapshot.py": sources[tools.FILES[4]],
-                                   "nib/input.json": base.encoded(config),
-                               }.items()})
+    payload = {"nib/probe.py": sources[WORKER], "nib/snapshot.py": sources[tools.FILES[4]]}
+    if sandbox:
+        # Authenticate the entire upstream tree, not just an adjacent checksum.
+        pin = json.loads(sources[prep.mkosi.EXTRA[1]])
+        _, upstream = prep.mkosi.verify_source(
+            base.read(inputs / "mkosi-source.tar.gz", prep.mkosi.MAX_SOURCE), pin)
+        payload.update({"nib/mkosi-sandbox.py": upstream["mkosi/sandbox.py"],
+                        "nib/namespace-check.py": sources[CHECKER]})
+        payload.update({"nib/" + name: upstream[name] for name in pin["license_files"]})
+        config.update(schema="nib.mkosi-tools-probe-input/v2", sandbox=True,
+                      sandbox_sha256=base.digest(payload["nib/mkosi-sandbox.py"]),
+                      checker_sha256=base.digest(sources[CHECKER]))
+    payload["nib/input.json"] = base.encoded(config)
+    tree = {name: {"kind": "file", "mode": 0o444, "data": raw} for name, raw in payload.items()}
+    if sandbox:
+        require("tmp" not in inventory or inventory["tmp"]["kind"] == "dir")
+        tree["tmp"] = {"kind": "dir", "mode": 0o1777}
+    overlay = tools.tar_bytes(tree)
     image, config_hash, tag, layers = tools.docker_archive(
         (files["tools-root.tar"], overlay), revision,
         entrypoint=["/usr/bin/python3.12", "-I", "-S", "-B", "/nib/probe.py"],
@@ -83,6 +97,10 @@ def build(inputs, revision, sources):
         "mkosi_executed": False, "namespaces_validated": False,
         "abi_validated": False, "bootable": False, "deployable": False,
     }
+    if sandbox:
+        report.update(schema="nib.mkosi-probe-preparation/v2", sandbox=True,
+                      scope="sandbox-probe-image-data-only",
+                      sandbox_sha256=config["sandbox_sha256"], checker_sha256=config["checker_sha256"])
     output["receipt.json"] = base.encoded(report)
     require(sum(map(len, output.values())) <= tools.MAX_TREE)
     return output, report
@@ -91,6 +109,7 @@ def build(inputs, revision, sources):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--inputs", required=True, type=Path)
+    parser.add_argument("--sandbox", action="store_true", help="Also test the pinned namespace sandbox")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--output", type=Path)
     mode.add_argument("--verify", type=Path)
@@ -100,7 +119,7 @@ def main():
     revision, sources = committed()
     require(sources[HELPER] == HELPER_SOURCE and sources[prep.HELPER] == prep.HELPER_SOURCE
             and sources[tools.FILES[0]] == prep.mkosi.TOOLS_SOURCE)
-    files, report = build(args.inputs, revision, sources)
+    files, report = build(args.inputs, revision, sources, sandbox=args.sandbox)
     if args.output:
         base.publish(args.output, files)
     base.verify(args.output or args.verify, files)

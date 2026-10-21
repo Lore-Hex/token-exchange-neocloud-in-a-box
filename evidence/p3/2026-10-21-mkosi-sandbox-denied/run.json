@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S -B host/probe-mkosi-tools.py --run --inputs PRIVATE --bundle PRIVATE --output PRIVATE --sandbox",
+  "ended_utc": "2026-10-21T04:46:38Z",
+  "execution": "software",
+  "git_sha": "5bda5bdcfd6dc12a8c1c8de936d033f04809cf62",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "linux-amd64",
+    "provider": "local-docker"
+  },
+  "notes": "Seven tools startup probes followed by the pinned mkosi sandbox with a fixed synthetic namespace child. The child requires distinct user, mount, network and IPC namespaces, loopback-only networking, read-only worker files and writable temporary storage. No package installation, maintainer scripts, mkosi image build, ABI qualification, boot or attestation. Output contains fixed classes and hashes only.",
+  "phase": "P3",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-21T04:46:35Z",
+  "task": "T1"
+}

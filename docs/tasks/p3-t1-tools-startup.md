@@ -51,3 +51,5 @@ Its [content-free output](../../evidence/p3/2026-10-21-tools-startup-pass/output
 binds the image, package receipt, completed checks and their output hashes.
 Both files are unchanged committed-runner output. This is startup evidence
 only; all broader qualification flags remain false.
+
+The next explicit check is the [pinned mkosi namespace probe](p3-t1-mkosi-sandbox-probe.md).
