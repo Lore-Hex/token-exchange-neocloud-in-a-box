@@ -154,6 +154,20 @@ class ProbeRunnerTests(unittest.TestCase):
         self.assertIn(host.prep.WORKER, extra)
         self.assertIn(host.LIFECYCLE, host.prep.tools.FILES)
 
+    def test_evidence_retains_actual_failure_and_declares_software_scope(self):
+        for result in ("pass", "fail"):
+            report = {**self.execute(), "result": result, "started_at": "2026-10-21T02:56:24Z",
+                      "finished_at": "2026-10-21T02:56:27Z"}
+            files = host.evidence_files(report)
+            self.assertEqual(set(files), {"run.json", "output.log"})
+            run = json.loads(files["run.json"])
+            self.assertEqual(run["result"], result)
+            self.assertEqual(run["git_sha"], report["git_sha"])
+            self.assertEqual(run["started_utc"], report["started_at"])
+            self.assertEqual(run["execution"], "software")
+            self.assertIs(run["hardware_validated"], False)
+            self.assertEqual(json.loads(files["output.log"]), report)
+
 
 if __name__ == "__main__":
     unittest.main()

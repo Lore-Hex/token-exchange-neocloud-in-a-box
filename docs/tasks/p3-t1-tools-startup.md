@@ -20,6 +20,8 @@ Both commands reconstruct the exact same source-bound image. The runner checks
 the signed package inputs and every archive again, then compares all bundle bytes
 before Docker access. No received receipt alone authorizes an image. New output
 is owner-only and never overwrites an earlier result.
+The committed runner writes `run.json` and `output.log` with its exact source
+revision, UTC interval, normalized fixed command and content-free observations.
 
 The APT simulation and tools probe share one container lifecycle: no network,
 ports, host mounts, devices, added capabilities or client credentials; read-only

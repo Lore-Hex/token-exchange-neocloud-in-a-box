@@ -91,6 +91,23 @@ def execute(files, receipt, call):
                                 lambda value: validate_result(value, receipt))
 
 
+def evidence_files(report):
+    envelope = {
+        "schema": "nib.evidence/v1", "phase": "P3", "task": "T1", "git_sha": report["git_sha"],
+        "command": "python3 -I -S -B host/probe-mkosi-tools.py --run --inputs PRIVATE "
+                   "--bundle PRIVATE --output PRIVATE",
+        "started_utc": report["started_at"], "ended_utc": report["finished_at"],
+        "host": {"provider": "local-docker", "machine": "linux-amd64",
+                 "gpus": "none", "driver": None, "cuda": None},
+        "result": report["result"], "execution": "software", "hardware_validated": False,
+        "notes": "Seven fixed tools startup probes only. No package installation, maintainer "
+                 "scripts, mkosi build, namespace validation, ABI qualification, boot or attestation. "
+                 "Private command paths are normalized; output.log contains fixed classes, counts "
+                 "and hashes, never raw process output.",
+    }
+    return {"run.json": base.encoded(envelope), "output.log": base.encoded(report)}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", action="store_true", required=True)
@@ -111,7 +128,7 @@ def main():
     files, receipt = prep.build(args.inputs, revision, sources)
     base.verify(args.bundle, files)
     report = runner.run_local(lambda call: execute(files, receipt, call))
-    base.publish(args.output, {"report.json": base.encoded(report)})
+    base.publish(args.output, evidence_files(report))
     print(json.dumps({k: report[k] for k in ("result", "stage", "cleanup", "git_sha", "deployable")},
                      sort_keys=True))
     return 0 if report["result"] == "pass" else 1
