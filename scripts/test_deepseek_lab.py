@@ -2260,7 +2260,47 @@ writer.close()
             errors.finish()
 
 
+class ScratchMountTests(unittest.TestCase):
+    def check(self, cache=6, temporary=14, error=None):
+        platform = types.SimpleNamespace(ST_RDONLY=1, ST_NOSUID=2, ST_NODEV=4, ST_NOEXEC=8,
+                                        statvfs=mock.Mock(side_effect=error or [
+                                            types.SimpleNamespace(f_flag=cache),
+                                            types.SimpleNamespace(f_flag=temporary)]))
+        with mock.patch.object(lab, "os", platform):
+            lab.check_scratch_mounts()
+        self.assertEqual(platform.statvfs.call_args_list, [mock.call("/cache"), mock.call("/tmp")])
+
+    def test_private_jit_exec_and_general_tmp_noexec(self):
+        self.check()
+        self.check(cache=6 | 1024, temporary=14 | 1024)
+
+    def test_rejects_noexec_jit_exec_tmp_readonly_or_missing_isolation(self):
+        for cache, temporary in ((14, 14), (6, 6), (7, 14), (6, 15),
+                                 (2, 14), (4, 14), (6, 10), (6, 12)):
+            with self.subTest(cache=cache, temporary=temporary), self.assertRaises(ValueError):
+                self.check(cache, temporary)
+        with self.assertRaises(OSError):
+            self.check(error=OSError("private diagnostic"))
+
+    def test_rejection_precedes_hardware_weights_and_engine(self):
+        with mock.patch.object(lab, "check_scratch_mounts", side_effect=ValueError("private diagnostic")), \
+                mock.patch.object(lab, "hardware") as hardware, \
+                mock.patch.object(lab, "quiet_command") as weights, \
+                mock.patch.object(lab.subprocess, "Popen") as start:
+            row = lab.application_and_request({"operation": "functional"}, {}, [None] * 4, {}, {})
+        hardware.assert_not_called()
+        weights.assert_not_called()
+        start.assert_not_called()
+        self.assertFalse(row["functional_pass"])
+        self.assertNotIn("private diagnostic", json.dumps(row))
+
+
 class LifecycleTests(unittest.TestCase):
+    def setUp(self):
+        patch = mock.patch.object(lab, "check_scratch_mounts")
+        patch.start()
+        self.addCleanup(patch.stop)
+
     def test_pre_serve_waits_without_http_and_requires_complete_checkpoints(self):
         for code, last in ((0, 16), (1, 12), (0, 15), (0, 17)):
             engine = mock.Mock()
@@ -2612,6 +2652,9 @@ class ReportTests(unittest.TestCase):
         self.assertIn("-S", args)
         self.assertIn("-B", args)
         self.assertEqual(args[-1], "apply")
+        self.assertEqual([args[i + 1] for i, arg in enumerate(args) if arg == "--tmpfs"], [
+            "/cache:rw,nosuid,nodev,exec,size=16g,mode=0700",
+            "/tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777"])
 
     def test_verified_nvidia_constraints_survive_creation_and_inspection(self):
         config = {"config": {"Env": ["NVIDIA_REQUIRE_CUDA=cuda>=13.0 driver>=580",
@@ -2642,7 +2685,7 @@ class ReportTests(unittest.TestCase):
                                "MemorySwap": 768 << 30, "NanoCpus": 64000000000, "PidsLimit": 1024,
                                "RestartPolicy": {"Name": "no"}, "LogConfig": {"Type": "none"},
                                "SecurityOpt": ["no-new-privileges"],
-                               "Tmpfs": {"/cache": "rw,nosuid,nodev,size=16g,mode=0700",
+                               "Tmpfs": {"/cache": "rw,nosuid,nodev,exec,size=16g,mode=0700",
                                          "/tmp": "rw,nosuid,nodev,noexec,size=256m,mode=1777"},
                                "DeviceRequests": [{"DeviceIDs": ["0", "1", "2", "3"], "Capabilities": [["gpu"]],
                                                    "Count": 0, "Driver": "nvidia"}]},
@@ -2650,6 +2693,13 @@ class ReportTests(unittest.TestCase):
                            {"Type": "bind", "Source": "/weights", "Destination": "/model", "RW": False}],
             }
             host.check_container(info, "owned", "owner", root, "/weights", contract, config, "image-id")
+            for path, options in (("/cache", "rw,nosuid,nodev,size=16g,mode=0700"),
+                                  ("/cache", "rw,nosuid,nodev,noexec,size=16g,mode=0700"),
+                                  ("/tmp", "rw,nosuid,nodev,exec,size=256m,mode=1777")):
+                changed = copy.deepcopy(info)
+                changed["HostConfig"]["Tmpfs"][path] = options
+                with self.subTest(path=path, options=options), self.assertRaises(ValueError):
+                    host.check_container(changed, "owned", "owner", root, "/weights", contract, config, "image-id")
             for key in ("NVIDIA_REQUIRE_CUDA", "NVIDIA_REQUIRE_BRAND"):
                 original = next(value for value in env if value.startswith(key + "="))
                 for replacement in (None, key + "=", key + "=changed"):

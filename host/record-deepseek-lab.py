@@ -236,7 +236,7 @@ def create_command(name, owner, bundle, weights, contract, config):
                "--cpus", "2" if pre_serve else "64",
                "--ipc", "private", "--shm-size", "2g", "--cgroupns", "private",
                "--restart", "no", "--log-driver", "none", "--no-healthcheck", "--user", "0:0",
-               "--workdir", "/", "--tmpfs", "/cache:rw,nosuid,nodev,size=16g,mode=0700",
+               "--workdir", "/", "--tmpfs", "/cache:rw,nosuid,nodev,exec,size=16g,mode=0700",
                "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777",
                "--mount", "type=bind,src=" + payload + ",dst=/opt/nib,readonly",
                *([] if pre_serve else ["--mount", "type=bind,src=" + str(weights) + ",dst=/model,readonly"]),
@@ -283,7 +283,7 @@ def check_container(info, name, owner, bundle, weights, contract, config, image_
             and host["PidsLimit"] == 1024 and host["RestartPolicy"]["Name"] == "no" and host["LogConfig"]["Type"] == "none"
             and set(host["SecurityOpt"]) in ({"no-new-privileges"}, {"no-new-privileges=true"})
             and cfg["Healthcheck"]["Test"] == ["NONE"]
-            and host["Tmpfs"] == {"/cache": "rw,nosuid,nodev,size=16g,mode=0700",
+            and host["Tmpfs"] == {"/cache": "rw,nosuid,nodev,exec,size=16g,mode=0700",
                                  "/tmp": "rw,nosuid,nodev,noexec,size=256m,mode=1777"})
     devices = host["DeviceRequests"]
     require(len(devices) == 1 and devices[0]["DeviceIDs"] == ["0", "1", "2", "3"]
