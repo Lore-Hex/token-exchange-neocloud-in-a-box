@@ -11,6 +11,14 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class NativeIndexWorkflowTests(unittest.TestCase):
+    def test_install_preserves_fetch_diagnostic_even_before_worker_exists(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/mkosi-native-build.yml").read_text())
+        steps = workflow["jobs"]["install"]["steps"]
+        self.assertIn('> build/native-install/input-fetch.log', steps[1]["run"])
+        self.assertNotIn("|| true", steps[1]["run"])
+        self.assertEqual(steps[-1]["if"], "always()")
+        self.assertIn("build/native-install/input-fetch.log", steps[-1]["with"]["path"].splitlines())
+
     def test_tools_and_install_use_identical_pinned_index_archive(self):
         for name, job, directory in (
             ("mkosi-native-tools.yml", "probe", "native-tools"),
