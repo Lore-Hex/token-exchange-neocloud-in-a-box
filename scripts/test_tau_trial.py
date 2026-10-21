@@ -7,6 +7,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import stat
 import subprocess
@@ -273,43 +274,84 @@ class IntegrationTests(unittest.TestCase):
         self.assertNotIn(CANARY, json.dumps([report, accounting]))
 
     def test_upstream_interface_uses_standard_runner_and_grader_with_all_logs_off(self):
+        self.check_upstream_response_boundary()
+
+    def test_upstream_response_model_alias_preserves_tool_response(self):
+        self.check_upstream_response_boundary(tool_response=True)
+
+    def test_upstream_response_constructor_never_receives_unvalidated_model(self):
+        self.check_upstream_response_boundary(invalid_model=True)
+
+    def test_upstream_evaluates_assertions_outside_default_reward_basis(self):
+        self.check_upstream_response_boundary(reward_basis=["DB", "COMMUNICATE"])
+
+    def check_upstream_response_boundary(self, tool_response=False, invalid_model=False, reward_basis=None):
         names = ("loguru", "litellm", "tau2", "tau2.utils", "tau2.runner", "tau2.runner.batch",
                  "tau2.runner.helpers", "tau2.data_model", "tau2.data_model.simulation",
-                 "tau2.evaluator", "tau2.evaluator.evaluator_nl_assertions")
+                 "tau2.evaluator", "tau2.evaluator.evaluator_nl_assertions", "tau2.evaluator.evaluator")
         modules = {name: types.ModuleType(name) for name in names}
         logger = mock.Mock()
         modules["loguru"].logger = logger
-        modules["litellm"].ModelResponse = lambda **kwargs: kwargs
+        # Pinned LiteLLM defaults model to None. Pinned tau regex-parses it
+        # before calling completion_cost; a dict-only stub missed this boundary.
+        constructor = mock.Mock(side_effect=lambda model=None, **kwargs:
+                                types.SimpleNamespace(model=model, **kwargs))
+        modules["litellm"].ModelResponse = constructor
         llm = types.SimpleNamespace(set_llm_log_dir=mock.Mock())
         modules["tau2.utils"].llm_utils = llm
         evaluator = modules["tau2.evaluator.evaluator_nl_assertions"]
         modules["tau2.evaluator"].evaluator_nl_assertions = evaluator
-        task = types.SimpleNamespace(evaluation_criteria=types.SimpleNamespace(nl_assertions=["synthetic"]))
+        evaluation_type = types.SimpleNamespace(ALL="all", ALL_WITH_NL_ASSERTIONS="all_with_nl_assertions")
+        modules["tau2.evaluator.evaluator"].EvaluationType = evaluation_type
+        task = types.SimpleNamespace(evaluation_criteria=types.SimpleNamespace(
+            nl_assertions=["synthetic"], reward_basis=reward_basis or ["NL_ASSERTION"]))
         modules["tau2.runner.helpers"].get_tasks = mock.Mock(return_value=[task])
         modules["tau2.data_model.simulation"].TextRunConfig = lambda **kwargs: types.SimpleNamespace(**kwargs)
         called = []
+        tool_value = response()
+        tool_value["choices"] = [{"message": {"role": "assistant", "content": None, "tool_calls": [
+            {"id": "fixed", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}]},
+            "finish_reason": "tool_calls"}]
         def single(config, received_task, **kwargs):
             called.append(config)
             self.assertIs(received_task, task)
             self.assertEqual(kwargs, {"seed": selection["seed"], "save_dir": None, "verbose_logs": False,
-                                      "audio_debug": False, "audio_taps": False, "auto_review": False})
+                                      "audio_debug": False, "audio_taps": False, "auto_review": False,
+                                      "evaluation_type": evaluation_type.ALL_WITH_NL_ASSERTIONS})
             self.assertEqual(config.max_retries, 0)
             self.assertEqual(config.hallucination_retries, 0)
             self.assertEqual(config.max_concurrency, 1)
             self.assertIsNone(config.save_to)
-            for model in (config.llm_agent, config.llm_user, evaluator.DEFAULT_LLM_NL_ASSERTIONS):
-                llm.completion(model=model, messages=[{"role": "user", "content": CANARY}], num_retries=0)
+            if invalid_model:
+                llm.completion(model="unreviewed", messages=[{"role": "user", "content": CANARY}])
+                self.fail("invalid model was accepted")
+            for model in (config.llm_user, config.llm_agent, evaluator.DEFAULT_LLM_NL_ASSERTIONS):
+                value = llm.completion(model=model, messages=[{"role": "user", "content": CANARY}], num_retries=0)
+                self.assertIsNone(re.match(r"ft:(?P<model>[^:]+):(?P<provider>\w+)::(?P<id>\w+)", value.model))
+                self.assertEqual(value.model, model)
+                self.assertEqual(llm.completion_cost(completion_response=value), 0.0)
+                self.assertEqual(value.usage, {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2})
+                if tool_response and model == config.llm_agent:
+                    self.assertEqual(value.choices, tool_value["choices"])
             llm._write_llm_log(CANARY, CANARY)
             return types.SimpleNamespace(reward_info=types.SimpleNamespace(reward=0.0),
                                          termination_reason=types.SimpleNamespace(value="user_stop"))
         modules["tau2.runner.batch"].run_single_task = single
         manifest = fixtures.manifest()
         selection = chosen(manifest)
+        def execute(root, frozen, selected, bridge):
+            if tool_response:
+                bridge.transport = lambda category, request, bounds: tool_value if category == "agent" else \
+                    worker.scripted(bridge, category, request, bounds)
+            return worker.run_upstream(root, frozen, selected, bridge)
         with mock.patch.dict(sys.modules, modules), mock.patch("logging.disable"):
-            report, accounting = worker.evaluate(tau, agg, manifest, selection, producer())
+            report, accounting = worker.evaluate(tau, agg, manifest, selection, producer(), execute=execute)
         self.assertEqual(len(called), 1)
-        self.assertEqual(accounting["role_requests"], {"agent": 1, "simulator": 1, "evaluator": 1})
-        self.assertEqual(report["trials"][0]["status"], "evaluated")
+        self.assertEqual(accounting["role_requests"], dict.fromkeys(("agent", "simulator", "evaluator"),
+                                                                 0 if invalid_model else 1))
+        self.assertEqual(report["trials"][0]["status"], "protocol_error" if invalid_model else "evaluated")
+        self.assertEqual(report["trials"][0]["usage"]["total_tokens"], 0 if invalid_model else 6)
+        self.assertEqual(constructor.call_count, 0 if invalid_model else 3)
         self.assertFalse(modules["litellm"].telemetry)
         self.assertEqual(llm.set_llm_log_dir.call_args_list, [mock.call(None), mock.call(None)])
         logger.remove.assert_called_once_with()
@@ -495,6 +537,62 @@ sys.exit(w['main']())
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_original_response_failure_keeps_settled_usage_and_historical_binding(self):
+        directory = ROOT / "evidence/p2/2026-10-20-tau-scripted-model-missing-7d21a55"
+        documents = []
+        for name, sha in (("run.json", "1d4f2d59c99cde9309c967f7b811b0695f831f0e7e20bebb3a0756d03731d245"),
+                          ("output.log", "7ecde99657580c32ce28d1a343cbb0f8b5fb765e7e4a9bd7c4e80863f71c78ea")):
+            raw = (directory / name).read_bytes()
+            self.assertEqual(tau.digest(raw), sha)
+            self.assertLessEqual(len(raw), 16384)
+            documents.append(json.loads(raw))
+        envelope, report = documents
+        revision = "7d21a5582050c4d532eb6bb6c6cd5bcfa75b6fae"
+        self.assertEqual(report["toolkit"]["git_sha"], revision)
+        self.assertEqual(report["plan_sha256"], "d3faf0fc1957c9a78ddf6b58715c984ce7df23a81fbb05f8de9b3c87602f0b40")
+        self.assertEqual((report["started_utc"], report["ended_utc"]),
+                         ("2026-10-20T21:50:35Z", "2026-10-20T21:50:45Z"))
+        self.assertEqual((report["stage"], report["cleanup"], report["result"]),
+                         ("completed", "confirmed", "fail"))
+        self.assertIs(report["cleanup_confirmed"], True)
+        diagnostic = report["diagnostic"]
+        self.assertIs(diagnostic["upstream_executed"], True)
+        self.assertIs(diagnostic["completed"], True)
+        self.assertEqual(diagnostic["token_usage"], "synthetic-not-tokenized")
+        self.assertEqual(diagnostic["accounting"], {
+            "role_requests": {"agent": 0, "simulator": 1, "evaluator": 0}, "usage_known": True,
+            "reserved_tokens": 2, "reserved_cost_usd": "0.00000475"})
+        row, = diagnostic["report"]["trials"]
+        self.assertEqual((row["status"], row["reward"], row["requests"]), ("infrastructure_error", None, 1))
+        self.assertEqual(row["usage"], {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2,
+                                       "cost_usd": "0.00000475"})
+        self.assertEqual(diagnostic["report"]["kind"], "synthetic-fixture")
+        for item in (report, diagnostic):
+            for key in ("quality_accepted", "confidential", "live_transport"):
+                self.assertIs(item[key], False)
+        self.assertEqual(len(report["toolkit"]["files"]), 14)
+        checker = module("check-engine-candidate.py")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            for name, sha in report["toolkit"]["files"].items():
+                raw = checker.git(ROOT, "show", revision + ":" + name)
+                self.assertEqual(tau.digest(raw), sha)
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(raw)
+            historical = types.ModuleType("historical_tau_response_failure")
+            historical.__file__ = str(root / "scripts/tau_trial.py")
+            exec(compile(Path(historical.__file__).read_bytes(), historical.__file__, "exec"), historical.__dict__)
+            self.assertEqual(envelope, historical.evidence_record(
+                revision, report["plan_sha256"], report["started_utc"], report))
+            self.assertEqual(report["image"], historical.runtime.TARGET["image"])
+            self.assertEqual(report["platform"], historical.runtime.TARGET["platform"])
+            producer_row = diagnostic["report"]["producer"]
+            self.assertEqual(producer_row["git_sha"], revision)
+            self.assertEqual(producer_row["adapter_sha256"], report["toolkit"]["files"]["scripts/tau_trial_worker.py"])
+            self.assertEqual(producer_row["runtime_receipt_sha256"],
+                             "ff1fdb8fed114eabb4452c3c2153f9dd31da9063d83476b1349b289665308466")
+
     def test_original_create_failure_preserves_historical_source_and_cleanup_uncertainty(self):
         directory = ROOT / "evidence/p2/2026-10-20-tau-scripted-create-ce7ce3f"
         documents = []
