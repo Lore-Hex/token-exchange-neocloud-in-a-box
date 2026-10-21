@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Synthetic native-runner lifecycle; never unshare the test host."""
+import ast
 import json
 from pathlib import Path
 import subprocess
@@ -30,14 +31,14 @@ class NativeProbeTests(unittest.TestCase):
         self.assertTrue(result["namespaces_validated"])
         self.assertTrue(result["process_cleanup_confirmed"])
         argv = execute.call_args.args[0]
-        self.assertEqual(argv[:5], ["/usr/bin/python3.12", "-I", "-S", "-B", "/private/payload/mkosi-sandbox.py"])
+        self.assertEqual(argv[:5], ["/usr/bin/python3.10", "-I", "-S", "-B", "/private/payload/mkosi-sandbox.py"])
         self.assertEqual(argv[5:20], [part for src, dst in
             (("/usr", "/usr"), ("/lib", "/lib"), ("/lib64", "/lib64"),
              ("/private/payload", "/nib"), ("/proc/self/ns", "/proc/self/ns"))
             for part in ("--ro-bind", src, dst)])
         self.assertNotIn("/proc", argv)
         self.assertEqual(argv[20:], ["--dev", "/dev", "--tmpfs", "/tmp", "--unshare-net", "--unshare-ipc",
-            "--become-root", "/usr/bin/python3.12", "-I", "-S", "-B", "/nib/namespace-check.py", *ORIGINAL])
+            "--become-root", "/usr/bin/python3.10", "-I", "-S", "-B", "/nib/namespace-check.py", *ORIGINAL])
         self.assertEqual(execute.call_args.kwargs, {"env": host.worker.ENV, "timeout": 10,
             "max_output_bytes": 65536, "stdin": subprocess.DEVNULL})
         for field in ("host_runtime_pinned", "mkosi_build_executed", "package_installation_executed",
@@ -101,24 +102,59 @@ class NativeProbeTests(unittest.TestCase):
 
     def test_unprivileged_native_hosted_runner_required(self):
         for system, machine, version, uid, gid, runner in (
-                ("linux", "x86_64", (3, 12), 1001, 1001, "github-hosted"),
-                ("darwin", "x86_64", (3, 12), 1001, 1001, "github-hosted"),
-                ("linux", "aarch64", (3, 12), 1001, 1001, "github-hosted"),
+                ("linux", "x86_64", (3, 10), 1001, 1001, "github-hosted"),
+                ("darwin", "x86_64", (3, 10), 1001, 1001, "github-hosted"),
+                ("linux", "aarch64", (3, 10), 1001, 1001, "github-hosted"),
                 ("linux", "x86_64", (3, 11), 1001, 1001, "github-hosted"),
-                ("linux", "x86_64", (3, 12), 0, 1001, "github-hosted"),
-                ("linux", "x86_64", (3, 12), 1001, 0, "github-hosted"),
-                ("linux", "x86_64", (3, 12), 1001, 1001, "self-hosted")):
+                ("linux", "x86_64", (3, 10), 0, 1001, "github-hosted"),
+                ("linux", "x86_64", (3, 10), 1001, 0, "github-hosted"),
+                ("linux", "x86_64", (3, 10), 1001, 1001, "self-hosted")):
             with mock.patch.object(host.sys, "platform", system), \
                     mock.patch.object(host.platform, "machine", return_value=machine), \
                     mock.patch.object(host.sys, "version_info", version), \
                     mock.patch.object(host.os, "geteuid", return_value=uid), \
                     mock.patch.object(host.os, "getegid", return_value=gid), \
+                    mock.patch.object(host.platform, "freedesktop_os_release", return_value={"ID": "ubuntu", "VERSION_ID": "22.04"}), \
+                    mock.patch.object(host.sys, "executable", host.PYTHON), \
                     mock.patch.dict(host.os.environ, {"RUNNER_ENVIRONMENT": runner}, clear=True):
-                if system == "linux" and machine == "x86_64" and version == (3, 12) and uid and gid and runner == "github-hosted":
+                if system == "linux" and machine == "x86_64" and version == (3, 10) and uid and gid and runner == "github-hosted":
                     host.preflight()
                 else:
                     with self.assertRaises(ValueError):
                         host.preflight()
+
+    def test_native_os_and_system_interpreter_must_match(self):
+        for release, executable in (({}, host.PYTHON),
+                ({"ID": "ubuntu", "VERSION_ID": "24.04"}, host.PYTHON),
+                ({"ID": "debian", "VERSION_ID": "22.04"}, host.PYTHON),
+                ({"ID": "ubuntu", "VERSION_ID": "22.04"}, "/toolcache/python3.10")):
+            with mock.patch.object(host.sys, "platform", "linux"), \
+                    mock.patch.object(host.platform, "machine", return_value="x86_64"), \
+                    mock.patch.object(host.sys, "version_info", (3, 10)), \
+                    mock.patch.object(host.os, "geteuid", return_value=1001), \
+                    mock.patch.object(host.os, "getegid", return_value=1001), \
+                    mock.patch.object(host.platform, "freedesktop_os_release", return_value=release), \
+                    mock.patch.object(host.sys, "executable", executable), \
+                    mock.patch.dict(host.os.environ, {"RUNNER_ENVIRONMENT": "github-hosted"}, clear=True), \
+                    self.assertRaises(ValueError):
+                host.preflight()
+
+    def test_shared_default_is_unchanged_and_rejects_arbitrary_interpreters(self):
+        with mock.patch.object(host.worker.os, "readlink", side_effect=ORIGINAL):
+            argv = host.worker.sandbox_command()
+        self.assertEqual(argv[0], "/usr/bin/python3.12")
+        self.assertEqual(argv.count("/usr/bin/python3.12"), 2)
+        self.assertEqual(argv.count("/proc"), 2)
+        for python in ("python3", "/tmp/python", "/usr/bin/python3.11", None):
+            with self.subTest(python=python), self.assertRaises(ValueError):
+                host.worker.sandbox_command(python=python)
+
+    def test_native_helper_closure_has_python310_syntax(self):
+        # Syntax compatibility only, not evidence of execution on Python 3.10.
+        for path in (host.SCRIPT, host.HELPER, host.WORKER, host.CHECKER,
+                     "scripts/prepare_guest_tools.py", "scripts/prepare_guest_packages.py",
+                     "scripts/guest_package_inputs.py", "scripts/e2e/snapshot.py"):
+            ast.parse((ROOT / path).read_bytes(), filename=path, feature_version=(3, 10))
 
     def test_source_authentication_precedes_execution_and_preserves_licenses(self):
         pin = {"license_files": ["LICENSES/LGPL-2.1-or-later.txt"]}
@@ -143,6 +179,7 @@ class NativeProbeTests(unittest.TestCase):
         evidence = host.evidence(report, "a" * 40, "2026-10-21T00:00:00Z", "2026-10-21T00:00:01Z")
         self.assertEqual(evidence["execution"], "software")
         self.assertIs(evidence["hardware_validated"], False)
+        self.assertEqual(evidence["host"]["machine"], "ubuntu-22.04-x86_64")
         self.assertNotIn("/private/payload", json.dumps(evidence))
 
     def test_workflow_has_no_secrets_privilege_escalation_or_policy_changes(self):
@@ -154,7 +191,10 @@ class NativeProbeTests(unittest.TestCase):
 
     def test_workflow_preparation_runs_in_a_clean_checkout_without_fetching(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/mkosi-native-probe.yml").read_text())
+        self.assertEqual(workflow["jobs"]["probe"]["runs-on"], "ubuntu-22.04")
         steps = workflow["jobs"]["probe"]["steps"]
+        probe = next(step["run"] for step in steps if step.get("name", "").startswith("Require actual"))
+        self.assertTrue(probe.startswith(host.PYTHON + " -I -S -B "))
         script = next(step["run"] for step in steps if step.get("name", "").startswith("Fetch public"))
         # Execute the actual setup shell; only curl is replaced by a marker.
         script = 'curl() { test -d build/native-mkosi; touch fetch-reached; };\n' + script

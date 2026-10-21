@@ -13,7 +13,7 @@ concurrency:
 jobs:
   probe:
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
@@ -30,7 +30,7 @@ jobs:
             --output build/native-mkosi/source.tar.gz
       - name: Require actual namespace isolation without host policy changes
         run: |
-          python3 -I -S -B host/probe-mkosi-native.py \
+          /usr/bin/python3.10 -I -S -B host/probe-mkosi-native.py \
             --archive "$PWD/build/native-mkosi/source.tar.gz" \
             --output "$PWD/build/native-mkosi/evidence"
       - name: Preserve content-free evidence even on failure

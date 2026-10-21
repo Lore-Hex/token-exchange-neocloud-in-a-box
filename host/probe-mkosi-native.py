@@ -23,6 +23,7 @@ HELPER = "scripts/prepare_mkosi_inputs.py"
 SCRIPT = "host/probe-mkosi-native.py"
 WORKER = "scripts/mkosi_tools_probe.py"
 CHECKER = "scripts/mkosi_namespace_check.py"
+PYTHON = "/usr/bin/python3.10"
 mkosi = types.SimpleNamespace(**runpy.run_path(str(ROOT / HELPER), run_name="mkosi_inputs"))
 base, tools, require = mkosi.base, mkosi.tools, mkosi.require
 worker, WORKER_SOURCE = base.helper("native_mkosi_worker", WORKER)
@@ -41,8 +42,11 @@ def inputs(archive):
 
 def preflight():
     require(sys.platform == "linux" and platform.machine() == "x86_64"
-            and sys.version_info[:2] == (3, 12) and os.geteuid() != 0
+            and sys.version_info[:2] == (3, 10) and os.geteuid() != 0
             and os.getegid() != 0 and os.environ.get("RUNNER_ENVIRONMENT") == "github-hosted")
+    release = platform.freedesktop_os_release()
+    require(release.get("ID") == "ubuntu" and release.get("VERSION_ID") == "22.04"
+            and Path(sys.executable).resolve() == Path(PYTHON).resolve())
 
 
 def probe(payload, execute):
@@ -54,7 +58,7 @@ def probe(payload, execute):
               "maintainer_scripts_executed": False, "mkosi_build_executed": False,
               "bootable": False, "deployable": False}
     try:
-        argv = worker.sandbox_command(payload, namespace_only_proc=True)
+        argv = worker.sandbox_command(payload, namespace_only_proc=True, python=PYTHON)
         report.update(stage="sandbox", mkosi_executed=True)
         result = execute(argv, env=dict(worker.ENV), timeout=10,
                          max_output_bytes=worker.MAX_OUTPUT, stdin=subprocess.DEVNULL)
@@ -91,10 +95,10 @@ def run(files, execute):
 
 def evidence(report, revision, started, ended):
     return {"schema": "nib.evidence/v1", "phase": "P3", "task": "T1", "git_sha": revision,
-            "command": "python3 -I -S -B host/probe-mkosi-native.py --archive PRIVATE --output PRIVATE",
+            "command": "/usr/bin/python3.10 -I -S -B host/probe-mkosi-native.py --archive PRIVATE --output PRIVATE",
             "started_utc": started, "ended_utc": ended, "result": report["result"],
             "execution": "software", "hardware_validated": False,
-            "host": {"provider": "github-actions", "machine": "ubuntu-24.04-x86_64",
+            "host": {"provider": "github-actions", "machine": "ubuntu-22.04-x86_64",
                      "gpus": "none", "driver": None, "cuda": None},
             "notes": "Pinned mkosi sandbox and synthetic checker on an unprivileged ephemeral runner. "
                      "The runner kernel, Python and userspace are not pinned build inputs. "
