@@ -104,7 +104,7 @@ def execute(uid, gid, arguments):
         require(state["child_exit_code"] == 0 and state["limits_read_back"]
                 and state["empty_verified"] and state["group_removed"] and state["oom_kill"] == 0)
         state["result"] = "pass"
-    except (OSError, ValueError, subprocess.SubprocessError):
+    except (OSError, ValueError, subprocess.SubprocessError, KeyboardInterrupt):
         state["result"] = "fail"
     return state
 
@@ -122,8 +122,16 @@ def main():
     # separate fresh sibling receipt after the cgroup has been killed/removed.
     receipt = args.output.with_name(args.output.name + "-resources.json")
     with receipt_file(receipt, uid, gid) as descriptor:
-        state = execute(uid, gid, ["--downloads", str(args.downloads),
-            "--archive", str(args.archive), "--output", str(args.output)])
+        def cancel(signum, frame):
+            raise KeyboardInterrupt
+        previous = {signum: signal.signal(signum, cancel)
+                    for signum in (signal.SIGINT, signal.SIGTERM)}
+        try:
+            state = execute(uid, gid, ["--downloads", str(args.downloads),
+                "--archive", str(args.archive), "--output", str(args.output)])
+        finally:
+            for signum, handler in previous.items():
+                signal.signal(signum, handler)
         raw = (json.dumps(state, sort_keys=True, indent=2) + "\n").encode()
         require(os.write(descriptor, raw) == len(raw))
     print("Bounded native installation: " + state["result"])

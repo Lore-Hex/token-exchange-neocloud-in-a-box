@@ -134,6 +134,22 @@ class BuildTests(unittest.TestCase):
                     os.write(descriptor, b"fixed receipt")
             self.assertEqual(target.read_bytes(), b"original")
 
+    def test_cancellation_exits_through_cgroup_cleanup_and_never_passes(self):
+        @contextmanager
+        def group(state):
+            try:
+                state["limits_read_back"] = True
+                yield 90, "nib-build-" + "a" * 32
+            finally:
+                state.update(empty_verified=True, group_removed=True, oom_kill=0)
+        with mock.patch.object(launcher.resources, "cgroup", group), \
+                mock.patch.object(launcher.os, "fchmod"), \
+                mock.patch.object(launcher, "launch", side_effect=KeyboardInterrupt):
+            result = launcher.execute(1001, 1001, [])
+        self.assertEqual(result["result"], "fail")
+        self.assertIsNone(result["child_exit_code"])
+        self.assertTrue(result["empty_verified"] and result["group_removed"])
+
     def test_parent_symlink_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary).resolve()
