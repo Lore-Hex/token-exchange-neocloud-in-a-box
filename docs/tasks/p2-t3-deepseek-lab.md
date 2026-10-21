@@ -1,7 +1,8 @@
 # Bounded DeepSeek Functional Lab
 
 This is an **experimental, nonqualifying** path for one approved Linux x86_64
-B200 CC test host. It is not a production profile, GCP gate completion, TDX
+B200 CC test host, or the explicit B300 correctness experiment below.
+It is not a production profile, GCP gate completion, TDX
 verification, an attestation, or ABI qualification. The candidate remains
 `BLOCKED`, `deployable:false`, `confidential:false`, and evidence `result:fail`
 even if the separate `functional_pass` field is true. No real lab run has
@@ -132,6 +133,35 @@ because it does not establish qualification; inspect committed
 Failed attempts remain evidence. Never rerun automatically.
 
 ### Local Correctness Smoke
+
+For an explicitly selected B300 CC experiment, use
+`--prepare-local-correctness-b300` instead. That flag binds `gpu_family:B300`
+into the hashed contract and wrapper. It does not auto-detect or fall back to
+another family. The default remains B200. All four selected GPUs must match
+the chosen family, with protected memory of at least 120 GiB per B200 or
+200 GiB per B300. Mixed/unknown devices and all existing CC, readiness and
+devtools violations reject. Evidence names the observed family, never B200
+for a B300 run. Diagnostic-only B300 and other families are not enabled.
+
+The rationale is the upstream [Blackwell TP recipe](https://recipes.vllm.ai/deepseek-ai/DeepSeek-V4.1-Flash#blackwell-tp-and-dep)
+and [Tinfoil's B200/B300 TP4 implementation](https://github.com/tinfoilsh/confidential-deepseek-v4-1-flash),
+read October 21, 2026. They document this architecture on B300; they are not
+our runtime qualification. This experiment retains the same pinned vLLM
+image, model, TP4, eager execution, bounds and isolation. It imports no
+Tinfoil kernel preset or measured profile. Compatibility must still be tested.
+CPU SEV-SNP on a rented B300 host does not fulfill the plan's Intel TDX gate.
+
+An optional disposable public-weight staging path uses an existing `/dev/shm`
+tmpfs on a large-memory test VM. Run committed `host/prepare-lab.py ram-stage
+--root /dev/shm/nib-deepseek-weights` as root. It requires at least 1536 GiB
+available host RAM, at least 600 GiB free in that tmpfs, no swap, and a new
+private directory. It changes no mounts or system settings. Stage the pack
+under that directory with the existing hash-verifying bounded stager; the
+engine still receives a read-only mount and its existing 768 GiB memory cap.
+The 476 GiB pack plus that cap leaves at least 292 GiB at the admission floor
+before other costs. This is a capacity preflight, not a memory reservation:
+stop if concurrent memory consumption invalidates the budget. The cache is
+lost on VM termination or spot eviction and is not a production weight pack.
 
 An optional bundle exercises eight fixed synthetic cases inside the same
 container and engine lifecycle:
