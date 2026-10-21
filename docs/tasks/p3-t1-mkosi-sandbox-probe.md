@@ -63,3 +63,16 @@ Before image installation, maintainer hooks still need review and the exact
 kernel/compiler bindings still need runtime validation. This probe does not
 approve arbitrary installers, foreign UID mappings, writable host mounts or
 network access.
+
+## Recorded Execution
+
+The [October 21 execution](../../evidence/p3/2026-10-21-mkosi-sandbox-denied/run.json)
+used producer `5bda5bdcfd6dc12a8c1c8de936d033f04809cf62` on local
+Linux/amd64 Docker, from 04:46:35 to 04:46:38 UTC. All seven tool-startup
+checks passed. The sandbox invocation failed with the fixed
+`permission-denied` classification; the child did not establish isolation.
+[Output](../../evidence/p3/2026-10-21-mkosi-sandbox-denied/output.log) confirms
+cleanup of the owned container and image. No policy was relaxed or package
+installed. This result does not distinguish which host/kernel/container
+restriction denied the syscall. A native Linux build-host qualification is
+still required before attempting installation.
