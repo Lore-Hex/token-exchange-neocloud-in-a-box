@@ -25,6 +25,8 @@ ROOT = Path(__file__).resolve().parent.parent
 def module(path):
     result = types.ModuleType(Path(path).stem.replace("-", "_"))
     result.__file__ = str(ROOT / path)
+    if path == "scripts/engine_lab.py":
+        exec(compile((ROOT / "scripts/engine_exception.py").read_bytes(), "exception.py", "exec"), result.__dict__)
     exec(compile((ROOT / path).read_bytes(), result.__file__, "exec"), result.__dict__)
     return result
 
@@ -1310,7 +1312,7 @@ class PayloadTests(unittest.TestCase):
         cls.fixtures.ApplicationTests.setUpClass()
         cls.builder = host.load("lab_test_builder", ROOT / host.BUILDER, host.BUILDER_SHA)
         cls.extra = dict(cls.fixtures.ApplicationTests.extra)
-        for name in (host.SCRIPT, host.HELPER, host.RUNTIME, host.LAB_BOOTSTRAP, host.PROBE, host.SMOKE, host.CORRECTNESS,
+        for name in (host.SCRIPT, host.HELPER, host.RUNTIME, host.LAB_BOOTSTRAP, host.EXCEPTIONS, host.PROBE, host.SMOKE, host.CORRECTNESS,
                      host.TEST, host.SIX_TEST, host.PACK + "/pack.yaml", host.PACK + "/files.sha256"):
             cls.extra[name] = (ROOT / name).read_bytes()
         cls.bundle = cls.builder.checker.working_bundle(ROOT)
@@ -1413,7 +1415,7 @@ class PayloadTests(unittest.TestCase):
             raw = HardwareTests().raw()
             raw.update(feature=0, environment=0, multigpu=0, ready=None,
                        devices=[{"b200": True, "total_kib": 180 << 20} for _ in range(4)])
-            row = {"schema": "nib.deepseek-lab-correctness-result/v1", "status": "BLOCKED",
+            row = {"schema": "nib.deepseek-lab-correctness-result/v2", "status": "BLOCKED",
                    "deployable": False, "confidential": False, "functional_pass": False, "stage": "weights",
                    "hardware": probe.validate_nonconfidential(raw), "application": None,
                    "completion": None, "correctness": None, "startup": None, "engine_stopped": False}
@@ -1437,7 +1439,7 @@ class PayloadTests(unittest.TestCase):
             raw = HardwareTests().raw()
             raw.update(feature=0, environment=0, multigpu=0, ready=None,
                        devices=[{"b300": True, "total_kib": 250 << 20} for _ in range(4)])
-            row = {"schema": "nib.deepseek-lab-correctness-result/v1", "status": "BLOCKED",
+            row = {"schema": "nib.deepseek-lab-correctness-result/v2", "status": "BLOCKED",
                    "deployable": False, "confidential": False, "functional_pass": False, "stage": "weights",
                    "hardware": probe.validate_nonconfidential(raw, family="B300"), "application": None,
                    "completion": None, "correctness": None, "startup": None, "engine_stopped": False}
@@ -1546,12 +1548,13 @@ class PayloadTests(unittest.TestCase):
                        removed_bytecode_files=2879)
         receipt["packaging"].update(removal_plan_sha256=measured["packaging"]["removal_plan_sha256"],
                                     removed_unlisted_bytecode_files=2879)
-        row = {"schema": "nib.deepseek-lab-result/v1", "status": "BLOCKED", "deployable": False,
+        row = {"schema": "nib.deepseek-lab-result/v2", "status": "BLOCKED", "deployable": False,
                "confidential": False, "functional_pass": True, "stage": "complete",
                "application": receipt, "hardware": probe.validate(HardwareTests().raw()),
                "completion": {"generated": True, "finish": "stop", "prompt_tokens": 10, "completion_tokens": 1,
                               "final_content_present": True, "synthetic_answer_match": True},
                "startup": {"outcome": "ready", "wait_ms": 1, "exit_code": None, "health_probes": 1,
+                           "exception_diagnostic": None,
                            "checkpoints": {"status": "eof", "last_id": 17}},
                "engine_stopped": True}
         with tempfile.TemporaryDirectory() as tmp:
@@ -1606,7 +1609,7 @@ class PayloadTests(unittest.TestCase):
             contract["operation"] = "local-correctness"
             contract["sources"]["correctness.py"] = hashlib.sha256(self.extra[host.CORRECTNESS]).hexdigest()
             (root / "payload/correctness.py").write_bytes(self.extra[host.CORRECTNESS])
-            good = {**row, "schema": "nib.deepseek-lab-correctness-result/v1",
+            good = {**row, "schema": "nib.deepseek-lab-correctness-result/v2",
                     "completion": None, "correctness": correctness.run(cases.success, lab.MODEL)}
             host.validate_result(good, root, contract, self.builder.recorder)
             for mutation in ({"correctness": None}, {"completion": row["completion"]},
@@ -1625,6 +1628,7 @@ class PayloadTests(unittest.TestCase):
                 startup_failed = {**candidate, "functional_pass": False, "stage": "startup",
                                   "completion": None, "engine_stopped": True,
                                   "startup": {"outcome": "child-exited", "wait_ms": 1,
+                                              "exception_diagnostic": None,
                                               "exit_code": 1, "health_probes": 0,
                                               "checkpoints": {"status": "eof", "last_id": 11}}}
                 if operation == "local-correctness":
@@ -1800,18 +1804,26 @@ writer.close()
             with self.assertRaises(ValueError):
                 helpers.route(args)
         channel = self.reader()
+        errors = self.reader()
         child = os.dup(channel.writer)
+        error_child = os.dup(errors.writer)
         channel.close_writer()
+        errors.close_writer()
         channel.observation["status"] = "open"
         try:
-            with mock.patch.object(sys, "argv", ["launch.py", "a" * 64, "engine", "--checkpoint-fd", str(child)]), \
+            with mock.patch.object(sys, "argv", ["launch.py", "a" * 64, "engine", "--checkpoint-fd", str(child),
+                                                "--error-fd", str(error_child)]), \
                     mock.patch.object(lab, "lab_context", side_effect=ValueError("PRIVATE")):
                 with self.assertRaises(ValueError):
                     lab.lab_entry()
             with self.assertRaises(OSError):
                 os.fstat(child)
             child = None
+            self.assertEqual(lab.read_entry_exception(errors)["type"], "value")
+            with self.assertRaises(OSError):
+                os.fstat(error_child)
             channel.finish()
+            errors.finish()
             self.assertEqual(channel.observation, {"status": "eof", "last_id": 1})
         finally:
             if child is not None:
@@ -1820,19 +1832,56 @@ writer.close()
                 except OSError:
                     pass
             channel.finish()
+            errors.finish()
 
     def test_engine_entry_rejects_each_wrong_flag_before_claiming_fd(self):
         for isolated, no_site, no_bytecode in ((False, True, True), (True, False, True), (True, True, False)):
             with self.subTest(flags=(isolated, no_site, no_bytecode)), \
                     mock.patch.object(sys, "flags", types.SimpleNamespace(isolated=isolated, no_site=no_site)), \
                     mock.patch.object(sys, "dont_write_bytecode", no_bytecode), \
-                    mock.patch.object(sys, "argv", ["launch.py", "a" * 64, "engine", "--checkpoint-fd", "17"]), \
+                    mock.patch.object(sys, "argv", ["launch.py", "a" * 64, "engine", "--checkpoint-fd", "17", "--error-fd", "18"]), \
                     mock.patch.object(lab, "EntryCheckpointWriter") as writer, \
                     mock.patch.object(lab, "lab_context") as context:
                 with self.assertRaises(ValueError):
                     lab.lab_entry()
                 writer.assert_not_called()
                 context.assert_not_called()
+
+    def test_error_pipe_is_bounded_and_never_formats_exceptions(self):
+        packet = lab.exception_packet(ValueError("PRIVATE prompt key"), ())
+        for raw in (b"", packet, packet[:-1], packet + b"extra", b"x" * len(packet)):
+            channel = self.reader()
+            os.write(channel.writer, raw)
+            channel.close_writer()
+            try:
+                if raw in (b"", packet):
+                    row = lab.read_entry_exception(channel)
+                    self.assertNotIn("PRIVATE", json.dumps(row))
+                    self.assertEqual(None if row is None else row["type"], None if not raw else "value")
+                else:
+                    with self.assertRaises(ValueError):
+                        lab.read_entry_exception(channel)
+            finally:
+                channel.finish()
+
+    def test_entry_closes_error_channel_before_serve_can_spawn_workers(self):
+        checkpoints = mock.Mock()
+        errors = self.reader()
+        writer = lab.EntryCheckpointWriter(str(os.dup(errors.writer)))
+        errors.close_writer()
+        serve = mock.Mock()
+        def call(_):
+            self.assertIsNone(writer.fd)
+            self.assertIsNone(lab.read_entry_exception(errors))
+        serve.cmd.side_effect = call
+        try:
+            with mock.patch.object(lab, "prepare_engine", return_value=(serve, object())):
+                lab.run_engine({}, checkpoints, writer)
+            serve.cmd.assert_called_once()
+            checkpoints.close.assert_called_once()
+        finally:
+            writer.close()
+            errors.finish()
 
 
 class LifecycleTests(unittest.TestCase):
@@ -1896,7 +1945,10 @@ class LifecycleTests(unittest.TestCase):
                                                   [None, None, None, app], application, {})
             argv = start.call_args.args[0]
             self.assertEqual(argv[:3], [lab.ROOT + "/python", "engine", "--checkpoint-fd"])
-            self.assertEqual(start.call_args.kwargs["pass_fds"], (int(argv[3]),))
+            self.assertEqual(argv[4], "--error-fd")
+            self.assertEqual(start.call_args.kwargs["pass_fds"], (int(argv[3]), int(argv[5])))
+            with self.assertRaises(OSError):
+                os.fstat(int(argv[5]))
             with self.assertRaises(OSError):
                 os.fstat(int(argv[3]))
             self.assertEqual(row["functional_pass"], terminal in (0, -signal.SIGTERM))
@@ -2102,7 +2154,7 @@ class ReportTests(unittest.TestCase):
                 lab.completion_result(json.dumps({**row, **change}))
 
     def test_failure_report_cannot_smuggle_nested_private_data(self):
-        row = {"schema": "nib.deepseek-lab-result/v1", "status": "BLOCKED", "deployable": False,
+        row = {"schema": "nib.deepseek-lab-result/v2", "status": "BLOCKED", "deployable": False,
                "confidential": False, "functional_pass": False, "stage": "hardware",
                "application": None, "hardware": None, "completion": None,
                "startup": None, "engine_stopped": False}

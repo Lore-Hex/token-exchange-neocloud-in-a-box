@@ -28,6 +28,7 @@ PROCESSES = None
 GPU_PROBE = None
 CORRECTNESS = None
 ENTRY_CHECKPOINTS = 17
+EXCEPTION_PACKET_BYTES = 3 + 8 * 36
 
 
 class EntryCheckpointWriter:
@@ -359,12 +360,23 @@ def prepare_engine(contract, checkpoints):
     return serve, args
 
 
-def run_engine(contract, checkpoints):
+def run_engine(contract, checkpoints, errors=None):
     serve, args = prepare_engine(contract, checkpoints)
     checkpoints.emit(17)
     # No checkpoint endpoint remains open when real workers may be launched.
     checkpoints.close()
+    if errors is not None:
+        errors.close()
     serve.cmd(args)
+
+
+def read_entry_exception(channel):
+    """One fixed packet or EOF. Never persist stderr, messages or locals."""
+    raw = os.read(channel.reader, EXCEPTION_PACKET_BYTES + 1)
+    if not raw:
+        return None
+    require(len(raw) == EXCEPTION_PACKET_BYTES and os.read(channel.reader, 1) == b"")
+    return decode_exception(raw)
 
 
 def recheck_sources(overlay, application, paths):
@@ -433,14 +445,14 @@ def observe_startup(engine, observation, checkpoints=None):
 
 def application_and_request(contract, sources, modules, application, measured):
     overlay, diagnostic, descriptor, app = modules
-    result = {"schema": "nib.deepseek-lab-result/v1", "status": "BLOCKED", "deployable": False,
+    result = {"schema": "nib.deepseek-lab-result/v2", "status": "BLOCKED", "deployable": False,
               "confidential": False, "functional_pass": False, "stage": "hardware",
               "application": None, "hardware": None, "completion": None,
               "startup": None, "engine_stopped": False}
     correctness = contract["operation"] == "local-correctness"
     if correctness:
-        result.update(schema="nib.deepseek-lab-correctness-result/v1", correctness=None)
-    engine = checkpoints = None
+        result.update(schema="nib.deepseek-lab-correctness-result/v2", correctness=None)
+    engine = checkpoints = errors = None
     started = time.monotonic()
     try:
         security = GPU_PROBE.security_profile(contract)
@@ -465,17 +477,25 @@ def application_and_request(contract, sources, modules, application, measured):
         result["stage"] = "startup"
         result["startup"] = {"outcome": "launch-failed", "wait_ms": 0,
                              "exit_code": None, "health_probes": 0,
+                             "exception_diagnostic": None,
                              "checkpoints": {"status": "not-started", "last_id": None}}
         checkpoints = EntryCheckpointReader(result["startup"]["checkpoints"])
+        errors = EntryCheckpointReader({"status": "not-started", "last_id": None})
         try:
             engine = subprocess.Popen(
-                [ROOT + "/python", "engine", "--checkpoint-fd", str(checkpoints.writer)],
+                [ROOT + "/python", "engine", "--checkpoint-fd", str(checkpoints.writer),
+                 "--error-fd", str(errors.writer)],
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                start_new_session=True, pass_fds=(checkpoints.writer,))
+                start_new_session=True, pass_fds=(checkpoints.writer, errors.writer))
             checkpoints.observation["status"] = "open"
         finally:
             checkpoints.close_writer()
-        observe_startup(engine, result["startup"], checkpoints)
+            errors.close_writer()
+        try:
+            observe_startup(engine, result["startup"], checkpoints)
+        finally:
+            if engine.poll() is not None or result["startup"]["outcome"] == "ready":
+                result["startup"]["exception_diagnostic"] = read_entry_exception(errors)
         result["stage"] = "request"
         if correctness:
             result["correctness"] = CORRECTNESS.run(
@@ -496,6 +516,8 @@ def application_and_request(contract, sources, modules, application, measured):
     finally:
         if checkpoints is not None:
             checkpoints.finish()
+        if errors is not None:
+            errors.finish()
         if engine is not None:
             try:
                 os.killpg(engine.pid, signal.SIGTERM)
@@ -523,16 +545,31 @@ def lab_entry():
         return
     require(sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode and len(sys.argv) >= 3)
     if sys.argv[2] == "engine":
-        require(len(sys.argv) == 5 and sys.argv[3] == "--checkpoint-fd")
+        require(len(sys.argv) == 7 and sys.argv[3] == "--checkpoint-fd"
+                and sys.argv[5] == "--error-fd" and sys.argv[4] != sys.argv[6])
         checkpoints = EntryCheckpointWriter(sys.argv[4])
+        errors = None
+        roots = (ROOT + "/",)
         try:
+            errors = EntryCheckpointWriter(sys.argv[6])
             checkpoints.emit(1)
             contract, _, modules, application, _ = lab_context(sys.argv[1])
+            roots = (ROOT + "/", *tuple(path.rstrip("/") + "/" for path in contract["paths"]))
             require(contract["operation"] in ("functional", "local-correctness"))
             checkpoints.emit(2)
             recheck_sources(modules[0], application, contract["paths"])
-            run_engine(contract, checkpoints)
+            run_engine(contract, checkpoints, errors)
+        except BaseException as error:
+            if errors is not None and errors.fd is not None:
+                try:
+                    packet = exception_packet(error, roots)
+                    require(os.write(errors.fd, packet) == EXCEPTION_PACKET_BYTES)
+                except Exception:
+                    pass
+            raise
         finally:
+            if errors is not None:
+                errors.close()
             checkpoints.close()
         return
     contract, sources, modules, application, measured = lab_context(sys.argv[1])

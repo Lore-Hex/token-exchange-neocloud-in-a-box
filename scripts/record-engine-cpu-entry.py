@@ -26,6 +26,7 @@ BASE_SHA = "ad77c08be53f4cf33167fc510d80b764a4e642eef10d207088d1b6a5f23fb69f"
 RUNTIME = "scripts/engine_cpu_entry.py"
 LAB = "scripts/engine_lab.py"
 LAB_BOOTSTRAP = "scripts/engine_lab_bootstrap.py"
+EXCEPTIONS = "scripts/engine_exception.py"
 TEST = "scripts/test_engine_cpu_entry.py"
 SIX_TEST = "scripts/test_botocore_six.py"
 OPENCV_TEST = "scripts/test_opencv_loader.py"
@@ -58,18 +59,21 @@ def read_source(path):
         os.close(parent)
 
 
-def load(name, path, expected=None):
+def load(name, path, expected=None, prefix=b""):
     raw = read_source(path)
     if expected is not None and hashlib.sha256(raw).hexdigest() != expected:
         raise ValueError("source differs")
     module = types.ModuleType(name)
     module.__file__ = str(path)
+    if prefix:
+        exec(compile(prefix, EXCEPTIONS, "exec", flags=0, dont_inherit=True), module.__dict__)
     exec(compile(raw, str(path), "exec", flags=0, dont_inherit=True), module.__dict__)
     return module, raw
 
 
 base, BASE_SOURCE = load("cpu_entry_base", ROOT / BASE, BASE_SHA)
-cpu, CPU_SOURCE = load("cpu_entry_payload", ROOT / RUNTIME)
+EXCEPTION_SOURCE = read_source(ROOT / EXCEPTIONS)
+cpu, CPU_SOURCE = load("cpu_entry_payload", ROOT / RUNTIME, prefix=EXCEPTION_SOURCE)
 lab, LAB_SOURCE = load("cpu_entry_lab", ROOT / LAB)
 cpu.require = base.overlay.require
 builder, overlay, recorder, checker = base.builder, base.overlay, base.recorder, base.checker
@@ -77,13 +81,14 @@ builder, overlay, recorder, checker = base.builder, base.overlay, base.recorder,
 
 def inputs(root=ROOT):
     revision, bundle, extra = base.inputs(root)
-    for name in (SCRIPT, BASE, RUNTIME, LAB, LAB_BOOTSTRAP, TEST, SIX_TEST, OPENCV_TEST, "scripts/test_deepseek_lab.py"):
+    for name in (SCRIPT, BASE, RUNTIME, LAB, LAB_BOOTSTRAP, EXCEPTIONS, TEST, SIX_TEST, OPENCV_TEST, "scripts/test_deepseek_lab.py"):
         row = checker.git(root, "ls-tree", revision, "--", name).decode().split()
         overlay.require(len(row) == 4 and row[:2] == ["100644", "blob"] and row[3] == name)
         overlay.require(int(checker.git(root, "cat-file", "-s", row[2])) <= checker.LIMIT)
         extra[name] = checker.git(root, "cat-file", "blob", row[2])
     overlay.require(extra[SCRIPT] == read_source(Path(__file__).absolute())
                     and extra[BASE] == BASE_SOURCE and extra[RUNTIME] == CPU_SOURCE
+                    and extra[EXCEPTIONS] == EXCEPTION_SOURCE
                     and extra[LAB] == LAB_SOURCE)
     return revision, bundle, extra
 
@@ -94,7 +99,7 @@ def prepare_files(revision, bundle, extra):
     measured = builder.application.measurement(overlay, extra[builder.application.EVIDENCE])
     payload = {"application/" + name.removeprefix("payload/"): raw for name, raw in files.items() if name.startswith("payload/")}
     prefix = b'import sys\nif not (sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode):\n    sys.exit("Isolated CPU entry required.")\n'
-    payload["launch.py"] = prefix + extra[base.BOOTSTRAP_FILE] + b"\n" + extra[RUNTIME]
+    payload["launch.py"] = prefix + extra[base.BOOTSTRAP_FILE] + b"\n" + extra[EXCEPTIONS] + b"\n" + extra[RUNTIME]
     payload["lab.py"] = extra[base.BOOTSTRAP_FILE] + b"\n" + extra[LAB_BOOTSTRAP] + b"\n" + extra[LAB]
     plan = recorder.prep.launch_plan()
     payload["launch-plan.json"] = overlay.json_bytes(plan)
