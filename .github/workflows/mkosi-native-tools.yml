@@ -1,0 +1,46 @@
+name: Native pinned mkosi tools probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-pinned-mkosi-tools-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Fetch fixed public inputs without installing
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          mkdir -p -m 700 build/native-tools
+          curl --disable --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --max-time 60 --max-filesize 473225 \
+            https://codeload.github.com/systemd/mkosi/tar.gz/ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b \
+            --output build/native-tools/source.tar.gz
+          /usr/bin/python3.10 -I -S -B scripts/fetch_mkosi_tools.py \
+            --output "$PWD/build/native-tools/inputs"
+      - name: Test pinned tools in native isolation
+        run: |
+          /usr/bin/python3.10 -I -S -B host/probe-mkosi-native-tools.py \
+            --inputs "$PWD/build/native-tools/inputs" \
+            --archive "$PWD/build/native-tools/source.tar.gz" \
+            --output "$PWD/build/native-tools/evidence"
+      - name: Preserve content-free probe evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: native-mkosi-tools-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/native-tools/evidence/
+          if-no-files-found: error
+          retention-days: 7

@@ -44,3 +44,9 @@ It is not a build recipe, an artifact lock or evidence of image readiness.
 records authenticated package hashes and actual TDX/configfs/crypto contents.
 TDX/TSM require the extra modules package; full closure, R595 pairing and runtime
 initialization remain unverified.
+
+The [native namespace probe](../docs/tasks/p3-t1-native-mkosi-probe.md) passed
+on an unprivileged Ubuntu 22.04 runner after the Ubuntu 24.04 attempt was denied.
+The separate [native pinned-tools probe](../docs/tasks/p3-t1-native-pinned-tools.md)
+fetches hash-bound inputs and tests the reconstructed tools inside that boundary.
+Neither diagnostic authorizes installation or makes the image bootable.
