@@ -200,6 +200,7 @@ def lab_context(expected):
     require(sum(map(len, sources.values())) <= 8 << 20)
     PROCESSES = load("lab_processes", sources["processes.py"], ROOT + "/processes.py")
     GPU_PROBE = load("lab_gpu", sources["probe.py"], ROOT + "/probe.py")
+    GPU_PROBE.security_profile(contract)
     if contract["operation"] == "local-correctness":
         CORRECTNESS = load("lab_correctness", sources["correctness.py"], ROOT + "/correctness.py")
     modules = [load(name, sources["application/" + name], ROOT + "/application/" + name)
@@ -225,8 +226,12 @@ def quiet_command(argv, timeout, *, output=False):
     return result.stdout if output else b""
 
 
-def hardware(family="B200"):
+def hardware(family="B200", security="confidential"):
     raw = quiet_command([ROOT + "/python", "probe"], 15, output=True)
+    if security == "nonconfidential":
+        require(family == "B200")
+        return GPU_PROBE.validate_nonconfidential_report(json.loads(raw))
+    require(security == "confidential")
     return GPU_PROBE.validate_report(json.loads(raw), family=family)
 
 
@@ -439,7 +444,8 @@ def application_and_request(contract, sources, modules, application, measured):
     engine = checkpoints = None
     started = time.monotonic()
     try:
-        result["hardware"] = hardware(contract.get("gpu_family", "B200"))
+        security = GPU_PROBE.security_profile(contract)
+        result["hardware"] = hardware(contract.get("gpu_family", "B200"), security)
         result["stage"] = "weights"
         quiet_command([ROOT + "/nib", "model", "check-local", ROOT + "/pack", "/model"], WEIGHTS_SECONDS)
         result["stage"] = "application"
@@ -453,7 +459,7 @@ def application_and_request(contract, sources, modules, application, measured):
             # apply_verified_stages ends with the final full inventory, checking
             # exact source, all preserved native bytes and all five receipts.
         result["stage"] = "prelaunch"
-        require(hardware(contract.get("gpu_family", "B200")) == result["hardware"])
+        require(hardware(contract.get("gpu_family", "B200"), security) == result["hardware"])
         if correctness:
             CORRECTNESS.verify_sources(read_source, contract["paths"][-1])
         require(time.monotonic() - started < WEIGHTS_SECONDS + APPLICATION_SECONDS + 60)
@@ -480,7 +486,7 @@ def application_and_request(contract, sources, modules, application, measured):
                 "model": MODEL, "messages": [{"role": "user", "content": "Compute 1 + 1. Reply with the single digit only."}],
                 "max_tokens": 128, "temperature": 0, "stream": False})
             result["completion"] = completion_result(raw)
-        require(hardware(contract.get("gpu_family", "B200")) == result["hardware"])
+        require(hardware(contract.get("gpu_family", "B200"), security) == result["hardware"])
         result["functional_pass"] = (result["correctness"]["all_cases_pass"] if correctness else
                                     (result["completion"]["final_content_present"]
                                      and result["completion"]["synthetic_answer_match"]
@@ -552,7 +558,11 @@ def lab_entry():
         install_lab({"paths": contract["paths"], "stdlib_roots": contract["paths"][:2],
                      "wrapper": ROOT + "/python", "launcher": ROOT + "/launch.py"}, sys.modules[__name__])
         family = contract.get("gpu_family", "B200")
-        print(json.dumps(GPU_PROBE.validate(GPU_PROBE.NVML().observe(family), family=family), sort_keys=True))
+        if GPU_PROBE.security_profile(contract) == "nonconfidential":
+            observation = GPU_PROBE.validate_nonconfidential(GPU_PROBE.NVML().observe(family, nonconfidential=True))
+        else:
+            observation = GPU_PROBE.validate(GPU_PROBE.NVML().observe(family), family=family)
+        print(json.dumps(observation, sort_keys=True))
     else:
         recheck_sources(modules[0], application, contract["paths"])
         state = install_lab({"paths": contract["paths"], "stdlib_roots": contract["paths"][:2],

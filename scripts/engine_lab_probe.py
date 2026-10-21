@@ -24,6 +24,7 @@ CALL_STAGES = {
     "nvmlDeviceGetConfComputeMemSizeInfo": "memory",
     "nvmlSystemGetDriverVersion": "driver-version", "nvmlSystemGetCudaDriverVersion_v2": "cuda-version",
 }
+NONCONFIDENTIAL_CALLS = frozenset(("nvmlDeviceGetMemoryInfo",))
 POLICY_STAGES = ("required-count", "driver-policy", "cc-policy", "readiness-policy", "memory-policy")
 TRACE_STAGES = ("ctypes-loading", *CALL_STAGES.values(), *POLICY_STAGES)
 
@@ -35,6 +36,20 @@ class Settings(c.Structure):
 
 class ProtectedMemory(c.Structure):
     _fields_ = [("protectedMemSizeKib", c.c_ulonglong), ("unprotectedMemSizeKib", c.c_ulonglong)]
+
+
+# NVIDIA/go-nvml 1a1e86da474d340d7cf58274588f4a4afc8772e7, pkg/nvml/nvml.h:
+# nvmlMemory_t v1; CC feature/environment/multigpu disabled constants are zero.
+class DeviceMemory(c.Structure):
+    _fields_ = [(name, c.c_ulonglong) for name in ("total", "free", "used")]
+
+
+def security_profile(contract):
+    profile = contract.get("gpu_security", "confidential")
+    require(profile in ("confidential", "nonconfidential"))
+    require(profile == "confidential" or (contract.get("operation") == "local-correctness"
+            and contract.get("gpu_family", "B200") == "B200"))
+    return profile
 
 
 def require(value):
@@ -63,8 +78,8 @@ class NVML:
             self.trace.at(stage)
 
     def call(self, name, *args):
-        require(name in CALL_STAGES)
         trace = getattr(self, "trace", None)
+        require(name in CALL_STAGES or (name in NONCONFIDENTIAL_CALLS and trace is None))
         try:
             if trace is not None:
                 trace.begin(name, args)
@@ -79,8 +94,9 @@ class NVML:
                 trace.failed()
             raise
 
-    def observe(self, family="B200"):
+    def observe(self, family="B200", *, nonconfidential=False):
         key = family_key(family)
+        require(type(nonconfidential) is bool and (not nonconfidential or family == "B200"))
         self.call("nvmlInit_v2")
         try:
             count = c.c_uint()
@@ -93,19 +109,28 @@ class NVML:
             self.call("nvmlSystemGetDriverVersion", driver, c.c_uint(len(driver)))
             self.call("nvmlSystemGetCudaDriverVersion_v2", c.byref(cuda))
             ready = c.c_uint()
-            self.call("nvmlSystemGetConfComputeGpusReadyState", c.byref(ready))
+            if not nonconfidential:
+                self.call("nvmlSystemGetConfComputeGpusReadyState", c.byref(ready))
             devices = []
             for index in range(count.value):
-                handle, name, memory = c.c_void_p(), c.create_string_buffer(96), ProtectedMemory()
+                handle, name = c.c_void_p(), c.create_string_buffer(96)
                 self.call("nvmlDeviceGetHandleByIndex_v2", c.c_uint(index), c.byref(handle))
                 self.call("nvmlDeviceGetName", handle, name, c.c_uint(len(name)))
-                self.call("nvmlDeviceGetConfComputeMemSizeInfo", handle, c.byref(memory))
-                devices.append({key: matches_family(name.value, family),
-                                "protected_kib": memory.protectedMemSizeKib})
+                if nonconfidential:
+                    memory = DeviceMemory()
+                    self.call("nvmlDeviceGetMemoryInfo", handle, c.byref(memory))
+                    require(memory.total % 1024 == 0 and memory.free + memory.used == memory.total)
+                    devices.append({key: matches_family(name.value, family), "total_kib": memory.total // 1024})
+                else:
+                    memory = ProtectedMemory()
+                    self.call("nvmlDeviceGetConfComputeMemSizeInfo", handle, c.byref(memory))
+                    devices.append({key: matches_family(name.value, family),
+                                    "protected_kib": memory.protectedMemSizeKib})
             self.checkpoint("driver-policy")
             return {"feature": settings.ccFeature, "environment": settings.environment,
                     "devtools": settings.devToolsMode, "multigpu": settings.multiGpuMode,
-                    "ready": ready.value, "devices": devices, "driver": driver.value.decode("ascii"),
+                    "ready": None if nonconfidential else ready.value,
+                    "devices": devices, "driver": driver.value.decode("ascii"),
                     "cuda_driver": cuda.value}
         except Exception:
             if self.trace is not None:
@@ -161,6 +186,38 @@ def validate_report(row, *, family="B200"):
             and type(row["cuda_driver"]) is str and re.fullmatch(r"[0-9]{2}\.[0-9]", row["cuda_driver"])
             and type(row["protected_kib"]) is list and len(row["protected_kib"]) == 4
             and all(type(n) is int and MEMORY_FLOORS[family] <= n <= 1 << 30 for n in row["protected_kib"]))
+    return row
+
+
+def validate_nonconfidential(raw):
+    require(type(raw) is dict and set(raw) == {"feature", "environment", "devtools", "multigpu", "ready",
+                                             "devices", "driver", "cuda_driver"})
+    require(all(type(raw[k]) is int and raw[k] == 0 for k in ("feature", "environment", "devtools", "multigpu"))
+            and raw["ready"] is None and type(raw["cuda_driver"]) is int
+            and 13000 <= raw["cuda_driver"] <= 99999
+            and type(raw["devices"]) is list and len(raw["devices"]) == 4)
+    for row in raw["devices"]:
+        require(type(row) is dict and set(row) == {"b200", "total_kib"} and row["b200"] is True)
+    return validate_nonconfidential_report({
+        "status": "observed", "selected_gpus": 4, "family": "B200", "cc_feature": "disabled",
+        "environment": "unavailable", "devtools": "off", "multigpu": "none", "system_ready": None,
+        "driver": raw["driver"], "cuda_driver": f"{raw['cuda_driver'] // 1000}.{(raw['cuda_driver'] % 1000) // 10}",
+        "total_kib": [d["total_kib"] for d in raw["devices"]], "attestation_verified": False})
+
+
+def validate_nonconfidential_report(row):
+    require(type(row) is dict and set(row) == {"status", "selected_gpus", "family", "cc_feature", "environment",
+                                             "devtools", "multigpu", "system_ready", "driver", "cuda_driver",
+                                             "total_kib", "attestation_verified"})
+    require(row["status"] == "observed" and type(row["selected_gpus"]) is int and row["selected_gpus"] == 4
+            and row["family"] == "B200" and row["cc_feature"] == "disabled" and row["environment"] == "unavailable"
+            and row["devtools"] == "off" and row["multigpu"] == "none" and row["system_ready"] is None
+            and row["attestation_verified"] is False
+            and type(row["driver"]) is str and re.fullmatch(r"[0-9]{3}\.[0-9]{1,3}(?:\.[0-9]{1,3})?", row["driver"])
+            and type(row["cuda_driver"]) is str and re.fullmatch(r"[0-9]{2}\.[0-9]", row["cuda_driver"])
+            and float(row["cuda_driver"]) >= 13
+            and type(row["total_kib"]) is list and len(row["total_kib"]) == 4
+            and all(type(n) is int and MEMORY_FLOORS["B200"] <= n <= 1 << 30 for n in row["total_kib"]))
     return row
 
 
