@@ -1,0 +1,1900 @@
+[
+  {
+    "archive_sha256": "542aff2395eb912a56833e11a78076342779689d8fede7adcf08d1d6b0d0cd8b",
+    "control_hooks": {
+      "postrm": {
+        "bytes": 151,
+        "sha256": "e917d60a2b71383d56d7fec793bf2a40912d4dc7ec45bcdf35aa09f9b0061ccf"
+      },
+      "preinst": {
+        "bytes": 4260,
+        "sha256": "2bb5e58ae46151bd2fe1678dfa789207e1092209574dec0a5bc0ab710343e3c7"
+      }
+    },
+    "data_hooks": {},
+    "package": "adduser",
+    "version": "3.137ubuntu1"
+  },
+  {
+    "archive_sha256": "87e8c41e62f61625fb78a982d0bc0a70f40ef8375bc313b154914d1b3759c823",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 6408,
+        "sha256": "39363871bd80eac518e772ce0c4d35a3c1f5465dfc2bd9191c2780933a364cc8"
+      },
+      "postrm": {
+        "bytes": 1098,
+        "sha256": "309cc3a30dd7bf8c94ff4e80448ff341b8bb8d220401e7e278556fb241e5ac51"
+      },
+      "preinst": {
+        "bytes": 995,
+        "sha256": "5177dab6ecbd8ed3bc2857e0116aca8805f239c753fd34c9ddbbdef5dfcd1fb0"
+      },
+      "prerm": {
+        "bytes": 682,
+        "sha256": "8d1520c47bdd5d576fbd2da8b2f686e34353a4f8bbe73d92a85711788fd85fb8"
+      },
+      "triggers": {
+        "bytes": 132,
+        "sha256": "4ba9b0c6e79e6a25d8ef59265b5e3aba6365c3afb769d2b06175e94db5e00ab0"
+      }
+    },
+    "data_hooks": {},
+    "package": "base-files",
+    "version": "13ubuntu10.5"
+  },
+  {
+    "archive_sha256": "8514590aa2d82aa32d6beb32525f1e4577949f625eee1990b4b7b71b5ef26679",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 2482,
+        "sha256": "49ec26139b09dd805503fe6c4218f6857dca96d37b8d5e893ae3821a83a989c8"
+      },
+      "postrm": {
+        "bytes": 221,
+        "sha256": "434230792adf5e00a679477543f22c0e99f1c0f5d4aa7dae8184b5f6e393cfc7"
+      },
+      "preinst": {
+        "bytes": 1514,
+        "sha256": "47f6f8ee55faa32f7ff23337772c05bfcc7c01aa0804e1ffeffd71ebff0e21b9"
+      }
+    },
+    "data_hooks": {},
+    "package": "base-passwd",
+    "version": "3.6.3build1"
+  },
+  {
+    "archive_sha256": "73de311a21e094e29ac01527d2b52226cc87fde0a5b57032902251b426d92c66",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 493,
+        "sha256": "29fe6efb157d31752cf27ac023f461a825dec4fff508ad4490df8488a7f9e7c0"
+      },
+      "postrm": {
+        "bytes": 216,
+        "sha256": "0c11c76923f13300fd024b792879e06d4588b72c0de82a722641146791eb14c8"
+      },
+      "prerm": {
+        "bytes": 289,
+        "sha256": "8d4c0e961f582ca7821cd5b81c8ba304a90f2ddfd6efd963f58cf6020eb2198a"
+      }
+    },
+    "data_hooks": {},
+    "package": "bash",
+    "version": "5.2.21-2ubuntu4"
+  },
+  {
+    "archive_sha256": "b3b5a84181a38fd191820b2cdcc1a3eeb1cd6333ad472f2092f96e81047e9c74",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "binutils",
+    "version": "2.42-4ubuntu2.10"
+  },
+  {
+    "archive_sha256": "d136073f5e2153f3df11c1d08d66727b9466b28ff483f50085f14bbe3464b5ee",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "binutils-common",
+    "version": "2.42-4ubuntu2.10"
+  },
+  {
+    "archive_sha256": "1e510a15f30208d39edcd840e48f26a77bbca7c417805eeccb1e3f7de198ef29",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "binutils-x86-64-linux-gnu",
+    "version": "2.42-4ubuntu2.10"
+  },
+  {
+    "archive_sha256": "761e5ad2ff5c30d1bfa9f41dcfe042b3475495c78c11949a9792585bd1f6765b",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "bsdutils",
+    "version": "1:2.39.3-9ubuntu6.6"
+  },
+  {
+    "archive_sha256": "60fb79214dd8366fa39d7e69911294e72b9f1a4425a3d22f211359c8626e4b9e",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "bzip2",
+    "version": "1.0.8-5.1ubuntu0.1"
+  },
+  {
+    "archive_sha256": "e1e9a17892be0cc83b7cea747edf331ffeb6d6c010b4db296e60d888e8e9274c",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "coreutils",
+    "version": "9.4-3ubuntu6.3"
+  },
+  {
+    "archive_sha256": "c7535331fbb183c802c3bf4b6b210872dcc12d0421b3212b3c4b940f2c59ed3a",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "cpp-13",
+    "version": "13.3.0-6ubuntu2~24.04.1"
+  },
+  {
+    "archive_sha256": "2ca48bf0c2d6465bc39322899715a85d934b4d7442dd5586a7bebbe3ce0f806b",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "cpp-13-x86-64-linux-gnu",
+    "version": "13.3.0-6ubuntu2~24.04.1"
+  },
+  {
+    "archive_sha256": "e97728d8deaa51300255f0572bbd68b9549e0894a184c056dc420fc4e0ba0781",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 3074,
+        "sha256": "2a428f11aa0f8b36bc7d748db0a9108768dfbbae95b1322553f9492d5d23b71e"
+      },
+      "postrm": {
+        "bytes": 1591,
+        "sha256": "67d9ae4814b65c7b5645acac56093c6bb22ebcef9f132fbea13bef6e42ff2592"
+      },
+      "prerm": {
+        "bytes": 417,
+        "sha256": "11de3854a4e92fc8033b6589d368392ae34c89c96f5b45d90af1a676fa737db2"
+      }
+    },
+    "data_hooks": {},
+    "package": "dash",
+    "version": "0.5.12-6ubuntu5"
+  },
+  {
+    "archive_sha256": "bb390da466a7461bfc87aa3e6b7cd145dae84af3e26bf437f2c0c218ba226294",
+    "control_hooks": {
+      "config": {
+        "bytes": 505,
+        "sha256": "e91259e40c51b1dfb94d9a49eb58d6808096f291bc238c9da1e901f55639106d"
+      },
+      "postinst": {
+        "bytes": 88,
+        "sha256": "5a2e9dd3174db7116b8baca7479df372bc898a04cf9136ebefca3c98de959f3c"
+      }
+    },
+    "data_hooks": {},
+    "package": "debconf",
+    "version": "1.5.86ubuntu1"
+  },
+  {
+    "archive_sha256": "1047a9a57018e18531f76e5b00e226a68554b6f1d147f2a5c1b32518c7b20636",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 1854,
+        "sha256": "a980387f36542104d18d6c9e6342284df03f037e9e6f2b36d855db7dbf0bd9a3"
+      },
+      "postrm": {
+        "bytes": 304,
+        "sha256": "a36e7b7df91bdd67023323d8a7194ed18765dc4ff86fead0702de9e75db0330f"
+      },
+      "prerm": {
+        "bytes": 133,
+        "sha256": "abe587408235bf70e018ab0002a822bb7d50bbbd365ac44cbf874bae8647e796"
+      },
+      "triggers": {
+        "bytes": 49,
+        "sha256": "3ce557d2c051964127472f4d1c6cdf13a789cd01f7e0454dec5225d7c9480255"
+      }
+    },
+    "data_hooks": {},
+    "package": "debianutils",
+    "version": "5.17build1"
+  },
+  {
+    "archive_sha256": "c2acc7889f1d75986c40bee57c0875c02146a9c8833980abfb0a6c62c52301d3",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "diffutils",
+    "version": "1:3.10-1ubuntu0.1"
+  },
+  {
+    "archive_sha256": "6cb516fc913f1afbe8387078b357e15619e19291b9398e0b3cb6d0beae99e2b4",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 3805,
+        "sha256": "a01d843a3823608cd5b028ea4e1b255ae3bbe26b0831b01d2911d9fe8ea842f2"
+      },
+      "postrm": {
+        "bytes": 2222,
+        "sha256": "358f5e40595ae1a0b59f7fc9d89e86e1aa3c3d2d661466d15ce25be998eaccc0"
+      },
+      "preinst": {
+        "bytes": 2222,
+        "sha256": "358f5e40595ae1a0b59f7fc9d89e86e1aa3c3d2d661466d15ce25be998eaccc0"
+      },
+      "prerm": {
+        "bytes": 2222,
+        "sha256": "358f5e40595ae1a0b59f7fc9d89e86e1aa3c3d2d661466d15ce25be998eaccc0"
+      }
+    },
+    "data_hooks": {
+      "etc/kernel/header_postinst.d/dkms": {
+        "bytes": 195,
+        "mode": 493,
+        "sha256": "15cbb784017bef03812795b193495b41129583212e0b36457a033b66d007040c"
+      },
+      "etc/kernel/postinst.d/dkms": {
+        "bytes": 195,
+        "mode": 493,
+        "sha256": "15cbb784017bef03812795b193495b41129583212e0b36457a033b66d007040c"
+      },
+      "etc/kernel/preinst.d/dkms": {
+        "bytes": 266,
+        "mode": 493,
+        "sha256": "3348ba3bb8309360b43bf2e14fa4d1021398e591f67da42c716f18639cfe0c29"
+      },
+      "etc/kernel/prerm.d/dkms": {
+        "bytes": 251,
+        "mode": 493,
+        "sha256": "7020f5db82cd433f6b78b9502238e9511cb3759b32e94480482683ea63982853"
+      },
+      "usr/lib/dkms/common.postinst": {
+        "bytes": 9114,
+        "mode": 493,
+        "sha256": "5641c9b79d5c7c992b070307a571763447f7aeb46cb58e734f5a45a56cb44247"
+      },
+      "usr/lib/dkms/dkms-autopkgtest": {
+        "bytes": 8263,
+        "mode": 493,
+        "sha256": "4ab612f897a5397b3743da07f50f1736abf1f3fbd89db652cc4c88705e1cf2df"
+      },
+      "usr/lib/dkms/dkms_autoinstaller": {
+        "bytes": 1260,
+        "mode": 493,
+        "sha256": "b89c768220e7057dfc55dbf2df50af9ae6051a41aedb9daa56e54c5b8579a463"
+      },
+      "usr/lib/kernel/install.d/40-dkms.install": {
+        "bytes": 138,
+        "mode": 493,
+        "sha256": "f12f8d1516af86a575df05fd83a6416e3653eff346858542b172be3ee1f126ed"
+      }
+    },
+    "package": "dkms",
+    "version": "1:3.4.3-1ubuntu1"
+  },
+  {
+    "archive_sha256": "ceb6aa4da59fbcb8a3b0549b4280c60b7d849b519859797c8668bdfbe378fb3b",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 2885,
+        "sha256": "7bd7765e7b2d1c2f45e168bf274d171848af8fdc81ae229dd64e633b1c89e86d"
+      },
+      "postrm": {
+        "bytes": 1504,
+        "sha256": "7546c9e1af8a7eb831b05a8c442bffb206fe062a8347f84fffc42a7ed38fffa9"
+      }
+    },
+    "data_hooks": {},
+    "package": "dpkg",
+    "version": "1.22.6ubuntu6.6"
+  },
+  {
+    "archive_sha256": "70da073557dbed76dc14eb1e682e7ec30fcb736f3d98812490a4c785b4c481cb",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "dpkg-dev",
+    "version": "1.22.6ubuntu6.6"
+  },
+  {
+    "archive_sha256": "96490acdee09245bb47ff4684dc59a7ac3b29619da868ef3e9d8323c61a02ac4",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "findutils",
+    "version": "4.9.0-5build1"
+  },
+  {
+    "archive_sha256": "baaf6853bea746485bff4ae0e506599b3c5093ebe6ec9b9584e4272f94f75b93",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 492,
+        "sha256": "95e1e850c9df6ac5534ec74e67f94b3f1e579216d54ce7e83a06860dc6c40439"
+      },
+      "prerm": {
+        "bytes": 103,
+        "sha256": "b6d0325244a11a788d8265f5f799083c3ca0751f92009c5ce64121e64fed0ded"
+      }
+    },
+    "data_hooks": {},
+    "package": "gawk",
+    "version": "1:5.2.1-2ubuntu0.1"
+  },
+  {
+    "archive_sha256": "7438ff160b020a74970672189ecae25d0ca650de6d7f543f12a3134192cffbd9",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "gcc-13",
+    "version": "13.3.0-6ubuntu2~24.04.1"
+  },
+  {
+    "archive_sha256": "e859aca26585bb91113a451f1e66bc0e5283cb08797d679aacc1d936ae6dff8e",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "gcc-13-base",
+    "version": "13.3.0-6ubuntu2~24.04.1"
+  },
+  {
+    "archive_sha256": "a134b0319a82d14581b3a14820d2832af4ec9778ed8b9b4ddaeecfb0555ec325",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "gcc-13-x86-64-linux-gnu",
+    "version": "13.3.0-6ubuntu2~24.04.1"
+  },
+  {
+    "archive_sha256": "b95c172411a7fdae70307cf33a9f5320ba5e056b556454543dd5b679d5ce1c4f",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "gcc-14-base",
+    "version": "14.2.0-4ubuntu2~24.04.1"
+  },
+  {
+    "archive_sha256": "fc0fdc5983ea3d3579ccf335e51dec69684a0dd9bb915734999c5733add9507a",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "grep",
+    "version": "3.11-4build1"
+  },
+  {
+    "archive_sha256": "4067522fbffe22672e4cf683bfc32e4a304bc872cf76f10049ab36d1a9eedb91",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 696,
+        "sha256": "cddcb049fa57988f1be16035569af310a7f9cb6bc401dd9c732ee01d956f97d8"
+      },
+      "preinst": {
+        "bytes": 647,
+        "sha256": "09dbf6d394e92c0c694fd8c17cfcbc198af5072f605dc006205a172293fa977d"
+      }
+    },
+    "data_hooks": {},
+    "package": "gzip",
+    "version": "1.12-1ubuntu3.2"
+  },
+  {
+    "archive_sha256": "c9b3109d868c1e5a26f0bd10e005171420d83f6da84a527aa6293bc350892504",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "hostname",
+    "version": "3.23+nmu2ubuntu2"
+  },
+  {
+    "archive_sha256": "8eb801f9ce084dab9bf4cbc3ec0ee5ac75516a4cc1f25e3f92298c632e75b700",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "init-system-helpers",
+    "version": "1.66ubuntu1"
+  },
+  {
+    "archive_sha256": "687693dfad23c96570d96a1c7cc1b8709d31a93f82ac765a11b2bd9130f1dfae",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 1166,
+        "sha256": "35329057b90ebe74ec25bca4f0d92e122322d9132598d12e8cdb17def2a83ea9"
+      },
+      "postrm": {
+        "bytes": 371,
+        "sha256": "86ae071c7b1230f7719a0ca3f1460f1cb9a5d2d90d26fbb1c1b1e191a91c6a76"
+      },
+      "preinst": {
+        "bytes": 232,
+        "sha256": "99eceb588aa6c550841b378c79d604304aea6436fef6a1a4bd2e34c2a270e60a"
+      },
+      "triggers": {
+        "bytes": 89,
+        "sha256": "0565c9193c3549548a9a403ac74f565eb7cf0be8986000f0c8f077544bb317db"
+      }
+    },
+    "data_hooks": {
+      "usr/share/initramfs-tools/hooks/kmod": {
+        "bytes": 468,
+        "mode": 493,
+        "sha256": "04cd88e587771418535e48800f16524ab59e9bc6e9f8bc31c262966b81bda6b7"
+      }
+    },
+    "package": "kmod",
+    "version": "31+20240202-2ubuntu7.2"
+  },
+  {
+    "archive_sha256": "f2bfd3f8f00413d5f1f04fc723063803c56ac0f1e0efae3bc41f2d7276972ec3",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libacl1",
+    "version": "2.3.2-1build1.1"
+  },
+  {
+    "archive_sha256": "8321aac6230fa1da320e76eb6288b7436164624aec449ed3933ea6c4cc86daac",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libasan8",
+    "version": "14.2.0-4ubuntu2~24.04.1"
+  },
+  {
+    "archive_sha256": "fe49cbbc7be753528380c724a8eef5f1e31dffa9221f692c5069048d81c7449d",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libatomic1",
+    "version": "14.2.0-4ubuntu2~24.04.1"
+  },
+  {
+    "archive_sha256": "a99e2e2dfcefbc0e9c99fdc0b284c8b35eaa58744163aaed476de1c93d3c4ef4",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libattr1",
+    "version": "1:2.5.2-1ubuntu0.1"
+  },
+  {
+    "archive_sha256": "b1b6fca3f7ed86db971c073352a6741f1f60f4a94eeb2c1eb0aca8a7e4b11660",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "libaudit-common",
+    "version": "1:3.1.2-2.1ubuntu0.1"
+  },
+  {
+    "archive_sha256": "326a55fce45a620f12b98baf581fb037eb0fcea1ab3969c54cf177f51be8abfe",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libaudit1",
+    "version": "1:3.1.2-2.1ubuntu0.1"
+  },
+  {
+    "archive_sha256": "064dce00ce94e1fc2d33779cb0071088f4c8aac79e85345f2e78a020f7d14699",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 26,
+        "sha256": "957f8a87f6641013d828285b82905ec7cc0ba8a376994de8f1ddb18c974f8923"
+      }
+    },
+    "data_hooks": {},
+    "package": "libbinutils",
+    "version": "2.42-4ubuntu2.10"
+  },
+  {
+    "archive_sha256": "3bcf169cd65e2539059b2287924090fc629f9bf90f595fc25465a7efe950ee82",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libblkid1",
+    "version": "2.39.3-9ubuntu6.6"
+  },
+  {
+    "archive_sha256": "5654cbb145c2b299472cd208dd06c7dc09bf06cad4c4663fc42a865a51a0d96f",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libbpf1",
+    "version": "1:1.3.0-2build2"
+  },
+  {
+    "archive_sha256": "36ee08b00b1ee5018b2fce02881b7d2d73c9b4e32990bde3388400d86c48126a",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libbz2-1.0",
+    "version": "1.0.8-5.1ubuntu0.1"
+  },
+  {
+    "archive_sha256": "066398a06ef1a218d4109461d4c636eafe83322ad19b179de9ef7af42b3fec58",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 898,
+        "sha256": "11993c6ae210c6fa149dcaf55bb46db7f9c301bb986d70115ce817f4db962caf"
+      },
+      "triggers": {
+        "bytes": 440,
+        "sha256": "c3d6b5df131336e54c31dc5687929467de7abea5c5798e3d6a6b2a64ef971fd4"
+      }
+    },
+    "data_hooks": {},
+    "package": "libc-bin",
+    "version": "2.39-0ubuntu8.9"
+  },
+  {
+    "archive_sha256": "ff5557d99b51f761c4b7c92368b9cc45565eda17df9bf9eb4b134d09825008be",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 6876,
+        "sha256": "03bfa319bca128ba5766427c9150232b1498e1944bf28af359c5026c3fb99fd9"
+      },
+      "postrm": {
+        "bytes": 434,
+        "sha256": "204fed75c70ca60fa6838d73eab940a12b030fc9beac43f2c18dd3aad75dc3ad"
+      },
+      "preinst": {
+        "bytes": 21086,
+        "sha256": "0fca8cbd215a3f6c45d71c754354d06889d0fbc77577866096488efd265ffcf3"
+      },
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libc6",
+    "version": "2.39-0ubuntu8.9"
+  },
+  {
+    "archive_sha256": "cf1e9437ac7ddf6539dbe87b68858cbdef84d78c6aac243ab3b6e564a52ed930",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libcap-ng0",
+    "version": "0.8.4-2build2"
+  },
+  {
+    "archive_sha256": "23c627c77c66552a658e62852f244f4946dc543898e0ec5428d5dc6bffde2d6a",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libcap2",
+    "version": "1:2.66-5ubuntu2.4"
+  },
+  {
+    "archive_sha256": "454456436ca767817a860557263d7cc2489f0a410f03efff4c0bb236d579ec09",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libcc1-0",
+    "version": "14.2.0-4ubuntu2~24.04.1"
+  },
+  {
+    "archive_sha256": "7ab24d3057dabf86db8f771ad6e43f073ed86b6b950d6e8ba22cb9fe6707bbc9",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libcom-err2",
+    "version": "1.47.0-2.4~exp1ubuntu4.1"
+  },
+  {
+    "archive_sha256": "9474785cd6f398512bf8c305c3901dbb111569dccb6f5832002373c0a8ac5832",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libcrypt1",
+    "version": "1:4.4.36-4build1"
+  },
+  {
+    "archive_sha256": "da352eb7fa6c4369d2a6c1e5e680f574eda2e38576563326b18d9e47e61c4078",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 26,
+        "sha256": "957f8a87f6641013d828285b82905ec7cc0ba8a376994de8f1ddb18c974f8923"
+      }
+    },
+    "data_hooks": {},
+    "package": "libctf-nobfd0",
+    "version": "2.42-4ubuntu2.10"
+  },
+  {
+    "archive_sha256": "7ec86d697c3668503c85f308a6832f092075b5880ad002f22185264da0bd4645",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 26,
+        "sha256": "957f8a87f6641013d828285b82905ec7cc0ba8a376994de8f1ddb18c974f8923"
+      }
+    },
+    "data_hooks": {},
+    "package": "libctf0",
+    "version": "2.42-4ubuntu2.10"
+  },
+  {
+    "archive_sha256": "a78a25c8fad8fdd0b7bc6b297da5d5685579be1e57732aa47870830e4a13161e",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libdb5.3t64",
+    "version": "5.3.28+dfsg2-7"
+  },
+  {
+    "archive_sha256": "0a07d284ca6e2ee18208b3bf9ddc19da803d96db8230cdf26d16ac3aae5b7893",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libdebconfclient0",
+    "version": "0.271ubuntu3"
+  },
+  {
+    "archive_sha256": "db57f9f0608f78001b5f468e03541fdb88b7e30a07b46d0bcdb57a916a6e8c11",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "libdpkg-perl",
+    "version": "1.22.6ubuntu6.6"
+  },
+  {
+    "archive_sha256": "edaa9ce4221d95f4bd72a9805100902e313092a2f31a7a51e7186be97734714d",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libdw1t64",
+    "version": "0.190-1.1ubuntu0.1"
+  },
+  {
+    "archive_sha256": "b4aee123a37472d213647594b4f7d4a0d13615b0ca2a6fd33926b768d6b232c2",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libelf1t64",
+    "version": "0.190-1.1ubuntu0.1"
+  },
+  {
+    "archive_sha256": "cd689db2691edaa10f37329307292796bb599e722e0505c79e14caaa1fe9a93a",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "libgcc-13-dev",
+    "version": "13.3.0-6ubuntu2~24.04.1"
+  },
+  {
+    "archive_sha256": "aa7fadbe33b78bcf99885318040601c550c208929565b179891d9a3cc2aa68cd",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libgcc-s1",
+    "version": "14.2.0-4ubuntu2~24.04.1"
+  },
+  {
+    "archive_sha256": "957b9eeaa83cf6f2d5d5d76dbb8aa31d3297e6781d8a02fa08dcc897ae650a0b",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 331,
+        "sha256": "b8ccd8524c389b644c072df2e66b376ec243c8c9159b9b6be66136f94be9a687"
+      },
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libgcrypt20",
+    "version": "1.10.3-2ubuntu0.2"
+  },
+  {
+    "archive_sha256": "fb8564afd7b7d74d55207070ba50339478e22d29a39ec740dc482f069ac7ee65",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libgdbm-compat4t64",
+    "version": "1.23-5.1build1"
+  },
+  {
+    "archive_sha256": "18d6d74a5c038b458d95ba0c0909e0f086cd50bb9a0fee32697902724fc5645e",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libgdbm6t64",
+    "version": "1.23-5.1build1"
+  },
+  {
+    "archive_sha256": "285f8a505dfa8e1b33f357a9d8d3477ad35bf18c0b34771a6df4c25923f3ae0d",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libgmp10",
+    "version": "2:6.3.0+dfsg-2ubuntu6.1"
+  },
+  {
+    "archive_sha256": "e8a95ec58125b4933597f30ff56c2ae10edf90f287262e366d4b6edea3019144",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libgomp1",
+    "version": "14.2.0-4ubuntu2~24.04.1"
+  },
+  {
+    "archive_sha256": "93654ee8180a73a0363f25c51dc673d67cbabcbecd164187b8a2deb54d007aef",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libgpg-error0",
+    "version": "1.47-3build2.1"
+  },
+  {
+    "archive_sha256": "1b7e3c2fc162e8358ca6e5a3fffdb4d0d632f790630323215841bb36a63c0ab8",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 26,
+        "sha256": "957f8a87f6641013d828285b82905ec7cc0ba8a376994de8f1ddb18c974f8923"
+      }
+    },
+    "data_hooks": {},
+    "package": "libgprofng0",
+    "version": "2.42-4ubuntu2.10"
+  },
+  {
+    "archive_sha256": "0d4a0187bcdbbe3e6a10bfa574100087d12052d0d0ef28614fd6210021c587b2",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 221,
+        "sha256": "e4281cab5316aa28177447f8c8c5ee6e17cfdcad3edca77c81fc77670fe0a5f4"
+      },
+      "postrm": {
+        "bytes": 96,
+        "sha256": "c0d36c8ab48f121e21895ce5b23d7bc2c2c77d10aa7f91d405a64b0306f0e035"
+      },
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libgssapi-krb5-2",
+    "version": "1.20.1-6ubuntu2.10"
+  },
+  {
+    "archive_sha256": "2195318cfe68fe16b601913ef7b33c9a900372f57861643fdc9ae6fef84534cd",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libhwasan0",
+    "version": "14.2.0-4ubuntu2~24.04.1"
+  },
+  {
+    "archive_sha256": "4e040926e50fb961fae9bf95660189d468336a4a17bc321872c434fc8f777e7f",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libisl23",
+    "version": "0.26-3build1.1"
+  },
+  {
+    "archive_sha256": "1fca498129dd3510294809d77ee754f72a9de281111200e9b7b9a5adf37faa9f",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libitm1",
+    "version": "14.2.0-4ubuntu2~24.04.1"
+  },
+  {
+    "archive_sha256": "0cf79113f5d193ce9af2be2ff4b2c3b30dd4e55a0b6c47f7d28f6c849ff3aa60",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libjansson4",
+    "version": "2.14-2build2"
+  },
+  {
+    "archive_sha256": "273f7cc95a68d927d7f71c3e78b7717a16a8d86e646a206bae7bf797150ae9db",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libk5crypto3",
+    "version": "1.20.1-6ubuntu2.10"
+  },
+  {
+    "archive_sha256": "0679f198b0128179e46cdf956fb2022c23c758664c00bc8efa0382d509683a8a",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libkeyutils1",
+    "version": "1.6.3-3build1"
+  },
+  {
+    "archive_sha256": "a9cbdc424bc0a5c8af3d6445488a48de76df5ff4d76b7dab8aaf88f712358bbc",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libkmod2",
+    "version": "31+20240202-2ubuntu7.2"
+  },
+  {
+    "archive_sha256": "60b48c5a3233f1d8caba30d6573edc8e131911ab6d63adcd664f7cbe62708362",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libkrb5-3",
+    "version": "1.20.1-6ubuntu2.10"
+  },
+  {
+    "archive_sha256": "9224ede3246a82a845ea97652ecfae57f88e8d8f520d8a186f9157167574fb34",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libkrb5support0",
+    "version": "1.20.1-6ubuntu2.10"
+  },
+  {
+    "archive_sha256": "dc0c2a1a053e833ba4d71e1ec2ba4244fe301761ad4a91d6725f927a52d86a14",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "liblsan0",
+    "version": "14.2.0-4ubuntu2~24.04.1"
+  },
+  {
+    "archive_sha256": "319331270d5cc52d5ebffe51c941d7b01b432bc402c2924b557209a64d4ecbad",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "liblz4-1",
+    "version": "1.9.4-1build1.1"
+  },
+  {
+    "archive_sha256": "d2eabd41ca77d2c2dd9d5d4ef478cccb64ffde6279c47cf4699a857d46785a52",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "liblzma5",
+    "version": "5.6.1+really5.4.5-1ubuntu0.3"
+  },
+  {
+    "archive_sha256": "e5ba01d3c41f256aaf57ec59aa0554857162e3e7f97cdfbff1ed2c0e8d720ee7",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libmd0",
+    "version": "1.1.0-2build1.1"
+  },
+  {
+    "archive_sha256": "8f2c25589f187dacfdc5bb6be2af0aee6c2ba7b4d2edd1ca4b26753469f07aae",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libmount1",
+    "version": "2.39.3-9ubuntu6.6"
+  },
+  {
+    "archive_sha256": "cebe6098bb3d66fdacac9dc6fe406a651216d9c00f27c3f9c159d15d96cdf864",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libmpc3",
+    "version": "1.3.1-1build1.1"
+  },
+  {
+    "archive_sha256": "aebc1c8b69a1f98bb43dfc268daecd181116dbf40b13ee4e822eb4bdd52b493a",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libmpfr6",
+    "version": "4.2.1-1build1.1"
+  },
+  {
+    "archive_sha256": "d6ae20d7f0d90c62c5e99bcac29cb66f3d9e18c7ee2c4de3aee40134edd70353",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "libnvat",
+    "version": "2.0.0.1790976895-1"
+  },
+  {
+    "archive_sha256": "de12799efc55fb97589440c5e1369774c9e1e7a7387c8c407ac3f720a95b8a1b",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libnvidia-cfg1",
+    "version": "595.91.07-1ubuntu1"
+  },
+  {
+    "archive_sha256": "6cb9f93be2d6bfa2ce8fddd3ed6993c697e223b49e9dc58a2163aca9cae871c8",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libnvidia-compute",
+    "version": "595.91.07-1ubuntu1"
+  },
+  {
+    "archive_sha256": "321542d6490af603568721ecc44b8ec5f1f6a01779b3016e742d62abcbb9c2a7",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libnvidia-gpucomp",
+    "version": "595.91.07-1ubuntu1"
+  },
+  {
+    "archive_sha256": "c8e86ef52e3a743dc67d90f4c6654f7f529deafa6a523fe9076e809785aeea18",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 1168,
+        "sha256": "0e4676feb0d8282e04672e0e53c848df28a0b3bed47dbbb07544982d669683ad"
+      },
+      "postrm": {
+        "bytes": 221,
+        "sha256": "434230792adf5e00a679477543f22c0e99f1c0f5d4aa7dae8184b5f6e393cfc7"
+      },
+      "preinst": {
+        "bytes": 1423,
+        "sha256": "87c5a9bcde481ad65bb699df2693b69756622e6d0a6592b2f2d5d881b97e0580"
+      }
+    },
+    "data_hooks": {},
+    "package": "libpam-modules",
+    "version": "1.5.3-5ubuntu5.7"
+  },
+  {
+    "archive_sha256": "e6753b038042cd007843cbc79a81e732d82d0d2415bcf78ff2120c50b5e54f82",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 486,
+        "sha256": "c9ee1ff088f219b40269d60e590b1f3f3770ce22e72274962ab34619c11fd6c0"
+      },
+      "postrm": {
+        "bytes": 223,
+        "sha256": "1c239af0efbd3d1f2cc11edc74865dc6bc2621f2765586f6740e99b08cefe087"
+      },
+      "prerm": {
+        "bytes": 265,
+        "sha256": "bfa67f9714fabc5ba2bee25f9a9733afe42143345432f93acdb9f3c7ad84f5d5"
+      }
+    },
+    "data_hooks": {},
+    "package": "libpam-modules-bin",
+    "version": "1.5.3-5ubuntu5.7"
+  },
+  {
+    "archive_sha256": "879a23df25b1ba28801c9caf73f1ac36724bdff9834b5a0db7d0ac5ba6f8e191",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 1196,
+        "sha256": "df5d1ba9ea9787e230eee0a0a8feaee02265cc30485b6bd9f6828bbedb4eb401"
+      },
+      "postrm": {
+        "bytes": 634,
+        "sha256": "a13d408c0576bf5ccc20c254a025e6a890bae6f609d0737be980cd8e9992563c"
+      },
+      "prerm": {
+        "bytes": 777,
+        "sha256": "bc0642a144204182b6a437947679bdbe86c62febc44700aec5a27a4d43a49727"
+      }
+    },
+    "data_hooks": {},
+    "package": "libpam-runtime",
+    "version": "1.5.3-5ubuntu5.7"
+  },
+  {
+    "archive_sha256": "1d7f54e77f0455ab5e607cd5e78b576801d8efdc66115e02cf3c6e708d093667",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 7006,
+        "sha256": "94a66b3d2f60b2e09a5bd49a1d42f37ce01dcb73d6b119f7f69f739355b937ec"
+      },
+      "postrm": {
+        "bytes": 221,
+        "sha256": "434230792adf5e00a679477543f22c0e99f1c0f5d4aa7dae8184b5f6e393cfc7"
+      },
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libpam0g",
+    "version": "1.5.3-5ubuntu5.7"
+  },
+  {
+    "archive_sha256": "110a797a57673d3ee497a141cf988199258058c57525799c63194d81822529a0",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libpcre2-8-0",
+    "version": "10.42-4ubuntu2.1"
+  },
+  {
+    "archive_sha256": "e9e5ac9a657e0cacf5f0de977c1573c696ee74515d5136c4e9a0ce9467d32ae7",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libperl5.38t64",
+    "version": "5.38.2-3.2ubuntu0.6"
+  },
+  {
+    "archive_sha256": "dc8f0ca542e09d662f29370c8393c016440dd4bc5c996c5fcc19f632b63ce3b0",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libquadmath0",
+    "version": "14.2.0-4ubuntu2~24.04.1"
+  },
+  {
+    "archive_sha256": "563977a16df03b611f5239cc1e9a0426e86479fcc616b5c9e200ea32063119e5",
+    "control_hooks": {
+      "postrm": {
+        "bytes": 380,
+        "sha256": "c58d2634c82e1f30f8272346f22132c5ba72ce90e0fad9211688821e992a98e4"
+      },
+      "preinst": {
+        "bytes": 396,
+        "sha256": "3e80595cce09408210cd772572b7ebcfba3d04f21a882bd6863b9eac27eba75b"
+      },
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libreadline8t64",
+    "version": "8.2-4build1"
+  },
+  {
+    "archive_sha256": "6abaa6c26f46ef17764c4a753e0e84de1cdadde5634fd2987621fdc617988d19",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 380,
+        "sha256": "43c3d205c1fff632ec7c0899588824116ad96fa8cdcf84c09bc255c516abd99e"
+      },
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libselinux1",
+    "version": "3.5-2ubuntu2.1"
+  },
+  {
+    "archive_sha256": "e10cd93f0b6941566de04b860b723df57ca3fe4a9255a73b2be0d1dc7df2850e",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "libsemanage-common",
+    "version": "3.5-1build5"
+  },
+  {
+    "archive_sha256": "56102dcbd410416d03c5ffb80958f54ac63936f4d9eb3f6a98964e680a82ce37",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libsemanage2",
+    "version": "3.5-1build5"
+  },
+  {
+    "archive_sha256": "47272bab0c2fcc350431f9a8ae63afc49ce6d7e71e63c914639fbda6b1ca9f6a",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libsepol2",
+    "version": "3.5-2build1"
+  },
+  {
+    "archive_sha256": "72093fb456864db55f1352bfa5e952a94f7abaff64e71dff1fbf001db1984564",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 26,
+        "sha256": "957f8a87f6641013d828285b82905ec7cc0ba8a376994de8f1ddb18c974f8923"
+      }
+    },
+    "data_hooks": {},
+    "package": "libsframe1",
+    "version": "2.42-4ubuntu2.10"
+  },
+  {
+    "archive_sha256": "889f338bea4ebfd999939d946da4ac0a45668264a5aae78e023feeb0529505b8",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libsigsegv2",
+    "version": "2.14-1ubuntu2"
+  },
+  {
+    "archive_sha256": "84f33a780d27cce20a2cd925e7ce8498daba2dbc614d433548a19fbb2c5dac18",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libsmartcols1",
+    "version": "2.39.3-9ubuntu6.6"
+  },
+  {
+    "archive_sha256": "219f43b1cd836a4da550938db5fda93160d269d39a4edcf1f1ce698a470db797",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libssl3t64",
+    "version": "3.0.13-0ubuntu3.16"
+  },
+  {
+    "archive_sha256": "a51f8de7829211db961a31f02158058ad1a95f92ac6d0a5dff6350e2821c54c0",
+    "control_hooks": {
+      "prerm": {
+        "bytes": 402,
+        "sha256": "be4d3d37ee6abd9f99c8eddd0c20e012aaffbdd984fbbc3ed6322adbd32a93f2"
+      },
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libstdc++6",
+    "version": "14.2.0-4ubuntu2~24.04.1"
+  },
+  {
+    "archive_sha256": "2da3fa28302cf007075e89cdc3aabe6973916afcd62c3884b86f67b77c73a5b4",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libsystemd0",
+    "version": "255.4-1ubuntu8.18"
+  },
+  {
+    "archive_sha256": "b67a6df2bdab61d273eabebd208bb6a3fb12618a390a067e1ee305a409ff03d9",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libtinfo6",
+    "version": "6.4+20240113-1ubuntu2.2"
+  },
+  {
+    "archive_sha256": "212d8873ac952bc68f4cf56d7eaf17566f86f5c7cc4b971899a0c56e174699cc",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "libtirpc-common",
+    "version": "1.3.4+ds-1.1build1"
+  },
+  {
+    "archive_sha256": "3a3cd37160399ab235fdf2f13159fd288940abb9660e0ed1afb418b44c73d43a",
+    "control_hooks": {
+      "postrm": {
+        "bytes": 378,
+        "sha256": "221ca29fb17c68e3f95522826194a30858eda4dd3f5497cd741641f60da7acc7"
+      },
+      "preinst": {
+        "bytes": 370,
+        "sha256": "0252da96594e343918cea054ce582e33a6db98c60ae15984ccfb25ec9d0c460f"
+      },
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libtirpc3t64",
+    "version": "1.3.4+ds-1.1build1"
+  },
+  {
+    "archive_sha256": "8cbcc9b3ae5ef23b449383d47a9035b27596e307d7dce7df9b83d47a7acd1d91",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libtsan2",
+    "version": "14.2.0-4ubuntu2~24.04.1"
+  },
+  {
+    "archive_sha256": "a16dea3abe2dcac99bcfae27e7e5672fde64573c3c170dcb0cd55631238f9814",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libubsan1",
+    "version": "14.2.0-4ubuntu2~24.04.1"
+  },
+  {
+    "archive_sha256": "6de7321adcc37068f8702fe6826473662df73c36377e00f07f7acfeca2e40d4a",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libudev1",
+    "version": "255.4-1ubuntu8.18"
+  },
+  {
+    "archive_sha256": "7e2992d3a79fc05514dc5966558ee9c66a7214a47edf2a36017b9e2777528665",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libuuid1",
+    "version": "2.39.3-9ubuntu6.6"
+  },
+  {
+    "archive_sha256": "dfcf25061e07aad7efd3f4f880ba5ad4d4d09ebe7fc8cc77ab6b8a161d6d4727",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "libzstd1",
+    "version": "1.5.5+dfsg2-2build1.1"
+  },
+  {
+    "archive_sha256": "b6ea776f8a0b0ce788d8920b3d6a7843ac731ec12d41e6718da9294fdacff633",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 84,
+        "sha256": "3e44213fd36557ab92f5fe06f2f3f9d88b08312db6d69123b2009737d839a4d3"
+      },
+      "postrm": {
+        "bytes": 221,
+        "sha256": "434230792adf5e00a679477543f22c0e99f1c0f5d4aa7dae8184b5f6e393cfc7"
+      }
+    },
+    "data_hooks": {
+      "etc/kernel/postinst.d/xx-update-initrd-links": {
+        "bytes": 882,
+        "mode": 493,
+        "sha256": "a0dd3880cf362b3d9ff33c5ba82228b151c19dff4a8ef52e84b69b97b0fa9365"
+      }
+    },
+    "package": "linux-base",
+    "version": "4.5ubuntu9+24.04.2"
+  },
+  {
+    "archive_sha256": "16c59831600aa76bbf2ce56000a7874a5c7b52f9507ae3deb0e633f1d71078bf",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "linux-headers-6.8.0-147",
+    "version": "6.8.0-147.147"
+  },
+  {
+    "archive_sha256": "8acc8adee7f81b66adc95dfad5989c03a154bcc20dd91e52efd7f1e63db82109",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 258,
+        "sha256": "fd0096b7caf2720cd2134dd05e818a5f072f2ea9ad95489ca433456c0d48db30"
+      }
+    },
+    "data_hooks": {},
+    "package": "linux-headers-6.8.0-147-generic",
+    "version": "6.8.0-147.147"
+  },
+  {
+    "archive_sha256": "08432502e565a8a3b4ab13bd8b01788a0a83c9398c8a1e9350f1225991bc4fbb",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 2175,
+        "sha256": "d26b58c6c9cabf3527c7e19af98f806f8d9833692c52c2cb110059c9b48b2822"
+      },
+      "postrm": {
+        "bytes": 1419,
+        "sha256": "1bb75feb797ed8fdb8fd7aadaa71e374c4553948d2aaaf31cc337e7b344b2fb8"
+      },
+      "preinst": {
+        "bytes": 454,
+        "sha256": "b6fd40e900b01cb5789bc8eaefe67cce55902b273dc4f763be7c0650bea9a876"
+      },
+      "prerm": {
+        "bytes": 322,
+        "sha256": "06e32ea1a4766bc2d05608f291c99e8e9be2e0cb0b05ba3ad6158d8256c80246"
+      },
+      "triggers": {
+        "bytes": 40,
+        "sha256": "7fe5561c8174227bfb86562a29923aeccda3ccd4dabc0466b3d35581afe2d139"
+      }
+    },
+    "data_hooks": {},
+    "package": "linux-image-6.8.0-147-generic",
+    "version": "6.8.0-147.147"
+  },
+  {
+    "archive_sha256": "3b9188304d600fc35a4f4d1f99751f7ea485bb7f9e0cb87831d4ebf2d3423d9d",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 457,
+        "sha256": "a70bb41f78cbe485ac93f4c55808c64f8710055c5967dfd01614f97c5eba8010"
+      },
+      "postrm": {
+        "bytes": 1068,
+        "sha256": "41476f3c9617d6f6ebdcfc082f7aa164749e88ac089b0cca8bf7d836cf4d0595"
+      }
+    },
+    "data_hooks": {},
+    "package": "linux-modules-6.8.0-147-generic",
+    "version": "6.8.0-147.147"
+  },
+  {
+    "archive_sha256": "b3f16d16b54796497884b27810b0942243bdc6ef26da1ce821e948ece39a9492",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 457,
+        "sha256": "a70bb41f78cbe485ac93f4c55808c64f8710055c5967dfd01614f97c5eba8010"
+      },
+      "postrm": {
+        "bytes": 1068,
+        "sha256": "41476f3c9617d6f6ebdcfc082f7aa164749e88ac089b0cca8bf7d836cf4d0595"
+      }
+    },
+    "data_hooks": {},
+    "package": "linux-modules-extra-6.8.0-147-generic",
+    "version": "6.8.0-147.147"
+  },
+  {
+    "archive_sha256": "393cb0ed5c12e5a6c0f8e1f0c035fbc5781c19321f43c7d10733c917fb17e01b",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 798,
+        "sha256": "1f955c8c1262f0fbe2635cb1856a00f7bd2eb54af1345e3ddb55c7335afc91cb"
+      },
+      "postrm": {
+        "bytes": 174,
+        "sha256": "958b7e42752d5043b226e7a6cb5a89c64e0bfd2b3d01e81af4f48c1247cf283e"
+      },
+      "preinst": {
+        "bytes": 174,
+        "sha256": "958b7e42752d5043b226e7a6cb5a89c64e0bfd2b3d01e81af4f48c1247cf283e"
+      },
+      "prerm": {
+        "bytes": 174,
+        "sha256": "958b7e42752d5043b226e7a6cb5a89c64e0bfd2b3d01e81af4f48c1247cf283e"
+      }
+    },
+    "data_hooks": {},
+    "package": "login",
+    "version": "1:4.13+dfsg1-4ubuntu3.2"
+  },
+  {
+    "archive_sha256": "0ae566092f2d6f3000ce25a7a68497a97b637abf8dc25cbdf961c8ee66e562a7",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "lsb-release",
+    "version": "12.0-2"
+  },
+  {
+    "archive_sha256": "cac0f63c88188f376bb4df10a2af2b49a607bbef97a57db50ed58f678c21eee9",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "lto-disabled-list",
+    "version": "47"
+  },
+  {
+    "archive_sha256": "1fe6a815b56c7b6e9ce4086a363f09444bbd0a0d30e230c453d0b78e44b57a99",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "make",
+    "version": "4.3-4.1build2"
+  },
+  {
+    "archive_sha256": "7a00fc1174fbc32ce68bfd2038ca4b8275dc2851f78e911180c0928534682b05",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "ncurses-base",
+    "version": "6.4+20240113-1ubuntu2.2"
+  },
+  {
+    "archive_sha256": "897a9d87aebfd92ed47223faef6ce40fa19196309ee98cfd8479ed38e5f75773",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "ncurses-bin",
+    "version": "6.4+20240113-1ubuntu2.2"
+  },
+  {
+    "archive_sha256": "77eaec7644b6a221147245a1c0643bac7317265815e3483ef12f283fc91badb0",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "nvattest",
+    "version": "2.0.0.1790976895-1"
+  },
+  {
+    "archive_sha256": "6644db06281a3f1f460fbe90d606d9e961f7d0f1a28c362bfddbf28c30ab1246",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 3837,
+        "sha256": "2659f45713a11f250b09e63192ab6ecc1ca2fae302269617c136af69eb7f2931"
+      },
+      "postrm": {
+        "bytes": 1294,
+        "sha256": "d036981278784f39e6c42a8f33d3c5d5f9c81c0a96aa78561907a067ea6ecc84"
+      },
+      "preinst": {
+        "bytes": 907,
+        "sha256": "c1545e21ff5b46b3effa87aeb9b79daa0a503d4ffb6b4861a0d6e3d1740b7f6b"
+      },
+      "prerm": {
+        "bytes": 609,
+        "sha256": "466fb5b26fe0d35ed62a522d96f7b1d51c78dcdb701048c214800b09adb0a7a6"
+      }
+    },
+    "data_hooks": {},
+    "package": "nvidia-dkms-open",
+    "version": "595.91.07-1ubuntu1"
+  },
+  {
+    "archive_sha256": "8143bfc3422512be06e5dba709cf567a9319da6183935feebee0ac05f92c8ce4",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "nvidia-firmware",
+    "version": "595.91.07-1ubuntu1"
+  },
+  {
+    "archive_sha256": "4009bc4b55ba060e9b9a82fd990e85e40bd0cef74b8540dfdd1d1ed12fb551d9",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "nvidia-headless-no-dkms-open",
+    "version": "595.91.07-1ubuntu1"
+  },
+  {
+    "archive_sha256": "8a67d4f7ea12172d0631cf69835f484bb16709bf651f29f38ad77b95b6a988b5",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "nvidia-headless-open",
+    "version": "595.91.07-1ubuntu1"
+  },
+  {
+    "archive_sha256": "be342a7a645cefa9d790794270cfecc028259a81f6fe14242aff428e11dcfc46",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 3031,
+        "sha256": "9c2dac21d31be7f73650396cfcf3bc7e26ea0afdfeb592fe1036af11b57a4f5b"
+      },
+      "postrm": {
+        "bytes": 1110,
+        "sha256": "f71b4c079be65e1cdc17e498947d30f87fcd9d56bfcbdea73f02860d85e360cc"
+      },
+      "triggers": {
+        "bytes": 89,
+        "sha256": "0565c9193c3549548a9a403ac74f565eb7cf0be8986000f0c8f077544bb317db"
+      }
+    },
+    "data_hooks": {
+      "usr/share/initramfs-tools/hooks/framebuffer-nvidia": {
+        "bytes": 906,
+        "mode": 493,
+        "sha256": "81b01f63c4d6adc02531905c33fc9a32dce97a0c168f18a2f4b73ee803b91ca5"
+      }
+    },
+    "package": "nvidia-kernel-common",
+    "version": "595.91.07-1ubuntu1"
+  },
+  {
+    "archive_sha256": "5e83b871c85b9abbca569feb4e1367198ce8f70975a1c62b4c1bd826464cd371",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "nvidia-kernel-source-open",
+    "version": "595.91.07-1ubuntu1"
+  },
+  {
+    "archive_sha256": "77b24abe3f7e4f54ca08778faf931341c5c69ce8831c8786e7d3e780e8bdb4d8",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 1079,
+        "sha256": "b8ba3a39e4e610a81891ada87e087bab39168ed0620cfc34c71a959dfaa2101a"
+      }
+    },
+    "data_hooks": {},
+    "package": "nvidia-modprobe",
+    "version": "595.91.07-1ubuntu1"
+  },
+  {
+    "archive_sha256": "91024770b54571b75a812b80c1bfb888eeabc1a3b7467e9441f52169eefe5d90",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 1759,
+        "sha256": "0519f36861d11daa62f36a71247aae5b1eda7c604454c5cf9225abaae2ead226"
+      },
+      "postrm": {
+        "bytes": 473,
+        "sha256": "3201ae0e7c6dbcbcda954b00c590c54087e36e71c12266685c4f7ff4af3b1876"
+      },
+      "prerm": {
+        "bytes": 271,
+        "sha256": "3cd8259d3611e998def449cfc105cd8b8ea54c9192c666931368811f6866f7af"
+      }
+    },
+    "data_hooks": {},
+    "package": "nvidia-persistenced",
+    "version": "595.91.07-1ubuntu1"
+  },
+  {
+    "archive_sha256": "c352a439c4c792397d36c26545d954940370a1147cd91d5a251fff82413a8b70",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "pahole",
+    "version": "1.25-0ubuntu3"
+  },
+  {
+    "archive_sha256": "139b51228c8065eefa3051f649d8480eb986f1cf629448e49d2eaf9813318412",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 1148,
+        "sha256": "ce482bf03456907bd7270c2e9667236eedb845d0043fd8f15de4915bf8d303a3"
+      },
+      "postrm": {
+        "bytes": 182,
+        "sha256": "b9867701d2d839e7b38f37bd4a93c5d43d29ff3f45d0700e5dea5574c05f886e"
+      },
+      "preinst": {
+        "bytes": 182,
+        "sha256": "b9867701d2d839e7b38f37bd4a93c5d43d29ff3f45d0700e5dea5574c05f886e"
+      },
+      "prerm": {
+        "bytes": 182,
+        "sha256": "b9867701d2d839e7b38f37bd4a93c5d43d29ff3f45d0700e5dea5574c05f886e"
+      }
+    },
+    "data_hooks": {},
+    "package": "passwd",
+    "version": "1:4.13+dfsg1-4ubuntu3.2"
+  },
+  {
+    "archive_sha256": "fb7d78ed25c2788a607802270f3c28ac5ed6857bfb6cce9f73ad2cafac9159b3",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "patch",
+    "version": "2.7.6-7build3"
+  },
+  {
+    "archive_sha256": "1a2341674a1c69e3247537ab243dc3d5878b74a39a696964232e1a4f5a27502d",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 549,
+        "sha256": "977f875a6ea6ce42d8a1f644709498b7c759d7b73b7ddbe27dfb80e92e3a99d5"
+      },
+      "postrm": {
+        "bytes": 197,
+        "sha256": "4f3fbc945d477d3855db840b9f785ce7c7897aada315c605d4c768508a062a1e"
+      },
+      "preinst": {
+        "bytes": 197,
+        "sha256": "4f3fbc945d477d3855db840b9f785ce7c7897aada315c605d4c768508a062a1e"
+      },
+      "prerm": {
+        "bytes": 197,
+        "sha256": "4f3fbc945d477d3855db840b9f785ce7c7897aada315c605d4c768508a062a1e"
+      }
+    },
+    "data_hooks": {},
+    "package": "perl",
+    "version": "5.38.2-3.2ubuntu0.6"
+  },
+  {
+    "archive_sha256": "50e1b2c2646387a94664fbea144af1d1b16cf6e0778426baa198166ca3246697",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 201,
+        "sha256": "c25d5a1cb0ce975e355973555d246da534e57edf70f43446d2fda4c96fdcc514"
+      },
+      "postrm": {
+        "bytes": 201,
+        "sha256": "c25d5a1cb0ce975e355973555d246da534e57edf70f43446d2fda4c96fdcc514"
+      },
+      "preinst": {
+        "bytes": 201,
+        "sha256": "c25d5a1cb0ce975e355973555d246da534e57edf70f43446d2fda4c96fdcc514"
+      },
+      "prerm": {
+        "bytes": 201,
+        "sha256": "c25d5a1cb0ce975e355973555d246da534e57edf70f43446d2fda4c96fdcc514"
+      }
+    },
+    "data_hooks": {},
+    "package": "perl-base",
+    "version": "5.38.2-3.2ubuntu0.6"
+  },
+  {
+    "archive_sha256": "9c4c90145209d4f85be9255417008e8decb9cd5d189f446fd39ad096e31199cf",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "perl-modules-5.38",
+    "version": "5.38.2-3.2ubuntu0.6"
+  },
+  {
+    "archive_sha256": "879bfd7f8a9bc4c0f7cdc777cdd8bc6de5f8c4a2ac80c060322a1b22f13504bb",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 205,
+        "sha256": "94506bc8b626670c34c3f328df3615033b8520e4b686e3a9e74814bf0219aee1"
+      },
+      "postrm": {
+        "bytes": 66,
+        "sha256": "3bcd47c5a1a275c6560f9ae897766697d3768699e874179533ae23276809f307"
+      }
+    },
+    "data_hooks": {},
+    "package": "readline-common",
+    "version": "8.2-4build1"
+  },
+  {
+    "archive_sha256": "5406c0950df2653be3d4acaf9f169c51d30cf4a617b63423e64d2853b0d72b5c",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "sed",
+    "version": "4.9-2ubuntu0.24.04.1"
+  },
+  {
+    "archive_sha256": "03cf5c9c28a5d186fb7f5214e464f831ff28177695cbb61e66083237267a047e",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "sysvinit-utils",
+    "version": "3.08-6ubuntu3"
+  },
+  {
+    "archive_sha256": "fdf41a87936824e50c8ac11b0b22d1395aeb0754feef2dae5575b5d5a93793ec",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 270,
+        "sha256": "4eed7466e8f44c6b480002d80becc0d998c462b759c0118e285170a93f4b3dca"
+      },
+      "prerm": {
+        "bytes": 231,
+        "sha256": "de3fa1115a52ea8e0017f65b767176146e35585e050581adcef95aab495d648c"
+      }
+    },
+    "data_hooks": {},
+    "package": "tar",
+    "version": "1.35+dfsg-3ubuntu0.4"
+  },
+  {
+    "archive_sha256": "08eb17ba3b83378ed1e73d8335d0ce03b429c0bbeb07e374f536234edab02465",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 1941,
+        "sha256": "4b7153bf1304e556b92f5dddb79561cd30bf8da8278e41b1bed9cd0a110473c3"
+      },
+      "postrm": {
+        "bytes": 744,
+        "sha256": "3d027946d96e51cf688eae9ca2eac68d65fd6f37473400f5174877160a042bc3"
+      },
+      "prerm": {
+        "bytes": 623,
+        "sha256": "da8753a9ec8c83e60fb372febecb434f3183d1d0cc1a174f23f8dd39bf4a0352"
+      }
+    },
+    "data_hooks": {},
+    "package": "util-linux",
+    "version": "2.39.3-9ubuntu6.6"
+  },
+  {
+    "archive_sha256": "e4ee541d99f009f1225100fead946907afe3ad9b614fd5707f7363d7a9c03d39",
+    "control_hooks": {},
+    "data_hooks": {},
+    "package": "wireless-regdb",
+    "version": "2026.05.30-0ubuntu1~24.04.1"
+  },
+  {
+    "archive_sha256": "778edae086bc8f34d80f36f301bc8fb3eff2d906c146dfb533ea6840b6d64e00",
+    "control_hooks": {
+      "postinst": {
+        "bytes": 458,
+        "sha256": "a5f4a07edfb37614c3a643f8413ed15bc9bfe321681964fc94726a82391d5841"
+      },
+      "prerm": {
+        "bytes": 204,
+        "sha256": "03f4a74e0fbd8b7d3e142640464b4c39e92821abb6bf14880fa3c1f43b89ba5a"
+      }
+    },
+    "data_hooks": {},
+    "package": "xz-utils",
+    "version": "5.6.1+really5.4.5-1ubuntu0.3"
+  },
+  {
+    "archive_sha256": "84b9cf5752b29c9f92c27cd4c4ba9bbcc70b5ccf9b1b515421a28ae23212e273",
+    "control_hooks": {
+      "triggers": {
+        "bytes": 75,
+        "sha256": "0f1eda96d7595190cc2d40a06fafff8def651d19ceb635292ae6104de50de218"
+      }
+    },
+    "data_hooks": {},
+    "package": "zlib1g",
+    "version": "1:1.3.dfsg-3.1ubuntu2.2"
+  }
+]
