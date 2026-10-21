@@ -98,7 +98,7 @@ class BuildTests(unittest.TestCase):
             stdout, stderr = ((b"public prefix", b"") if stream == "stdout" else (b"", b"public prefix"))
             error = processes.OutputLimitExceeded(stream, stdout, stderr)
             with self.subTest(stream=stream), tempfile.TemporaryDirectory() as temporary:
-                output = Path(temporary)
+                output = Path(temporary).resolve()
                 with mock.patch.object(processes, "execute_process_group", side_effect=error):
                     with self.assertRaises(processes.OutputLimitExceeded):
                         worker.install(processes, output, {})
