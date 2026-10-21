@@ -51,11 +51,14 @@ base, require = prep.base, prep.require
 sim, SIMULATION_SOURCE = base.helper("apt_simulation_contract", prep.FILES[1])
 
 
-def validate_container(row, tag):
+ENTRYPOINT = ["/usr/bin/python3.12", "-I", "-S", "-B", "/nib/simulate.py"]
+
+
+def validate_container(row, tag, entrypoint=ENTRYPOINT):
     host, config = row["HostConfig"], row["Config"]
     require(config["Image"] == tag and config["User"] == "65534:65534"
             and config["WorkingDir"] == "/work"
-            and config["Entrypoint"] == ["/usr/bin/python3.12", "-I", "-S", "-B", "/nib/simulate.py"]
+            and config["Entrypoint"] == entrypoint
             and not config.get("Cmd"))
     require(host["NetworkMode"] == "none" and host["ReadonlyRootfs"] is True
             and host["Privileged"] is False and host["IpcMode"] == "private"
@@ -102,16 +105,25 @@ def validate_result(result, receipt, guest):
 
 def execute(image, receipt, guest, call):
     """call is the bounded trusted-host Docker wrapper; fakes never run image code."""
-    tag = receipt["image_tag"]
-    require(re.fullmatch(r"nib-apt-simulation:[0-9a-f]{24}", tag))
-    name = "nib-apt-" + uuid.uuid4().hex
-    label = "org.nib.apt-run=" + name
-    image_owned = container_owned = completion_unknown = False
     report = {"schema": "nib.apt-container-run/v2", "result": "fail", "stage": "preflight",
               "git_sha": receipt["git_sha"], "image_archive_sha256": receipt["archive_sha256"],
               "config_sha256": receipt["config_sha256"], "layer_sha256": receipt["layer_sha256"],
               "simulation": None, "cleanup": "not-created",
               "installable_verified": False, "bootable": False, "deployable": False}
+    spec = {"tag_prefix": "nib-apt-simulation", "name_prefix": "nib-apt-",
+            "label_key": "org.nib.apt-run", "entrypoint": ENTRYPOINT,
+            "layers": [receipt["layer_sha256"]], "result_key": "simulation"}
+    return execute_image(image, receipt, call, spec, report,
+                         lambda result: validate_result(result, receipt, guest))
+
+
+def execute_image(image, receipt, call, spec, report, validate):
+    """Shared fixed sandbox lifecycle; spec and validator are trusted source, not CLI inputs."""
+    tag = receipt["image_tag"]
+    require(re.fullmatch(re.escape(spec["tag_prefix"]) + r":[0-9a-f]{24}", tag))
+    name = spec["name_prefix"] + uuid.uuid4().hex
+    label = spec["label_key"] + "=" + name
+    image_owned = container_owned = completion_unknown = False
     try:
         require(not call(["image", "ls", "--quiet", "--filter", "reference=" + tag]).stdout.strip())
         image_owned = True
@@ -124,7 +136,7 @@ def execute(image, receipt, guest, call):
         observed = json.loads(call(["image", "inspect", tag]).stdout)
         require(len(observed) == 1 and observed[0]["Os"] == "linux"
                 and observed[0]["Architecture"] == "amd64"
-                and observed[0]["RootFS"] == {"Type": "layers", "Layers": ["sha256:" + receipt["layer_sha256"]]}
+                and observed[0]["RootFS"] == {"Type": "layers", "Layers": ["sha256:" + s for s in spec["layers"]]}
                 and observed[0]["Config"]["Labels"]["org.opencontainers.image.revision"] == receipt["git_sha"])
         completion_unknown = False
         report["stage"] = "create"
@@ -138,18 +150,18 @@ def execute(image, receipt, guest, call):
               "--no-healthcheck", "--stop-timeout=5", tag])
         info = json.loads(call(["container", "inspect", name]).stdout)
         require(len(info) == 1)
-        validate_container(info[0], tag)
+        validate_container(info[0], tag, spec["entrypoint"])
         completion_unknown = False
-        report["stage"] = "simulation"
+        report["stage"] = spec["result_key"]
         result = call(["container", "start", "--attach", name], timeout=160, check=False)
         terminal = json.loads(call(["container", "inspect", name]).stdout)[0]["State"]
         require(terminal["Running"] is False and terminal["OOMKilled"] is False
                 and terminal["ExitCode"] in (0, 1) and result.returncode == terminal["ExitCode"]
                 and not result.stderr)
         parsed = json.loads(result.stdout)
-        validate_result(parsed, receipt, guest)
+        validate(parsed)
         require((parsed["result"] == "pass") == (result.returncode == 0))
-        report["simulation"] = parsed
+        report[spec["result_key"]] = parsed
         report["stage"] = "complete"
         report["result"] = parsed["result"]
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
@@ -181,19 +193,8 @@ def utc():
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run", action="store_true", required=True,
-                        help="explicitly authorize this local, CPU-only Docker execution")
-    for name in ("metadata", "archives", "bundle", "output"):
-        parser.add_argument("--" + name, required=True, type=Path)
-    args = parser.parse_args()
-    prep.separate_output(args.output, (args.metadata, args.archives, args.bundle))
-    require(not args.output.exists() and not args.output.is_symlink())
-    revision, sources = prep.committed()
-    require(sources[prep.FILES[0]] == PREPARER_SOURCE and sources[prep.FILES[1]] == SIMULATION_SOURCE)
-    files, receipt = prep.build(args.metadata, args.archives, revision, sources)
-    base.verify(args.bundle, files)
+def run_local(experiment):
+    """Use only a local Docker socket, empty client credentials and bounded cleanup."""
     started = utc()
     with tempfile.TemporaryDirectory(prefix="nib-apt-control-") as temporary:
         control = Path(temporary).resolve()
@@ -229,11 +230,29 @@ def main():
 
         previous = {sig: signal.signal(sig, interrupted) for sig in (signal.SIGINT, signal.SIGTERM)}
         try:
-            result = execute(files["image.tar"], receipt, json.loads(sources[prep.FILES[-1]]), call)
+            result = experiment(call)
         finally:
             for sig, handler in previous.items():
                 signal.signal(sig, handler)
     result.update(started_at=started, finished_at=utc())
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--run", action="store_true", required=True,
+                        help="explicitly authorize this local, CPU-only Docker execution")
+    for name in ("metadata", "archives", "bundle", "output"):
+        parser.add_argument("--" + name, required=True, type=Path)
+    args = parser.parse_args()
+    prep.separate_output(args.output, (args.metadata, args.archives, args.bundle))
+    require(not args.output.exists() and not args.output.is_symlink())
+    revision, sources = prep.committed()
+    require(sources[prep.FILES[0]] == PREPARER_SOURCE and sources[prep.FILES[1]] == SIMULATION_SOURCE)
+    files, receipt = prep.build(args.metadata, args.archives, revision, sources)
+    base.verify(args.bundle, files)
+    result = run_local(lambda call: execute(files["image.tar"], receipt,
+                       json.loads(sources[prep.FILES[-1]]), call))
     base.publish(args.output, {"report.json": base.encoded(result)})
     print(json.dumps({k: result[k] for k in ("result", "stage", "cleanup", "git_sha",
                       "installable_verified", "deployable")}, sort_keys=True))

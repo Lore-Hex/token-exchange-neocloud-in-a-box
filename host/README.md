@@ -62,6 +62,13 @@ Use the checkout's committed `host/record-probe.py` for actual hardware evidence
 `prerequisites --root PATH` reports only whether expected executables exist.
 These setup results are not hardware qualification or a model-serving result.
 
+## Offline guest-tools probe
+
+`probe-mkosi-tools.py` reconstructs and checks the prepared tools image before
+running seven fixed startup checks in the shared network-isolated Docker
+sandbox. See [the procedure and limits](../docs/tasks/p3-t1-tools-startup.md).
+This proves neither a guest build nor confidential hardware acceptance.
+
 ## Approved weight staging
 
 The [bounded staging wrapper](../docs/tasks/p0-t4-host-weight-staging.md) prepares

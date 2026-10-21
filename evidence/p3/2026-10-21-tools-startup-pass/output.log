@@ -1,0 +1,83 @@
+{
+  "abi_validated": false,
+  "bootable": false,
+  "cleanup": "confirmed",
+  "config_sha256": "7b8e5d293bf9f2388d05b541e48685df9655123fc2585518c5845806b1b401d2",
+  "deployable": false,
+  "finished_at": "2026-10-21T03:04:59Z",
+  "git_sha": "f309d8a814fdf1180e30a99df6e8466b03b5ab26",
+  "image_archive_sha256": "126a06cfff2a77c6a23fa652e6021748709cd07c6c3d32dfd0b44b69de6ec78c",
+  "installable_verified": false,
+  "layer_sha256s": [
+    "f5c72266b7b5f51902f0f9d90677a0ea1861f663bdc35cc6f9b1b389f62a3932",
+    "cdcd6132e91b988e76954ebd40e194bebd81b7bcc4cc624fe9610302ba6bd519"
+  ],
+  "maintainer_scripts_executed": false,
+  "mkosi_executed": false,
+  "namespaces_validated": false,
+  "package_installation_executed": false,
+  "probe": {
+    "abi_validated": false,
+    "bootable": false,
+    "checks": [
+      {
+        "program": "python",
+        "result": "pass",
+        "stdout_bytes": 14,
+        "stdout_sha256": "5b3e43dc38ca01e3f5a7854ba50d4330864b0c1e0f646650b2c78cf072acc366"
+      },
+      {
+        "program": "apt",
+        "result": "pass",
+        "stdout_bytes": 505,
+        "stdout_sha256": "ea4c9f4013147f815024e6b9f1be780a55b6fd4513c1490e1e99492b2cfe0d0e"
+      },
+      {
+        "program": "dpkg",
+        "result": "pass",
+        "stdout_bytes": 188,
+        "stdout_sha256": "d744bd56001a1d2be1c647cb069e17cf2da7cc129b782c12f3bc13235ea200e9"
+      },
+      {
+        "program": "bubblewrap",
+        "result": "pass",
+        "stdout_bytes": 17,
+        "stdout_sha256": "3a0618bed56bc5ced74eea5965def37047e2b879a25ceb85bbc964efbe00489e"
+      },
+      {
+        "program": "tar",
+        "result": "pass",
+        "stdout_bytes": 96,
+        "stdout_sha256": "43bab924152b0716a9dc3c9f5503b2234c3a5ec50c9bf88c302f24b0cfc83df4"
+      },
+      {
+        "program": "repart",
+        "result": "pass",
+        "stdout_bytes": 330,
+        "stdout_sha256": "cf7dc29fdb4b56cfd2f816bef4e11c0ac1834630ce29aa4b75b00ae9ac1b1a76"
+      },
+      {
+        "program": "awk",
+        "result": "pass",
+        "stdout_bytes": 736,
+        "stdout_sha256": "14a10a44bd85cdf38f3ff29ae2229630c6f1e7458201fb4306192f50a8546b94"
+      }
+    ],
+    "deployable": false,
+    "git_sha": "f309d8a814fdf1180e30a99df6e8466b03b5ab26",
+    "installable_verified": false,
+    "maintainer_scripts_executed": false,
+    "mkosi_executed": false,
+    "namespaces_validated": false,
+    "package_installation_executed": false,
+    "programs_attempted": 7,
+    "result": "pass",
+    "schema": "nib.mkosi-tools-probe/v1",
+    "stage": "complete",
+    "tools_receipt_sha256": "a88cebe379158c00e8a0d4a11944ac569973c3528f989c68ff8e1f54ab292ec7"
+  },
+  "result": "pass",
+  "schema": "nib.mkosi-tools-container-run/v1",
+  "stage": "complete",
+  "started_at": "2026-10-21T03:04:56Z"
+}
