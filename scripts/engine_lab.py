@@ -492,6 +492,16 @@ def observe_pre_serve(engine, observation, checkpoints):
         observation["wait_ms"] = int((time.monotonic() - started) * 1000)
 
 
+def check_scratch_mounts():
+    # Docker tmpfs defaults to noexec. JIT shared libraries need exec on the
+    # private cache, never on the general temporary mount.
+    required = os.ST_NOSUID | os.ST_NODEV
+    for path, executable in (("/cache", True), ("/tmp", False)):
+        flags = os.statvfs(path).f_flag
+        require(flags & required == required and not flags & os.ST_RDONLY
+                and bool(flags & os.ST_NOEXEC) != executable)
+
+
 def application_and_request(contract, sources, modules, application, measured):
     overlay, diagnostic, descriptor, app = modules
     result = {"schema": "nib.deepseek-lab-result/v2", "status": "BLOCKED", "deployable": False,
@@ -507,6 +517,7 @@ def application_and_request(contract, sources, modules, application, measured):
     engine = checkpoints = errors = None
     started = time.monotonic()
     try:
+        check_scratch_mounts()
         security = GPU_PROBE.security_profile(contract)
         result["hardware"] = hardware(contract.get("gpu_family", "B200"), security)
         if not pre_serve:
