@@ -6,6 +6,7 @@ import copy
 from contextlib import contextmanager
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import shlex
@@ -308,6 +309,77 @@ if __name__ == "__main__":
 
 
 class WorkerDiagnosticTests(unittest.TestCase):
+    def test_caught_startup_observer_never_formats_content_and_preserves_factory(self):
+        class Private:
+            def __str__(self):
+                raise AssertionError("must not format content")
+        source = b"synthetic pinned worker source"
+        state = {"layout": {"selected_root": "/sealed/packages"}}
+        path = state["layout"]["selected_root"] + "/" + bootstrap.WORKER_LOG_SOURCE
+        source_helpers = types.SimpleNamespace(require=helpers.require, read_source=mock.Mock(return_value=source))
+        observer = mock.Mock()
+        failure = RuntimeError(Private())
+        original = logging.getLogRecordFactory()
+        delegated = mock.Mock(wraps=original)
+        with mock.patch.object(bootstrap, "WORKER_LOG_SHA256", hashlib.sha256(source).hexdigest()):
+            logging.setLogRecordFactory(delegated)
+            try:
+                with bootstrap.observed_worker_logs(state, source_helpers, observer):
+                    record = logging.getLogRecordFactory()(bootstrap.WORKER_LOG_MODULE, logging.ERROR,
+                        path, 953, Private(), (), (RuntimeError, failure, None))
+                    self.assertIs(record.exc_info[1], failure)
+                self.assertIs(logging.getLogRecordFactory(), delegated)
+            finally:
+                logging.setLogRecordFactory(original)
+        observer.assert_called_once_with(failure)
+        delegated.assert_called_once()
+        source_helpers.read_source.assert_called_once_with(path, 2 << 20)
+
+    def test_caught_startup_observer_requires_exact_callsite_and_source(self):
+        state = {"layout": {"selected_root": "/sealed/packages"}}
+        path = "/sealed/packages/" + bootstrap.WORKER_LOG_SOURCE
+        source = b"synthetic pinned worker source"
+        source_helpers = types.SimpleNamespace(require=helpers.require, read_source=mock.Mock(return_value=source))
+        failure = ValueError("PRIVATE")
+        cases = (
+            ("other", path, 953, (ValueError, failure, None)),
+            (bootstrap.WORKER_LOG_MODULE, "/untrusted/worker.py", 953, (ValueError, failure, None)),
+            (bootstrap.WORKER_LOG_MODULE, path, 959, (ValueError, failure, None)),
+            (bootstrap.WORKER_LOG_MODULE, path, 953, None),
+            (bootstrap.WORKER_LOG_MODULE, path, 953, (None, None, None)),
+        )
+        for name, filename, line, exc_info in cases:
+            with self.subTest(name=name, path=filename, line=line, exc_info=type(exc_info)):
+                observer = mock.Mock()
+                with bootstrap.observed_worker_logs(state, source_helpers, observer):
+                    logging.getLogRecordFactory()(name, logging.ERROR, filename, line, "PRIVATE", (), exc_info)
+                observer.assert_not_called()
+        source_helpers.read_source.assert_not_called()
+        observer = mock.Mock()
+        with bootstrap.observed_worker_logs(state, source_helpers, observer):
+            logging.getLogRecordFactory()(bootstrap.WORKER_LOG_MODULE, logging.ERROR,
+                path, 953, "PRIVATE", (), (ValueError, failure, None))
+        observer.assert_not_called()  # Actual pin rejects the synthetic source.
+
+    def test_caught_observer_failure_does_not_change_logging_or_target_result(self):
+        state = {"layout": {"selected_root": "/sealed/packages"}}
+        path = "/sealed/packages/" + bootstrap.WORKER_LOG_SOURCE
+        source = b"synthetic pinned worker source"
+        source_helpers = types.SimpleNamespace(require=helpers.require, read_source=lambda *_: source)
+        observer = mock.Mock(side_effect=RuntimeError("observer failed"))
+        failure = RuntimeError("PRIVATE")
+        original = logging.getLogRecordFactory()
+        with mock.patch.object(bootstrap, "WORKER_LOG_SHA256", hashlib.sha256(source).hexdigest()):
+            with self.assertRaises(RuntimeError) as caught:
+                with bootstrap.observed_worker_logs(state, source_helpers, observer):
+                    record = logging.getLogRecordFactory()(bootstrap.WORKER_LOG_MODULE, logging.ERROR,
+                        path, 953, "PRIVATE", (), (RuntimeError, failure, None))
+                    self.assertIs(record.exc_info[1], failure)
+                    raise failure
+        self.assertIs(caught.exception, failure)
+        self.assertIs(logging.getLogRecordFactory(), original)
+        observer.assert_called_once_with(failure)
+
     def test_first_fixed_packet_wins_without_exception_content(self):
         with tempfile.TemporaryDirectory() as root, \
                 mock.patch.object(lab, "WORKER_EXCEPTION_PATH", str(Path(root).resolve() / "failure.bin")):

@@ -4,6 +4,7 @@
 import importlib.machinery
 import importlib.util
 import ast
+from contextlib import contextmanager
 import ctypes
 import hashlib
 import os
@@ -828,6 +829,42 @@ def registry_entry(state, helpers):
     state["check"]()
 
 
+WORKER_LOG_MODULE = "vllm.v1.executor.multiproc_executor"
+WORKER_LOG_SOURCE = "vllm/v1/executor/multiproc_executor.py"
+WORKER_LOG_SHA256 = "948c15e09617b02e2d0746d9ee20b43168b083da71313d05f06b29a753f8570b"
+
+
+@contextmanager
+def observed_worker_logs(state, helpers, observer):
+    """Observe the pinned startup catch before vLLM suppresses its exception."""
+    import logging
+    original = logging.getLogRecordFactory()
+    path = state["layout"]["selected_root"] + "/" + WORKER_LOG_SOURCE
+
+    def factory(*args, **kwargs):
+        record = original(*args, **kwargs)
+        try:
+            # vLLM 5df63a7, worker_main's startup-only logger.exception at 953.
+            # Never format the message, arguments, exception or stack locals.
+            if (type(record) is logging.LogRecord and record.name == WORKER_LOG_MODULE
+                    and record.pathname == path and record.lineno == 953
+                    and type(record.exc_info) is tuple and len(record.exc_info) == 3
+                    and isinstance(record.exc_info[1], BaseException)):
+                raw = helpers.read_source(path, 2 << 20)
+                helpers.require(hashlib.sha256(raw).hexdigest() == WORKER_LOG_SHA256)
+                observer(record.exc_info[1])
+        except BaseException:
+            pass
+        return record
+
+    logging.setLogRecordFactory(factory)
+    try:
+        yield
+    finally:
+        if logging.getLogRecordFactory() is factory:
+            logging.setLogRecordFactory(original)
+
+
 def observed_spawn(values, observer):
     """Observe child target failures without changing multiprocessing outcomes."""
     from multiprocessing.process import BaseProcess
@@ -863,7 +900,8 @@ def dispatch_lab(args, state, helpers, worker_observer=None):
         if worker_observer is None:
             spawn_main(**values)
         else:
-            observed_spawn(values, worker_observer)
+            with observed_worker_logs(state, helpers, worker_observer):
+                observed_spawn(values, worker_observer)
     else:
         from multiprocessing.resource_tracker import main
         main(*values)

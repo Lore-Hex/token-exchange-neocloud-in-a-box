@@ -36,3 +36,30 @@ observer-failure containment, success without a diagnostic, first-writer
 behavior, fixed size, and symlink/hardlink/partial/oversize rejection.
 `make check` remains required before merging. A new hardware run is required to
 identify the actual worker failure; no successful runtime is claimed here.
+
+## Caught GPU-worker startup exception
+
+The next [original trial](../../evidence/p2/2026-10-21-b300-worker-ready-pipe/run.json)
+at `0dc31ec09895721d6b7153fe7c170c99f2911212` again verified all weights and
+application stages, then failed startup after 171058 ms with cleanup confirmed.
+Its [worker packet](../../evidence/p2/2026-10-21-b300-worker-ready-pipe/output.log)
+matches `multiproc_executor.py` SHA-256
+`948c15e09617b02e2d0746d9ee20b43168b083da71313d05f06b29a753f8570b`,
+[line 815](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/executor/multiproc_executor.py#L815):
+the engine core sees EOF on a GPU worker's readiness pipe. That is still a
+parent symptom, not proof of the GPU worker's original failure.
+
+The same pinned source catches the underlying exception at lines 946-964,
+logs it at line 953, and does not re-raise it. The lab spawn context therefore
+also wraps the existing log-record factory. Only that exact module, path,
+line and current source hash can feed the existing content-free observer.
+The original factory runs unchanged, its record is returned unchanged, and
+the previous factory is restored unless another caller replaced it. Observer
+failure cannot alter logging or process outcomes. No formatter, message,
+exception text, arguments or locals are inspected or persisted. This is a
+diagnostic for one pinned source version, never an authorization path.
+
+Tests cover unformattable private message/exception objects, original factory
+delegation/restoration, wrong module/path/line, absent exception, source drift
+and observer failure. Hardware inference remains unproven; the next fresh
+bounded run must produce the underlying diagnostic or a successful result.
