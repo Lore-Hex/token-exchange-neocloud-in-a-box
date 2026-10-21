@@ -75,6 +75,11 @@ does **not** establish that a tokenizer measured the count or an endpoint has
 that context. Tests supply synthetic counts. A reviewed, authenticated count
 producer remains absent, and live dispatch remains unavailable.
 
+The subsequent [local vLLM transport](p2-t3-tau-local-vllm.md) supplies an
+explicit, separate loopback-only session with engine-reported counts. The
+scripted session and public runner remain unchanged. Engine identity and
+independent tokenizer parity are still required before a real benchmark.
+
 ## Primary-source contract
 
 Tau revision is `fc0055dc4e0a316c3f83133267fbd6faaa770992`, already authenticated by

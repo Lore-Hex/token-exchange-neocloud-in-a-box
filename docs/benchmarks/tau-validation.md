@@ -1,11 +1,16 @@
 # DeepSeek serving-quality validation
 
-Status: **offline manifest/budget and result aggregation foundations implemented; live runner and
-evaluation not implemented or run** (2026-10-20). The
+Status: **offline manifest/budget, aggregation, closed-network scripted trials,
+and a bounded local vLLM transport implemented; live evaluation not run**
+(2026-10-21). The
 [preflight foundation](../tasks/p2-t3-tau-preflight.md) verifies pinned public
 inputs without importing upstream or contacting endpoints. The
 [content-free aggregator](../tasks/p2-t3-tau-aggregation.md) checks frozen coverage
 and computes fixture-tested arithmetic; no benchmark score has been measured.
+The [local transport](../tasks/p2-t3-tau-local-vllm.md) tests actual loopback
+HTTP against synthetic endpoints, including engine-reported input counts and
+the shared cost ledger. Container wiring and runtime-identity checks are still
+pending; it does not establish model quality or confidentiality.
 This is an additional
 P2.T3 acceptance requirement requested by Joseph, repeated under confidential
 computing in P5.T5. We serve DeepSeek's existing weights; this is not a new
