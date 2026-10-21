@@ -51,14 +51,20 @@ base, require = prep.base, prep.require
 
 
 def validate_result(value, receipt):
+    sandbox = receipt.get("sandbox") is True
     keys = {"schema", "git_sha", "tools_receipt_sha256", "result", "stage",
             "checks", "programs_attempted", *worker.FALSE_CLAIMS}
+    false_claims = set(worker.FALSE_CLAIMS)
+    if sandbox:
+        keys.update(("sandbox", "mkosi_build_executed", "failure_kind"))
+        false_claims -= {"mkosi_executed", "namespaces_validated"}
+        false_claims.add("mkosi_build_executed")
     require(type(value) is dict and set(value) == keys
-            and value["schema"] == "nib.mkosi-tools-probe/v1"
+            and value["schema"] == "nib.mkosi-tools-probe/" + ("v2" if sandbox else "v1")
             and value["git_sha"] == receipt["git_sha"]
             and value["tools_receipt_sha256"] == receipt["tools_receipt_sha256"]
-            and all(value[k] is False for k in worker.FALSE_CLAIMS))
-    names = [name for name, _ in worker.COMMANDS]
+            and all(value[k] is False for k in false_claims))
+    names = [name for name, _ in worker.COMMANDS] + (["sandbox"] if sandbox else [])
     checks, attempted = value["checks"], value["programs_attempted"]
     require(type(checks) is list and type(attempted) is int
             and 0 <= len(checks) <= attempted <= len(names))
@@ -69,6 +75,15 @@ def validate_result(value, receipt):
             and type(row["stdout_bytes"]) is int and 0 < row["stdout_bytes"] <= worker.MAX_OUTPUT
             and type(row["stdout_sha256"]) is str
             and re.fullmatch("[0-9a-f]{64}", row["stdout_sha256"]))
+        if name == "sandbox":
+            require(row["stdout_bytes"] == len(worker.SANDBOX_SUCCESS)
+                    and row["stdout_sha256"] == base.digest(worker.SANDBOX_SUCCESS))
+    if sandbox:
+        require(value["sandbox"] is True
+                and value["mkosi_executed"] is (attempted == len(names))
+                and value["namespaces_validated"] is (len(checks) == len(names))
+                and (value["failure_kind"] is None if value["result"] == "pass"
+                     else value["failure_kind"] in worker.FAILURE_KINDS))
     if value["result"] == "pass":
         require(value["stage"] == "complete" and attempted == len(checks) == len(names))
     else:
@@ -83,12 +98,19 @@ def execute(files, receipt, call):
               "image_archive_sha256": receipt["files"]["image.tar"]["sha256"],
               "config_sha256": receipt["config_sha256"], "layer_sha256s": receipt["layer_sha256s"],
               **{name: False for name in worker.FALSE_CLAIMS}}
+    if receipt.get("sandbox") is True:
+        report.update(schema="nib.mkosi-tools-container-run/v2", sandbox=True, mkosi_build_executed=False,
+                      mkosi_executed=None, namespaces_validated=False)
     spec = {"tag_prefix": "nib-tools-startup-probe", "name_prefix": "nib-tools-probe-",
             "label_key": "org.nib.tools-probe-run", "result_key": "probe",
             "entrypoint": ["/usr/bin/python3.12", "-I", "-S", "-B", "/nib/probe.py"],
             "layers": receipt["layer_sha256s"]}
-    return runner.execute_image(files["image.tar"], receipt, call, spec, report,
-                                lambda value: validate_result(value, receipt))
+    result = runner.execute_image(files["image.tar"], receipt, call, spec, report,
+                                   lambda value: validate_result(value, receipt))
+    if receipt.get("sandbox") is True and result["probe"] is not None:
+        for name in ("mkosi_executed", "namespaces_validated"):
+            result[name] = result["probe"][name]
+    return result
 
 
 def evidence_files(report):
@@ -105,12 +127,21 @@ def evidence_files(report):
                  "Private command paths are normalized; output.log contains fixed classes, counts "
                  "and hashes, never raw process output.",
     }
+    if report.get("sandbox") is True:
+        envelope["command"] += " --sandbox"
+        envelope["notes"] = (
+            "Seven tools startup probes followed by the pinned mkosi sandbox with a fixed "
+            "synthetic namespace child. The child requires distinct user, mount, network and IPC "
+            "namespaces, loopback-only networking, read-only worker files and writable temporary "
+            "storage. No package installation, maintainer scripts, mkosi image build, ABI "
+            "qualification, boot or attestation. Output contains fixed classes and hashes only.")
     return {"run.json": base.encoded(envelope), "output.log": base.encoded(report)}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", action="store_true", required=True)
+    parser.add_argument("--sandbox", action="store_true")
     for name in ("inputs", "bundle", "output"):
         parser.add_argument("--" + name, required=True, type=Path)
     args = parser.parse_args()
@@ -125,7 +156,7 @@ def main():
             and sources[runner.prep.FILES[0]] == runner.PREPARER_SOURCE
             and sources[runner.prep.FILES[1]] == runner.SIMULATION_SOURCE)
     # Reconstruct, not merely trust hashes written beside a received archive.
-    files, receipt = prep.build(args.inputs, revision, sources)
+    files, receipt = prep.build(args.inputs, revision, sources, sandbox=args.sandbox)
     base.verify(args.bundle, files)
     report = runner.run_local(lambda call: execute(files, receipt, call))
     base.publish(args.output, evidence_files(report))
