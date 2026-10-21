@@ -31,6 +31,40 @@ inputs = load("scripts/guest_package_inputs.py")
 
 
 class BuildTests(unittest.TestCase):
+    def test_failure_diagnostics_never_exports_exception_content_or_unknown_paths(self):
+        try:
+            worker.require(False)
+        except ValueError as error:
+            error.args = ("SENSITIVE EXCEPTION TEXT",)
+            frames = worker.failure_diagnostics(error)
+        self.assertEqual(len(frames), 1)
+        self.assertEqual(frames[0]["source"], "build-worker")
+        self.assertIs(type(frames[0]["line"]), int)
+        self.assertNotIn("SENSITIVE", json.dumps(frames))
+        namespace = {}
+        exec(compile("def reject():\n raise ValueError('SECRET')\n", "/nib/snapshot.py", "exec"), namespace)
+        try:
+            namespace["reject"]()
+        except ValueError as error:
+            self.assertEqual(worker.failure_diagnostics(error), [{"source": "process-supervisor", "line": 2}])
+        self.assertEqual(worker.failure_diagnostics(ValueError("SECRET")), [])
+
+    def test_private_process_census_is_bounded_and_contains_only_counts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            proc = Path(temporary)
+            for pid, state in (("1", "R"), ("2", "Z"), ("3", "Z")):
+                (proc / pid).mkdir()
+                (proc / pid / "status").write_bytes(b"Name:\tPRIVATE\nState:\t" + state.encode() + b" (description)\n")
+            (proc / "gone").mkdir()
+            (proc / "4").mkdir()
+            counts = worker.process_states(proc)
+            self.assertEqual(counts, {"R": 1, "S": 0, "D": 0, "Z": 2, "T": 0, "t": 0, "X": 0, "I": 0})
+            for raw in (b"State: INVALID\n", b"State: Z\nState: R\n", b"x" * 16385, b"State:\n"):
+                (proc / "2" / "status").write_bytes(raw)
+                self.assertIsNone(worker.process_states(proc))
+            with mock.patch.object(worker.Path, "iterdir", return_value=iter([proc / str(n) for n in range(257)])):
+                self.assertIsNone(worker.process_states(proc))
+
     def test_install_preserves_bounded_failure_and_does_not_accept_it(self):
         processes = host.base.processes
         report = {"installer_exit_code": None}
