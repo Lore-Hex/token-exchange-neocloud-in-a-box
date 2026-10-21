@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S -B host/probe-build-resources.py --source-sha256 2b740ef5b1ecbc87cb3a078fcbb081017f7db5c9600c9956f97cc52330ad9fdc --git-sha 53b02abeb57816d4a79ec9de6d0bb274133e7bec --output PRIVATE",
+  "ended_utc": "2026-10-21T16:40:13.121248Z",
+  "execution": "software",
+  "git_sha": "53b02abeb57816d4a79ec9de6d0bb274133e7bec",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "not-used",
+    "machine": "root-linux-amd64",
+    "provider": "operator-approved-test-host"
+  },
+  "notes": "Synthetic resource-controller probe only. Own fresh cgroup, no parent controller changes, no host account changes, no package installation or inference. Source digest supplied from the committed local checkout.",
+  "phase": "P3",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-21T16:40:13.027375Z",
+  "task": "T1"
+}
