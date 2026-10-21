@@ -15,6 +15,14 @@ import time
 TOOL_PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 
 
+class OutputLimitExceeded(ValueError):
+    """Keep only the already-bounded prefix; callers still fail and clean up."""
+
+    def __init__(self, stream, stdout, stderr):
+        super().__init__("tool output limit exceeded")
+        self.stream, self.stdout, self.stderr = stream, stdout, stderr
+
+
 def execute_process_group(args, *, env, cwd=None, timeout=1800, capture_output=True,
                           stdout_file=None, max_output_bytes=None, stdin=None):
     """Bound the entire local tool tree, including Docker CLI plugins."""
@@ -89,7 +97,11 @@ def bounded_output(process, args, timeout, output, limit):
                     continue
                 sizes[pipe] += len(chunk)
                 if sizes[pipe] > (limit if pipe is process.stdout else 65536):
-                    raise ValueError("tool output limit exceeded")
+                    cap = limit if pipe is process.stdout else 65536
+                    if pipe is not process.stdout or output is None:
+                        buffers[pipe].extend(chunk[:max(0, cap - len(buffers[pipe]))])
+                    raise OutputLimitExceeded("stdout" if pipe is process.stdout else "stderr",
+                                              bytes(buffers[process.stdout]), bytes(buffers[process.stderr]))
                 if pipe is process.stdout and output is not None:
                     if output.write(chunk) != len(chunk):
                         raise ValueError("short tool output write")

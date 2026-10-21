@@ -13,6 +13,21 @@ from e2e import prove, snapshot
 
 
 class SnapshotTest(unittest.TestCase):
+    def test_output_limit_retains_only_bounded_prefix_and_reaps_process(self):
+        for stream, descriptor, cap in (("stdout", 1, 1024), ("stderr", 2, 65536)):
+            with self.subTest(stream=stream), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                code = ("import os,time; open('pid','w').write(str(os.getpid())); "
+                        f"os.write({descriptor}, b'x' * 70000); time.sleep(60)")
+                with self.assertRaises(snapshot.OutputLimitExceeded) as caught:
+                    snapshot.execute_process_group([sys.executable, "-I", "-c", code],
+                        env=os.environ, cwd=root, timeout=5, max_output_bytes=1024)
+                self.assertEqual(caught.exception.stream, stream)
+                self.assertEqual(getattr(caught.exception, stream), b"x" * cap)
+                self.assertEqual(getattr(caught.exception, "stderr" if stream == "stdout" else "stdout"), b"")
+                with self.assertRaises(ProcessLookupError):
+                    os.killpg(int((root / "pid").read_text()), 0)
+
     def commit(self, root, env):
         snapshot.git(root, env, "add", ".", stdout=subprocess.PIPE)
         snapshot.git(root, env, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",

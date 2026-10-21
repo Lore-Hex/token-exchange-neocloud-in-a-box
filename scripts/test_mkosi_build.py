@@ -31,6 +31,33 @@ inputs = load("scripts/guest_package_inputs.py")
 
 
 class BuildTests(unittest.TestCase):
+    def test_install_preserves_bounded_failure_and_does_not_accept_it(self):
+        processes = host.base.processes
+        report = {"installer_exit_code": None}
+        error = processes.OutputLimitExceeded("stderr", b"public stdout", b"public stderr")
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            with mock.patch.object(processes, "execute_process_group", side_effect=error) as execute:
+                with self.assertRaises(processes.OutputLimitExceeded):
+                    worker.install(processes, output, report)
+            self.assertEqual(report, {"installer_exit_code": None, "output_limit_stream": "stderr"})
+            self.assertEqual((output / "installer.stdout").read_bytes(), b"public stdout")
+            self.assertEqual((output / "installer.stderr").read_bytes(), b"public stderr")
+            self.assertEqual(execute.call_args.kwargs["max_output_bytes"], 2 << 20)
+            self.assertEqual(execute.call_args.kwargs["timeout"], 1800)
+
+    def test_install_records_nonzero_exit_without_success(self):
+        processes = host.base.processes
+        report = {}
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            with mock.patch.object(processes, "execute_process_group", return_value=
+                                   subprocess.CompletedProcess([], 1, b"", b"public failure")):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    worker.install(processes, output, report)
+            self.assertEqual(report, {"installer_exit_code": 1})
+            self.assertEqual((output / "installer.stderr").read_bytes(), b"public failure")
+
     def test_candidate_tools_alias_names_only_the_private_root(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()

@@ -25,7 +25,7 @@ BUILDER = "scripts/prepare-engine-application.py"
 BOOTSTRAP_FILE = "scripts/engine_python_bootstrap.py"
 SMOKE = "scripts/engine_import_smoke.py"
 TESTS = ("scripts/test_engine_python_bootstrap.py", "scripts/test_engine_import_smoke.py", "scripts/test_engine_callsite.py")
-BUILDER_SHA = "ca47f3d9ac40c82763d86a342409ff36bd4918072c6f3728639aae46ce7c3c60"
+BUILDER_SHA = "f6e068f1aa8845dbe5cd7779fef54405df61d60b7d5388b428173c5bf9a6da73"
 BOOTSTRAP_SHA = "4287c42d3d34f42a2e89901600c11c2fe20669f3bb6b5b120f2671b992a5df92"
 SMOKE_SHA = "57b7fa12bc7cb972ca0f17a251aa424d9f164e3b43082b38fe6b9d239c010307"
 

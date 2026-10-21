@@ -55,6 +55,25 @@ def prepare_configuration(config, prepared):
     (config / "tools-tree").symlink_to("/", target_is_directory=True)
 
 
+def install(processes, output, report):
+    try:
+        result = processes.execute_process_group(COMMAND, env=installation_environment(),
+            timeout=1800, max_output_bytes=2 << 20, stdin=subprocess.DEVNULL)
+    except processes.OutputLimitExceeded as error:
+        # Only public package/source diagnostics occur in this isolated build.
+        # Preserve the bounded prefix, never an exception message or locals.
+        report["output_limit_stream"] = error.stream
+        (output / "installer.stdout").write_bytes(error.stdout)
+        (output / "installer.stderr").write_bytes(error.stderr)
+        raise
+    report["installer_exit_code"] = result.returncode
+    if result.stdout:
+        (output / "installer.stdout").write_bytes(result.stdout)
+    if result.stderr:
+        (output / "installer.stderr").write_bytes(result.stderr)
+    result.check_returncode()
+
+
 def main():
     stage = "preflight"
     report = {"schema": "nib.mkosi-install-worker/v1", "result": "fail", "stage": stage,
@@ -83,17 +102,7 @@ def main():
         prepare_configuration(config, Path("/nib/prepared"))
         stage = "installation"
         report["package_installation_executed"] = None
-        result = processes.execute_process_group(COMMAND, env=installation_environment(),
-            timeout=1800, max_output_bytes=2 << 20,
-            stdin=subprocess.DEVNULL)
-        report["installer_exit_code"] = result.returncode
-        # This is a source/package-only lab with no user data or credentials.
-        # Keep bounded local diagnostics separately from the public typed result.
-        if result.stdout:
-            Path("/out/installer.stdout").write_bytes(result.stdout)
-        if result.stderr:
-            Path("/out/installer.stderr").write_bytes(result.stderr)
-        result.check_returncode()
+        install(processes, Path("/out"), report)
         stage = "inventory"
         raw = inputs.regular(Path("/work/output/rootfs/var/lib/dpkg/status"), 8 << 20)
         report["installed_packages"] = configured(raw, expected, inputs.paragraphs)
@@ -101,6 +110,7 @@ def main():
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         report["failure_kind"] = ("timeout" if isinstance(exc, subprocess.TimeoutExpired)
                                   else "process-exit" if isinstance(exc, subprocess.CalledProcessError)
+                                  else "output-limit" if "output_limit_stream" in report
                                   else "rejected")
     report["stage"] = stage
     Path("/out/result.json").write_text(json.dumps(report, sort_keys=True) + "\n")

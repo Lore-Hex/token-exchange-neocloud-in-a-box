@@ -129,3 +129,27 @@ is read. The network namespace remains isolated and package sources remain
 local. Tests cover tar/inventory consistency, deterministic bytes and modes,
 repeated creation, source collisions and alias rejection. Full `make check`
 and a fresh bounded native run remain required.
+
+## Fifth native run: bounded diagnostics
+
+[Run 39672987060](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39672987060)
+failed in the installation stage without returning an installer exit code or
+diagnostic. The original
+[result](../../evidence/p3/2026-10-21-native-build-diagnostic/result.json) and
+[resource receipt](../../evidence/p3/2026-10-21-native-build-diagnostic/evidence-resources.json)
+prove cleanup and no OOM, but do not prove the underlying installer failure.
+Inspection found that an output-limit exception discards the entire bounded
+prefix. This is a possible cause, not a confirmed attribution for that run.
+
+The process supervisor now raises a typed output-limit exception carrying only
+the bounded prefix and fixed stream name. The offline package worker preserves
+those public source/package diagnostics and still fails. The stdout limit,
+64 KiB stderr limit, timeout, process cleanup and resource limits are unchanged.
+Real subprocess tests cover both overflowing streams, exact prefix bounds and
+process-group absence. Worker tests prove diagnostic capture does not convert
+either overflow or nonzero exit to success. A fresh native run is required;
+installation, DKMS, boot and reproducibility remain unproven.
+
+The shared supervisor is source-pinned by the engine recorder. Its five
+transitive source-hash constants are refreshed to the exact reviewed bytes;
+historical receipts and producer-specific replay fixtures are unchanged.
