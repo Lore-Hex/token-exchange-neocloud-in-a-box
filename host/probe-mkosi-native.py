@@ -54,7 +54,7 @@ def probe(payload, execute):
               "maintainer_scripts_executed": False, "mkosi_build_executed": False,
               "bootable": False, "deployable": False}
     try:
-        argv = worker.sandbox_command(payload)
+        argv = worker.sandbox_command(payload, namespace_only_proc=True)
         report.update(stage="sandbox", mkosi_executed=True)
         result = execute(argv, env=dict(worker.ENV), timeout=10,
                          max_output_bytes=worker.MAX_OUTPUT, stdin=subprocess.DEVNULL)

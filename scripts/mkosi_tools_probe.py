@@ -71,13 +71,15 @@ def validate_input(value):
         require(isinstance(value[name], str) and re.fullmatch("[0-9a-f]{64}", value[name]))
 
 
-def sandbox_command(payload="/nib"):
+def sandbox_command(payload="/nib", *, namespace_only_proc=False):
     # Exact flags from pinned mkosi 27.1 sandbox.py. The child checks that
     # --unshare-net really changed namespaces; upstream permits skipping it.
+    require(type(namespace_only_proc) is bool)
     original = [os.readlink("/proc/self/ns/" + name) for name in ("user", "mnt", "net", "ipc")]
+    proc = "/proc/self/ns" if namespace_only_proc else "/proc"
     argv = ["/usr/bin/python3.12", "-I", "-S", "-B", str(Path(payload) / "mkosi-sandbox.py")]
     for source, target in (("/usr", "/usr"), ("/lib", "/lib"), ("/lib64", "/lib64"),
-                           (str(payload), "/nib"), ("/proc", "/proc")):
+                           (str(payload), "/nib"), (proc, proc)):
         argv += ["--ro-bind", source, target]
     return argv + ["--dev", "/dev", "--tmpfs", "/tmp", "--unshare-net", "--unshare-ipc",
                    "--become-root", "/usr/bin/python3.12", "-I", "-S", "-B",

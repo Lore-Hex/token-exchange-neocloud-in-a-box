@@ -13,7 +13,8 @@ receives a fresh private directory with only the verified sandbox, existing
 synthetic checker and upstream licenses. Its environment contains no credentials.
 
 The existing [command builder](../../scripts/mkosi_tools_probe.py) mounts the
-runtime and payload read-only, creates private temporary storage, and invokes
+runtime and payload read-only, exposes only its own `/proc/self/ns` handles
+(not host process environments or descriptors), creates private temporary storage, and invokes
 the [checker](../../scripts/mkosi_namespace_check.py). Success requires distinct
 user, mount, network and IPC namespaces, only loopback networking, EROFS for
 payload writes, and writable private temporary storage. Upstream's optional
@@ -35,6 +36,7 @@ or confidential attestation. The offline pinned tools path stays unchanged.
 
 Source: [`mkosi/sandbox.py` at ecf7f570](https://github.com/systemd/mkosi/blob/ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b/mkosi/sandbox.py),
 `enter`, `acquire_privileges` and the documented CLI. The shared command is
-unchanged except that its read-only `/nib` payload may be a fresh host directory.
+unchanged for the restricted container. This native-only invocation maps a fresh
+read-only `/nib` payload and restricts procfs exposure to `/proc/self/ns`.
 
 Tests: `python -B -m unittest discover -s scripts -p 'test_mkosi*.py'`.

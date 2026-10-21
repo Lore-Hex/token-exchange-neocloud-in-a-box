@@ -3,7 +3,6 @@
 import json
 from pathlib import Path
 import subprocess
-import tempfile
 import types
 import unittest
 from unittest import mock
@@ -31,7 +30,9 @@ class NativeProbeTests(unittest.TestCase):
         self.assertEqual(argv[:5], ["/usr/bin/python3.12", "-I", "-S", "-B", "/private/payload/mkosi-sandbox.py"])
         self.assertEqual(argv[5:20], [part for src, dst in
             (("/usr", "/usr"), ("/lib", "/lib"), ("/lib64", "/lib64"),
-             ("/private/payload", "/nib"), ("/proc", "/proc")) for part in ("--ro-bind", src, dst)])
+             ("/private/payload", "/nib"), ("/proc/self/ns", "/proc/self/ns"))
+            for part in ("--ro-bind", src, dst)])
+        self.assertNotIn("/proc", argv)
         self.assertEqual(argv[20:], ["--dev", "/dev", "--tmpfs", "/tmp", "--unshare-net", "--unshare-ipc",
             "--become-root", "/usr/bin/python3.12", "-I", "-S", "-B", "/nib/namespace-check.py", *ORIGINAL])
         self.assertEqual(execute.call_args.kwargs, {"env": host.worker.ENV, "timeout": 10,
