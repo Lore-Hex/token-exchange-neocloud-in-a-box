@@ -85,3 +85,22 @@ This is consistent with the diagnostic deliberately exposing no GPU. Do not
 spoof a CUDA platform or relax the checkpoint-16 success criterion. Import
 progress is observed; full argument validation, engine startup, workers,
 inference and GPU ABI still require the separately gated hardware run.
+
+## Current-Main Integration Rerun
+
+The integrated producer `f591555cc03dc09084ec7100cdc7a5552a0ca65c` passed all
+916 Python tests, both Go race-test builds and the full static/schema/docs/build
+and secret checks. Fake E2E again passed 18 provider checks and rejected 14
+attestation mutations, with container and image cleanup confirmed.
+
+The [exact-image rerun](../../evidence/p2/2026-10-21-cpu-integrated-opencv-f591555/run.json)
+ran on 2026-10-21, 00:09:00-00:18:18 UTC. Its unchanged
+[output](../../evidence/p2/2026-10-21-cpu-integrated-opencv-f591555/output.log)
+again reports five completed application stages, checkpoint 13, all ten state
+mismatches false, and the same terminal device-configuration source fingerprint
+and line. The recorder confirmed cleanup; an independent label-filtered Docker
+inventory found no remaining CPU diagnostic containers. The result remains
+`fail` and `entry_pass=false`, not inference or qualification success. Original
+earlier runs are preserved. Offline validation at the exact producer reports
+`record_valid=true`, `entry_pass=false`. No GPU platform was spoofed or guard
+weakened.
