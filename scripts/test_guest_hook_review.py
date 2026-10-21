@@ -112,6 +112,26 @@ class HookReviewTests(unittest.TestCase):
         self.assertEqual((value["package_count"], value["control_members"], value["data_hooks"]), (145, 180, 11))
         self.assertFalse(value["installation_authorized"])
 
+    def test_cli_publishes_complete_content_free_evidence(self):
+        lock, rows = self.inventory()
+        sources = {review.LOCK: lock, review.POLICY: base.encoded(policy(lock, rows))}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            argv = ["review", "--archives", str(root / "archives"), "--output", str(root / "output")]
+            with mock.patch.object(review.sys, "argv", argv), \
+                    mock.patch.object(review.tools, "committed", return_value=("a" * 40, sources)), \
+                    mock.patch.dict(review.main.__globals__, inventory=mock.Mock(return_value=rows)), \
+                    mock.patch.object(base, "publish") as publish, mock.patch("builtins.print"):
+                review.main()
+            files = publish.call_args.args[1]
+            record = json.loads(files["run.json"])
+            schema = json.loads((ROOT / "schemas/evidence.schema.json").read_bytes())
+            self.assertTrue(set(schema["required"]) <= set(record))
+            self.assertEqual(set(record["host"]), set(schema["$defs"]["host"]["required"]))
+            self.assertEqual(record["execution"], "software")
+            self.assertFalse(record["hardware_validated"])
+            self.assertNotIn(tmp, files["run.json"].decode())
+
 
 if __name__ == "__main__":
     unittest.main()
