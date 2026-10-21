@@ -23,7 +23,7 @@ jobs:
       - name: Fetch public immutable source, not executable until authenticated
         run: |
           test "$RUNNER_ENVIRONMENT" = github-hosted
-          mkdir -m 700 build/native-mkosi
+          mkdir -p -m 700 build/native-mkosi
           curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
             --max-time 60 --max-filesize 473225 \
             https://codeload.github.com/systemd/mkosi/tar.gz/ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b \

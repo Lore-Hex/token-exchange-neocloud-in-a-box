@@ -40,3 +40,14 @@ unchanged for the restricted container. This native-only invocation maps a fresh
 read-only `/nib` payload and restricts procfs exposure to `/proc/self/ns`.
 
 Tests: `python -B -m unittest discover -s scripts -p 'test_mkosi*.py'`.
+
+## First Workflow Attempt
+
+[Run 39610247599](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39610247599)
+on `efff3c789f43940e9a84ff9620551636c662ca54` failed before downloading or
+executing anything: the fresh checkout had no `build` parent directory.
+The setup now creates that parent. A regression test executes the actual YAML
+setup shell in an empty directory with only the download replaced by a marker;
+it also confirms that a non-hosted runner fails before directory creation or
+download. This attempt produced no namespace evidence and is not an isolation
+failure or success. The workflow must be rerun after the correction merges.
