@@ -444,6 +444,46 @@ class ContainerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             runner.validate_result(changed, self.receipt, self.guest)
 
+    def test_tools_target_uses_its_own_lock_not_the_guest_lock(self):
+        path, scope = prep.target_spec("mkosi-tools")
+        self.assertEqual(scope, "mkosi-build-tools-dependency-coverage")
+        self.receipt["target_profile"] = "mkosi-tools"
+        self.receipt["source_hashes"][path] = "f" * 64
+        with self.assertRaises(ValueError):
+            runner.validate_result(self.result, self.receipt, self.guest)
+        self.result["guest_lock_sha256"] = "f" * 64
+        runner.validate_result(self.result, self.receipt, self.guest)
+        result = runner.execute(b"verified fixture", self.receipt, self.guest, self.call)
+        self.assertEqual(result["target_profile"], "mkosi-tools")
+        self.assertEqual((result["result"], result["cleanup"]), ("pass", "confirmed"))
+        self.receipt["target_profile"] = "unreviewed"
+        with self.assertRaises(ValueError):
+            runner.validate_result(self.result, self.receipt, self.guest)
+
+    def test_target_selection_binds_committed_source_and_rejects_paths(self):
+        with mock.patch.object(prep, "committed", return_value=("a" * 40, {})) as committed:
+            prep.target_sources("guest")
+            committed.assert_called_once_with(())
+            committed.reset_mock()
+            prep.target_sources("mkosi-tools")
+            committed.assert_called_once_with(("image/inputs/mkosi-tools-ubuntu2404.json",))
+        for value in ("/tmp/lock", "../lock", "all", "", None):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                prep.target_spec(value)
+
+    def test_evidence_preserves_failure_and_reports_simulation_only(self):
+        result = {"git_sha": "a" * 40, "started_at": "2026-10-21T00:00:00Z",
+                  "finished_at": "2026-10-21T00:00:01Z", "result": "fail", "stage": "resolve"}
+        files = runner.evidence_files(result, "mkosi-tools")
+        record = json.loads(files["run.json"])
+        self.assertEqual(record["result"], "fail")
+        self.assertEqual(record["git_sha"], result["git_sha"])
+        self.assertEqual(record["execution"], "software")
+        self.assertFalse(record["hardware_validated"])
+        self.assertIn("--target mkosi-tools", record["command"])
+        self.assertEqual(files["report.json"], files["output.log"])
+        self.assertEqual(json.loads(files["output.log"]), result)
+
     def test_runtime_policy_rejects_network_mounts_privileges_or_credentials(self):
         for key, value in (("NetworkMode", "host"), ("Privileged", True), ("Binds", ["/PRIVATE:/x"]),
                            ("Memory", 0), ("PidsLimit", 0), ("DeviceRequests", [{}]),

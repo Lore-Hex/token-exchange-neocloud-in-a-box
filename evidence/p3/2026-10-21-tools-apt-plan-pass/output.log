@@ -1,0 +1,36 @@
+{
+  "bootable": false,
+  "cleanup": "confirmed",
+  "config_sha256": "2621ab33d54e7a7befa9973fb63700b50b8ed8b9e4803a7fb9e414a6026a2890",
+  "deployable": false,
+  "finished_at": "2026-10-21T03:29:35Z",
+  "git_sha": "a4ecfe11d5051f873d4efacb3eb37d647e86219c",
+  "image_archive_sha256": "4d7059d32b9e679dad2c7a5b2151e05decddcf38419a8fe35e76f7ee964ad482",
+  "installable_verified": false,
+  "layer_sha256": "1e24c9b9f84f9a557d21cd037082a05e9ee130d49d45adf0ce88bea1d9d8d63b",
+  "result": "pass",
+  "schema": "nib.apt-container-run/v2",
+  "simulation": {
+    "bootable": false,
+    "deployable": false,
+    "diagnostic": null,
+    "git_sha": "a4ecfe11d5051f873d4efacb3eb37d647e86219c",
+    "guest_lock_sha256": "0ad871ad797954c2a107a196aa31e8543931cfe947fa919b24fdbcd3737d9b90",
+    "installable_verified": false,
+    "maintainer_scripts_executed": false,
+    "package_installation_executed": false,
+    "plan": {
+      "configured": 203,
+      "installed": 203,
+      "plan_sha256": "5299b5a5d99c3f2012021c958ec03d2c93beb7382a122f851491289a77f34974",
+      "removed": 0
+    },
+    "result": "pass",
+    "schema": "nib.apt-simulation/v2",
+    "stage": "complete",
+    "target_packages": 203
+  },
+  "stage": "complete",
+  "started_at": "2026-10-21T03:29:30Z",
+  "target_profile": "mkosi-tools"
+}

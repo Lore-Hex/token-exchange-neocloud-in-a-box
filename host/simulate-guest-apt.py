@@ -76,13 +76,14 @@ def validate_container(row, tag, entrypoint=ENTRYPOINT):
 
 
 def validate_result(result, receipt, guest):
+    target_path, _ = prep.target_spec(receipt.get("target_profile", "guest"))
     keys = {"schema", "result", "stage", "git_sha", "guest_lock_sha256",
             "target_packages", "plan", "diagnostic", "package_installation_executed",
             "maintainer_scripts_executed", "installable_verified", "bootable", "deployable"}
     require(isinstance(result, dict) and set(result) == keys
             and result["schema"] == "nib.apt-simulation/v2"
             and result["git_sha"] == receipt["git_sha"]
-            and result["guest_lock_sha256"] == receipt["source_hashes"][prep.FILES[-1]]
+            and result["guest_lock_sha256"] == receipt["source_hashes"][target_path]
             and type(result["target_packages"]) is int
             and result["target_packages"] == len(guest["packages"]))
     require(all(result[k] is False for k in ("package_installation_executed",
@@ -110,6 +111,9 @@ def execute(image, receipt, guest, call):
               "config_sha256": receipt["config_sha256"], "layer_sha256": receipt["layer_sha256"],
               "simulation": None, "cleanup": "not-created",
               "installable_verified": False, "bootable": False, "deployable": False}
+    if "target_profile" in receipt:
+        prep.target_spec(receipt["target_profile"])
+        report["target_profile"] = receipt["target_profile"]
     spec = {"tag_prefix": "nib-apt-simulation", "name_prefix": "nib-apt-",
             "label_key": "org.nib.apt-run", "entrypoint": ENTRYPOINT,
             "layers": [receipt["layer_sha256"]], "result_key": "simulation"}
@@ -238,22 +242,40 @@ def run_local(experiment):
     return result
 
 
+def evidence_files(result, target):
+    prep.target_spec(target)
+    record = {"schema": "nib.evidence/v1", "phase": "P3", "task": "T1",
+              "git_sha": result["git_sha"], "result": result["result"],
+              "started_utc": result["started_at"], "ended_utc": result["finished_at"],
+              "execution": "software", "hardware_validated": False,
+              "host": {"provider": "local-docker", "machine": "linux-amd64",
+                       "gpus": "none", "driver": None, "cuda": None},
+              "command": "python3 -I host/simulate-guest-apt.py --run --target " + target
+                         + " --metadata PRIVATE --archives PRIVATE --bundle PRIVATE --output PRIVATE",
+              "notes": "Offline APT dependency simulation only; no package installation, maintainer scripts, "
+                       "mkosi build, boot, hardware or attestation. Private paths normalized. "
+                       "The legacy guest_lock_sha256 field binds the explicitly selected target lock."}
+    output = base.encoded(result)
+    return {"report.json": output, "output.log": output, "run.json": base.encoded(record)}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", action="store_true", required=True,
                         help="explicitly authorize this local, CPU-only Docker execution")
     for name in ("metadata", "archives", "bundle", "output"):
         parser.add_argument("--" + name, required=True, type=Path)
+    parser.add_argument("--target", choices=tuple(prep.TARGETS), default="guest")
     args = parser.parse_args()
     prep.separate_output(args.output, (args.metadata, args.archives, args.bundle))
     require(not args.output.exists() and not args.output.is_symlink())
-    revision, sources = prep.committed()
+    revision, sources = prep.target_sources(args.target)
     require(sources[prep.FILES[0]] == PREPARER_SOURCE and sources[prep.FILES[1]] == SIMULATION_SOURCE)
-    files, receipt = prep.build(args.metadata, args.archives, revision, sources)
+    files, receipt = prep.build(args.metadata, args.archives, revision, sources, target=args.target)
     base.verify(args.bundle, files)
     result = run_local(lambda call: execute(files["image.tar"], receipt,
-                       json.loads(sources[prep.FILES[-1]]), call))
-    base.publish(args.output, {"report.json": base.encoded(result)})
+                       json.loads(sources[prep.target_spec(args.target)[0]]), call))
+    base.publish(args.output, evidence_files(result, args.target))
     print(json.dumps({k: result[k] for k in ("result", "stage", "cleanup", "git_sha",
                       "installable_verified", "deployable")}, sort_keys=True))
     return 0 if result["result"] == "pass" else 1

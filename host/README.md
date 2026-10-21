@@ -67,6 +67,10 @@ These setup results are not hardware qualification or a model-serving result.
 `probe-mkosi-tools.py` reconstructs and checks the prepared tools image before
 running seven fixed startup checks in the shared network-isolated Docker
 sandbox. See [the procedure and limits](../docs/tasks/p3-t1-tools-startup.md).
+
+`simulate-guest-apt.py --target mkosi-tools` reuses the offline resolver for
+the expanded build-tools package lock, without installation. See the
+[target-selection and evidence contract](../docs/tasks/p3-t1-tools-apt-plan.md).
 This proves neither a guest build nor confidential hardware acceptance.
 
 ## Approved weight staging

@@ -38,6 +38,10 @@ FILES = (
     "scripts/e2e/snapshot.py", "host/simulate-guest-apt.py", "image/inputs/apt-tools-ubuntu2404.json",
     "image/inputs/r595-ubuntu2404.json",
 )
+TARGETS = {
+    "guest": ("image/inputs/r595-ubuntu2404.json", "kernel-driver-build-dependency-coverage"),
+    "mkosi-tools": ("image/inputs/mkosi-tools-ubuntu2404.json", "mkosi-build-tools-dependency-coverage"),
+}
 
 
 def bootstrap():
@@ -333,10 +337,21 @@ def docker_archive(layers, revision, *, entrypoint, purpose, tag_prefix):
     return image, config_hash, tag, layer_hashes
 
 
-def build(metadata, archives, revision, sources):
-    tools, guest = (json.loads(sources[p]) for p in FILES[-2:])
+def target_spec(target):
+    require(type(target) is str and target in TARGETS)
+    return TARGETS[target]
+
+
+def target_sources(target):
+    path, _ = target_spec(target)
+    return committed(() if target == "guest" else (path,))
+
+
+def build(metadata, archives, revision, sources, *, target="guest"):
+    target_path, scope = target_spec(target)
+    tools, guest = (json.loads(sources[p]) for p in (FILES[-2], target_path))
     base.inputs.check(tools, metadata, scope="apt-tools-dependency-coverage")
-    base.inputs.check(guest, metadata)
+    base.inputs.check(guest, metadata, scope=scope)
     require(len(tools["packages"]) <= 128 and tools["archive_bytes"] <= 64 << 20)
     tree = {p: {"kind": "link", "target": "usr/" + p, "mode": 0o777}
             for p in ("bin", "sbin", "lib", "lib64")}
@@ -362,7 +377,7 @@ def build(metadata, archives, revision, sources):
     runtime = {"schema": "nib.apt-simulation-input/v1", "git_sha": revision,
                "source_hashes": bindings, "targets": targets,
                "snapshot_sha256": bindings[FILES[4]], "apt_version": "2.8.3",
-               "guest_lock_sha256": bindings[FILES[-1]]}
+               "guest_lock_sha256": bindings[target_path]}
     extras = {
         "nib/simulate.py": sources[FILES[1]],
         "nib/snapshot.py": sources[FILES[4]],
@@ -390,6 +405,8 @@ def build(metadata, archives, revision, sources):
         "apt_simulation_executed": False, "installable_verified": False,
         "complete_mkosi_tools_tree": False, "bootable": False, "deployable": False,
     }
+    if target != "guest":
+        report["target_profile"] = target
     return {"image.tar": image, "receipt.json": encoded(report),
             "root-inventory.json": encoded(observation(tree))}, report
 
@@ -398,14 +415,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--metadata", required=True, type=Path)
     parser.add_argument("--archives", required=True, type=Path)
+    parser.add_argument("--target", choices=tuple(TARGETS), default="guest")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--output", type=Path)
     mode.add_argument("--verify", type=Path)
     args = parser.parse_args()
     if args.output:
         separate_output(args.output, (args.metadata, args.archives))
-    revision, sources = committed()
-    files, report = build(args.metadata, args.archives, revision, sources)
+    revision, sources = target_sources(args.target)
+    files, report = build(args.metadata, args.archives, revision, sources, target=args.target)
     if args.output:
         base.publish(args.output, files)
     base.verify(args.output or args.verify, files)
