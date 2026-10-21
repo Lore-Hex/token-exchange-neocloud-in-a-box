@@ -2,6 +2,11 @@ name: Native pinned mkosi tools probe
 
 on:
   workflow_dispatch:
+    inputs:
+      pid_isolation:
+        description: Also verify the pinned PID namespace and private procfs
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -31,11 +36,15 @@ jobs:
           /usr/bin/python3.10 -I -S -B scripts/fetch_mkosi_tools.py \
             --output "$PWD/build/native-tools/inputs"
       - name: Test pinned tools in native isolation
+        env:
+          PID_ISOLATION: ${{ inputs.pid_isolation }}
         run: |
+          args=()
+          if [ "$PID_ISOLATION" = true ]; then args+=(--pid-isolation); fi
           /usr/bin/python3.10 -I -S -B host/probe-mkosi-native-tools.py \
             --inputs "$PWD/build/native-tools/inputs" \
             --archive "$PWD/build/native-tools/source.tar.gz" \
-            --output "$PWD/build/native-tools/evidence"
+            --output "$PWD/build/native-tools/evidence" "${args[@]}"
       - name: Preserve content-free probe evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4

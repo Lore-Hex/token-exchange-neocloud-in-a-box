@@ -1,8 +1,16 @@
 # Native Pinned Tools Runtime
 
-Status: implemented and synthetic-tested; a real workflow run is required.
+Status: the seven-tool native runtime probe passed on October 21, 2026;
+the additional PID-isolation mode is implemented and synthetic-tested, pending
+its own real workflow run.
 This builds on the [native namespace proof](p3-t1-native-mkosi-probe.md), not
 on a relaxed Docker policy. It does not install packages or build a guest.
+
+The [unaltered result](../../evidence/p3/2026-10-21-native-pinned-tools/result.json)
+and [run record](../../evidence/p3/2026-10-21-native-pinned-tools/run.json) are from
+[workflow 39617825016](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39617825016),
+merged main `a56acf50019c4ae35fc463e33ec767396b8787bc`. All seven startups,
+namespace checks, process cleanup and temporary-payload removal passed.
 
 ## Inputs and Isolation
 
@@ -40,11 +48,35 @@ group has a 90-second deadline and 64 KiB output ceiling. Only the exact success
 marker is accepted; no raw subprocess diagnostics are persisted. Evidence
 contains lock/root/payload hashes, the fixed outcome, counts and cleanup state.
 
+## PID Isolation
+
+The separate `--pid-isolation` mode executes the pinned tools tree's
+`/usr/bin/unshare --pid --fork --mount-proc=/proc --kill-child=KILL` before the
+same worker. No additional host tool, sudo, sysctl or policy relaxation is used.
+The native workflow exposes only a boolean `pid_isolation` input; it never
+interpolates user-controlled arguments into a shell command.
+
+The worker must be PID 1 with parent PID 0 in a different PID namespace. Its
+fresh procfs must expose exactly PID 1 before the tool subprocesses begin;
+`/proc/self` and `NSpid` must agree. A host procfs, unchanged namespace, extra
+process or malformed identity stops execution before any tool starts. Both
+successful PID proof and all seven tool startups are required for the v2
+report's process-isolation claims. The original v1 mode is unchanged.
+
+The flag and lifetime semantics are from the authenticated Ubuntu
+`util-linux 2.39.3-9ubuntu6.6` package's `unshare(1)` manual and
+[upstream implementation](https://github.com/util-linux/util-linux/blob/v2.39.3/sys-utils/unshare.c).
+`--mount-proc` implies a new mount namespace; `--kill-child` kills the forked
+child when the launcher dies, and exiting PID 1 terminates its PID namespace.
+The existing outer deadline and process-group cleanup still apply. This is
+not yet proof of safe package hooks, a complete installation sandbox, resource
+limits for a build or reproducible outputs.
+
 ## Scope and Next Gates
 
 A pass establishes these fixed programs can start within this native isolation
 boundary. It does **not** establish complete ABI compatibility, a package
-installation, maintainer-hook safety, PID isolation, DKMS compilation, UKI/verity
+installation, maintainer-hook safety, DKMS compilation, UKI/verity
 generation, reproducibility, boot or attestation. The host kernel, initial
 launcher and transfer/decompression tools remain unpinned builder dependencies.
 The Ubuntu 22.04 runner is a diagnostic host, not a release-builder commitment.
