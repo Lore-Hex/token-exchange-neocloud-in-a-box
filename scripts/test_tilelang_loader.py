@@ -29,6 +29,15 @@ VALUE = "preserved"
 '''
 TVM = 'from .sibling import VALUE\n'
 NATIVE = b"synthetic native file, not loadable"
+SCRIPT = '''import sys
+_DIALECT_REGISTRY = {}
+def register_dialect(name, module_path):
+    _DIALECT_REGISTRY[name] = module_path
+class _DialectRedirectFinder:
+    pass
+if not any(isinstance(f, _DialectRedirectFinder) for f in sys.meta_path):
+    sys.meta_path.append(_DialectRedirectFinder())
+'''
 POSITIVE = '''    import tilelang.env
     import tvm
     assert tvm.VALUE == "private-tvm"
@@ -84,6 +93,69 @@ class TileLangTests(unittest.TestCase):
         result = subprocess.run([self.layout["wrapper"], "fresh"], cwd="/", capture_output=True, timeout=15)
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn(b"private-body-ran", result.stdout + result.stderr)
+
+    def dialect_fixture(self, body):
+        self.fixture(body)
+        root = self.tvm.parent
+        for name, content in {
+            "script/__init__.py": SCRIPT,
+            "script/parser/__init__.py": "",
+            "script/ir_builder/__init__.py": "",
+            "tirx/__init__.py": "",
+            "tirx/script/__init__.py": 'VALUE = "dialect"\n',
+            "tirx/script/parser/__init__.py": "",
+            "tirx/script/parser/entry.py": 'VALUE = "entry"\n',
+            "tirx/script/builder/__init__.py": "",
+            "tirx/script/builder/entry.py": 'VALUE = "builder"\n',
+            "script/tirx/real.py": 'VALUE = "physical"\n',
+            "script/relax/__init__.py": 'VALUE = "physical-package"\n',
+        }.items():
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+        override = "\nTVM_SCRIPT_SHA=" + repr(hashlib.sha256(SCRIPT.encode()).hexdigest()) + "\n"
+        (self.root / "launch.py").write_bytes(self.tilelang_source + override.encode() + self.driver.encode())
+
+    def test_dialect_aliases_keep_sealed_finder_across_spawn(self):
+        self.dialect_fixture('''    import tilelang.env, tvm.script
+    tvm.script.register_dialect("tirx", "tvm.tirx.script")
+    from tvm.script.parser.tirx.entry import VALUE
+    assert VALUE == "entry"
+    from tvm.script.ir_builder.tirx.entry import VALUE
+    assert VALUE == "builder"
+    import tvm.script.tirx
+    assert tvm.script.tirx is sys.modules["tvm.tirx.script"]
+    tvm.script.register_dialect("relax", "tvm.relax.script")
+    import tvm.script.relax
+    assert tvm.script.relax.VALUE == "physical-package"
+    assert sys.meta_path == STATE["finders"]
+    assert sys.path == LAYOUT["paths"]
+    STATE["check"]()
+''')
+        self.assertTrue(self.run_fixture("positive")["tracker"])
+
+    def test_dialect_source_drift_and_registry_tamper_reject(self):
+        for action in (
+            'tvm.script.register_dialect("evil", "os")',
+            'tvm.script.register_dialect("tirx", "os")',
+            'tvm.script._DIALECT_REGISTRY = {}',
+            'sys.modules["tvm.script"] = types.ModuleType("tvm.script")',
+            'importlib.reload(tvm.script)',
+        ):
+            with self.subTest(action=action):
+                self.dialect_fixture('    import tilelang.env, tvm.script\n    ' + action + '\n    STATE["check"]()\n')
+                self.rejected()
+        self.dialect_fixture('    import tilelang.env, tvm.script\n')
+        (self.tvm.parent / "script/__init__.py").write_text(SCRIPT + "print('private-body-ran')\n")
+        self.rejected()
+
+    def test_dialect_adapter_rejects_missing_duplicate_or_nested_registration(self):
+        site = 'if not any(isinstance(f, _DialectRedirectFinder) for f in sys.meta_path):\n    sys.meta_path.append(_DialectRedirectFinder())'
+        for source in (SCRIPT.replace(site, "pass"), SCRIPT + site + "\n",
+                       SCRIPT.replace(site, "def later():\n" + "\n".join("    " + line for line in site.splitlines()))):
+            with self.subTest(source=source), mock.patch.object(lab.bootstrap, "TVM_SCRIPT_SHA", hashlib.sha256(source.encode()).hexdigest()):
+                with self.assertRaises(ValueError):
+                    lab.bootstrap.tvm_script_code(source.encode(), "script.py", lab.helpers.require)
 
     def test_explicit_namespace_preserves_exports_across_spawn_and_fresh(self):
         self.fixture()
@@ -216,6 +288,8 @@ def public_source_audit(path):
     with zipfile.ZipFile(path) as archive:
         raw = archive.read("tilelang/env.py")
         lab.bootstrap.tilelang_env_code(raw, "pinned-tilelang-env.py", lab.helpers.require)
+        lab.bootstrap.tvm_script_code(archive.read("tilelang/3rdparty/tvm/python/tvm/script/__init__.py"),
+                                      "pinned-tvm-script.py", lab.helpers.require)
         for name, digest in (("tilelang/3rdparty/tvm/python/tvm/__init__.py", lab.bootstrap.TILELANG_TVM_SHA),
                              ("tilelang/lib/tilelang_cython_wrapper.abi3.so", lab.bootstrap.TILELANG_NATIVE_SHA)):
             lab.helpers.require(hashlib.sha256(archive.read(name)).hexdigest() == digest)

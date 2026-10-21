@@ -71,6 +71,23 @@ TILELANG_ENV_SHA = "0c1aeb8521890e4822d84052171c2573ba9d72849d45d40f21014166d0ad
 TILELANG_TVM_SHA = "0121abb909736236a4300622968c5fdced080f3b124860344a986a1cf5002943"
 TILELANG_NATIVE_SHA = "ffa5c118c75e3dabdbeff8d6ae1d91d07a08f66c8d14c449d13ba0b5f89c4604"
 TILELANG_CALLBACKS = ("_nib_tilelang_libs", "_nib_tilelang_tvm")
+TVM_SCRIPT_SHA = "dcf67eed9023c21aab21c3db4459b5f1e3adb715e5ad4d834e85700575ee2014"
+TVM_DIALECTS = {"tirx": "tvm.tirx.script", "relax": "tvm.relax.script"}
+
+
+def tvm_script_code(raw, path, require):
+    """Keep pinned TVM exports, but resolve its aliases in the sealed finder."""
+    require(hashlib.sha256(raw).hexdigest() == TVM_SCRIPT_SHA)
+    tree = ast.parse(raw, filename=path)
+    expected = ast.dump(ast.parse(
+        "if not any(isinstance(f, _DialectRedirectFinder) for f in sys.meta_path):\n"
+        "    sys.meta_path.append(_DialectRedirectFinder())").body[0])
+    matches = [node for node in ast.walk(tree) if ast.dump(node) == expected]
+    require(len(matches) == 1 and matches[0] in tree.body)
+    tree.body.remove(matches[0])
+    return compile(tree, path, "exec", flags=0, dont_inherit=True, optimize=0)
+
+
 SIX_NAMES = (
     "moves", "moves.BaseHTTPServer", "moves.CGIHTTPServer", "moves.SimpleHTTPServer",
     "moves._dummy_thread", "moves._thread", "moves.builtins", "moves.cPickle",
@@ -297,6 +314,7 @@ def install_lab(layout, helpers, checkpoint=None):
              "pattern_callback": None,
              "opencv_status": "not-loaded", "opencv_module": None, "opencv_native": None,
              "tilelang_status": "not-loaded", "tilelang_env": None, "tilelang_tvm": False,
+             "tvm_script_status": "not-loaded", "tvm_script": None, "tvm_registry": None,
              "six": {name: {"status": "not-loaded", "module": None, "importer": None,
                             "class": None, "class_fields": None, "registry": None,
                             "registry_object": None, "moved": (), "aliases": {}, "pending": set()}
@@ -307,6 +325,19 @@ def install_lab(layout, helpers, checkpoint=None):
         raise ValueError("lab Python boundary rejected")
 
     def check():
+        if state["tvm_script_status"] == "failed":
+            reject()
+        if state["tvm_script"] is not None:
+            module = state["tvm_script"]
+            registry = state["tvm_registry"]
+            if (sys.modules.get("tvm.script") is not module or (registry is not None and
+                    (vars(module).get("_DIALECT_REGISTRY") is not registry
+                     or type(registry) is not dict
+                     or any(type(k) is not str or type(v) is not str
+                            or k not in TVM_DIALECTS or v != TVM_DIALECTS[k]
+                            for k, v in registry.items())))):
+                state["tvm_script_status"] = "failed"
+                reject()
         if (state["tilelang_status"] == "failed"
                 or (state["tilelang_env"] is not None
                     and sys.modules.get("tilelang.env") is not state["tilelang_env"])):
@@ -516,6 +547,54 @@ def install_lab(layout, helpers, checkpoint=None):
                 for name in TILELANG_CALLBACKS:
                     module.__dict__.pop(name, None)
 
+    class TVMScriptSource(SourceOnly):
+        def exec_module(self, module):
+            try:
+                check()
+                require(state["tvm_script_status"] == "not-loaded"
+                        and module.__name__ == "tvm.script"
+                        and sys.modules.get("tvm.script") is module)
+                state["tvm_script_status"] = "loading"
+                state["tvm_script"] = module
+                exec(tvm_script_code(helpers.read_source(self.path, 32768), self.path, require), module.__dict__)
+                registry = vars(module).get("_DIALECT_REGISTRY")
+                require(type(registry) is dict and not registry)
+                state["tvm_registry"] = registry
+                state["tvm_script_status"] = "active"
+                check()
+            except BaseException:
+                state["tvm_script_status"] = "failed"
+                raise
+
+    class TVMAlias:
+        def __init__(self, module):
+            self.module = module
+
+        def create_module(self, spec):
+            check()
+            return self.module
+
+        def exec_module(self, module):
+            check()
+            require(module is self.module)
+
+    def tvm_alias(fullname):
+        require(state["tvm_script_status"] == "active")
+        for prefix, suffix in (("tvm.script.", ""), ("tvm.script.parser.", ".parser"),
+                               ("tvm.script.ir_builder.", ".builder")):
+            if not fullname.startswith(prefix):
+                continue
+            head, _, tail = fullname[len(prefix):].partition(".")
+            if head not in state["tvm_registry"]:
+                continue
+            require(not tail or all(part.isidentifier() for part in tail.split(".")))
+            destination = TVM_DIALECTS[head] + suffix + ("." + tail if tail else "")
+            module = importlib.import_module(destination)
+            check()
+            return importlib.util.spec_from_loader(fullname, TVMAlias(module),
+                                                  is_package=hasattr(module, "__path__"))
+        return None
+
     def tilelang_spec(fullname, path, target):
         # Torch Dynamo probes optional TVM before TileLang registers its private
         # namespace. Absence is not a boundary fault; never search other roots.
@@ -540,12 +619,19 @@ def install_lab(layout, helpers, checkpoint=None):
                     and os.path.normpath(p) == p and p.startswith(tvm_root + "/tvm")
                     and (p == tvm_root + "/tvm" or p.startswith(tvm_root + "/tvm/")) for p in path))
         spec = importlib.machinery.PathFinder.find_spec(fullname, path)
+        if (spec is None or spec.loader is None) and fullname.startswith("tvm.script."):
+            return tvm_alias(fullname)
         require(spec is not None and type(spec.loader) is importlib.machinery.SourceFileLoader
                 and spec.origin.startswith(tvm_root + "/tvm/"))
         if fullname == "tvm":
             require(spec.origin == tvm_root + "/tvm/__init__.py"
                     and hashlib.sha256(helpers.read_source(spec.origin, 32768)).hexdigest() == TILELANG_TVM_SHA)
-        spec.loader = SourceOnly(fullname, spec.origin)
+        if fullname == "tvm.script":
+            require(state["tvm_script_status"] == "not-loaded"
+                    and spec.origin == tvm_root + "/tvm/script/__init__.py")
+            spec.loader = TVMScriptSource(fullname, spec.origin)
+        else:
+            spec.loader = SourceOnly(fullname, spec.origin)
         return spec
 
     def register_metadata(cls):
