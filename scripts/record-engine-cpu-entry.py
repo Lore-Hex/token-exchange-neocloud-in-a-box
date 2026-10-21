@@ -22,7 +22,7 @@ import uuid
 ROOT = Path(__file__).absolute().parent.parent
 SCRIPT = "scripts/record-engine-cpu-entry.py"
 BASE = "scripts/record-engine-import-smoke.py"
-BASE_SHA = "f00b8598d3a456ca7103190603913be4ff85f978a6d94bd36e6e87480d079ae4"
+BASE_SHA = "25caf11b283c2b228600e89cc62afbe83d4e0c76d0dcc62045f0fb3244a1adcf"
 RUNTIME = "scripts/engine_cpu_entry.py"
 LAB = "scripts/engine_lab.py"
 LAB_BOOTSTRAP = "scripts/engine_lab_bootstrap.py"

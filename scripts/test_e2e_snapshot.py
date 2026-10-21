@@ -7,12 +7,39 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, call
 
 from e2e import prove, snapshot
 
 
 class SnapshotTest(unittest.TestCase):
+    def test_reaper_targets_only_owned_group_and_is_nonblocking_bounded(self):
+        for group in (True, 0, 1, -1, "50"):
+            with patch.object(snapshot.os, "waitpid") as wait, self.assertRaises(ValueError):
+                snapshot.reap_group_children(group)
+            wait.assert_not_called()
+        with patch.object(snapshot.os, "waitpid", side_effect=[(51, 0), (52, 0), (0, 0)]) as wait:
+            snapshot.reap_group_children(50)
+        self.assertEqual(wait.call_args_list, [call(-50, os.WNOHANG)] * 3)
+        with patch.object(snapshot.os, "waitpid", side_effect=ChildProcessError()):
+            snapshot.reap_group_children(50)
+        with patch.object(snapshot.os, "waitpid", side_effect=PermissionError()), self.assertRaises(ValueError):
+            snapshot.reap_group_children(50)
+        with patch.object(snapshot.os, "waitpid", side_effect=InterruptedError()) as wait:
+            snapshot.reap_group_children(50)
+        self.assertEqual(wait.call_count, 256)
+        with patch.object(snapshot.os, "waitpid", return_value=(51, 0)) as wait:
+            snapshot.reap_group_children(50)
+        self.assertEqual(wait.call_count, 256)
+
+    @unittest.skipUnless(sys.platform == "linux", "Linux subreaper regression; also exercised by hosted CI")
+    def test_real_adopted_zombie_masks_result_until_reaped(self):
+        fixture = Path(__file__).with_name("fixtures") / "subreaper_cleanup.py"
+        result = subprocess.run([sys.executable, "-I", "-S", str(fixture), str(Path(snapshot.__file__).resolve())],
+                                capture_output=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertEqual(result.stdout, b"old-rejected new-reaped exit-status-preserved\n")
+
     def test_output_limit_retains_only_bounded_prefix_and_reaps_process(self):
         for stream, descriptor, cap in (("stdout", 1, 1024), ("stderr", 2, 65536)):
             with self.subTest(stream=stream), tempfile.TemporaryDirectory() as directory:

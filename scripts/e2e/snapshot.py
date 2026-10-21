@@ -66,6 +66,7 @@ def cleanup_process_group(process):
                 pipe.close()
     deadline = time.monotonic() + 5
     while True:
+        reap_group_children(process.pid)
         try:
             os.killpg(process.pid, 0)
         except ProcessLookupError:
@@ -75,6 +76,26 @@ def cleanup_process_group(process):
         if time.monotonic() >= deadline:
             raise ValueError("tool process-group absence unproven")
         time.sleep(0.05)
+
+
+def reap_group_children(group):
+    """PID 1/subreapers own orphaned grandchildren; reap only this tool group."""
+    if type(group) is not int or group <= 1:
+        raise ValueError("tool process-group absence unproven")
+    # waitpid(-pgid, WNOHANG), never waitpid(-1): unrelated callers retain their
+    # own child statuses. The direct Popen child has already been reaped.
+    # Bound each batch; the caller retains its five-second absence deadline.
+    for _ in range(256):
+        try:
+            pid, _status = os.waitpid(-group, os.WNOHANG)
+        except ChildProcessError:
+            return
+        except InterruptedError:
+            continue
+        except OSError:
+            raise ValueError("tool process-group absence unproven") from None
+        if pid == 0:
+            return
 
 
 def bounded_output(process, args, timeout, output, limit):
