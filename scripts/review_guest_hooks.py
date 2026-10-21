@@ -108,6 +108,8 @@ def main():
            "command": "python -I -B scripts/review_guest_hooks.py --archives PRIVATE --output PRIVATE",
            "started_utc": started, "ended_utc": ended, "result": "pass", "execution": "software",
            "hardware_validated": False,
+           "host": {"provider": "local", "machine": "offline-package-review", "gpus": "none",
+                    "driver": None, "cuda": None},
            "notes": "Read-only hash recheck of reviewed public package hooks. No extraction or hook execution."}
     base.publish(args.output, {"run.json": base.encoded(run), "result.json": base.encoded(report),
                                "inventory.json": base.encoded(rows)})
