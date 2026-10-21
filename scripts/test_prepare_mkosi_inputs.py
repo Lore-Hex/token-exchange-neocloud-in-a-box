@@ -35,6 +35,9 @@ PATCH_PIN = json.loads((ROOT / tool.EXTRA[4]).read_bytes())
 def synthetic_installer():
     # Only this reviewed synthetic method runs. No upstream module is imported.
     prefix = (b"# SPDX-License-Identifier: LGPL-2.1-or-later\nclass Installer:\n"
+              b"    @classmethod\n"
+              b"    def invoke(cls, context, operation, arguments=(), apivfs=False, options=(), stdout=None):\n"
+              + tool.package_patch.BEFORE +
               b"    @classmethod\n    def install(cls, context, allow_downgrade=False):\n")
     prefix += b"\n" * (258 - len(prefix.splitlines()))
     hunk = PATCH.splitlines(keepends=True)[3:]
@@ -211,6 +214,13 @@ class PreparationTests(unittest.TestCase):
                         tool.EXTRA[2]: tool.base.encoded(self.lock),
                         tool.EXTRA[3]: PATCH, tool.EXTRA[4]: tool.base.encoded(synthetic_installer()[2]),
                         tool.tools.FILES[-1]: tool.base.encoded(self.lock)}
+        fixed = synthetic_installer()[1]
+        boundary = fixed.replace(tool.package_patch.BEFORE, tool.package_patch.replacement())
+        boundary_pin = json.loads((ROOT / tool.EXTRA[6]).read_bytes())
+        boundary_pin.update(input_bytes=len(fixed), input_sha256=tool.base.digest(fixed),
+                            result_bytes=len(boundary), result_sha256=tool.base.digest(boundary))
+        self.sources.update({tool.EXTRA[6]: tool.base.encoded(boundary_pin),
+                             tool.EXTRA[7]: b"fixed worker", tool.EXTRA[8]: b"fixed guard"})
 
     def prepare(self):
         with (mock.patch.object(tool, "validate_tools_lock"), mock.patch.object(tool.base.inputs, "check"),
@@ -223,7 +233,12 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual(report["unique_archives"], 1)
         self.assertEqual(files["mkosi-source.tar.gz"], self.raw)
         self.assertEqual(files["mkosi-service-denial.patch"], PATCH)
-        self.assertEqual(files["mkosi-overlay/" + tool.PATCH_TARGET], synthetic_installer()[1])
+        expected = tool.package_patch.apply(synthetic_installer()[1],
+                                             json.loads(self.sources[tool.EXTRA[6]]))
+        self.assertEqual(files["mkosi-overlay/" + tool.PATCH_TARGET], expected)
+        self.assertEqual(files["nib/package-worker.py"], b"fixed worker")
+        self.assertEqual(files["nib/confinement.py"], b"fixed guard")
+        self.assertFalse(report["package_boundary_patch"]["executed"])
         self.assertEqual(report["local_patch"]["pin"], synthetic_installer()[2])
         self.assertIs(report["local_patch"]["executed"], False)
         self.assertEqual(files["repo/pool/" + tool.base.package_name(self.row)], self.deb)
@@ -392,7 +407,8 @@ class BindingTests(unittest.TestCase):
                 _, new = tool.tools.committed(tool.EXTRA)
                 self.assertEqual(set(old), set(tool.tools.FILES))
                 self.assertEqual(set(new), set(paths))
-                for extra in (("../private",), ("/private",), ("-option",), ["not-tuple"]):
+                for extra in (("../private",), ("/private",), ("-option",), ["not-tuple"],
+                              (tool.EXTRA[0],) * 25):
                     with self.subTest(extra=extra), self.assertRaises(ValueError):
                         tool.tools.committed(extra)
                 (root / tool.EXTRA[1]).write_bytes(b"uncommitted")

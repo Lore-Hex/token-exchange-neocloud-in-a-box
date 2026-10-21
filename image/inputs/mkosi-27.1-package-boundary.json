@@ -1,0 +1,9 @@
+{
+  "schema": "nib.mkosi-package-boundary-patch/v1",
+  "source_path": "mkosi/installer/apt.py",
+  "mkosi_git_sha": "ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b",
+  "input_bytes": 12532,
+  "input_sha256": "777620f9d966aa3ce736c2abe22758f8af007711d889b9f4b81d1deb8aeeaef5",
+  "result_bytes": 12849,
+  "result_sha256": "c88506185ba2d4c3c681944bad6bac49edd36428a13ce0422faa869a5c5a99de"
+}
