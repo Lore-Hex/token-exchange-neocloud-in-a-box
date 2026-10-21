@@ -24,6 +24,7 @@ SCRIPT = "host/probe-mkosi-native-tools.py"
 FETCHER = "scripts/fetch_mkosi_tools.py"
 NATIVE = "host/probe-mkosi-native.py"
 CHILD = "scripts/mkosi_native_tools_worker.py"
+PID_CHECKER = "scripts/mkosi_pid_check.py"
 fetcher = types.SimpleNamespace(**runpy.run_path(str(ROOT / FETCHER), run_name="tools_fetcher"))
 native = types.SimpleNamespace(**runpy.run_path(str(ROOT / NATIVE), run_name="native_probe"))
 prep, base, tools, require = fetcher.prep, fetcher.base, fetcher.tools, fetcher.require
@@ -84,22 +85,33 @@ def materialize(files, destination):
         path.mkdir(mode=0o755, exist_ok=True)
 
 
-def command(root, payload):
+def command(root, payload, *, pid_isolation=False):
+    require(type(pid_isolation) is bool)
     original = [os.readlink("/proc/self/ns/" + name) for name in ("user", "mnt", "net", "ipc")]
+    prefix = []
+    if pid_isolation:
+        original.append(os.readlink("/proc/self/ns/pid"))
+        # Pinned util-linux 2.39.3: mount-proc implies a private mount namespace;
+        # kill-child + PID namespace bounds descendants when the launcher dies.
+        prefix = ["/usr/bin/unshare", "--pid", "--fork", "--mount-proc=/proc", "--kill-child=KILL", "--"]
     return [native.PYTHON, "-I", "-S", "-B", str(payload / "mkosi-sandbox.py"),
         "--ro-bind", str(root), "/", "--ro-bind", str(payload), "/nib",
         "--ro-bind", "/proc/self/ns", "/proc/self/ns", "--dev", "/dev", "--tmpfs", "/tmp",
         "--unshare-net", "--unshare-ipc", "--become-root",
-        "/usr/bin/python3.12", "-I", "-S", "-B", "/nib/native-tools.py", *original]
+        *prefix, "/usr/bin/python3.12", "-I", "-S", "-B", "/nib/native-tools.py", *original]
 
 
-def run(files, payload_files, execute):
+def run(files, payload_files, execute, *, pid_isolation=False):
+    require(type(pid_isolation) is bool)
     report = {"schema": "nib.mkosi-native-tools/v1", "result": "fail", "stage": "materialization",
               "namespaces_validated": False, "tools_startup_validated": False,
               "tools_checked": 0, "process_cleanup_confirmed": False, "payload_removed": False,
               "package_installation_executed": False, "maintainer_scripts_executed": False,
               "mkosi_build_executed": False, "abi_validated": False,
               "bootable": False, "deployable": False}
+    if pid_isolation:
+        report.update(schema="nib.mkosi-native-tools/v2", pid_isolation_required=True,
+                      pid_namespace_validated=False, host_processes_hidden=False)
     with tempfile.TemporaryDirectory(prefix="nib-native-tools-", dir="/tmp") as temporary:
         temporary = Path(temporary).resolve()
         root, payload = temporary / "root", temporary / "payload"
@@ -107,13 +119,15 @@ def run(files, payload_files, execute):
             materialize(files, root)
             base.publish(payload, payload_files)
             report["stage"] = "tools-startup"
-            result = execute(command(root, payload), env=dict(native.worker.ENV),
+            result = execute(command(root, payload, pid_isolation=pid_isolation), env=dict(native.worker.ENV),
                 timeout=90, max_output_bytes=native.worker.MAX_OUTPUT, stdin=subprocess.DEVNULL)
             report["process_cleanup_confirmed"] = True
             result.check_returncode()
             require(result.stdout == SUCCESS and result.stderr == b"")
             report.update(result="pass", stage="complete", namespaces_validated=True,
                           tools_startup_validated=True, tools_checked=len(native.worker.COMMANDS))
+            if pid_isolation:
+                report.update(pid_namespace_validated=True, host_processes_hidden=True)
         except (OSError, ValueError, KeyError, TypeError, tarfile.TarError, subprocess.SubprocessError):
             pass
     require(not temporary.exists())
@@ -125,10 +139,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("inputs", "archive", "output"):
         parser.add_argument("--" + name, required=True, type=Path)
+    parser.add_argument("--pid-isolation", action="store_true")
     args = parser.parse_args()
     native.preflight()
     tools.separate_output(args.output, (args.inputs, args.archive))
-    revision, sources = fetcher.committed((NATIVE, SCRIPT, CHILD, native.WORKER, native.CHECKER))
+    revision, sources = fetcher.committed((NATIVE, SCRIPT, CHILD, PID_CHECKER, native.WORKER, native.CHECKER))
     require(sources[native.WORKER] == native.WORKER_SOURCE
             and sources[tools.FILES[0]] == native.mkosi.TOOLS_SOURCE)
     files, receipt = prep.assemble(args.inputs, revision, sources)
@@ -136,13 +151,14 @@ def main():
     source, upstream = prep.mkosi.verify_source(base.read(args.archive, prep.mkosi.MAX_SOURCE), pin)
     payload = {"mkosi-sandbox.py": upstream["mkosi/sandbox.py"],
                "native-tools.py": sources[CHILD], "probe.py": sources[native.WORKER],
+               "pid-check.py": sources[PID_CHECKER],
                "namespace-check.py": sources[native.CHECKER], "snapshot.py": sources[tools.FILES[4]]}
     payload.update({name: upstream[name] for name in pin["license_files"]})
     payload["input.json"] = base.encoded({"schema": "nib.mkosi-tools-probe-input/v1", "git_sha": revision,
         "tools_receipt_sha256": base.digest(files["receipt.json"]),
         "snapshot_sha256": base.digest(sources[tools.FILES[4]])})
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    report = run(files, payload, base.processes.execute_process_group)
+    report = run(files, payload, base.processes.execute_process_group, pid_isolation=args.pid_isolation)
     ended = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     report.update(git_sha=revision, tools_packages=receipt["tools_packages"],
                   tools_lock_sha256=receipt["tools_lock_sha256"], source=source,
@@ -154,6 +170,9 @@ def main():
         notes="Seven fixed startup checks in a read-only, reconstructed pinned tools root. "
         "Distinct namespaces, loopback only, isolated temporary storage. Host launcher/kernel unpinned. "
         "No package installation, maintainer hooks, image build, boot or attestation.")
+    if args.pid_isolation:
+        evidence["command"] += " --pid-isolation"
+        evidence["notes"] += " Pinned unshare adds a child PID namespace and its own procfs; no host process view."
     base.publish(args.output, {"run.json": base.encoded(evidence), "result.json": base.encoded(report)})
     print("Native pinned tools probe: " + report["result"])
     return 0 if report["result"] == "pass" else 1

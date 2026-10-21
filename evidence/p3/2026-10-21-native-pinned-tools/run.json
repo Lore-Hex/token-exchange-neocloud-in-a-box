@@ -1,0 +1,20 @@
+{
+  "command": "/usr/bin/python3.10 -I -S -B host/probe-mkosi-native-tools.py --inputs PRIVATE --archive PRIVATE --output PRIVATE",
+  "ended_utc": "2026-10-21T14:35:42Z",
+  "execution": "software",
+  "git_sha": "a56acf50019c4ae35fc463e33ec767396b8787bc",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "ubuntu-22.04-x86_64",
+    "provider": "github-actions"
+  },
+  "notes": "Seven fixed startup checks in a read-only, reconstructed pinned tools root. Distinct namespaces, loopback only, isolated temporary storage. Host launcher/kernel unpinned. No package installation, maintainer hooks, image build, boot or attestation.",
+  "phase": "P3",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-21T14:35:40Z",
+  "task": "T1"
+}

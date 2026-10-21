@@ -159,17 +159,17 @@ class MaterializationTests(unittest.TestCase):
 
 
 class LifecycleTests(unittest.TestCase):
-    def run_probe(self, *, stdout=host.SUCCESS, stderr=b"", code=0, error=None):
+    def run_probe(self, *, stdout=host.SUCCESS, stderr=b"", code=0, error=None, pid_isolation=False):
         execute = mock.Mock(side_effect=error, return_value=subprocess.CompletedProcess([], code, stdout, stderr))
         real_readlink = host.os.readlink
         def readlink(path, *args, **kwargs):
-            names = ("user", "mnt", "net", "ipc")
-            for name, original in zip(names, ORIGINAL):
+            names = ("user", "mnt", "net", "ipc", "pid")
+            for name, original in zip(names, [*ORIGINAL, "pid:[100]"]):
                 if str(path) == "/proc/self/ns/" + name:
                     return original
             return real_readlink(path, *args, **kwargs)
         with mock.patch.object(host.os, "readlink", side_effect=readlink):
-            report = host.run(files(), {"mkosi-sandbox.py": b"synthetic"}, execute)
+            report = host.run(files(), {"mkosi-sandbox.py": b"synthetic"}, execute, pid_isolation=pid_isolation)
         return report, execute
 
     def test_pinned_root_replaces_host_runtime_and_cleanup_passes(self):
@@ -202,6 +202,32 @@ class LifecycleTests(unittest.TestCase):
             self.assertTrue(report["payload_removed"])
             self.assertNotIn("PRIVATE", json.dumps(report))
 
+    def test_pid_mode_uses_pinned_unshare_and_kills_descendants(self):
+        report, execute = self.run_probe(pid_isolation=True)
+        argv = execute.call_args.args[0]
+        offset = argv.index("/usr/bin/unshare")
+        self.assertEqual(argv[offset:offset + 6], ["/usr/bin/unshare", "--pid", "--fork",
+            "--mount-proc=/proc", "--kill-child=KILL", "--"])
+        self.assertEqual(argv[-5:], [*ORIGINAL, "pid:[100]"])
+        self.assertEqual(report["schema"], "nib.mkosi-native-tools/v2")
+        self.assertTrue(report["pid_namespace_validated"])
+        self.assertTrue(report["host_processes_hidden"])
+        self.assertTrue(report["process_cleanup_confirmed"])
+        self.assertFalse(report["package_installation_executed"])
+
+    def test_pid_failure_never_claims_process_isolation(self):
+        for options in ({"code": 1}, {"stdout": b"wrong"}, {"error": OSError("synthetic")}):
+            report, _ = self.run_probe(pid_isolation=True, **options)
+            self.assertEqual(report["result"], "fail")
+            self.assertFalse(report["pid_namespace_validated"])
+            self.assertFalse(report["host_processes_hidden"])
+            self.assertTrue(report["payload_removed"])
+
+    def test_pid_mode_requires_an_actual_boolean(self):
+        for value in ("true", 1, None):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                host.run({}, {}, mock.Mock(), pid_isolation=value)
+
     def test_materialization_failure_never_executes(self):
         execute = mock.Mock()
         report = host.run({"tools-root.tar": b"bad", "root-inventory.json": b"{}"}, {}, execute)
@@ -221,7 +247,8 @@ class LifecycleTests(unittest.TestCase):
 
 
 class ChildTests(unittest.TestCase):
-    def run_child(self, *, namespace_error=None, probe_result="pass", bad_snapshot=False):
+    def run_child(self, *, namespace_error=None, probe_result="pass", bad_snapshot=False,
+                  pid=False, pid_error=None):
         module = types.ModuleType("native_tools_child_test")
         exec(compile((ROOT / host.CHILD).read_bytes(), host.CHILD, "exec"), module.__dict__)
         snapshot = b"def execute_process_group(*args, **kwargs): raise AssertionError('synthetic')\n"
@@ -230,6 +257,7 @@ class ChildTests(unittest.TestCase):
                   "snapshot_sha256": "c" * 64 if bad_snapshot else base.digest(snapshot)}
         check = mock.Mock(side_effect=namespace_error)
         probe = mock.Mock(return_value={"result": probe_result, "checks": [None] * 7})
+        pid_check = mock.Mock(side_effect=pid_error)
         worker = dict(host.native.worker.__dict__)
         reader = mock.Mock(side_effect=[base.encoded(config), snapshot])
         worker.update(read=reader, probe=probe)
@@ -238,15 +266,19 @@ class ChildTests(unittest.TestCase):
         with mock.patch.object(module.sys, "platform", "linux"), \
                 mock.patch.object(module.sys, "version_info", (3, 12)), \
                 mock.patch.object(module.sys, "flags", types.SimpleNamespace(isolated=True, no_site=True, dont_write_bytecode=True)), \
-                mock.patch.object(module.sys, "argv", ["native-tools.py", *ORIGINAL]), \
+                mock.patch.object(module.sys, "argv", ["native-tools.py", *ORIGINAL, *(["pid:[100]"] if pid else [])]), \
                 mock.patch.object(module.sys, "stdout", types.SimpleNamespace(buffer=output)), \
                 mock.patch.object(module.os, "geteuid", return_value=0), \
                 mock.patch.object(module.os, "getegid", return_value=0), \
-                mock.patch.object(module.runpy, "run_path", side_effect=[worker, {"check": check}]):
+                mock.patch.object(module.runpy, "run_path", side_effect=[worker, {"check": check}, {"check": pid_check}]):
             try:
                 module.main()
             except ValueError as exc:
                 error = exc
+        if pid:
+            pid_check.assert_called_once_with("pid:[100]")
+        else:
+            pid_check.assert_not_called()
         return error, output.getvalue(), reader, check, probe
 
     def test_child_requires_namespace_proof_before_seven_tools(self):
@@ -268,6 +300,48 @@ class ChildTests(unittest.TestCase):
         error, output, _, _, _ = self.run_child(probe_result="fail")
         self.assertIsNotNone(error)
         self.assertEqual(output, b"")
+
+    def test_pid_proof_precedes_every_tool_and_failure_stops(self):
+        error, output, _, _, probe = self.run_child(pid=True)
+        self.assertIsNone(error)
+        self.assertEqual(output, host.SUCCESS)
+        probe.assert_called_once()
+        error, output, reader, _, probe = self.run_child(pid=True, pid_error=ValueError("synthetic"))
+        self.assertIsNotNone(error)
+        self.assertEqual(output, b"")
+        reader.assert_not_called()
+        probe.assert_not_called()
+
+
+class PIDTests(unittest.TestCase):
+    def check(self, *, original="pid:[100]", current="pid:[101]", pid=1, ppid=0,
+              self_link="1", entries=("1", "self", "sys"), status="NSpid:\t1\nPPid:\t0\n"):
+        checker = types.SimpleNamespace(**runpy.run_path(str(ROOT / host.PID_CHECKER)))
+        rows = mock.MagicMock()
+        rows.__enter__.return_value = iter(types.SimpleNamespace(name=name) for name in entries)
+        with mock.patch.object(checker.os, "getpid", return_value=pid), \
+                mock.patch.object(checker.os, "getppid", return_value=ppid), \
+                mock.patch.object(checker.os, "readlink", side_effect=[current, self_link]), \
+                mock.patch.object(checker.os, "scandir", return_value=rows), \
+                mock.patch.object(checker.Path, "read_text", return_value=status):
+            checker.check(original)
+
+    def test_fresh_pid_one_with_own_proc_passes(self):
+        self.check()
+
+    def test_same_namespace_or_wrong_process_identity_fails(self):
+        for options in ({"current": "pid:[100]"}, {"current": "mnt:[101]"},
+                        {"original": "bad"}, {"pid": 8}, {"ppid": 100}, {"self_link": "100"}):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                self.check(**options)
+
+    def test_host_processes_visible_or_wrong_procfs_fails(self):
+        for options in ({"entries": ("1", "100")}, {"entries": ()},
+                        {"status": "NSpid:\t100 1\nPPid:\t0\n"},
+                        {"status": "NSpid:\t1\nPPid:\t100\n"},
+                        {"status": ""}, {"status": "a" * 16384}):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                self.check(**options)
 
 
 if __name__ == "__main__":
