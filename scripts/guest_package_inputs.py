@@ -69,7 +69,7 @@ def index_bytes(raw, encoding):
     raise ValueError("package-inputs-rejected")
 
 
-def paragraphs(data):
+def paragraphs(data, *, fields=FIELDS):
     """Use the stdlib header parser, rejecting malformed/duplicate Deb822 fields."""
     text = data.decode("utf-8", errors="strict")
     require("\r" not in text and "\x00" not in text)
@@ -83,7 +83,7 @@ def paragraphs(data):
         require(len(names) == len(set(names)))
         require(all(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*", key)
                     for key in row.keys()))
-        yield {key: " ".join(row.get(key, "").split()) for key in FIELDS}
+        yield {key: " ".join(row.get(key, "").split()) for key in fields}
 
 
 def version(value):

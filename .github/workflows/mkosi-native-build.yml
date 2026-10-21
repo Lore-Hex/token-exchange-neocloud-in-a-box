@@ -1,0 +1,55 @@
+name: Bounded offline mkosi installation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bounded-offline-mkosi-installation
+  cancel-in-progress: false
+
+jobs:
+  install:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Fetch and authenticate fixed public inputs without installing
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          mkdir -p -m 700 build/native-install
+          curl --disable --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --max-time 60 --max-filesize 473225 \
+            https://codeload.github.com/systemd/mkosi/tar.gz/ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b \
+            --output build/native-install/source.tar.gz
+          curl --disable --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --tlsv1.2 \
+            --max-time 120 --max-filesize 23847293 \
+            https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/releases/download/build-input-indexes-20261020/metadata.tar.gz \
+            --output build/native-install/metadata.tar.gz
+          printf '%s  %s\n' 54def86b7b37b3b5178782965e499f0242a98f36bc7828105f112005576663a7 \
+            build/native-install/metadata.tar.gz | sha256sum --check --strict
+          /usr/bin/python3.10 -I -S -B scripts/fetch_mkosi_tools.py --include-guest \
+            --metadata-archive "$PWD/build/native-install/metadata.tar.gz" \
+            --output "$PWD/build/native-install/inputs"
+      - name: Install only in the resource-bounded offline namespace
+        run: |
+          sudo -- /usr/bin/python3.10 -I -S -B host/run-mkosi-build.py \
+            --downloads "$PWD/build/native-install/inputs" \
+            --archive "$PWD/build/native-install/source.tar.gz" \
+            --output "$PWD/build/native-install/evidence"
+      - name: Preserve installation and independent cleanup evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: native-mkosi-install-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/native-install/evidence/
+            build/native-install/evidence-resources.json
+          if-no-files-found: error
+          retention-days: 7
