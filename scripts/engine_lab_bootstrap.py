@@ -271,14 +271,28 @@ def install_lab(layout, helpers, checkpoint=None):
                 or (state["pattern_module"] is not None
                     and sys.modules.get(PATTERN_TARGET) is not state["pattern_module"])):
             state["pattern_status"] = "failed"
-        if (sys.path != layout["paths"] or sys.executable != layout["wrapper"]
-                or spawn.get_executable() != os.fsencode(layout["wrapper"])
-                or mp.get_start_method() != "spawn" or os.getcwd() != "/"
-                or sys.pycache_prefix is not None or os.environ.get("VLLM_PLUGINS") != ""
-                or os.environ.get("VLLM_WORKER_MULTIPROC_METHOD") != "spawn"
-                or "NUMACTL_PYTHON" in os.environ
-                or state["pattern_status"] == "failed"
-                or (state["finders"] is not None and sys.meta_path != state["finders"])):
+        # Distinct source sites identify failures without reporting live values.
+        if sys.path != layout["paths"]:
+            reject()
+        if sys.executable != layout["wrapper"]:
+            reject()
+        if spawn.get_executable() != os.fsencode(layout["wrapper"]):
+            reject()
+        if mp.get_start_method() != "spawn":
+            reject()
+        if os.getcwd() != "/":
+            reject()
+        if sys.pycache_prefix is not None:
+            reject()
+        if os.environ.get("VLLM_PLUGINS") != "":
+            reject()
+        if os.environ.get("VLLM_WORKER_MULTIPROC_METHOD") != "spawn":
+            reject()
+        if "NUMACTL_PYTHON" in os.environ:
+            reject()
+        if state["pattern_status"] == "failed":
+            reject()
+        if state["finders"] is not None and sys.meta_path != state["finders"]:
             reject()
 
     def check_six(source, six):
