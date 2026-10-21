@@ -30,6 +30,7 @@ BUILDER_SHA = "ca47f3d9ac40c82763d86a342409ff36bd4918072c6f3728639aae46ce7c3c60"
 HELPER = "scripts/engine_python_bootstrap.py"
 RUNTIME = "scripts/engine_lab.py"
 LAB_BOOTSTRAP = "scripts/engine_lab_bootstrap.py"
+EXCEPTIONS = "scripts/engine_exception.py"
 PROBE = "scripts/engine_lab_probe.py"
 CORRECTNESS = "scripts/engine_local_correctness.py"
 SMOKE = "scripts/engine_import_smoke.py"
@@ -108,7 +109,8 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
     plan = builder.recorder.prep.launch_plan()
     prefix = b'import sys\nif not (sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode):\n    sys.exit("Isolated lab required.")\n'
     payload = {"application/" + name.removeprefix("payload/"): data for name, data in files.items() if name.startswith("payload/")}
-    payload.update({"launch.py": prefix + extra[HELPER] + b"\n" + extra[LAB_BOOTSTRAP] + b"\n" + extra[RUNTIME],
+    payload.update({"launch.py": prefix + extra[HELPER] + b"\n" + extra[EXCEPTIONS] + b"\n" + extra[LAB_BOOTSTRAP] + b"\n" + extra[RUNTIME],
+                    "exception.py": extra[EXCEPTIONS],
                     "probe.py": extra[PROBE], "launch-plan.json": builder.overlay.json_bytes(plan),
                     "processes.py": extra[builder.recorder.SNAPSHOT],
                     "nib": binary, "pack/pack.yaml": extra[PACK + "/pack.yaml"],
@@ -139,7 +141,7 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
 def prepare(destination, operation="functional", family="B200", security="confidential"):
     builder = load("lab_application_builder", ROOT / BUILDER, BUILDER_SHA)
     revision, bundle, extra = builder.inputs(ROOT)
-    for name in (SCRIPT, HELPER, RUNTIME, LAB_BOOTSTRAP, PROBE, SMOKE, TEST, SIX_TEST,
+    for name in (SCRIPT, HELPER, RUNTIME, LAB_BOOTSTRAP, EXCEPTIONS, PROBE, SMOKE, TEST, SIX_TEST,
                  PACK + "/pack.yaml", PACK + "/files.sha256"):
         extra[name] = committed(builder, revision, name)
     if operation == "local-correctness":
@@ -431,10 +433,10 @@ def validate_result(row, bundle, contract, recorder):
     correctness = contract.get("operation") == "local-correctness"
     fields = {"schema", "status", "deployable", "confidential", "functional_pass",
               "stage", "application", "hardware", "completion", "startup", "engine_stopped"}
-    expected_schema = "nib.deepseek-lab-result/v1"
+    expected_schema = "nib.deepseek-lab-result/v2"
     if correctness:
         fields.add("correctness")
-        expected_schema = "nib.deepseek-lab-correctness-result/v1"
+        expected_schema = "nib.deepseek-lab-correctness-result/v2"
     require(type(row) is dict and set(row) == fields
             and row["schema"] == expected_schema and row["status"] == "BLOCKED"
             and row["deployable"] is False and row["confidential"] is False
@@ -445,7 +447,12 @@ def validate_result(row, bundle, contract, recorder):
         require(startup is None)
     else:
         require(type(startup) is dict
-                and set(startup) == {"outcome", "wait_ms", "exit_code", "health_probes", "checkpoints"})
+                and set(startup) == {"outcome", "wait_ms", "exit_code", "health_probes", "checkpoints", "exception_diagnostic"})
+        errors = load("lab_exception_validation", Path(bundle) / "payload/exception.py",
+                      contract["sources"]["exception.py"])
+        errors.require = require
+        errors.validate_exception(startup["exception_diagnostic"])
+        require(startup["exception_diagnostic"] is None or startup["outcome"] == "child-exited")
         require(startup["outcome"] in ("launch-failed", "child-exited", "startup-timeout",
                                       "models-rejected", "ready", "supervisor-failure")
                 and type(startup["wait_ms"]) is int and 0 <= startup["wait_ms"] <= MAX_SECONDS * 1000

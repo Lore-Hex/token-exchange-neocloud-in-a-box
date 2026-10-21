@@ -555,7 +555,7 @@ class ContractTests(unittest.TestCase):
     def setUpClass(cls):
         fixture.SmokeTests.setUpClass()
         cls.extra = dict(fixture.SmokeTests.extra)
-        for name in (tool.SCRIPT, tool.BASE, tool.RUNTIME, tool.LAB, tool.LAB_BOOTSTRAP,
+        for name in (tool.SCRIPT, tool.BASE, tool.RUNTIME, tool.LAB, tool.LAB_BOOTSTRAP, tool.EXCEPTIONS,
                      tool.TEST, tool.SIX_TEST, tool.OPENCV_TEST, "scripts/test_deepseek_lab.py"):
             cls.extra[name] = (ROOT / name).read_bytes()
         cls.bundle = tool.checker.working_bundle(ROOT)
