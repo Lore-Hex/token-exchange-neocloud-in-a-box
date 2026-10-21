@@ -1,0 +1,28 @@
+{
+  "cleanup_seconds": 10,
+  "confidential_qualified": false,
+  "detached_child_cleanup_verified": true,
+  "detached_child_fallback_seconds": 60,
+  "empty_verified": true,
+  "git_sha": "53b02abeb57816d4a79ec9de6d0bb274133e7bec",
+  "group_removed": true,
+  "host_runtime_pinned": false,
+  "image_built": false,
+  "limits": {
+    "cpu.max": "200000 100000",
+    "memory.max": "8589934592",
+    "memory.oom.group": "1",
+    "memory.swap.max": "0",
+    "pids.max": "256"
+  },
+  "limits_read_back": true,
+  "memory_peak_bytes": 38273024,
+  "oom_kill": 0,
+  "package_installation_executed": false,
+  "populated_before_cleanup": 1,
+  "probe_seconds": 20,
+  "result": "pass",
+  "schema": "nib.build-resource-probe/v2",
+  "source_sha256": "2b740ef5b1ecbc87cb3a078fcbb081017f7db5c9600c9956f97cc52330ad9fdc",
+  "worker_join_and_inheritance_verified": true
+}
