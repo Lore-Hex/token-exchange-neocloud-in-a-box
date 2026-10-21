@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sync"
 
 	"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/config"
 )
@@ -32,6 +33,18 @@ type LocalProof struct {
 // network requests or writes. Extra files/directories, symlinks and special files
 // are rejected; a Hugging Face cache must first be materialized outside its cache.
 func CheckLocal(ctx context.Context, packPath, directory string) (*LocalProof, error) {
+	return CheckLocalWithWorkers(ctx, packPath, directory, 1)
+}
+
+// MaxLocalWorkers bounds local hashing to 2 MiB of scratch buffers and eight
+// concurrent file readers. It does not change which files or bytes are checked.
+const MaxLocalWorkers = 8
+
+// CheckLocalWithWorkers opts into bounded parallel hashing; CheckLocal remains serial.
+func CheckLocalWithWorkers(ctx context.Context, packPath, directory string, workers int) (*LocalProof, error) {
+	if workers < 1 || workers > MaxLocalWorkers {
+		return nil, errors.New("modelpack: local verification workers out of range")
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -61,7 +74,7 @@ func CheckLocal(ctx context.Context, packPath, directory string) (*LocalProof, e
 	if err != nil || !os.SameFile(i, opened) {
 		return nil, errors.New("modelpack: staged directory changed")
 	}
-	if err := verifyLocalSet(ctx, root, files); err != nil {
+	if err := verifyLocalSetWorkers(ctx, root, files, workers); err != nil {
 		return nil, err
 	}
 	return localProof(p, manifest, len(files)), nil
@@ -83,16 +96,19 @@ func localFileSet(files []config.ManifestFile) (map[string]config.ManifestFile, 
 }
 
 func verifyLocalSet(ctx context.Context, root *os.Root, files []config.ManifestFile) error {
+	return verifyLocalSetWorkers(ctx, root, files, 1)
+}
+
+func verifyLocalSetWorkers(ctx context.Context, root *os.Root, files []config.ManifestFile, workers int) error {
 	want, dirs := localFileSet(files)
 	initial, err := localInventory(ctx, root, want, dirs)
 	if err != nil {
 		return err
 	}
-	buf := make([]byte, 256<<10)
-	for _, f := range files {
-		if err := verifyLocalFile(ctx, root, f, initial[f.Path], buf); err != nil {
-			return err
-		}
+	if err := localChecks(ctx, files, workers, func(ctx context.Context, f config.ManifestFile, buf []byte) error {
+		return verifyLocalFile(ctx, root, f, initial[f.Path], buf)
+	}); err != nil {
+		return err
 	}
 	final, err := localInventory(ctx, root, want, dirs)
 	if err != nil {
@@ -104,6 +120,49 @@ func verifyLocalSet(ctx context.Context, root *os.Root, files []config.ManifestF
 		}
 	}
 	return nil
+}
+
+func localChecks(ctx context.Context, files []config.ManifestFile, workers int, check func(context.Context, config.ManifestFile, []byte) error) error {
+	if workers < 1 || workers > MaxLocalWorkers {
+		return errors.New("modelpack: local verification workers out of range")
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	jobs := make(chan config.ManifestFile)
+	var wg sync.WaitGroup
+	var once sync.Once
+	var firstErr error
+	for range min(workers, len(files)) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			buf := make([]byte, 256<<10)
+			for f := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				if err := check(ctx, f, buf); err != nil {
+					once.Do(func() { firstErr = err; cancel() })
+					return
+				}
+			}
+		}()
+	}
+send:
+	for _, f := range files {
+		select {
+		case jobs <- f:
+		case <-ctx.Done():
+			break send
+		}
+	}
+	close(jobs)
+	// No return or final inventory until every reader has closed its file.
+	wg.Wait()
+	if firstErr != nil {
+		return firstErr
+	}
+	return ctx.Err()
 }
 
 func localInventory(ctx context.Context, root *os.Root, want map[string]config.ManifestFile, dirs map[string]bool) (map[string]os.FileInfo, error) {

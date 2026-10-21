@@ -522,7 +522,7 @@ def application_and_request(contract, sources, modules, application, measured):
         result["hardware"] = hardware(contract.get("gpu_family", "B200"), security)
         if not pre_serve:
             result["stage"] = "weights"
-            quiet_command([ROOT + "/nib", "model", "check-local", ROOT + "/pack", "/model"], WEIGHTS_SECONDS)
+            quiet_command([ROOT + "/nib", "model", "check-local", "--workers", "8", ROOT + "/pack", "/model"], WEIGHTS_SECONDS)
         result["stage"] = "application"
         app.verify_layout(overlay, descriptor, diagnostic, application, measured)
         stages = [{item["path"]: sources[f"application/stages/{n}/" + item["path"]] for item in application["files"]}

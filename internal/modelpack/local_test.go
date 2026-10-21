@@ -104,9 +104,11 @@ func TestCheckLocalRejectsMutations(t *testing.T) {
 			if err := mutate(dir); err != nil {
 				t.Fatal(err)
 			}
-			proof, err := CheckLocal(context.Background(), p, dir)
-			if proof != nil || err == nil || strings.Contains(err.Error(), "SECRET") || strings.Contains(err.Error(), "PRIVATE") || strings.Contains(err.Error(), dir) {
-				t.Fatalf("mutation accepted or leaked: %v", err)
+			for _, workers := range []int{1, 2, MaxLocalWorkers} {
+				proof, err := CheckLocalWithWorkers(context.Background(), p, dir, workers)
+				if proof != nil || err == nil || strings.Contains(err.Error(), "SECRET") || strings.Contains(err.Error(), "PRIVATE") || strings.Contains(err.Error(), dir) {
+					t.Fatalf("mutation accepted or leaked with %d workers: %v", workers, err)
+				}
 			}
 		})
 	}
