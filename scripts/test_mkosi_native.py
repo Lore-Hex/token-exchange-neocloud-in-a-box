@@ -3,9 +3,12 @@
 import json
 from pathlib import Path
 import subprocess
+import tempfile
 import types
 import unittest
 from unittest import mock
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 host = types.ModuleType("native_probe_tests")
@@ -148,6 +151,25 @@ class NativeProbeTests(unittest.TestCase):
             self.assertNotIn(forbidden, workflow)
         for required in ("persist-credentials: false", "contents: read", "refs/heads/main", "--max-time 60"):
             self.assertIn(required, workflow)
+
+    def test_workflow_preparation_runs_in_a_clean_checkout_without_fetching(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/mkosi-native-probe.yml").read_text())
+        steps = workflow["jobs"]["probe"]["steps"]
+        script = next(step["run"] for step in steps if step.get("name", "").startswith("Fetch public"))
+        # Execute the actual setup shell; only curl is replaced by a marker.
+        script = 'curl() { test -d build/native-mkosi; touch fetch-reached; };\n' + script
+        for runner in ("github-hosted", "self-hosted"):
+            with tempfile.TemporaryDirectory() as temporary:
+                result = subprocess.run(["/bin/bash", "-eu", "-c", script], cwd=temporary,
+                    env={"PATH": "/usr/bin:/bin", "RUNNER_ENVIRONMENT": runner},
+                    stdin=subprocess.DEVNULL, capture_output=True, timeout=5)
+                root = Path(temporary)
+                self.assertEqual(result.returncode == 0, runner == "github-hosted")
+                self.assertEqual((root / "fetch-reached").exists(), runner == "github-hosted")
+                if runner == "github-hosted":
+                    self.assertEqual((root / "build/native-mkosi").stat().st_mode & 0o777, 0o700)
+                else:
+                    self.assertFalse((root / "build").exists())
 
 
 if __name__ == "__main__":
