@@ -10,6 +10,7 @@ import os
 import re
 import stat
 import sys
+import types
 
 VECISA_SOURCE_SHA = "6cd49584e3cfdab9f0883c5a24d088f992909775f7d400ff0a4cefccbe6998a0"
 # setuptools v80.10.2, immutable commit 5cf2d085186f2c8053940076db99045b826ec22a.
@@ -801,7 +802,36 @@ def install_lab(layout, helpers, checkpoint=None):
     return state
 
 
+REGISTRY_MODULE = "vllm.model_executor.models.registry"
+# vLLM 5df63a7203cdb9328d824a27b682e77c7b9928be, registry.py _SUBPROCESS_COMMAND/_run.
+REGISTRY_SHA256 = "16ed7ca91ec949ab88e5210d4fecb2cf3d08641c352b58a152fa48e785fc0243"
+
+
+def registry_entry(state, helpers):
+    """The exact upstream model-inspection subprocess, after sealed bootstrap."""
+    import importlib
+    require = helpers.require
+    state["check"]()
+    path = state["layout"]["selected_root"] + "/vllm/model_executor/models/registry.py"
+    raw = helpers.read_source(path, 2 << 20)
+    require(hashlib.sha256(raw).hexdigest() == REGISTRY_SHA256)
+    code = compile(raw, path, "exec", flags=0, dont_inherit=True, optimize=0)
+    matches = [item for item in code.co_consts if type(item) is types.CodeType and item.co_name == "_run"]
+    require(len(matches) == 1)
+    module = importlib.import_module(REGISTRY_MODULE)
+    require(type(module) is types.ModuleType and vars(module).get("__file__") == path)
+    entry = vars(module).get("_run")
+    require(type(entry) is types.FunctionType and entry.__globals__ is vars(module)
+            and helpers.same_code(entry.__code__, matches[0]))
+    state["check"]()
+    entry()
+    state["check"]()
+
+
 def dispatch_lab(args, state, helpers):
+    if args == ["-m", REGISTRY_MODULE]:
+        registry_entry(state, helpers)
+        return
     kind, values = helpers.route(args)
     if kind == "spawn":
         from multiprocessing.spawn import spawn_main
