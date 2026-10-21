@@ -238,12 +238,65 @@ def prerequisites():
     return {name: shutil.which(name, path=ENV["PATH"]) is not None for name in names}
 
 
+def ram_capacity(meminfo, mountinfo, available_bytes):
+    values = {}
+    for line in meminfo.splitlines():
+        parts = line.split()
+        if parts and parts[0] in ("MemTotal:", "MemAvailable:", "SwapTotal:"):
+            require(len(parts) == 3 and parts[2] == "kB" and parts[1].isascii()
+                    and parts[1].isdecimal() and parts[0] not in values)
+            values[parts[0]] = int(parts[1]) * 1024
+    require(set(values) == {"MemTotal:", "MemAvailable:", "SwapTotal:"})
+    require(values["MemTotal:"] >= 1536 << 30 and values["MemAvailable:"] >= 1536 << 30
+            and values["MemAvailable:"] <= values["MemTotal:"] and values["SwapTotal:"] == 0)
+    mounts = []
+    for line in mountinfo.splitlines():
+        fields = line.split()
+        if len(fields) >= 10 and fields[4] == "/dev/shm":
+            separator = fields.index("-")
+            require(separator >= 6 and len(fields) == separator + 4)
+            mounts.append((fields[separator + 1], set(fields[5].split(","))))
+    require(len(mounts) == 1 and mounts[0][0] == "tmpfs"
+            and {"rw", "nosuid", "nodev"} <= mounts[0][1] and "ro" not in mounts[0][1])
+    require(type(available_bytes) is int and 600 << 30 <= available_bytes < 1 << 63)
+    return {"host_available_bytes": values["MemAvailable:"], "tmpfs_available_bytes": available_bytes,
+            "swap_bytes": 0, "storage": "existing-tmpfs", "confidential_qualified": False}
+
+
+def prepare_ram_stage(root):
+    # A disposable public-weight cache only. No mount, swap or system setting changes.
+    require(sys.platform == "linux" and os.getuid() == 0
+            and re.fullmatch(r"/dev/shm/nib-[a-z0-9-]{1,64}", root))
+    def kernel_text(name):
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "r", encoding="ascii") as stream:
+            text = stream.read(65537)
+        require(0 < len(text) <= 65536)
+        return text
+    with directory("/dev/shm") as parent:
+        info = os.fstat(parent)
+        require(info.st_uid == 0 and stat.S_IMODE(info.st_mode) == 0o1777)
+        space = os.fstatvfs(parent)
+        result = ram_capacity(kernel_text("/proc/meminfo"), kernel_text("/proc/self/mountinfo"),
+                              space.f_bavail * space.f_frsize)
+        name = Path(root).name
+        os.mkdir(name, 0o700, dir_fd=parent)  # Existing paths reject; never reuse or remove another cache.
+        fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+        try:
+            info = os.fstat(fd)
+            require(info.st_uid == 0 and stat.S_IMODE(info.st_mode) == 0o700
+                    and info.st_dev == os.fstat(parent).st_dev)
+        finally:
+            os.close(fd)
+    return result
+
+
 def main():
     class QuietParser(argparse.ArgumentParser):
         def error(self, message):
             raise ValueError("preparation-arguments-rejected")
     parser = QuietParser(description=__doc__)
-    parser.add_argument("operation", choices=("init", "checkout", "prerequisites"))
+    parser.add_argument("operation", choices=("init", "checkout", "prerequisites", "ram-stage"))
     parser.add_argument("--root", required=True)
     parser.add_argument("--revision", help="Exact approved 40-character commit; requires --bundle-sha256.")
     parser.add_argument("--bundle-sha256", help="Independently approved transfer digest; reads source.bundle.")
@@ -254,6 +307,9 @@ def main():
     signal.signal(signal.SIGTERM, cancelled)
     signal.signal(signal.SIGINT, cancelled)
     os.umask(0o077)
+    if args.operation == "ram-stage":
+        print(json.dumps({"operation": "ram-stage", **prepare_ram_stage(args.root)}, sort_keys=True))
+        return 0
     root = private_directory(args.root, create=args.operation == "init")
     result = {"operation": args.operation, "confidential_qualified": False}
     if args.operation == "checkout":

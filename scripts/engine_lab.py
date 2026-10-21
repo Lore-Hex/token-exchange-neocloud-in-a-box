@@ -175,6 +175,9 @@ def lab_context(expected):
     raw = read_source(ROOT + "/lab.json")
     require(hashlib.sha256(raw).hexdigest() == expected)
     contract = json.loads(raw)
+    family = contract.get("gpu_family", "B200")
+    require(family in ("B200", "B300")
+            and (family == "B200" or contract["operation"] == "local-correctness"))
     require(contract["schema"] == "nib.deepseek-lab-input/v1" and contract["status"] == "BLOCKED"
             and contract["deployable"] is False and contract["confidential"] is False
             and contract["operation"] in ("functional", "hardware-diagnostic", "local-correctness")
@@ -222,9 +225,9 @@ def quiet_command(argv, timeout, *, output=False):
     return result.stdout if output else b""
 
 
-def hardware():
+def hardware(family="B200"):
     raw = quiet_command([ROOT + "/python", "probe"], 15, output=True)
-    return GPU_PROBE.validate_report(json.loads(raw))
+    return GPU_PROBE.validate_report(json.loads(raw), family=family)
 
 
 def diagnostic_child(expected):
@@ -436,7 +439,7 @@ def application_and_request(contract, sources, modules, application, measured):
     engine = checkpoints = None
     started = time.monotonic()
     try:
-        result["hardware"] = hardware()
+        result["hardware"] = hardware(contract.get("gpu_family", "B200"))
         result["stage"] = "weights"
         quiet_command([ROOT + "/nib", "model", "check-local", ROOT + "/pack", "/model"], WEIGHTS_SECONDS)
         result["stage"] = "application"
@@ -450,7 +453,7 @@ def application_and_request(contract, sources, modules, application, measured):
             # apply_verified_stages ends with the final full inventory, checking
             # exact source, all preserved native bytes and all five receipts.
         result["stage"] = "prelaunch"
-        require(hardware() == result["hardware"])
+        require(hardware(contract.get("gpu_family", "B200")) == result["hardware"])
         if correctness:
             CORRECTNESS.verify_sources(read_source, contract["paths"][-1])
         require(time.monotonic() - started < WEIGHTS_SECONDS + APPLICATION_SECONDS + 60)
@@ -477,7 +480,7 @@ def application_and_request(contract, sources, modules, application, measured):
                 "model": MODEL, "messages": [{"role": "user", "content": "Compute 1 + 1. Reply with the single digit only."}],
                 "max_tokens": 128, "temperature": 0, "stream": False})
             result["completion"] = completion_result(raw)
-        require(hardware() == result["hardware"])
+        require(hardware(contract.get("gpu_family", "B200")) == result["hardware"])
         result["functional_pass"] = (result["correctness"]["all_cases_pass"] if correctness else
                                     (result["completion"]["final_content_present"]
                                      and result["completion"]["synthetic_answer_match"]
@@ -548,7 +551,8 @@ def lab_entry():
     elif mode == "probe" and len(rest) == 1:
         install_lab({"paths": contract["paths"], "stdlib_roots": contract["paths"][:2],
                      "wrapper": ROOT + "/python", "launcher": ROOT + "/launch.py"}, sys.modules[__name__])
-        print(json.dumps(GPU_PROBE.validate(GPU_PROBE.NVML().observe()), sort_keys=True))
+        family = contract.get("gpu_family", "B200")
+        print(json.dumps(GPU_PROBE.validate(GPU_PROBE.NVML().observe(family), family=family), sort_keys=True))
     else:
         recheck_sources(modules[0], application, contract["paths"])
         state = install_lab({"paths": contract["paths"], "stdlib_roots": contract["paths"][:2],

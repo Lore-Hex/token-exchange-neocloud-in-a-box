@@ -15,6 +15,7 @@ ENVIRONMENT_PROD = 2
 DEVTOOLS_OFF = 0
 ACCEPTING_WORK = 1
 MULTIGPU = {1: "protected-pcie", 2: "nvle"}
+MEMORY_FLOORS = {"B200": 120 << 20, "B300": 200 << 20}
 CALL_STAGES = {
     "nvmlInit_v2": "init", "nvmlShutdown": "shutdown",
     "nvmlDeviceGetCount_v2": "count", "nvmlDeviceGetHandleByIndex_v2": "handle",
@@ -39,6 +40,16 @@ class ProtectedMemory(c.Structure):
 def require(value):
     if not value:
         raise ValueError("lab hardware observation rejected")
+
+
+def family_key(family):
+    require(type(family) is str and family in MEMORY_FLOORS)
+    return family.lower()
+
+
+def matches_family(name, family):
+    family_key(family)
+    return {item.decode("ascii") for item in name.split() if item in (b"B200", b"B300")} == {family}
 
 
 class NVML:
@@ -68,7 +79,8 @@ class NVML:
                 trace.failed()
             raise
 
-    def observe(self):
+    def observe(self, family="B200"):
+        key = family_key(family)
         self.call("nvmlInit_v2")
         try:
             count = c.c_uint()
@@ -88,7 +100,7 @@ class NVML:
                 self.call("nvmlDeviceGetHandleByIndex_v2", c.c_uint(index), c.byref(handle))
                 self.call("nvmlDeviceGetName", handle, name, c.c_uint(len(name)))
                 self.call("nvmlDeviceGetConfComputeMemSizeInfo", handle, c.byref(memory))
-                devices.append({"b200": b"B200" in name.value.split(),
+                devices.append({key: matches_family(name.value, family),
                                 "protected_kib": memory.protectedMemSizeKib})
             self.checkpoint("driver-policy")
             return {"feature": settings.ccFeature, "environment": settings.environment,
@@ -103,7 +115,8 @@ class NVML:
             self.call("nvmlShutdown")
 
 
-def validate(raw, checkpoint=None):
+def validate(raw, checkpoint=None, *, family="B200"):
+    key = family_key(family)
     require(type(raw) is dict and set(raw) == {"feature", "environment", "devtools", "multigpu", "ready", "devices",
                                              "driver", "cuda_driver"})
     if checkpoint is not None:
@@ -124,10 +137,10 @@ def validate(raw, checkpoint=None):
         checkpoint("memory-policy")
     require(type(raw["devices"]) is list and len(raw["devices"]) == 4)
     for row in raw["devices"]:
-        require(type(row) is dict and set(row) == {"b200", "protected_kib"}
-                and row["b200"] is True and type(row["protected_kib"]) is int
-                and 120 << 20 <= row["protected_kib"] <= 1 << 30)
-    return {"status": "observed", "selected_gpus": 4, "family": "B200",
+        require(type(row) is dict and set(row) == {key, "protected_kib"}
+                and row[key] is True and type(row["protected_kib"]) is int
+                and MEMORY_FLOORS[family] <= row["protected_kib"] <= 1 << 30)
+    return {"status": "observed", "selected_gpus": 4, "family": family,
             "cc_feature": "enabled", "environment": "production", "devtools": "off",
             "multigpu": MULTIGPU[raw["multigpu"]], "system_ready": True,
             "driver": raw["driver"], "cuda_driver": f"{raw['cuda_driver'] // 1000}.{(raw['cuda_driver'] % 1000) // 10}",
@@ -135,18 +148,19 @@ def validate(raw, checkpoint=None):
             "attestation_verified": False}
 
 
-def validate_report(row):
+def validate_report(row, *, family="B200"):
+    family_key(family)
     require(type(row) is dict and set(row) == {"status", "selected_gpus", "family", "cc_feature", "environment",
                                              "devtools", "multigpu", "system_ready", "driver", "cuda_driver",
                                              "protected_kib", "attestation_verified"})
     require(row["status"] == "observed" and type(row["selected_gpus"]) is int and row["selected_gpus"] == 4
-            and row["family"] == "B200" and row["cc_feature"] == "enabled" and row["environment"] == "production"
+            and row["family"] == family and row["cc_feature"] == "enabled" and row["environment"] == "production"
             and row["devtools"] == "off" and row["multigpu"] in MULTIGPU.values()
             and row["system_ready"] is True and row["attestation_verified"] is False
             and type(row["driver"]) is str and re.fullmatch(r"[0-9]{3}\.[0-9]{1,3}(?:\.[0-9]{1,3})?", row["driver"])
             and type(row["cuda_driver"]) is str and re.fullmatch(r"[0-9]{2}\.[0-9]", row["cuda_driver"])
             and type(row["protected_kib"]) is list and len(row["protected_kib"]) == 4
-            and all(type(n) is int and 120 << 20 <= n <= 1 << 30 for n in row["protected_kib"]))
+            and all(type(n) is int and MEMORY_FLOORS[family] <= n <= 1 << 30 for n in row["protected_kib"]))
     return row
 
 
@@ -202,7 +216,7 @@ class Trace:
         elif name == "nvmlDeviceGetHandleByIndex_v2":
             self.row["devices"].append({"index": self.device, "b200": None, "protected_kib": None, "unprotected_kib": None})
         elif name == "nvmlDeviceGetName":
-            self.row["devices"][-1]["b200"] = b"B200" in args[1].value.split()
+            self.row["devices"][-1]["b200"] = matches_family(args[1].value, "B200")
         elif name == "nvmlDeviceGetConfComputeMemSizeInfo":
             memory = args[1]._obj
             self.row["devices"][-1].update(protected_kib=memory.protectedMemSizeKib,

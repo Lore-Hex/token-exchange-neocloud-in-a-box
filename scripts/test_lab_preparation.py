@@ -21,6 +21,32 @@ spec.loader.exec_module(lab)
 
 
 class LabPreparationTests(unittest.TestCase):
+    def test_ram_capacity_requires_complete_non_swapping_tmpfs_headroom(self):
+        mem = "MemTotal: 2100000000 kB\nMemAvailable: 1800000000 kB\nSwapTotal: 0 kB\n"
+        mounts = "42 11 0:30 / /dev/shm rw,nosuid,nodev shared:5 - tmpfs tmpfs rw,size=1024G\n"
+        result = lab.ram_capacity(mem, mounts, 900 << 30)
+        self.assertEqual(result["storage"], "existing-tmpfs")
+        self.assertFalse(result["confidential_qualified"])
+        for bad in (mem.replace("1800000000", "1000000000"), mem.replace("SwapTotal: 0", "SwapTotal: 1"),
+                    mem.replace("kB", "MB"), mem + "MemTotal: 2100000000 kB\n", "MemTotal: 1 kB\n"):
+            with self.subTest(mem=bad), self.assertRaises(ValueError):
+                lab.ram_capacity(bad, mounts, 900 << 30)
+        for bad in (mounts.replace("tmpfs tmpfs", "ext4 /dev/test"), mounts + mounts,
+                    mounts.replace("rw,nosuid,nodev", "rw,nodev"), mounts.replace("/dev/shm", "/other")):
+            with self.subTest(mount=bad), self.assertRaises(ValueError):
+                lab.ram_capacity(mem, bad, 900 << 30)
+        for available in (599 << 30, True, -1):
+            with self.assertRaises(ValueError):
+                lab.ram_capacity(mem, mounts, available)
+
+    def test_ram_stage_rejects_other_paths_before_system_reads(self):
+        with patch.object(lab.sys, "platform", "linux"), patch.object(lab.os, "getuid", return_value=0), \
+                patch.object(lab.os, "open") as opened:
+            for path in ("/tmp/weights", "/dev/shm/../private", "/dev/shm/nib-", "/dev/shm/nib-one/child"):
+                with self.assertRaises(ValueError):
+                    lab.prepare_ram_stage(path)
+            opened.assert_not_called()
+
     def test_private_init_is_repeatable(self):
         with tempfile.TemporaryDirectory() as parent:
             target = Path(parent).resolve() / "lab"

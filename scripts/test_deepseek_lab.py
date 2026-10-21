@@ -964,6 +964,46 @@ class HardwareTests(unittest.TestCase):
             instance.call("nvmlSystemSetConfComputeGpusReadyState", 1)
         instance.library.assert_not_called()
 
+    def test_b300_is_explicit_and_never_accepted_as_b200(self):
+        raw = self.raw()
+        raw["devices"] = [{"b300": True, "protected_kib": 250 << 20} for _ in range(4)]
+        row = probe.validate(raw, family="B300")
+        self.assertEqual(probe.validate_report(row, family="B300"), row)
+        self.assertEqual(row["family"], "B300")
+        self.assertFalse(row["attestation_verified"])
+        with self.assertRaises(ValueError):
+            probe.validate(raw)
+        with self.assertRaises(ValueError):
+            probe.validate_report(row)
+        with self.assertRaises(ValueError):
+            probe.validate(self.raw(), family="B300")
+        for family in ("H200", "b300", "auto", None, True):
+            with self.subTest(family=family), self.assertRaises(ValueError):
+                probe.validate(raw, family=family)
+        for bad in ({"b300": False, "protected_kib": 250 << 20},
+                    {"b200": True, "protected_kib": 250 << 20},
+                    {"b300": True, "protected_kib": 180 << 20}):
+            mixed = copy.deepcopy(raw)
+            mixed["devices"][2] = bad
+            with self.assertRaises(ValueError):
+                probe.validate(mixed, family="B300")
+        for field, value in (("feature", 0), ("devtools", 1), ("environment", 1), ("ready", 0), ("multigpu", 0)):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                probe.validate({**raw, field: value}, family="B300")
+
+    def test_family_names_are_bounded_exact_tokens(self):
+        self.assertTrue(probe.matches_family(b"NVIDIA B300", "B300"))
+        for name in (b"NVIDIA B200", b"NVIDIA B3000", b"NVIDIA B300 B200", b"private"):
+            self.assertFalse(probe.matches_family(name, "B300"))
+        self.assertFalse(probe.matches_family(b"NVIDIA B300 B200", "B200"))
+
+    def test_b300_nvml_keeps_actual_family_in_report(self):
+        with mock.patch.object(probe.c, "CDLL", return_value=DiagnosticTests().library(
+                name=b"NVIDIA B300", memory=250 << 20)):
+            row = probe.validate(probe.NVML().observe("B300"), family="B300")
+        self.assertEqual(row["family"], "B300")
+        self.assertEqual(row["protected_kib"], [250 << 20] * 4)
+
 
 class DiagnosticTests(unittest.TestCase):
     def library(self, *, codes=None, count=4, feature=1, environment=2, devtools=0, multigpu=2,
@@ -1232,6 +1272,19 @@ class PayloadTests(unittest.TestCase):
         self.assertEqual(contract["environment"], self.contract["environment"])
         self.assertFalse(contract["confidential"])
         self.assertFalse(contract["deployable"])
+
+    def test_b300_payload_binds_family_without_changing_engine_or_sandbox(self):
+        args = (self.builder, "1"*40, self.bundle, self.extra, b"fake-linux-binary")
+        old_files, old = host.make_payload(*args, "local-correctness")
+        files, contract = host.make_payload(*args, "local-correctness", "B300")
+        self.assertNotIn("gpu_family", old)
+        self.assertEqual(contract, {**old, "gpu_family": "B300"})
+        self.assertEqual({k for k in files if files[k] != old_files[k]}, {"lab.json", "python"})
+        self.assertIn(hashlib.sha256(files["lab.json"]).hexdigest().encode(), files["python"])
+        for operation, family in (("functional", "B300"), ("hardware-diagnostic", "B300"),
+                                  ("local-correctness", "H200"), ("local-correctness", None)):
+            with self.subTest(operation=operation, family=family), self.assertRaises(ValueError):
+                host.make_payload(*args, operation, family)
 
     def test_diagnostic_main_publishes_failed_nvml_observations_with_authoritative_schema(self):
         recorder = self.builder.recorder
