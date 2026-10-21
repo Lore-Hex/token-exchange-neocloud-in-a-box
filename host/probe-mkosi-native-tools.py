@@ -25,6 +25,7 @@ FETCHER = "scripts/fetch_mkosi_tools.py"
 NATIVE = "host/probe-mkosi-native.py"
 CHILD = "scripts/mkosi_native_tools_worker.py"
 PID_CHECKER = "scripts/mkosi_pid_check.py"
+FAILURE_STAGES = ("worker-preflight", "namespaces", "pid", "inputs", "tools")
 fetcher = types.SimpleNamespace(**runpy.run_path(str(ROOT / FETCHER), run_name="tools_fetcher"))
 native = types.SimpleNamespace(**runpy.run_path(str(ROOT / NATIVE), run_name="native_probe"))
 prep, base, tools, require = fetcher.prep, fetcher.base, fetcher.tools, fetcher.require
@@ -101,9 +102,32 @@ def command(root, payload, *, pid_isolation=False):
         *prefix, "/usr/bin/python3.12", "-I", "-S", "-B", "/nib/native-tools.py", *original]
 
 
+def failure_kind(exc):
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return "timeout"
+    if isinstance(exc, subprocess.CalledProcessError):
+        error = exc.stderr if isinstance(exc.stderr, bytes) else b""
+        for stage in FAILURE_STAGES:
+            if error == ("NIB_NATIVE_TOOLS_REJECTED:" + stage + "\n").encode("ascii"):
+                return "worker-" + stage
+        if error.startswith(b"unshare:"):
+            if b"Operation not permitted" in error or b"Permission denied" in error:
+                return "unshare-permission-denied"
+            if b"No such file or directory" in error:
+                return "unshare-missing-path"
+            if b"Invalid argument" in error:
+                return "unshare-invalid-argument"
+            return "unshare-exit"
+        return "process-exit"
+    if isinstance(exc, OSError):
+        return "startup-error"
+    return "invalid-result-or-cleanup"
+
+
 def run(files, payload_files, execute, *, pid_isolation=False):
     require(type(pid_isolation) is bool)
     report = {"schema": "nib.mkosi-native-tools/v1", "result": "fail", "stage": "materialization",
+              "failure_kind": None,
               "namespaces_validated": False, "tools_startup_validated": False,
               "tools_checked": 0, "process_cleanup_confirmed": False, "payload_removed": False,
               "package_installation_executed": False, "maintainer_scripts_executed": False,
@@ -128,8 +152,8 @@ def run(files, payload_files, execute, *, pid_isolation=False):
                           tools_startup_validated=True, tools_checked=len(native.worker.COMMANDS))
             if pid_isolation:
                 report.update(pid_namespace_validated=True, host_processes_hidden=True)
-        except (OSError, ValueError, KeyError, TypeError, tarfile.TarError, subprocess.SubprocessError):
-            pass
+        except (OSError, ValueError, KeyError, TypeError, tarfile.TarError, subprocess.SubprocessError) as exc:
+            report["failure_kind"] = failure_kind(exc)
     require(not temporary.exists())
     report["payload_removed"] = True
     return report

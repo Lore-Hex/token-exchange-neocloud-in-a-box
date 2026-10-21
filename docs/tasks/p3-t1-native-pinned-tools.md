@@ -1,8 +1,7 @@
 # Native Pinned Tools Runtime
 
 Status: the seven-tool native runtime probe passed on October 21, 2026;
-the additional PID-isolation mode is implemented and synthetic-tested, pending
-its own real workflow run.
+the additional PID-isolation run failed and remains unqualified.
 This builds on the [native namespace proof](p3-t1-native-mkosi-probe.md), not
 on a relaxed Docker policy. It does not install packages or build a guest.
 
@@ -71,6 +70,23 @@ child when the launcher dies, and exiting PID 1 terminates its PID namespace.
 The existing outer deadline and process-group cleanup still apply. This is
 not yet proof of safe package hooks, a complete installation sandbox, resource
 limits for a build or reproducible outputs.
+
+### Actual PID Run
+
+[Run 39619866911](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39619866911)
+at main `cc299743125b3221297a1847e13e092f7c6f66e3` failed on October 21.
+The [unaltered result](../../evidence/p3/2026-10-21-native-pid-denied/result.json)
+and [run record](../../evidence/p3/2026-10-21-native-pid-denied/run.json) show
+verified inputs and successful process/payload cleanup, but no namespace or
+tools success. The old result did not distinguish launcher rejection from a
+worker check failure, so the exact cause is not yet established.
+
+Subsequent runs retain only fixed failure categories: launcher permission,
+missing path, invalid argument or other exit; worker preflight, namespace, PID,
+input or tools checks; timeout; startup; or invalid result/cleanup. Exception
+text and subprocess output are discarded. Exact worker markers are required;
+extra or malformed bytes cannot become a success or a trusted worker label.
+No mount, capability, check or host policy has been relaxed.
 
 ## Scope and Next Gates
 

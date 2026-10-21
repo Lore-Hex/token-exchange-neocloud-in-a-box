@@ -223,6 +223,29 @@ class LifecycleTests(unittest.TestCase):
             self.assertFalse(report["host_processes_hidden"])
             self.assertTrue(report["payload_removed"])
 
+    def test_failure_classes_never_persist_process_output(self):
+        cases = {
+            b"unshare: mount PRIVATE /proc failed: Operation not permitted\n": "unshare-permission-denied",
+            b"unshare: PRIVATE: No such file or directory\n": "unshare-missing-path",
+            b"unshare: PRIVATE: Invalid argument\n": "unshare-invalid-argument",
+            b"unshare: PRIVATE\n": "unshare-exit",
+            b"PRIVATE\n": "process-exit",
+            b"NIB_NATIVE_TOOLS_REJECTED:pid\nPRIVATE\n": "process-exit",
+        }
+        cases.update({("NIB_NATIVE_TOOLS_REJECTED:" + stage + "\n").encode(): "worker-" + stage
+                      for stage in host.FAILURE_STAGES})
+        for stderr, expected in cases.items():
+            with self.subTest(expected=expected):
+                report, _ = self.run_probe(code=1, stderr=stderr, pid_isolation=True)
+                self.assertEqual(report["failure_kind"], expected)
+                self.assertEqual(report["result"], "fail")
+                self.assertFalse(report["pid_namespace_validated"])
+                self.assertTrue(report["payload_removed"])
+                self.assertNotIn("PRIVATE", json.dumps(report))
+        self.assertEqual(host.failure_kind(subprocess.TimeoutExpired("PRIVATE", 1)), "timeout")
+        self.assertEqual(host.failure_kind(OSError("PRIVATE")), "startup-error")
+        self.assertEqual(host.failure_kind(ValueError("PRIVATE")), "invalid-result-or-cleanup")
+
     def test_pid_mode_requires_an_actual_boolean(self):
         for value in ("true", 1, None):
             with self.subTest(value=value), self.assertRaises(ValueError):
@@ -308,9 +331,19 @@ class ChildTests(unittest.TestCase):
         probe.assert_called_once()
         error, output, reader, _, probe = self.run_child(pid=True, pid_error=ValueError("synthetic"))
         self.assertIsNotNone(error)
+        self.assertEqual(error.stage, "pid")
         self.assertEqual(output, b"")
         reader.assert_not_called()
         probe.assert_not_called()
+
+    def test_child_reports_fixed_stage_not_exception_text(self):
+        for options, expected in (({"namespace_error": OSError("PRIVATE")}, "namespaces"),
+                                  ({"bad_snapshot": True}, "inputs"),
+                                  ({"probe_result": "fail"}, "tools")):
+            error, output, _, _, _ = self.run_child(**options)
+            self.assertEqual(error.stage, expected)
+            self.assertEqual(str(error), expected)
+            self.assertEqual(output, b"")
 
 
 class PIDTests(unittest.TestCase):
