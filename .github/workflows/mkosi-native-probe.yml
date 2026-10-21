@@ -1,0 +1,43 @@
+name: Native mkosi namespace probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-mkosi-namespace-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Fetch public immutable source, not executable until authenticated
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          mkdir -m 700 build/native-mkosi
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --max-time 60 --max-filesize 473225 \
+            https://codeload.github.com/systemd/mkosi/tar.gz/ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b \
+            --output build/native-mkosi/source.tar.gz
+      - name: Require actual namespace isolation without host policy changes
+        run: |
+          python3 -I -S -B host/probe-mkosi-native.py \
+            --archive "$PWD/build/native-mkosi/source.tar.gz" \
+            --output "$PWD/build/native-mkosi/evidence"
+      - name: Preserve content-free evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: native-mkosi-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/native-mkosi/evidence/
+          if-no-files-found: error
+          retention-days: 7
