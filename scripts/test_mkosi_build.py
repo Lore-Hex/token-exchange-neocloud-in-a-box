@@ -322,12 +322,14 @@ class BuildTests(unittest.TestCase):
         paths = committed.call_args.args[0]
         self.assertLessEqual(len(paths), 24)
         for name in (host.SCRIPT, host.WORKER, host.ENTRY, host.LAUNCHER, host.RESOURCES,
-                     "scripts/mkosi_package_worker.py", "scripts/mkosi_confinement.py"):
+                     "scripts/mkosi_package_worker.py", "scripts/mkosi_confinement.py", host.DKMS):
             self.assertIn(name, paths)
 
     def test_workflow_manual_main_only_without_credentials_in_build(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/mkosi-native-build.yml").read_text())
-        self.assertEqual(workflow[True], {"workflow_dispatch": None})
+        self.assertEqual(workflow[True], {"workflow_dispatch": {"inputs": {"compile_driver": {
+            "description": "Compile the pinned NVIDIA driver after installation (no loading or boot)",
+            "type": "boolean", "default": False}}}})
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         job = workflow["jobs"]["install"]
         self.assertEqual(job["if"], "github.ref == 'refs/heads/main'")
@@ -339,7 +341,20 @@ class BuildTests(unittest.TestCase):
         self.assertIn("--metadata-archive", fetch)
         self.assertIn("--include-guest", fetch)
         self.assertIn("host/run-mkosi-build.py", job["steps"][2]["run"])
+        self.assertEqual(job["steps"][2]["env"], {"COMPILE_DRIVER": "${{ inputs.compile_driver }}"})
+        self.assertIn('if [ "$COMPILE_DRIVER" = true ]; then args+=(--compile-driver); fi',
+                      job["steps"][2]["run"])
+        self.assertNotIn("${{", job["steps"][2]["run"])
         self.assertEqual(job["steps"][-1]["if"], "always()")
+
+    def test_driver_build_is_explicit_and_does_not_change_default_namespace(self):
+        with mock.patch.object(host.os, "readlink", return_value="ns:[1]"), \
+                mock.patch.object(host.probe.ownership, "prefix", return_value=[]):
+            args = (Path("/rootfs"), Path("/payload"), Path("/result"), {})
+            normal = host.command(*args)
+            explicit = host.command(*args, compile_driver=True)
+        self.assertEqual(explicit, normal + ["--compile-driver"])
+        self.assertNotIn("--compile-driver", normal)
 
     def test_host_syntax_compatible_with_fixed_python310(self):
         for path in (host.SCRIPT, host.LAUNCHER, host.RESOURCES):

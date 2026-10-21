@@ -25,6 +25,7 @@ WORKER = "scripts/mkosi_build_worker.py"
 ENTRY = "scripts/mkosi_build_entry.py"
 RESOURCES = "host/probe-build-resources.py"
 LAUNCHER = "host/run-mkosi-build.py"
+DKMS = "scripts/mkosi_dkms.py"
 probe = types.SimpleNamespace(**runpy.run_path(str(ROOT / PROBE), run_name="build_probe"))
 resources = types.SimpleNamespace(**runpy.run_path(str(ROOT / RESOURCES), run_name="build_limits"))
 prep, base, tools, require = probe.prep, probe.base, probe.tools, probe.require
@@ -41,7 +42,7 @@ def preflight():
     require({name: (group / name).read_text().strip() for name in resources.LIMITS} == resources.LIMITS)
 
 
-def command(root, payload, output, mapped):
+def command(root, payload, output, mapped, compile_driver=False):
     before = [os.readlink("/proc/self/ns/" + name) for name in ("user", "mnt", "net", "ipc", "pid")]
     return [*probe.ownership.prefix(root, mapped), probe.native.PYTHON, "-I", "-S", "-B",
         str(payload / "mkosi-sandbox.py"), "--ro-bind", str(root), "/",
@@ -49,7 +50,8 @@ def command(root, payload, output, mapped):
         "--bind", str(output), "/out", "--dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", "/work",
         "--unshare-net", "--unshare-ipc", "--become-root",
         "/usr/bin/unshare", "--pid", "--fork", "--mount-proc=/proc", "--kill-child=KILL", "--",
-        "/usr/bin/python3.12", "-I", "-S", "-B", "/nib/build-worker.py", *before]
+        "/usr/bin/python3.12", "-I", "-S", "-B", "/nib/build-worker.py", *before,
+        *(["--compile-driver"] if compile_driver else [])]
 
 
 def prepare(downloads, source_archive, revision, sources):
@@ -72,12 +74,13 @@ def prepare(downloads, source_archive, revision, sources):
         "ownership.py": sources[probe.OWNERSHIP],
         "package-worker.py": prepared["nib/package-worker.py"],
         "confinement.py": prepared["nib/confinement.py"]})
+    payload["dkms-worker.py"] = sources[DKMS]
     modes = {"upstream/" + name: 0o555 if row["mode"] == "100755" else 0o444
              for name, row in pin["source_files"].items() if row["mode"] != "120000"}
     return prepared, preparation, payload, modes, links
 
 
-def run(downloads, archive, output, revision, sources):
+def run(downloads, archive, output, revision, sources, compile_driver=False):
     require(not output.exists() and not output.is_symlink())
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     report = {"schema": "nib.mkosi-installation/v1", "git_sha": revision, "result": "fail",
@@ -113,7 +116,7 @@ def run(downloads, archive, output, revision, sources):
             resultdir.mkdir(mode=0o700)
             report.update(stage="installation", prepared_receipt_sha256=base.digest(prepared["receipt.json"]),
                           tools_receipt_sha256=base.digest(files["receipt.json"]))
-            result = base.processes.execute_process_group(command(root, payload, resultdir, mapped),
+            result = base.processes.execute_process_group(command(root, payload, resultdir, mapped, compile_driver),
                 env={**probe.native.worker.ENV, "RUNNER_ENVIRONMENT": "github-hosted"},
                 timeout=1900, max_output_bytes=2 << 20, stdin=subprocess.DEVNULL)
             report["process_cleanup_confirmed"] = True
@@ -124,13 +127,18 @@ def run(downloads, archive, output, revision, sources):
                 require(worker["schema"] == "nib.mkosi-install-worker/v1"
                         and worker["bootable"] is False and worker["deployable"] is False)
                 report["worker"] = worker
-            for name in ("installer.stdout", "installer.stderr"):
+            for name in ("installer.stdout", "installer.stderr", "dkms-compiler.stdout", "dkms-compiler.stderr",
+                         "dkms-add.stdout", "dkms-add.stderr", "dkms-build.stdout", "dkms-build.stderr",
+                         "dkms-make-0.log", "dkms-make-1.log"):
                 if (resultdir / name).exists():
                     artifacts[name] = base.read(resultdir / name, 2 << 20)
             result.check_returncode()
             require(report["worker"] and report["worker"]["result"] == "pass"
                     and report["worker"]["configured_state_verified"] is True
                     and report["worker"]["installed_packages"] == 145)
+            if compile_driver:
+                require(report["worker"]["dkms_built"] is True
+                        and report["worker"]["driver_build"]["result"] == "pass")
             report.update(result="pass", stage="complete")
         except (OSError, ValueError, KeyError, TypeError, tarfile.TarError, subprocess.SubprocessError) as exc:
             report["failure_kind"] = probe.failure_kind(exc)
@@ -139,6 +147,9 @@ def run(downloads, archive, output, revision, sources):
     evidence = probe.native.evidence(report, revision, started, ended)
     evidence.update(command="host/run-mkosi-build.py --downloads PRIVATE --archive PRIVATE --output PRIVATE",
         notes="One bounded offline installation; no boot, UKI, verity, DKMS, reproducibility or hardware qualification.")
+    if compile_driver:
+        evidence["command"] += " --compile-driver"
+        evidence["notes"] = "Bounded offline installation and explicit DKMS build; no module loading, boot, LKCA, reproducibility or hardware qualification."
     artifacts.update({"run.json": base.encoded(evidence), "result.json": base.encoded(report)})
     base.publish(output, artifacts)
     return 0 if report["result"] == "pass" else 1
@@ -148,13 +159,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("downloads", "archive", "output"):
         parser.add_argument("--" + name, required=True, type=Path)
+    parser.add_argument("--compile-driver", action="store_true")
     args = parser.parse_args()
     preflight()
     tools.separate_output(args.output, (args.downloads, args.archive))
     revision, sources = tools.committed((*mkosi.EXTRA, prep.SCRIPT, prep.POLICY,
         SCRIPT, PROBE, WORKER, ENTRY, RESOURCES, LAUNCHER, probe.NATIVE, probe.OWNERSHIP,
-        probe.PID_CHECKER, probe.native.CHECKER, probe.native.WORKER))
-    return run(args.downloads, args.archive, args.output, revision, sources)
+        probe.PID_CHECKER, probe.native.CHECKER, probe.native.WORKER, DKMS))
+    return run(args.downloads, args.archive, args.output, revision, sources, args.compile_driver)
 
 
 if __name__ == "__main__":

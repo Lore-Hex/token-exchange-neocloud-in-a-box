@@ -9,7 +9,7 @@ import subprocess
 import sys
 import types
 
-STAGES = ("preflight", "namespaces", "pid", "ownership", "configuration", "installation", "inventory")
+STAGES = ("preflight", "namespaces", "pid", "ownership", "configuration", "installation", "inventory", "driver-build")
 COMMAND = ["/usr/bin/python3.12", "-I", "-S", "-B", "/nib/mkosi-entry.py",
            "--directory=/work/config", "--tools-tree=/", "--output=rootfs",
            "--output-directory=/work/output", "--workspace-directory=/work/workspaces",
@@ -80,7 +80,8 @@ def install(processes, output, report):
 
 def failure_diagnostics(error):
     """Identify our failing operation, never exception text, locals or paths."""
-    names = {__file__: "build-worker", "/nib/snapshot.py": "process-supervisor"}
+    names = {__file__: "build-worker", "/nib/snapshot.py": "process-supervisor",
+             "/nib/dkms-worker.py": "driver-worker"}
     frames = []
     traceback = error.__traceback__
     while traceback is not None:
@@ -122,9 +123,10 @@ def main():
               "package_installation_executed": False, "configured_state_verified": False,
               "dkms_built": False, "reproducibility_verified": False, "bootable": False, "deployable": False}
     try:
+        compile_driver = len(sys.argv) == 7 and sys.argv[-1] == "--compile-driver"
         require(sys.platform == "linux" and sys.version_info[:2] == (3, 12)
                 and sys.flags.isolated and sys.flags.no_site and sys.flags.dont_write_bytecode
-                and len(sys.argv) == 6 and os.geteuid() == os.getegid() == 0)
+                and (len(sys.argv) == 6 or compile_driver) and os.geteuid() == os.getegid() == 0)
         stage = "namespaces"
         module("namespace-check").check(sys.argv[1:5])
         stage = "pid"
@@ -147,10 +149,19 @@ def main():
         stage = "inventory"
         raw = inputs.regular(Path("/work/output/rootfs/var/lib/dpkg/status"), 8 << 20)
         report["installed_packages"] = configured(raw, expected, inputs.paragraphs)
-        report.update(result="pass", configured_state_verified=True, package_installation_executed=True)
+        report.update(configured_state_verified=True, package_installation_executed=True)
+        if compile_driver:
+            stage = "driver-build"
+            driver = module("dkms-worker")
+            guard = module("confinement")
+            controls = {name: inputs.regular(Path("/nib/prepared/mkosi-skeleton") / name, 16384)
+                        for name in driver.CONTROL_NAMES}
+            report["driver_build"] = driver.build(processes, Path("/out"), installation_environment(), controls, guard.PREFIX)
+            report["dkms_built"] = True
+        report["result"] = "pass"
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         report["failure_frames"] = failure_diagnostics(exc)
-        if stage == "installation":
+        if stage in ("installation", "driver-build"):
             report["private_process_states"] = process_states()
         report["failure_kind"] = ("timeout" if isinstance(exc, subprocess.TimeoutExpired)
                                   else "process-exit" if isinstance(exc, subprocess.CalledProcessError)
