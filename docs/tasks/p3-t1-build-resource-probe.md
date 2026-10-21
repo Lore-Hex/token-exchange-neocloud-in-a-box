@@ -1,6 +1,6 @@
 # Build Resource Controller Probe
 
-Status: candidate only, not a successful hardware run or image build.
+Status: the synthetic Linux probe passed on October 21, 2026; no image build.
 `host/probe-build-resources.py` tests existing cgroup-v2 CPU, memory and PID
 controllers on an explicitly approved root Linux AMD64 lab VM. It creates one
 random, exclusive group and never changes parent controllers, host accounts,
@@ -31,3 +31,18 @@ Source: Linux's [cgroup-v2 contract](https://docs.kernel.org/admin-guide/cgroup-
 specifically process membership/inheritance, `cgroup.kill`, `cgroup.events`,
 `cpu.max`, `pids.max`, `memory.max`, `memory.swap.max` and `memory.oom.group`.
 Focused tests: `python -B -m unittest discover -s scripts -p 'test_build_resources.py'`.
+
+## Recorded Result
+
+The [unaltered result](../../evidence/p3/2026-10-21-build-resource-limits/result.json)
+and [run record](../../evidence/p3/2026-10-21-build-resource-limits/run.json) were
+produced by committed script `d7a822abfcd7c14df4c33bf56af3d60185587120`, with
+SHA-256 `0ee3cd72e7ddbddf7101dde634f4a2e79dce83ab1f4181c93b694942f95aafd5`,
+on the approved isolated Linux lab. Exact limit readback, worker/child membership,
+memory accounting, empty-group verification and removal passed. Peak accounted
+memory was 34,865,152 bytes and OOM kills were zero.
+
+This fixed child exited before cleanup. The record therefore proves empty-group
+cleanup, not the destruction of a hostile detached process. A combined installer
+and explicit surviving-descendant test remain required. The namespace probe ran
+on a separate host; this record does not combine the two security boundaries.

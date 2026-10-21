@@ -1,0 +1,20 @@
+{
+  "command": "/usr/bin/python3.10 -I -S -B host/probe-mkosi-native-tools.py --inputs PRIVATE --archive PRIVATE --output PRIVATE --pid-isolation --mapped-ownership --final-confinement",
+  "ended_utc": "2026-10-21T16:21:34Z",
+  "execution": "software",
+  "git_sha": "6e4c4d2a412e4a1678234c26416e8c3af13f5a57",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "ubuntu-22.04-x86_64",
+    "provider": "github-actions"
+  },
+  "notes": "Seven fixed startup checks in a read-only, reconstructed pinned tools root. Distinct namespaces, loopback only, isolated temporary storage. Host launcher/kernel unpinned. No package installation, maintainer hooks, image build, boot or attestation. Pinned unshare adds a child PID namespace and its own procfs; no host process view. Existing host subordinate-ID helpers allocate the user namespace; private tmpfs ownership is checked. Host helper hashes are observations, not pinned build inputs. Pinned setpriv restricts capabilities; pinned libseccomp prevents namespace/mount reconfiguration. Negative syscall probes, descriptor and readonly-root checks precede tool startups. No aggregate build resource qualification.",
+  "phase": "P3",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-21T16:21:32Z",
+  "task": "T1"
+}
