@@ -1,0 +1,31 @@
+{
+  "bootable": false,
+  "deployable": false,
+  "failure_kind": null,
+  "git_sha": "66ef40db80da15cc54305872815d5e40d67f134f",
+  "mapping_helper_hashes": {
+    "/usr/bin/newgidmap": "076d35f3dd11680a17725ea7b694715bc909182eeb930f1771ef0550e4779459",
+    "/usr/bin/newuidmap": "e26eed17f29ce6ee829855064b83f9ab20afdd9503ec4517f1ce8c1230bebaad"
+  },
+  "payload_removed": true,
+  "prepared_receipt_sha256": "6f675d4eb12e24125a90af21abd8e09c7fe6b58df73fd3644bacda337d053f67",
+  "process_cleanup_confirmed": true,
+  "result": "pass",
+  "schema": "nib.mkosi-installation/v1",
+  "stage": "complete",
+  "tools_receipt_sha256": "b1ded6d3a7262feb2d2285945b9ad51811cf79a7f2baa78482afbb8b0f11994f",
+  "worker": {
+    "bootable": false,
+    "configured_state_verified": true,
+    "deployable": false,
+    "dkms_built": false,
+    "failure_kind": null,
+    "installed_packages": 145,
+    "installer_exit_code": 0,
+    "package_installation_executed": true,
+    "reproducibility_verified": false,
+    "result": "pass",
+    "schema": "nib.mkosi-install-worker/v1",
+    "stage": "inventory"
+  }
+}
