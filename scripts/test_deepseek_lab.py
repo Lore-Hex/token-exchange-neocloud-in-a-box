@@ -325,7 +325,8 @@ class BoundarySiteTests(unittest.TestCase):
             fake_mp = types.SimpleNamespace(get_start_method=lambda: "spawn")
             fake_spawn = types.SimpleNamespace(get_executable=lambda: b"/wrapper")
             state = {"opencv_status": "not-loaded", "six": {}, "pattern_module": None,
-                     "pattern_status": "not-registered", "finders": ["sealed-finder"]}
+                     "pattern_status": "not-registered", "finders": ["sealed-finder"],
+                     "tilelang_status": "not-loaded", "tilelang_env": None}
             if mutation == "path": fake_sys.path = ["/private"]
             elif mutation == "executable": fake_sys.executable = "/private"
             elif mutation == "spawn-executable": fake_spawn.get_executable = lambda: b"/private"
