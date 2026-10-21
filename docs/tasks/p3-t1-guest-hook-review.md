@@ -7,6 +7,14 @@ the entire [guest lock](../../image/inputs/r595-ubuntu2404.json) and a canonical
 inventory of all 180 control hooks (94 distinct byte sequences) and 11 data
 hooks. No package hook was executed to perform this review.
 
+The committed checker passed against the real pinned archives on October 21,
+2026. Its [run](../../evidence/p3/2026-10-21-guest-hook-review/run.json),
+[result](../../evidence/p3/2026-10-21-guest-hook-review/result.json) and
+[complete inventory](../../evidence/p3/2026-10-21-guest-hook-review/inventory.json)
+are unaltered outputs from commit `3a6d82b` (full revision in the artifacts).
+Eight focused synthetic tests cover drift, path/entry attacks, bounds,
+non-execution and complete evidence fields.
+
 ## Recheck
 
 ```sh

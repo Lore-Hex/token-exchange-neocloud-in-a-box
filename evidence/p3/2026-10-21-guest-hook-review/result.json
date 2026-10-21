@@ -1,0 +1,18 @@
+{
+  "control_members": 180,
+  "data_hooks": 11,
+  "deployable": false,
+  "git_sha": "3a6d82b997b658cb6faf2012a2ac155d97538fda",
+  "guest_lock_sha256": "ea8a93155131f15d460f6b3c147063e672e718d027366ab6c53c4264066a8883",
+  "hardware_validated": false,
+  "image_built": false,
+  "installation_authorized": false,
+  "inventory_sha256": "15df8100bc044a421e3814891e56d837758412ae12a667a0808d7a8290baa47f",
+  "package_count": 145,
+  "packages_executed": false,
+  "policy_sha256": "3cce9fb5eef34a833a879bd7879d32453c4f256dd84f683393c97eefb5433362",
+  "result": "pass",
+  "schema": "nib.guest-hook-review/v1",
+  "scope": "fresh-directory-installation-source-review",
+  "source_review_matches": true
+}
