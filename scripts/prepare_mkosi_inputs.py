@@ -32,6 +32,8 @@ MAX_SOURCE = 8 << 20
 MAX_PACKAGES = 320
 MAX_BYTES = 640 << 20
 SCRIPTS = frozenset(("preinst", "postinst", "prerm", "postrm", "config", "triggers"))
+TARGET_KERNEL = "6.8.0-147-generic"
+TARGET_DRIVER = "595.91.07"
 
 
 def load():
@@ -170,13 +172,46 @@ def validate_tools_lock(lock, metadata):
     require(base.inputs.matches(rows["systemd"], ("systemd-repart", None, None, None)))
 
 
+def dkms_build_controls():
+    # Pinned DKMS 3.4.3 reads these before auto-install and after module config.
+    # NVIDIA's quoted 'make' bypasses DKMS's -j injection; override it explicitly.
+    make = ("'make' -j2 KERNEL_UNAME=" + TARGET_KERNEL
+            + " SYSSRC=/lib/modules/" + TARGET_KERNEL + "/build"
+            + " CC=/usr/bin/x86_64-linux-gnu-gcc-13 LD=/usr/bin/ld.bfd"
+            + " CONFIG_X86_KERNEL_IBT= IGNORE_CC_MISMATCH="
+            + " IGNORE_PREEMPT_RT_PRESENCE= IGNORE_XEN_PRESENCE= modules")
+    return {
+        "mkosi-skeleton/etc/dkms/no-autoinstall":
+            b"# Build-only: explicit pinned-target compilation follows package installation.\n",
+        "mkosi-skeleton/etc/dkms/framework.conf.d/99-nib-build.conf":
+            b'parallel_jobs=2\nmodprobe_on_install=""\nbuild_environment=""\n',
+        "mkosi-skeleton/etc/dkms/nvidia-" + TARGET_DRIVER + "-" + TARGET_KERNEL + "-x86_64.conf":
+            ('MAKE[0]="' + make + '"\n').encode("ascii"),
+    }
+
+
+def validate_build_targets(guest):
+    expected = {"dkms": "1:3.4.3-1ubuntu1", "nvidia-dkms-open": TARGET_DRIVER + "-1ubuntu1",
+                "gcc-13": "13.3.0-6ubuntu2~24.04.1",
+                "gcc-13-x86-64-linux-gnu": "13.3.0-6ubuntu2~24.04.1",
+                "linux-headers-6.8.0-147": "6.8.0-147.147",
+                "linux-headers-" + TARGET_KERNEL: "6.8.0-147.147"}
+    actual = {row["Package"]: row["Version"] for row in guest["packages"]}
+    require(len(actual) == len(guest["packages"]) and all(actual.get(k) == v for k, v in expected.items()))
+
+
 def build_contract(guest, revision):
     # This is a gate/receipt contract, not an authorization flag or a build runner.
     return {
         "schema": "nib.mkosi-build-input-contract/v1", "git_sha": revision,
         "phase": "source-and-package-preparation", "execution_permitted": False,
-        "mkosi_git_sha": COMMIT, "target_kernel": "6.8.0-147-generic",
-        "target_driver": "595.91.07", "target_compiler": "gcc-13",
+        "mkosi_git_sha": COMMIT, "target_kernel": TARGET_KERNEL,
+        "target_driver": TARGET_DRIVER, "target_compiler": "gcc-13",
+        "preinstall_controls": {"skeleton_tree": "mkosi-skeleton",
+                                "files": {name: base.digest(raw) for name, raw in dkms_build_controls().items()},
+                                "automatic_dkms_builds": False, "module_loading_on_install": False,
+                                "compiler_mismatch_bypass_requested": False, "build_jobs": 2,
+                                "runtime_validated": False},
         "target_packages": len(guest["packages"]),
         "candidate_output": "nonbootable-directory",
         "clean_builds_required": 2, "shared_incremental_cache": False,
@@ -212,6 +247,7 @@ def prepare(metadata, archives, source_archive, revision, sources):
     patched = service_denial_patch(members, pin, sources[EXTRA[3]], patch_pin)
     validate_tools_lock(lock, metadata)
     base.inputs.check(guest, metadata)
+    validate_build_targets(guest)
     require(len(lock["packages"]) <= 256 and lock["archive_bytes"] <= 128 << 20)
     rows = {}
     for row in [*lock["packages"], *guest["packages"]]:
@@ -250,13 +286,14 @@ def prepare(metadata, archives, source_archive, revision, sources):
         "mkosi-overlay/" + PATCH_TARGET: patched,
         "mkosi-tools-inputs.json": sources[EXTRA[2]],
         "guest-inputs.json": sources[tools.FILES[-1]],
-        "mkosi.conf.candidate": base.recipe(guest),
+        "mkosi.conf.candidate": base.recipe(guest, skeleton_tree="mkosi-skeleton"),
         "build-contract.json": base.encoded(build_contract(guest, revision)),
         "maintainer-inventory.json": base.encoded({"packages": observations,
                                                  "execution_review_complete": False}),
         "tools-packages.txt": "".join(r["Package"] + "=" + r["Version"] + "\n"
                                      for r in lock["packages"]).encode(),
     })
+    files.update(dkms_build_controls())
     require(sum(map(len, files.values())) <= MAX_BYTES)
     report = {
         "schema": "nib.mkosi-input-preparation/v1", "result": "pass", "git_sha": revision,

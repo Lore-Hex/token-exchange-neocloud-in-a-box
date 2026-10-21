@@ -247,9 +247,11 @@ def controls(raw, expected):
     return index, observations
 
 
-def recipe(lock):
+def recipe(lock, *, skeleton_tree=None):
     # mkosi ecf7f570: PackageDirectories creates a local repository, but install
     # runs maintainer scripts. This directory-only recipe is NOT invoked here.
+    require(skeleton_tree in (None, "mkosi-skeleton"))
+    skeleton = "" if skeleton_tree is None else "SkeletonTrees=" + skeleton_tree + "\n"
     packages = "\n         ".join(row["Package"] + "=" + row["Version"] for row in lock["packages"])
     return ("""# Candidate package-installation rehearsal only; not a bootable guest.
 # Requires a separately reviewed pinned Linux/mkosi tools tree.
@@ -265,7 +267,7 @@ ImageId=nib-r595-installability-candidate
 [Content]
 Packages=""" + packages + """
 PackageDirectories=repo/pool
-WithRecommends=no
+""" + skeleton + """WithRecommends=no
 Bootable=no
 Ssh=never
 Autologin=no
