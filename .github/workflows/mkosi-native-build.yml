@@ -28,9 +28,10 @@ jobs:
             --max-time 60 --max-filesize 473225 \
             https://codeload.github.com/systemd/mkosi/tar.gz/ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b \
             --output build/native-install/source.tar.gz
+          release=https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/releases/download
           curl --disable --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --tlsv1.2 \
             --max-time 120 --max-filesize 23847293 \
-            https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/releases/download/build-input-indexes-20261020/metadata.tar.gz \
+            "$release/build-input-indexes-20261020/metadata.tar.gz" \
             --output build/native-install/metadata.tar.gz
           printf '%s  %s\n' 54def86b7b37b3b5178782965e499f0242a98f36bc7828105f112005576663a7 \
             build/native-install/metadata.tar.gz | sha256sum --check --strict
