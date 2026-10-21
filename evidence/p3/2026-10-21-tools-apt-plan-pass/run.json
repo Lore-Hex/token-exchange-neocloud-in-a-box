@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I host/simulate-guest-apt.py --run --target mkosi-tools --metadata PRIVATE --archives PRIVATE --bundle PRIVATE --output PRIVATE",
+  "ended_utc": "2026-10-21T03:29:35Z",
+  "execution": "software",
+  "git_sha": "a4ecfe11d5051f873d4efacb3eb37d647e86219c",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "linux-amd64",
+    "provider": "local-docker"
+  },
+  "notes": "Offline APT dependency simulation only; no package installation, maintainer scripts, mkosi build, boot, hardware or attestation. Private paths normalized. The legacy guest_lock_sha256 field binds the explicitly selected target lock.",
+  "phase": "P3",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-21T03:29:30Z",
+  "task": "T1"
+}
