@@ -362,6 +362,28 @@ class BoundarySiteTests(unittest.TestCase):
 
 
 class WorkerDiagnosticTests(unittest.TestCase):
+    def test_rpc_and_busy_loop_catches_preserve_original_exception_without_formatting(self):
+        class Private:
+            def __str__(self):
+                raise AssertionError("must not format")
+        self.assertEqual(bootstrap.WORKER_LOG_SITES, frozenset((953, 959, 1000, 1063)))
+        source = b"synthetic pinned worker source"
+        state = {"layout": {"selected_root": "/sealed/packages"}}
+        path = "/sealed/packages/" + bootstrap.WORKER_LOG_SOURCE
+        source_helpers = types.SimpleNamespace(require=helpers.require, read_source=lambda *_: source)
+        for line in bootstrap.WORKER_LOG_SITES:
+            with self.subTest(line=line):
+                observer = mock.Mock()
+                failure = RuntimeError(Private())
+                original = logging.getLogRecordFactory()
+                with mock.patch.object(bootstrap, "WORKER_LOG_SHA256", hashlib.sha256(source).hexdigest()):
+                    with bootstrap.observed_worker_logs(state, source_helpers, observer):
+                        record = logging.getLogRecordFactory()(bootstrap.WORKER_LOG_MODULE, logging.ERROR,
+                            path, line, Private(), (Private(),), (RuntimeError, failure, None))
+                        self.assertIs(record.exc_info[1], failure)
+                observer.assert_called_once_with(failure)
+                self.assertIs(logging.getLogRecordFactory(), original)
+
     def test_caught_startup_observer_never_formats_content_and_preserves_factory(self):
         class Private:
             def __str__(self):
@@ -397,7 +419,7 @@ class WorkerDiagnosticTests(unittest.TestCase):
         cases = (
             ("other", path, 953, (ValueError, failure, None)),
             (bootstrap.WORKER_LOG_MODULE, "/untrusted/worker.py", 953, (ValueError, failure, None)),
-            (bootstrap.WORKER_LOG_MODULE, path, 959, (ValueError, failure, None)),
+            (bootstrap.WORKER_LOG_MODULE, path, 1064, (ValueError, failure, None)),
             (bootstrap.WORKER_LOG_MODULE, path, 953, None),
             (bootstrap.WORKER_LOG_MODULE, path, 953, (None, None, None)),
         )
