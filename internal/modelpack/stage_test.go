@@ -257,7 +257,7 @@ func TestStageCLIPlanIsOfflineAndLimitsAreExplicit(t *testing.T) {
 		{"stage", "--download", "--max-bytes", "1", "--timeout", "1m", pack, dir},
 		{"stage", "--workers", "4", pack},
 		{"stage", "--download", "--max-bytes", "999", "--timeout", "1m", "--workers", "0", pack, dir},
-		{"stage", "--download", "--max-bytes", "999", "--timeout", "1m", "--workers", "5", pack, dir},
+		{"stage", "--download", "--max-bytes", "999", "--timeout", "1m", "--workers", "9", pack, dir},
 	} {
 		out.Reset()
 		errs.Reset()

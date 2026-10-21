@@ -40,6 +40,7 @@ PACK = "models/deepseek-v4.1-flash-1017/1"
 SMALL = 2 << 20
 MAX_BINARY = 128 << 20
 MAX_SECONDS = 3 * 3600
+MAX_WORKERS = 8
 GRACE = 30
 INTERVAL = 30
 SHA = r"[0-9a-f]{64}"
@@ -447,7 +448,7 @@ def utc():
 def run(root, expected, destination, evidence, seconds, budget, download, workers=1):
     require(sys.platform == "linux" and os.uname().machine == "x86_64")
     require(type(seconds) is int and 0 < seconds <= MAX_SECONDS and type(budget) is int and budget > 0)
-    require(type(workers) is int and 1 <= workers <= 4)
+    require(type(workers) is int and 1 <= workers <= MAX_WORKERS)
     require(destination.is_absolute() and destination.name not in ("", ".", "..") and ".." not in destination.parts)
     paths = (root, destination, evidence)
     require(all(path.is_absolute() and str(path) == os.path.normpath(path) and ".." not in path.parts for path in paths))

@@ -165,7 +165,7 @@ func checkRemote(ctx context.Context, packPath string, r *remote) error {
 
 // Run implements the model subcommand with sanitized errors and output.
 func Run(ctx context.Context, args []string, out, errOut io.Writer) int {
-	const usage = "usage: nib model check-remote <pack> | check-local <pack> <staged-directory> | stage [--download --max-bytes N --timeout D --workers 1..4] <pack> [staged-directory]"
+	usage := fmt.Sprintf("usage: nib model check-remote <pack> | check-local <pack> <staged-directory> | stage [--download --max-bytes N --timeout D --workers 1..%d] <pack> [staged-directory]", MaxStageWorkers)
 	if len(args) == 1 && (args[0] == "help" || args[0] == "--help") {
 		fmt.Fprintln(out, usage)
 		return 0

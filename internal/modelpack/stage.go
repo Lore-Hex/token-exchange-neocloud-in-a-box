@@ -65,6 +65,9 @@ type StageOptions struct {
 	Workers  int
 }
 
+// MaxStageWorkers bounds concurrent public downloads, not the total byte budget.
+const MaxStageWorkers = 8
+
 type StageProof struct {
 	*LocalProof
 	DownloadedBytes int64 `json:"downloaded_bytes"`
@@ -100,8 +103,8 @@ func stageWithSync(ctx context.Context, packPath, directory string, options Stag
 	if workers == 0 {
 		workers = 1
 	}
-	if workers < 1 || workers > 4 {
-		return nil, errors.New("modelpack: download workers must be between 1 and 4")
+	if workers < 1 || workers > MaxStageWorkers {
+		return nil, fmt.Errorf("modelpack: download workers must be between 1 and %d", MaxStageWorkers)
 	}
 	if !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
 		return nil, errors.New("modelpack: canonical absolute staging directory required")
