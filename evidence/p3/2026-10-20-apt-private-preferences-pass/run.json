@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I host/simulate-guest-apt.py --run --metadata <private-metadata> --archives <private-archives> --bundle <private-bundle> --output <private-output>",
+  "ended_utc": "2026-10-20T21:00:30Z",
+  "execution": "software",
+  "git_sha": "87f7d15c6d3a02f3faa83b0ac584315501e1fe9b",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "linux-amd64",
+    "provider": "local-docker"
+  },
+  "notes": "Historical content-free report import, not a new execution or independent container verification. Original producer and reported execution timestamps retained. Command uses the producer's fixed CLI with private paths normalized; literal path values were not recorded. Offline resolution passed with explicit private empty preferences: 145 packages planned for install/configuration and zero removals. This is a simulated package plan, not an installed or bootable guest. No package installation, scripts, guest build or hardware validation. output.log is byte-identical to original report.json; SHA256=980e1a5e9599a3e39d98e58c46dc8da707b92cfc5965a8360b5df16329be0fa0. Importer git_sha=989c4203b0aeb098bd67516ffa73bd444ef1a376; importer/helper SHA256={\"image/inputs/r595-ubuntu2404.json\": \"ea8a93155131f15d460f6b3c147063e672e718d027366ab6c53c4264066a8883\", \"scripts/e2e/snapshot.py\": \"b7f5753ecacde3cda2bf5fdc673b6f2af239875f2a9468e34a5219a797b78b3a\", \"scripts/guest_package_inputs.py\": \"17923d29e7b990cdf86673e63f32ce770ccac372bf34e9f6c682cbd316d9fed7\", \"scripts/prepare_guest_packages.py\": \"7d522005c4717548945c5ffa0788841ea3eeb4447e4d1d94fac564c84e4a613f\", \"scripts/record_apt_report.py\": \"3eff2e6f89522b69df72ccd1d2ff11669ac586df3c9cdd070f187e924ecab787\"}",
+  "phase": "P3",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-20T21:00:27Z",
+  "task": "T1"
+}
