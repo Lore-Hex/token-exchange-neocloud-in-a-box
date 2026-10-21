@@ -106,3 +106,26 @@ now supplies the missing relative alias, pointing to `/` inside its existing
 private mount namespace. That root is already the authenticated extracted
 tools tree, not the host filesystem. Candidate bytes, offline package sources,
 namespace boundaries, resource limits and the final command are unchanged.
+
+## Fourth native run: offline resolver mountpoint
+
+[Run 39669380453](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39669380453)
+reached the next mkosi check and rejected the tools tree's missing
+`/etc/resolv.conf`. The original
+[diagnostic](../../evidence/p3/2026-10-21-native-install-resolver/installer.stderr),
+[result](../../evidence/p3/2026-10-21-native-install-resolver/result.json) and
+[resource cleanup](../../evidence/p3/2026-10-21-native-install-resolver/evidence-resources.json)
+record zero installed packages, no OOM and confirmed cleanup. No boot or
+successful installation is claimed.
+
+Pinned mkosi's
+[`ensure_tools_tree_has_etc_resolv_conf`](https://github.com/systemd/mkosi/blob/ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b/mkosi/__init__.py#L5017)
+requires the mountpoint even for this offline build. Tools-tree preparation now
+adds a deterministic empty regular file, mode 0644, before producing its tar,
+inventory and hash receipt. The prepared file is explicitly reported apart
+from package-owned data. Existing members and aliased ancestors are rejected,
+never overwritten. No host resolver, DNS server, search domain or account data
+is read. The network namespace remains isolated and package sources remain
+local. Tests cover tar/inventory consistency, deterministic bytes and modes,
+repeated creation, source collisions and alias rejection. Full `make check`
+and a fresh bounded native run remain required.
