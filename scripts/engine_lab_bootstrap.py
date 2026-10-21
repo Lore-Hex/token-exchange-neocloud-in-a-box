@@ -517,6 +517,11 @@ def install_lab(layout, helpers, checkpoint=None):
                     module.__dict__.pop(name, None)
 
     def tilelang_spec(fullname, path, target):
+        # Torch Dynamo probes optional TVM before TileLang registers its private
+        # namespace. Absence is not a boundary fault; never search other roots.
+        if state["tilelang_status"] == "not-loaded":
+            require(fullname in ("tvm", "tilelang_cython_wrapper") and path is None and target is None)
+            return None
         require(state["tilelang_status"] == "active" and state["tilelang_tvm"] and target is None)
         root = selected + "/tilelang"
         if fullname == "tilelang_cython_wrapper":
