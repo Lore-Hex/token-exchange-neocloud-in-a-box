@@ -282,10 +282,13 @@ class IntegrationTests(unittest.TestCase):
     def test_upstream_response_constructor_never_receives_unvalidated_model(self):
         self.check_upstream_response_boundary(invalid_model=True)
 
-    def check_upstream_response_boundary(self, tool_response=False, invalid_model=False):
+    def test_upstream_evaluates_assertions_outside_default_reward_basis(self):
+        self.check_upstream_response_boundary(reward_basis=["DB", "COMMUNICATE"])
+
+    def check_upstream_response_boundary(self, tool_response=False, invalid_model=False, reward_basis=None):
         names = ("loguru", "litellm", "tau2", "tau2.utils", "tau2.runner", "tau2.runner.batch",
                  "tau2.runner.helpers", "tau2.data_model", "tau2.data_model.simulation",
-                 "tau2.evaluator", "tau2.evaluator.evaluator_nl_assertions")
+                 "tau2.evaluator", "tau2.evaluator.evaluator_nl_assertions", "tau2.evaluator.evaluator")
         modules = {name: types.ModuleType(name) for name in names}
         logger = mock.Mock()
         modules["loguru"].logger = logger
@@ -298,7 +301,10 @@ class IntegrationTests(unittest.TestCase):
         modules["tau2.utils"].llm_utils = llm
         evaluator = modules["tau2.evaluator.evaluator_nl_assertions"]
         modules["tau2.evaluator"].evaluator_nl_assertions = evaluator
-        task = types.SimpleNamespace(evaluation_criteria=types.SimpleNamespace(nl_assertions=["synthetic"]))
+        evaluation_type = types.SimpleNamespace(ALL="all", ALL_WITH_NL_ASSERTIONS="all_with_nl_assertions")
+        modules["tau2.evaluator.evaluator"].EvaluationType = evaluation_type
+        task = types.SimpleNamespace(evaluation_criteria=types.SimpleNamespace(
+            nl_assertions=["synthetic"], reward_basis=reward_basis or ["NL_ASSERTION"]))
         modules["tau2.runner.helpers"].get_tasks = mock.Mock(return_value=[task])
         modules["tau2.data_model.simulation"].TextRunConfig = lambda **kwargs: types.SimpleNamespace(**kwargs)
         called = []
@@ -310,7 +316,8 @@ class IntegrationTests(unittest.TestCase):
             called.append(config)
             self.assertIs(received_task, task)
             self.assertEqual(kwargs, {"seed": selection["seed"], "save_dir": None, "verbose_logs": False,
-                                      "audio_debug": False, "audio_taps": False, "auto_review": False})
+                                      "audio_debug": False, "audio_taps": False, "auto_review": False,
+                                      "evaluation_type": evaluation_type.ALL_WITH_NL_ASSERTIONS})
             self.assertEqual(config.max_retries, 0)
             self.assertEqual(config.hallucination_retries, 0)
             self.assertEqual(config.max_concurrency, 1)
