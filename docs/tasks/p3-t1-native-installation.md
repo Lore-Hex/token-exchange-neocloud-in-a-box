@@ -150,6 +150,6 @@ process-group absence. Worker tests prove diagnostic capture does not convert
 either overflow or nonzero exit to success. A fresh native run is required;
 installation, DKMS, boot and reproducibility remain unproven.
 
-The shared supervisor is source-pinned by the engine recorder. Its four
+The shared supervisor is source-pinned by the engine recorder. Its five
 transitive source-hash constants are refreshed to the exact reviewed bytes;
 historical receipts and producer-specific replay fixtures are unchanged.
