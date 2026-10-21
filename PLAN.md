@@ -716,6 +716,9 @@ Gates: G-GCP-QUOTA (1× H100 Spot), G-NGC, G-RUN.
   not evidence of cloud deletion or DNS withdrawal; those remain launch gates.
 
 - **T1. Guest image v0** (`image/`, mkosi).
+  - Native build-host prerequisite: the bounded
+    [namespace probe](docs/tasks/p3-t1-native-mkosi-probe.md), with no host policy
+    changes. A pass is not image-build or hardware qualification.
   - Ubuntu 24.04 TDX guest kernel with configfs-tsm.
   - NVIDIA open kernel driver from the R595 trusted-computing release (GCP's
     guide requires ≥580) with the Linux Kernel Crypto API (LKCA) enabled and
