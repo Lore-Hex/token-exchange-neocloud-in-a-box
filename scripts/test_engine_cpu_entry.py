@@ -96,6 +96,57 @@ class ExceptionTests(unittest.TestCase):
             self.assertEqual(row["frames"], [])
             cpu.validate_exception(row)
 
+    def validation_fixture(self, rows, count=None):
+        class ValidationError(Exception):
+            def error_count(self):
+                return len(rows) if count is None else count
+            def errors(self, **kwargs):
+                self_kwargs.append(kwargs)
+                return rows
+        module = types.ModuleType("pydantic_core")
+        module.ValidationError = ValidationError
+        self_kwargs = []
+        return module, ValidationError("PRIVATE wrapped model input"), self_kwargs
+
+    def test_validation_cause_preserves_only_source_coordinates(self):
+        source = "raise ValueError('PRIVATE model value')\n"
+        try:
+            exec(compile(source, "/selected/validator.py", "exec"), {})
+        except ValueError as error:
+            cause = error
+        module, error, calls = self.validation_fixture([
+            {"ctx": {"error": cause}, "msg": "PRIVATE", "loc": ("PRIVATE",), "input": "PRIVATE"}])
+        with mock.patch.dict(sys.modules, {"pydantic_core": module}), \
+                mock.patch.object(cpu, "read_source", return_value=source.encode(), create=True):
+            row = cpu.decode_exception(cpu.exception_packet(error, ("/selected/",)))
+        self.assertEqual(row["frames"], [{"source_sha256": hashlib.sha256(source.encode()).hexdigest(), "line": 1}])
+        self.assertEqual(calls, [{"include_url": False, "include_context": True, "include_input": False}])
+        self.assertEqual(row["type"], "other")
+        self.assertFalse(row["observer_failed"])
+        self.assertNotIn("PRIVATE", json.dumps(row))
+        self.assertNotIn("validator.py", json.dumps(row))
+
+    def test_validation_cause_is_exact_class_bounded_and_nonrecursive(self):
+        module, error, calls = self.validation_fixture([], count=9)
+        with mock.patch.dict(sys.modules, {"pydantic_core": module}):
+            row = cpu.decode_exception(cpu.exception_packet(error, ()))
+            self.assertTrue(row["observer_failed"])
+            self.assertEqual(calls, [])
+            class Child(module.ValidationError):
+                def error_count(self):
+                    self.fail("subclass hook must not run")
+            self.assertEqual(cpu.validation_causes(Child()), ())
+            self.assertEqual(cpu.validation_causes(ValueError()), ())
+        module, error, _ = self.validation_fixture([{"ctx": {"error": RuntimeError("PRIVATE")}}])
+        with mock.patch.dict(sys.modules, {"pydantic_core": module}):
+            self.assertEqual(cpu.validation_causes(error), ())
+        for rows, count in ((["PRIVATE"], 1), ([], True), ([{}], 0)):
+            module, error, _ = self.validation_fixture(rows, count)
+            with mock.patch.dict(sys.modules, {"pydantic_core": module}):
+                row = cpu.decode_exception(cpu.exception_packet(error, ()))
+                self.assertTrue(row["observer_failed"])
+                self.assertNotIn("PRIVATE", json.dumps(row))
+
     def test_stack_depth_and_source_reads_are_bounded(self):
         source = "def recurse(n):\n if n: recurse(n-1)\n else: raise Error('PRIVATE')\nrecurse(100)\n"
         packet, read = self.capture(source)

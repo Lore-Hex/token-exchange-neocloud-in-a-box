@@ -10,9 +10,18 @@ not read. Existing CPU packet semantics and negative tests are unchanged.
 The parent creates both pipes and explicitly passes their descriptors. The
 child rejects standard streams, non-pipes, readable/blocking descriptors,
 duplicate descriptor arguments and unexpected invocation shapes. No ambient
-file descriptor is inferred. Both descriptors are closed before `serve.cmd`
-can launch model workers; errors after that boundary still have only the
-existing startup/exit observations. This is not general worker tracing.
+file descriptor is inferred. The checkpoint descriptor closes before
+`serve.cmd`; the error descriptor stays non-inheritable in the parent server
+until exit. This is not general worker tracing.
+
+Pydantic model-validation errors can wrap the original validator traceback.
+The encoder recognizes only the exact already-loaded `pydantic_core` class,
+inspects at most eight errors without input or URL fields, and retains source
+coordinates from wrapped built-in `ValueError`/`AssertionError` instances.
+No validation dictionary, message, context, field location or input is emitted.
+All tracebacks share the same 64-frame scan and eight-frame packet bounds;
+unknown classes and subclasses cannot invoke diagnostic hooks. A diagnostic
+failure sets the observer-failure bit and preserves the outer traceback.
 
 Both functional and local-correctness GPU result schemas advance to v2.
 The host verifies the encoder's source digest and rejects a diagnostic that

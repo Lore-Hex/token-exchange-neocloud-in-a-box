@@ -2,6 +2,7 @@
 """Fixed exception categories and source coordinates; never serialize content."""
 
 import hashlib
+import sys
 import types
 
 EXCEPTION_TYPES = (None, ModuleNotFoundError, ImportError, ValueError, RuntimeError,
@@ -11,6 +12,31 @@ EXCEPTION_NAMES = ("none", "module-not-found", "import", "value", "runtime", "as
                    "type", "attribute", "key", "os", "permission", "timeout", "system-exit", "other")
 EXCEPTION_FRAMES = 8
 EXCEPTION_PACKET_BYTES = 3 + EXCEPTION_FRAMES * 36
+
+
+def validation_causes(error):
+    """Inspect only the already-loaded sealed Pydantic class, never duck types."""
+    module = sys.modules.get("pydantic_core")
+    if type(module) is not types.ModuleType:
+        return ()
+    cls = vars(module).get("ValidationError")
+    if cls is None or type(error) is not cls:
+        return ()
+    count = cls.error_count(error)
+    require(type(count) is int and 0 <= count <= 8)
+    rows = cls.errors(error, include_url=False, include_context=True, include_input=False)
+    require(type(rows) is list and len(rows) == count)
+    causes = []
+    for row in rows:
+        require(type(row) is dict)
+        context = row.get("ctx")
+        if type(context) is dict:
+            cause = context.get("error")
+            # Pydantic wraps these validators and retains their traceback.
+            # Do not persist any error dict, input, message, context or location.
+            if type(cause) in (ValueError, AssertionError):
+                causes.append(cause)
+    return tuple(causes)
 
 
 def exception_packet(error, roots):
@@ -23,26 +49,32 @@ def exception_packet(error, roots):
     try:
         require(type(roots) is tuple and len(roots) <= 5
                 and all(type(root) is str and root.startswith("/") and root.endswith("/") for root in roots))
-        tb = BaseException.__traceback__.__get__(error)
         scanned = 0
-        while tb is not None and scanned < 64:
-            require(type(tb) is types.TracebackType)
-            scanned += 1
-            path, line = tb.tb_frame.f_code.co_filename, tb.tb_lineno
-            if type(path) is str and any(path.startswith(root) for root in roots) and 0 < line <= 1000000:
-                try:
-                    source = read_source(path, 2 << 20)
-                    frames.append(line.to_bytes(4, "big") + hashlib.sha256(source).digest())
-                    if len(frames) > EXCEPTION_FRAMES:
-                        del frames[0]
-                        flags |= 1
-                except Exception:
+        causes = (error,)
+        try:
+            causes += validation_causes(error)
+        except BaseException:
+            flags |= 4
+        for cause in causes:
+            tb = BaseException.__traceback__.__get__(cause)
+            while tb is not None and scanned < 64:
+                require(type(tb) is types.TracebackType)
+                scanned += 1
+                path, line = tb.tb_frame.f_code.co_filename, tb.tb_lineno
+                if type(path) is str and any(path.startswith(root) for root in roots) and 0 < line <= 1000000:
+                    try:
+                        source = read_source(path, 2 << 20)
+                        frames.append(line.to_bytes(4, "big") + hashlib.sha256(source).digest())
+                        if len(frames) > EXCEPTION_FRAMES:
+                            del frames[0]
+                            flags |= 1
+                    except Exception:
+                        flags |= 2
+                else:
                     flags |= 2
-            else:
-                flags |= 2
-            tb = tb.tb_next
-        if tb is not None:
-            flags |= 1
+                tb = tb.tb_next
+            if tb is not None:
+                flags |= 1
     except BaseException:
         flags |= 4
     return bytes([code, flags, len(frames)]) + b"".join(frames) + bytes(36 * (EXCEPTION_FRAMES - len(frames)))
