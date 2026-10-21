@@ -160,7 +160,7 @@ class MaterializationTests(unittest.TestCase):
 
 class LifecycleTests(unittest.TestCase):
     def run_probe(self, *, stdout=host.SUCCESS, stderr=b"", code=0, error=None, pid_isolation=False,
-                  mapped_ownership=False):
+                  mapped_ownership=False, final_confinement=False):
         execute = mock.Mock(side_effect=error, return_value=subprocess.CompletedProcess([], code, stdout, stderr))
         real_readlink = host.os.readlink
         def readlink(path, *args, **kwargs):
@@ -171,7 +171,8 @@ class LifecycleTests(unittest.TestCase):
             return real_readlink(path, *args, **kwargs)
         with mock.patch.object(host.os, "readlink", side_effect=readlink):
             report = host.run(files(), {"mkosi-sandbox.py": b"synthetic"}, execute,
-                              pid_isolation=pid_isolation, mapped_ownership=mapped_ownership)
+                              pid_isolation=pid_isolation, mapped_ownership=mapped_ownership,
+                              final_confinement=final_confinement)
         return report, execute
 
     def test_pinned_root_replaces_host_runtime_and_cleanup_passes(self):
@@ -262,6 +263,32 @@ class LifecycleTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 host.run({}, {}, mock.Mock(), **options)
 
+    def test_final_boundary_requires_mapping_and_drops_caps_after_namespace_setup(self):
+        mapped = {"uid": 1001, "gid": 1001, "subuid": 100000, "subgid": 200000}
+        with mock.patch.object(host.ownership, "host_inputs", return_value=(mapped, {})):
+            report, execute = self.run_probe(pid_isolation=True, mapped_ownership=True, final_confinement=True)
+        argv = execute.call_args.args[0]
+        drop = argv.index("/usr/bin/setpriv")
+        self.assertEqual(argv[drop:drop + len(host.confinement.PREFIX)], list(host.confinement.PREFIX))
+        self.assertGreater(drop, argv.index("--mount-proc=/proc"))
+        self.assertEqual(argv[-2:], ["mapped-ownership", "final-confinement"])
+        self.assertEqual(report["schema"], "nib.mkosi-native-tools/v4")
+        self.assertTrue(report["final_confinement_validated"])
+        self.assertFalse(report["package_installation_executed"])
+        for options in ({"final_confinement": True}, {"final_confinement": True, "pid_isolation": True},
+                        {"final_confinement": 1, "mapped_ownership": True, "pid_isolation": True}):
+            with self.assertRaises(ValueError):
+                host.run({}, {}, mock.Mock(), **options)
+
+    def test_failed_final_boundary_never_promotes(self):
+        mapped = {"uid": 1001, "gid": 1001, "subuid": 100000, "subgid": 200000}
+        with mock.patch.object(host.ownership, "host_inputs", return_value=(mapped, {})):
+            result, _ = self.run_probe(pid_isolation=True, mapped_ownership=True, final_confinement=True,
+                                      code=1, stderr=b"NIB_NATIVE_TOOLS_REJECTED:confinement\n")
+        self.assertEqual(result["result"], "fail")
+        self.assertEqual(result["failure_kind"], "worker-confinement")
+        self.assertFalse(result["final_confinement_validated"])
+
     def test_failure_classes_never_persist_process_output(self):
         cases = {
             b"unshare: mount PRIVATE /proc failed: Operation not permitted\n": "unshare-permission-denied",
@@ -310,7 +337,7 @@ class LifecycleTests(unittest.TestCase):
 
 class ChildTests(unittest.TestCase):
     def run_child(self, *, namespace_error=None, probe_result="pass", bad_snapshot=False,
-                  pid=False, pid_error=None, mapped=False, ownership_error=None):
+                  pid=False, pid_error=None, mapped=False, ownership_error=None, confined=False, confinement_error=None):
         module = types.ModuleType("native_tools_child_test")
         exec(compile((ROOT / host.CHILD).read_bytes(), host.CHILD, "exec"), module.__dict__)
         snapshot = b"def execute_process_group(*args, **kwargs): raise AssertionError('synthetic')\n"
@@ -321,6 +348,14 @@ class ChildTests(unittest.TestCase):
         probe = mock.Mock(return_value={"result": probe_result, "checks": [None] * 7})
         pid_check = mock.Mock(side_effect=pid_error)
         ownership_check = mock.Mock(side_effect=ownership_error)
+        confinement_check = mock.Mock(side_effect=confinement_error)
+        argv = ["native-tools.py", *ORIGINAL]
+        if pid:
+            argv.append("pid:[100]")
+        if mapped:
+            argv.append("mapped-ownership")
+        if confined:
+            argv.append("final-confinement")
         worker = dict(host.native.worker.__dict__)
         reader = mock.Mock(side_effect=([b'{"synthetic":true}'] if mapped else [])
                            + [base.encoded(config), snapshot])
@@ -330,13 +365,12 @@ class ChildTests(unittest.TestCase):
         with mock.patch.object(module.sys, "platform", "linux"), \
                 mock.patch.object(module.sys, "version_info", (3, 12)), \
                 mock.patch.object(module.sys, "flags", types.SimpleNamespace(isolated=True, no_site=True, dont_write_bytecode=True)), \
-                mock.patch.object(module.sys, "argv", ["native-tools.py", *ORIGINAL,
-                    *(["pid:[100]"] if pid else []), *(["mapped-ownership"] if mapped else [])]), \
+                mock.patch.object(module.sys, "argv", argv), \
                 mock.patch.object(module.sys, "stdout", types.SimpleNamespace(buffer=output)), \
                 mock.patch.object(module.os, "geteuid", return_value=0), \
                 mock.patch.object(module.os, "getegid", return_value=0), \
                 mock.patch.object(module.runpy, "run_path", side_effect=[worker, {"check": check},
-                    {"check": pid_check}, {"check": ownership_check}]):
+                    {"check": pid_check}, {"check": ownership_check}, {"check": confinement_check}]):
             try:
                 module.main()
             except ValueError as exc:
@@ -349,6 +383,10 @@ class ChildTests(unittest.TestCase):
             ownership_check.assert_called_once_with({"synthetic": True})
         else:
             ownership_check.assert_not_called()
+        if confined and ownership_error is None:
+            confinement_check.assert_called_once_with()
+        else:
+            confinement_check.assert_not_called()
         return error, output.getvalue(), reader, check, probe
 
     def test_child_requires_namespace_proof_before_seven_tools(self):
@@ -402,6 +440,18 @@ class ChildTests(unittest.TestCase):
         self.assertEqual(error.stage, "ownership")
         self.assertEqual(output, b"")
         self.assertNotIn("PRIVATE", str(error))
+        probe.assert_not_called()
+
+
+    def test_final_confinement_must_pass_before_every_tool(self):
+        error, output, _, _, probe = self.run_child(pid=True, mapped=True, confined=True)
+        self.assertIsNone(error)
+        self.assertEqual(output, host.SUCCESS)
+        probe.assert_called_once()
+        error, output, _, _, probe = self.run_child(pid=True, mapped=True, confined=True,
+                                                   confinement_error=ValueError("PRIVATE"))
+        self.assertEqual(error.stage, "confinement")
+        self.assertEqual(output, b"")
         probe.assert_not_called()
 
 

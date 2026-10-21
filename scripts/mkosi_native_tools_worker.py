@@ -9,7 +9,7 @@ import sys
 import types
 
 
-STAGES = ("worker-preflight", "namespaces", "pid", "ownership", "inputs", "tools")
+STAGES = ("worker-preflight", "namespaces", "pid", "ownership", "confinement", "inputs", "tools")
 
 
 class ProbeFailure(ValueError):
@@ -29,18 +29,23 @@ def main():
             raise ValueError("worker-preflight")
         worker = types.SimpleNamespace(**runpy.run_path("/nib/probe.py", run_name="tools_probe"))
         checker = types.SimpleNamespace(**runpy.run_path("/nib/namespace-check.py", run_name="namespace_check"))
-        worker.require(len(sys.argv) in (5, 6, 7)
-                       and (len(sys.argv) != 7 or sys.argv[6] == "mapped-ownership"))
+        worker.require(len(sys.argv) in (5, 6, 7, 8)
+                       and (len(sys.argv) < 7 or sys.argv[6] == "mapped-ownership")
+                       and (len(sys.argv) < 8 or sys.argv[7] == "final-confinement"))
         stage = "namespaces"
         checker.check(sys.argv[1:5])
         if len(sys.argv) >= 6:
             stage = "pid"
             pid = types.SimpleNamespace(**runpy.run_path("/nib/pid-check.py", run_name="pid_check"))
             pid.check(sys.argv[5])
-        if len(sys.argv) == 7:
+        if len(sys.argv) >= 7:
             stage = "ownership"
             owner = types.SimpleNamespace(**runpy.run_path("/nib/ownership.py", run_name="ownership_check"))
             owner.check(json.loads(worker.read(Path("/nib/ownership-input.json"), 4096)))
+        if len(sys.argv) == 8:
+            stage = "confinement"
+            confinement = types.SimpleNamespace(**runpy.run_path("/nib/confinement.py", run_name="confinement_check"))
+            confinement.check()
         stage = "inputs"
         inputs = json.loads(worker.read(Path("/nib/input.json"), 16384))
         worker.validate_input(inputs)

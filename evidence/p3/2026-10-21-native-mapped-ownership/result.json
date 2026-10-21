@@ -1,0 +1,53 @@
+{
+  "abi_validated": false,
+  "bootable": false,
+  "deployable": false,
+  "failure_kind": null,
+  "git_sha": "28e40cf38ab2f0002e23d16b69e64fb85665c20a",
+  "host_mapping_helpers_sha256": {
+    "/usr/bin/newgidmap": "076d35f3dd11680a17725ea7b694715bc909182eeb930f1771ef0550e4779459",
+    "/usr/bin/newuidmap": "e26eed17f29ce6ee829855064b83f9ab20afdd9503ec4517f1ce8c1230bebaad"
+  },
+  "host_processes_hidden": true,
+  "maintainer_scripts_executed": false,
+  "mapped_ownership_required": true,
+  "mapped_ownership_validated": true,
+  "mkosi_build_executed": false,
+  "namespaces_validated": true,
+  "package_installation_executed": false,
+  "payload_removed": true,
+  "payload_sha256": {
+    "LICENSES/GPL-2.0-only.txt": "ab15fd526bd8dd18a9e77ebc139656bf4d33e97fc7238cd11bf60e2b9b8666c6",
+    "LICENSES/LGPL-2.1-or-later.txt": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551",
+    "LICENSES/OFL-1.1.txt": "866747cbccae229433e946b90fcfc457b81c33ac89e593855770851354f9e6c3",
+    "LICENSES/PSF-2.0.txt": "ab745c5061d1dea43a3885e5b4b6befc7e983954954775c5736debeefcdfd89b",
+    "input.json": "b0321b2553d7180455fc105b6c8dd278eab7a5cbf89137be07a404b471f8f425",
+    "mkosi-sandbox.py": "b8d943a23b80158f96925e1ddee2ccbab6834cb3e15a3e3224172962292cb4a1",
+    "namespace-check.py": "5836e053fb4def73f683248e523992b4e39e3c03aff7ea7fc805382aabe2d985",
+    "native-tools.py": "6cf6b77ab8d2c6d6c99afadea400b09f8f742630a2e6a3c65645e752f629f902",
+    "ownership.py": "7cf9acc8edd50b39816b07e2f7c5e7bcd474a092bfa478cf01431ac666aafb5f",
+    "pid-check.py": "97ebdc454c8553479308dd72a8a8f22dce8306c2597ee1e65d3248a2082233ea",
+    "probe.py": "b32ac4a5582a0fb232e2dcf7d42adcbaae36a6946a4de15de133a2eac7959cc5",
+    "snapshot.py": "c0b65569187e277e026f5cd539b8e7f0453d1a6600dbc9b4f9717b8309257f24"
+  },
+  "pid_isolation_required": true,
+  "pid_namespace_validated": true,
+  "process_cleanup_confirmed": true,
+  "result": "pass",
+  "schema": "nib.mkosi-native-tools/v3",
+  "source": {
+    "archive_sha256": "3d38e848f9b1108ec76d873f2c378dfc7d4b536ad89deffe8c97504f7a8dff43",
+    "files": 325,
+    "git_blob_correspondence": true,
+    "git_sha": "ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b",
+    "license_files_preserved": true,
+    "source_bytes": 1616290,
+    "upstream_executed": false
+  },
+  "stage": "complete",
+  "tools_checked": 7,
+  "tools_lock_sha256": "0ad871ad797954c2a107a196aa31e8543931cfe947fa919b24fdbcd3737d9b90",
+  "tools_packages": 203,
+  "tools_root_sha256": "f5c72266b7b5f51902f0f9d90677a0ea1861f663bdc35cc6f9b1b389f62a3932",
+  "tools_startup_validated": true
+}
