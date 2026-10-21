@@ -1,0 +1,43 @@
+{
+  "body_byte_budget": 510311045378,
+  "build_source_sha256": "0837cc8eea16dbeb20d176a10804f423ac8bf8692e460858dc693aa7edaef111",
+  "cleanup": "confirmed",
+  "cleanup_scope": "local-process-group-only",
+  "confidential_qualified": false,
+  "deadline_seconds": 10800,
+  "disk": {
+    "available_bytes": 770039750656,
+    "overhead_bytes": 51031104530,
+    "required_bytes": 561342149825,
+    "sufficient": true
+  },
+  "download_workers": 8,
+  "failure_code": "staging-preflight-execution-or-proof-failed",
+  "hardware_validated": false,
+  "last_observation": {
+    "counts": {
+      "observed_bytes": 307237967719,
+      "observed_files": 81,
+      "partial_bytes": 197800361569,
+      "partial_files": 2
+    },
+    "elapsed_seconds": 3724,
+    "verified": false
+  },
+  "nib_sha256": "f3181271536d6739de446a0172efc064b63d85eb811963b766bdb59ed0884d05",
+  "plan": {
+    "files": 83,
+    "hf_repo": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+    "hf_revision": "1bae0e1088993b9b82de08f59de5be5a34e42170",
+    "manifest_sha256": "b74ae635c35372cf6c350e4b33ef60c90ff01fe6426ad0fa7bc99b1982fe5bed",
+    "minimum_budget_bytes": 510311045378,
+    "total_bytes": 510311045295
+  },
+  "proof": null,
+  "receipt_sha256": "451390581160cbe1becfaac4a878ccaae0040cc7a2b273a504a69a92b691d797",
+  "result": "fail",
+  "runtime_ready": false,
+  "schema": "nib.weight-stage-recording/v1",
+  "source_git_sha": "133fd607fc4eed75b043c5da42260056800b4c0f",
+  "stage": "staging"
+}
