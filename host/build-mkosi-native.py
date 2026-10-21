@@ -96,11 +96,14 @@ def run(downloads, archive, output, revision, sources):
             report["mapping_helper_hashes"] = helpers
             payload_files["ownership-input.json"] = base.encoded(mapped)
             root, payload, resultdir = temporary / "root", temporary / "payload", temporary / "result"
+            report["stage"] = "tools-materialization"
             probe.materialize(files, root)
             for name in ("work", "out"):
                 require(not (root / name).exists() and not (root / name).is_symlink())
                 (root / name).mkdir(mode=0o755)
+            report["stage"] = "payload-publication"
             base.publish(payload, payload_files)
+            report["stage"] = "upstream-modes-and-links"
             for name, mode in modes.items():
                 (payload / name).chmod(mode)
             for name, target in links.items():

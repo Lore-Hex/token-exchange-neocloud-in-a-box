@@ -43,3 +43,25 @@ Next: run this workflow, fix any source-backed installation incompatibility,
 record actual evidence, then add explicit pinned-kernel DKMS compilation and
 two clean output comparisons. UKI, verity, measured boot and hardware attestation
 remain separate gates.
+
+## First native run: payload rejected
+
+[Run 39650473707](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39650473707)
+at `5571de118ba7d03b9efea33bd9478ab14b92e8a8` authenticated the inputs,
+then failed during preparation before a package worker was created. Original
+[result](../../evidence/p3/2026-10-21-native-install-payload-rejected/result.json),
+[run](../../evidence/p3/2026-10-21-native-install-payload-rejected/run.json) and
+[resource receipt](../../evidence/p3/2026-10-21-native-install-payload-rejected/resources.json)
+are preserved. Independent cgroup cleanup verified zero remaining processes and
+removed the group; no OOM kill occurred. The inner process-cleanup flag remains
+false because that launcher was never started, not rewritten to imply success.
+
+The shared file publisher rejected `@`, present in the pinned mkosi path
+`mkosi/resources/mkosi-initrd/mkosi.extra/usr/lib/systemd/system/systemd-cryptsetup@.service.d/credential.conf`.
+A test publishing every pinned regular-file name with synthetic bytes reproduced
+the rejection. Allowing literal `@` fixes that concrete incompatibility without
+changing exact source membership/hash validation, traversal rejection, exclusive
+creation or descriptor-relative no-follow traversal. The original coarse stage
+does not prove that this was the run's only issue. New fixed stages distinguish
+tools materialization, payload publication and upstream modes/links; a separate
+test proves publication rejection cannot reach package execution.

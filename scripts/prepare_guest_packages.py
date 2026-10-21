@@ -349,7 +349,8 @@ def publish(destination, files):
             # The receipt is written last; a failed publication is not success.
             for name, raw in sorted(files.items(), key=lambda row: (row[0] == "receipt.json", row[0])):
                 parts = name.split("/")
-                require(all(re.fullmatch(r"[A-Za-z0-9_.+-]+", p) and p not in (".", "..") for p in parts))
+                # Pinned upstream systemd templates contain a literal @.
+                require(all(re.fullmatch(r"[A-Za-z0-9_.+@-]+", p) and p not in (".", "..") for p in parts))
                 current = os.dup(root)
                 try:
                     for part in parts[:-1]:

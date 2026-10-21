@@ -273,6 +273,22 @@ class PreparationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             tool.publish(self.archives / "bundle", files)
 
+    def test_publish_all_pinned_mkosi_regular_file_names(self):
+        pin = json.loads((ROOT / "image/inputs/mkosi-27.1.json").read_bytes())
+        files = {"upstream/" + name: b"synthetic bytes, not executable source"
+                 for name, row in pin["source_files"].items() if row["mode"] != "120000"}
+        self.assertTrue(any("systemd-cryptsetup@.service.d/" in name for name in files))
+        destination = self.root / "upstream-names"
+        tool.publish(destination, files)
+        tool.verify(destination, files)
+
+    def test_publication_still_rejects_unsafe_members_with_template_names(self):
+        for number, name in enumerate(("../x", "/x", "x/../../y", "x//y", "./x",
+                                       "x/./y", "x/", "x\\y", "x\n@y", "x\x00@y")):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                tool.publish(self.root / str(number), {name: b"rejected", "receipt.json": b"no"})
+            self.assertFalse((self.root / str(number) / "receipt.json").exists())
+
     def test_verify_rejects_extra_missing_mutated_links_and_mode(self):
         files, _ = self.prepare()
         destination = self.root / "bundle"
