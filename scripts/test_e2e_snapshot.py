@@ -55,6 +55,37 @@ class SnapshotTest(unittest.TestCase):
                 with self.assertRaises(ProcessLookupError):
                     os.killpg(int((root / "pid").read_text()), 0)
 
+    def test_explicit_stderr_budget_accepts_exact_bound_and_rejects_one_more(self):
+        cap = 2 << 20
+        for size in (65537, cap, cap + 1):
+            with self.subTest(size=size), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                code = ("import os; open('pid','w').write(str(os.getpid())); "
+                        f"data=b'x'*{size}; "
+                        "\nwhile data: data=data[os.write(2,data):]\n")
+                if size <= cap:
+                    result = snapshot.execute_process_group([sys.executable, "-I", "-c", code],
+                        env=os.environ, cwd=root, timeout=5, max_output_bytes=1024, max_stderr_bytes=cap)
+                    self.assertEqual((result.returncode, result.stdout, result.stderr), (0, b"", b"x" * size))
+                else:
+                    with self.assertRaises(snapshot.OutputLimitExceeded) as caught:
+                        snapshot.execute_process_group([sys.executable, "-I", "-c", code],
+                            env=os.environ, cwd=root, timeout=5, max_output_bytes=1024, max_stderr_bytes=cap)
+                    self.assertEqual(caught.exception.stream, "stderr")
+                    self.assertEqual(caught.exception.stderr, b"x" * cap)
+                with self.assertRaises(ProcessLookupError):
+                    os.killpg(int((root / "pid").read_text()), 0)
+
+    def test_invalid_stderr_budget_rejected_before_spawn(self):
+        for value in (None, True, 0, -1, "65536", 1.5, (2 << 20) + 1):
+            with self.subTest(value=value), patch.object(snapshot.subprocess, "Popen") as spawn:
+                with self.assertRaises(ValueError):
+                    snapshot.execute_process_group([], env={}, max_output_bytes=1024, max_stderr_bytes=value)
+                spawn.assert_not_called()
+        with patch.object(snapshot.subprocess, "Popen") as spawn, self.assertRaises(ValueError):
+            snapshot.execute_process_group([], env={}, max_stderr_bytes=2 << 20)
+        spawn.assert_not_called()
+
     def commit(self, root, env):
         snapshot.git(root, env, "add", ".", stdout=subprocess.PIPE)
         snapshot.git(root, env, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",

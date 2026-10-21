@@ -58,7 +58,7 @@ def prepare_configuration(config, prepared):
 def install(processes, output, report):
     try:
         result = processes.execute_process_group(COMMAND, env=installation_environment(),
-            timeout=1800, max_output_bytes=2 << 20, stdin=subprocess.DEVNULL)
+            timeout=1800, max_output_bytes=2 << 20, max_stderr_bytes=2 << 20, stdin=subprocess.DEVNULL)
     except processes.OutputLimitExceeded as error:
         # Only public package/source diagnostics occur in this isolated build.
         # Preserve the bounded prefix, never an exception message or locals.

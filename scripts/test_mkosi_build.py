@@ -78,6 +78,7 @@ class BuildTests(unittest.TestCase):
             self.assertEqual((output / "installer.stdout").read_bytes(), b"public stdout")
             self.assertEqual((output / "installer.stderr").read_bytes(), b"public stderr")
             self.assertEqual(execute.call_args.kwargs["max_output_bytes"], 2 << 20)
+            self.assertEqual(execute.call_args.kwargs["max_stderr_bytes"], 2 << 20)
             self.assertEqual(execute.call_args.kwargs["timeout"], 1800)
 
     def test_install_records_nonzero_exit_without_success(self):
