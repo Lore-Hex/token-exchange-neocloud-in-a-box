@@ -143,7 +143,7 @@ at merged main `80e0db46d72a48d0d755ffd7ee7755f3c36d11ac`. Original
 namespace/procfs, all seven startups and process/payload cleanup. This supports
 the procfs mount-order diagnosis; it is not kernel syscall tracing.
 
-## Mapped Ownership Candidate
+## Mapped Ownership
 
 `--mapped-ownership --pid-isolation` tests existing subordinate UID/GID support
 without installing packages or changing host policy. It requires root-owned,
@@ -161,6 +161,41 @@ The same mkosi namespace and pinned PID launcher follow. Before starting tools,
 the child verifies both complete maps and actual independent UID/GID changes on
 one private-tmpfs file, including identities 65534 and 65535, then removes it.
 
-This is a candidate, not a passed ownership result or an installer. Final
-mount/capability confinement, OS resource limits and exact build controls remain
-required before running the reviewed package hooks.
+The mapped-ownership run passed on October 21 in
+[workflow 39628955797](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39628955797)
+at merged main `28e40cf38ab2f0002e23d16b69e64fb85665c20a`. The original
+[result](../../evidence/p3/2026-10-21-native-mapped-ownership/result.json) and
+[run](../../evidence/p3/2026-10-21-native-mapped-ownership/run.json) show exact
+mapping, actual ownership changes, seven tool startups and cleanup passed.
+No package installation or image qualification is inferred.
+
+## Final Confinement Candidate
+
+`--final-confinement` requires both ownership and PID modes. After the pinned
+launcher creates the namespaces and replaces procfs, pinned util-linux
+`setpriv` retains only CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETGID, SETUID,
+SYS_CHROOT and SETFCAP. Inheritable and ambient sets are empty;
+`no_new_privs` is irreversible. The child rejects unless effective, permitted
+and bounding sets match exactly. No host directory descriptor may survive.
+
+Before tool execution, pinned libseccomp prevents new namespaces, namespace
+entry, mount changes, ptrace/process-memory access, file-handle opens, BPF,
+performance/userfault interfaces and io_uring creation. Ordinary clone is
+allowed but every namespace clone flag is denied. clone3 returns ENOSYS so
+libc can use ordinary clone; a pointer-based clone3 policy cannot inspect its
+flags. The native-only architecture filter rejects other ABIs. Unknown syscall
+names, failed filter setup or missing libraries fail closed. Negative unshare
+and mount probes must return EPERM; the tools root must still return EROFS.
+The filter and privilege restriction are inherited by child tools.
+
+Sources: [util-linux 2.39.3 setpriv manual](https://github.com/util-linux/util-linux/blob/v2.39.3/sys-utils/setpriv.1.adoc)
+and [implementation](https://github.com/util-linux/util-linux/blob/v2.39.3/sys-utils/setpriv.c),
+[libseccomp 2.5.5 API](https://github.com/seccomp/libseccomp/blob/v2.5.5/include/seccomp.h.in),
+[rule-array contract](https://github.com/seccomp/libseccomp/blob/v2.5.5/doc/man/man3/seccomp_rule_add.3),
+and Linux 6.8 [clone flags](https://github.com/torvalds/linux/blob/v6.8/include/uapi/linux/sched.h)
+and [capabilities](https://github.com/torvalds/linux/blob/v6.8/include/uapi/linux/capability.h).
+Executable/library bytes remain the existing authenticated tools lock.
+
+This is a candidate pending real Linux execution. Aggregate OS build resource
+limits, exact build controls and two independent builds remain required before
+image qualification. This probe still never executes package hooks or installs.

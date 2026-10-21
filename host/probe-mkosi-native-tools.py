@@ -26,10 +26,12 @@ NATIVE = "host/probe-mkosi-native.py"
 CHILD = "scripts/mkosi_native_tools_worker.py"
 PID_CHECKER = "scripts/mkosi_pid_check.py"
 OWNERSHIP = "scripts/mkosi_ownership.py"
-FAILURE_STAGES = ("worker-preflight", "namespaces", "pid", "ownership", "inputs", "tools")
+CONFINEMENT = "scripts/mkosi_confinement.py"
+FAILURE_STAGES = ("worker-preflight", "namespaces", "pid", "ownership", "confinement", "inputs", "tools")
 fetcher = types.SimpleNamespace(**runpy.run_path(str(ROOT / FETCHER), run_name="tools_fetcher"))
 native = types.SimpleNamespace(**runpy.run_path(str(ROOT / NATIVE), run_name="native_probe"))
 ownership = types.SimpleNamespace(**runpy.run_path(str(ROOT / OWNERSHIP), run_name="ownership_probe"))
+confinement = types.SimpleNamespace(**runpy.run_path(str(ROOT / CONFINEMENT), run_name="confinement_probe"))
 prep, base, tools, require = fetcher.prep, fetcher.base, fetcher.tools, fetcher.require
 SUCCESS = b"NIB_NATIVE_TOOLS_OK\n"
 
@@ -88,9 +90,10 @@ def materialize(files, destination):
         path.mkdir(mode=0o755, exist_ok=True)
 
 
-def command(root, payload, *, pid_isolation=False, mapped=None):
+def command(root, payload, *, pid_isolation=False, mapped=None, final_confinement=False):
     require(type(pid_isolation) is bool)
     require(mapped is None or pid_isolation)
+    require(type(final_confinement) is bool and (not final_confinement or mapped is not None))
     original = [os.readlink("/proc/self/ns/" + name) for name in ("user", "mnt", "net", "ipc")]
     prefix = []
     proc_source = "/proc/self/ns"
@@ -108,8 +111,10 @@ def command(root, payload, *, pid_isolation=False, mapped=None):
         "--ro-bind", str(root), "/", "--ro-bind", str(payload), "/nib",
         "--ro-bind", proc_source, proc_source, "--dev", "/dev", "--tmpfs", "/tmp",
         "--unshare-net", "--unshare-ipc", "--become-root",
-        *prefix, "/usr/bin/python3.12", "-I", "-S", "-B", "/nib/native-tools.py", *original,
-        *(["mapped-ownership"] if mapped is not None else [])]
+        *prefix, *(confinement.PREFIX if final_confinement else []),
+        "/usr/bin/python3.12", "-I", "-S", "-B", "/nib/native-tools.py", *original,
+        *(["mapped-ownership"] if mapped is not None else []),
+        *(["final-confinement"] if final_confinement else [])]
 
 
 def failure_kind(exc):
@@ -134,9 +139,10 @@ def failure_kind(exc):
     return "invalid-result-or-cleanup"
 
 
-def run(files, payload_files, execute, *, pid_isolation=False, mapped_ownership=False):
+def run(files, payload_files, execute, *, pid_isolation=False, mapped_ownership=False, final_confinement=False):
     require(type(pid_isolation) is bool and type(mapped_ownership) is bool
             and (not mapped_ownership or pid_isolation))
+    require(type(final_confinement) is bool and (not final_confinement or mapped_ownership))
     report = {"schema": "nib.mkosi-native-tools/v1", "result": "fail", "stage": "materialization",
               "failure_kind": None,
               "namespaces_validated": False, "tools_startup_validated": False,
@@ -150,6 +156,9 @@ def run(files, payload_files, execute, *, pid_isolation=False, mapped_ownership=
     if mapped_ownership:
         report.update(schema="nib.mkosi-native-tools/v3", mapped_ownership_required=True,
                       mapped_ownership_validated=False, host_mapping_helpers_sha256={})
+    if final_confinement:
+        report.update(schema="nib.mkosi-native-tools/v4", final_confinement_required=True,
+                      final_confinement_validated=False)
     with tempfile.TemporaryDirectory(prefix="nib-native-tools-", dir="/tmp") as temporary:
         temporary = Path(temporary).resolve()
         root, payload = temporary / "root", temporary / "payload"
@@ -164,7 +173,8 @@ def run(files, payload_files, execute, *, pid_isolation=False, mapped_ownership=
             materialize(files, root)
             base.publish(payload, payload_files)
             report["stage"] = "tools-startup"
-            result = execute(command(root, payload, pid_isolation=pid_isolation, mapped=mapped), env=dict(native.worker.ENV),
+            result = execute(command(root, payload, pid_isolation=pid_isolation, mapped=mapped,
+                                     final_confinement=final_confinement), env=dict(native.worker.ENV),
                 timeout=90, max_output_bytes=native.worker.MAX_OUTPUT, stdin=subprocess.DEVNULL)
             report["process_cleanup_confirmed"] = True
             result.check_returncode()
@@ -175,6 +185,8 @@ def run(files, payload_files, execute, *, pid_isolation=False, mapped_ownership=
                 report.update(pid_namespace_validated=True, host_processes_hidden=True)
             if mapped_ownership:
                 report["mapped_ownership_validated"] = True
+            if final_confinement:
+                report["final_confinement_validated"] = True
         except (OSError, ValueError, KeyError, TypeError, tarfile.TarError, subprocess.SubprocessError) as exc:
             report["failure_kind"] = failure_kind(exc)
     require(not temporary.exists())
@@ -188,11 +200,13 @@ def main():
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--pid-isolation", action="store_true")
     parser.add_argument("--mapped-ownership", action="store_true")
+    parser.add_argument("--final-confinement", action="store_true")
     args = parser.parse_args()
     native.preflight()
     tools.separate_output(args.output, (args.inputs, args.archive))
     require(not args.mapped_ownership or args.pid_isolation)
-    revision, sources = fetcher.committed((NATIVE, SCRIPT, CHILD, PID_CHECKER, OWNERSHIP, native.WORKER, native.CHECKER))
+    require(not args.final_confinement or args.mapped_ownership)
+    revision, sources = fetcher.committed((NATIVE, SCRIPT, CHILD, PID_CHECKER, OWNERSHIP, CONFINEMENT, native.WORKER, native.CHECKER))
     require(sources[native.WORKER] == native.WORKER_SOURCE
             and sources[tools.FILES[0]] == native.mkosi.TOOLS_SOURCE)
     files, receipt = prep.assemble(args.inputs, revision, sources)
@@ -202,6 +216,7 @@ def main():
                "native-tools.py": sources[CHILD], "probe.py": sources[native.WORKER],
                "pid-check.py": sources[PID_CHECKER],
                "ownership.py": sources[OWNERSHIP],
+               "confinement.py": sources[CONFINEMENT],
                "namespace-check.py": sources[native.CHECKER], "snapshot.py": sources[tools.FILES[4]]}
     payload.update({name: upstream[name] for name in pin["license_files"]})
     payload["input.json"] = base.encoded({"schema": "nib.mkosi-tools-probe-input/v1", "git_sha": revision,
@@ -209,7 +224,7 @@ def main():
         "snapshot_sha256": base.digest(sources[tools.FILES[4]])})
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     report = run(files, payload, base.processes.execute_process_group, pid_isolation=args.pid_isolation,
-                 mapped_ownership=args.mapped_ownership)
+                 mapped_ownership=args.mapped_ownership, final_confinement=args.final_confinement)
     ended = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     report.update(git_sha=revision, tools_packages=receipt["tools_packages"],
                   tools_lock_sha256=receipt["tools_lock_sha256"], source=source,
@@ -227,6 +242,9 @@ def main():
     if args.mapped_ownership:
         evidence["command"] += " --mapped-ownership"
         evidence["notes"] += " Existing host subordinate-ID helpers allocate the user namespace; private tmpfs ownership is checked. Host helper hashes are observations, not pinned build inputs."
+    if args.final_confinement:
+        evidence["command"] += " --final-confinement"
+        evidence["notes"] += " Pinned setpriv restricts capabilities; pinned libseccomp prevents namespace/mount reconfiguration. Negative syscall probes, descriptor and readonly-root checks precede tool startups. No aggregate build resource qualification."
     base.publish(args.output, {"run.json": base.encoded(evidence), "result.json": base.encoded(report)})
     print("Native pinned tools probe: " + report["result"])
     return 0 if report["result"] == "pass" else 1

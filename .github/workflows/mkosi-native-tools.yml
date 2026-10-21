@@ -11,6 +11,10 @@ on:
         description: Verify existing subordinate-ID mapping and private file ownership (requires PID isolation)
         type: boolean
         default: false
+      final_confinement:
+        description: Verify final capability and syscall restrictions (requires mapped ownership and PID isolation)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -43,10 +47,12 @@ jobs:
         env:
           PID_ISOLATION: ${{ inputs.pid_isolation }}
           MAPPED_OWNERSHIP: ${{ inputs.mapped_ownership }}
+          FINAL_CONFINEMENT: ${{ inputs.final_confinement }}
         run: |
           args=()
           if [ "$PID_ISOLATION" = true ]; then args+=(--pid-isolation); fi
           if [ "$MAPPED_OWNERSHIP" = true ]; then args+=(--mapped-ownership); fi
+          if [ "$FINAL_CONFINEMENT" = true ]; then args+=(--final-confinement); fi
           /usr/bin/python3.10 -I -S -B host/probe-mkosi-native-tools.py \
             --inputs "$PWD/build/native-tools/inputs" \
             --archive "$PWD/build/native-tools/source.tar.gz" \
