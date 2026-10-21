@@ -15,6 +15,7 @@ import lzma
 import os
 from pathlib import Path, PurePosixPath
 import re
+import runpy
 import stat
 import subprocess
 import tarfile
@@ -25,7 +26,9 @@ ROOT = Path(__file__).absolute().parent.parent
 EXTRA = ("scripts/prepare_mkosi_inputs.py", "image/inputs/mkosi-27.1.json",
          "image/inputs/mkosi-tools-ubuntu2404.json",
          "image/patches/mkosi-27.1-service-denial.patch",
-         "image/inputs/mkosi-27.1-service-denial.json")
+         "image/inputs/mkosi-27.1-service-denial.json",
+         "scripts/mkosi_package_patch.py", "image/inputs/mkosi-27.1-package-boundary.json",
+         "scripts/mkosi_package_worker.py", "scripts/mkosi_confinement.py")
 COMMIT = "ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b"
 PATCH_TARGET = "mkosi/installer/apt.py"
 MAX_SOURCE = 8 << 20
@@ -59,6 +62,7 @@ def load():
 
 tools, TOOLS_SOURCE = load()
 base, require = tools.base, tools.require
+package_patch = types.SimpleNamespace(**runpy.run_path(str(ROOT / EXTRA[5])))
 
 
 def verify_source(raw, pin):
@@ -224,6 +228,7 @@ def build_contract(guest, revision):
             "complete-maintainer-and-hook-review",
             "reviewed-user-namespace-mount-policy",
             "verified-local-service-denial-overlay-used-for-every-apt-transaction",
+            "verified-package-confinement-overlay-after-sandbox-setup",
             "verified-tools-runtime-and-elf-linkage",
             "explicit-target-kernel-compiler-and-job-controls",
             "independent-source-review-and-green-ci",
@@ -245,6 +250,9 @@ def prepare(metadata, archives, source_archive, revision, sources):
     source, members = verify_source(source_archive, pin)
     patch_pin = json.loads(sources[EXTRA[4]])
     patched = service_denial_patch(members, pin, sources[EXTRA[3]], patch_pin)
+    service_patched = patched
+    boundary_pin = json.loads(sources[EXTRA[6]])
+    patched = package_patch.apply(patched, boundary_pin)
     validate_tools_lock(lock, metadata)
     base.inputs.check(guest, metadata)
     validate_build_targets(guest)
@@ -283,7 +291,11 @@ def prepare(metadata, archives, source_archive, revision, sources):
         "mkosi-source.json": sources[EXTRA[1]],
         "mkosi-service-denial.patch": sources[EXTRA[3]],
         "mkosi-service-denial.json": sources[EXTRA[4]],
+        "mkosi-service-denial/" + PATCH_TARGET: service_patched,
+        "mkosi-package-boundary.json": sources[EXTRA[6]],
         "mkosi-overlay/" + PATCH_TARGET: patched,
+        "nib/package-worker.py": sources[EXTRA[7]],
+        "nib/confinement.py": sources[EXTRA[8]],
         "mkosi-tools-inputs.json": sources[EXTRA[2]],
         "guest-inputs.json": sources[tools.FILES[-1]],
         "mkosi.conf.candidate": base.recipe(guest, skeleton_tree="mkosi-skeleton"),
@@ -298,8 +310,10 @@ def prepare(metadata, archives, source_archive, revision, sources):
     report = {
         "schema": "nib.mkosi-input-preparation/v1", "result": "pass", "git_sha": revision,
         "scope": "verified-source-package-and-script-inputs", "mkosi": source,
-        "local_patch": {"pin": patch_pin, "result_path": "mkosi-overlay/" + PATCH_TARGET,
+        "local_patch": {"pin": patch_pin, "result_path": "mkosi-service-denial/" + PATCH_TARGET,
                         "applied_in_memory": True, "executed": False},
+        "package_boundary_patch": {"pin": boundary_pin, "result_path": "mkosi-overlay/" + PATCH_TARGET,
+                                   "applied_in_memory": True, "executed": False},
         "source_hashes": {p: base.digest(raw) for p, raw in sources.items()},
         "tools_packages": len(lock["packages"]), "guest_packages": len(guest["packages"]),
         "unique_archives": len(rows),
