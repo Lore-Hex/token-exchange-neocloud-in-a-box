@@ -2,6 +2,7 @@
 """Synthetic fetch/materialization/lifecycle checks; no network or namespaces."""
 import ast
 import copy
+import gzip
 import io
 import json
 from pathlib import Path
@@ -134,6 +135,39 @@ class FetchTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 fetcher.fetch(base.encoded(lock()), execute, clock=lambda: 0, metadata=bad)
             execute.assert_not_called()
+
+    def test_metadata_archive_roundtrip_is_deterministic_and_exact(self):
+        items = fetcher.build_plan(lock(), self.guest())
+        metadata = {"metadata/noble-main.xz": b"idx", "metadata/nvidia.packages": b"gpu"}
+        raw = fetcher.archive_metadata(metadata, items)
+        self.assertEqual(raw, fetcher.archive_metadata(metadata, items))
+        self.assertEqual(fetcher.unpack_metadata(raw, items), metadata)
+        with self.assertRaises(ValueError):
+            fetcher.archive_metadata({**metadata, "unexpected": b"data"}, items)
+
+    def test_metadata_archive_rejects_links_duplicates_paths_and_changed_bytes(self):
+        items = fetcher.plan(lock())
+        def make(kind):
+            stream = io.BytesIO()
+            with tarfile.open(fileobj=stream, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+                entry = tarfile.TarInfo("noble-main.xz")
+                entry.size, entry.mode, entry.mtime = 3, 0o444, tools.EPOCH
+                raw = b"idx"
+                if kind == "symlink":
+                    entry.type, entry.size, entry.linkname = tarfile.SYMTYPE, 0, "/private"
+                if kind == "path": entry.name = "../private"
+                if kind == "hash": raw = b"bad"
+                if kind == "mode": entry.mode = 0o777
+                if kind == "owner": entry.uid = 1
+                archive.addfile(entry, io.BytesIO(raw))
+                if kind == "duplicate": archive.addfile(entry, io.BytesIO(raw))
+            return gzip.compress(stream.getvalue(), mtime=0)
+        for kind in ("symlink", "path", "hash", "mode", "owner", "duplicate"):
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                fetcher.unpack_metadata(make(kind), items)
+        raw = fetcher.archive_metadata({"metadata/noble-main.xz": b"idx"}, items)
+        with mock.patch.dict(fetcher.unpack_metadata.__globals__, {"MAX_METADATA": 1}), self.assertRaises(ValueError):
+            fetcher.unpack_metadata(raw, items)
 
     def test_fetch_is_exact_content_bounded_and_scrubs_environment(self):
         raw = base.encoded(lock())

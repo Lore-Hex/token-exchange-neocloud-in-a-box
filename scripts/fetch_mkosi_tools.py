@@ -7,11 +7,14 @@ if __name__ == "__main__" and not (sys.flags.isolated and sys.flags.no_site):
     sys.exit("Use python3 -I -S -B scripts/fetch_mkosi_tools.py")
 
 import argparse
+import gzip
+import io
 import json
 from pathlib import Path, PurePosixPath
 import re
 import runpy
 import subprocess
+import tarfile
 import time
 import types
 from urllib.parse import urlsplit, urlunsplit
@@ -26,6 +29,7 @@ HOSTS = {"archive.ubuntu.com", "security.ubuntu.com"}
 MAX_BYTES = 160 << 20
 NVIDIA_BASE = "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/"
 GUEST_SCOPE = "kernel-driver-build-dependency-coverage"
+MAX_METADATA = 64 << 20
 
 
 def public_url(value, *, nvidia=False):
@@ -109,6 +113,45 @@ def build_plan(lock, guest):
     return result
 
 
+def validate_metadata(metadata, items):
+    expected = {name: item for name, item in items.items() if name.startswith("metadata/")}
+    require(type(metadata) is dict and set(metadata) == set(expected))
+    for name, (_, size, sha) in expected.items():
+        raw = metadata[name]
+        require(type(raw) is bytes and len(raw) == size and base.digest(raw) == sha)
+    require(sum(map(len, metadata.values())) <= MAX_METADATA)
+
+
+def archive_metadata(metadata, items):
+    validate_metadata(metadata, items)
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+        for name, raw in sorted(metadata.items()):
+            entry = tarfile.TarInfo(name.removeprefix("metadata/"))
+            entry.size, entry.mode, entry.mtime = len(raw), 0o444, tools.EPOCH
+            archive.addfile(entry, io.BytesIO(raw))
+    return gzip.compress(stream.getvalue(), mtime=0)
+
+
+def unpack_metadata(raw, items):
+    require(type(raw) is bytes and 0 < len(raw) <= MAX_METADATA)
+    with gzip.GzipFile(fileobj=io.BytesIO(raw)) as stream:
+        expanded = stream.read(MAX_METADATA + 65537)
+    require(len(expanded) <= MAX_METADATA + 65536)
+    files = {}
+    with tarfile.open(fileobj=io.BytesIO(expanded), mode="r:") as archive:
+        for entry in archive:
+            name = "metadata/" + entry.name
+            require(name in items and name.startswith("metadata/") and name not in files
+                    and entry.isfile() and not entry.issparse() and not entry.pax_headers
+                    and entry.mode == 0o444 and entry.uid == entry.gid == 0
+                    and entry.mtime == tools.EPOCH and entry.size == items[name][1])
+            with archive.extractfile(entry) as stream:
+                files[name] = stream.read(entry.size + 1)
+    validate_metadata(files, items)
+    return files
+
+
 def fetch(lock_raw, execute, *, clock=time.monotonic, guest_raw=None, metadata=None):
     lock = json.loads(lock_raw)
     items = plan(lock) if guest_raw is None else build_plan(lock, json.loads(guest_raw))
@@ -116,11 +159,7 @@ def fetch(lock_raw, execute, *, clock=time.monotonic, guest_raw=None, metadata=N
     if guest_raw is not None:
         files["guest-inputs.json"] = guest_raw
     if metadata is not None:
-        expected = {name: item for name, item in items.items() if name.startswith("metadata/")}
-        require(type(metadata) is dict and set(metadata) == set(expected))
-        for name, (_, size, sha) in expected.items():
-            raw = metadata[name]
-            require(type(raw) is bytes and len(raw) == size and base.digest(raw) == sha)
+        validate_metadata(metadata, items)
         files.update(metadata)
     deadline = clock() + 600
     for name, (url, size, sha) in sorted(items.items()):
@@ -153,19 +192,35 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--include-guest", action="store_true",
                         help="fetch the fixed guest/tools union into archives/ for prepare_mkosi_inputs")
-    parser.add_argument("--metadata", type=Path,
+    archived = parser.add_mutually_exclusive_group()
+    archived.add_argument("--metadata", type=Path,
                         help="reuse exact archived indexes; every size and hash is reverified")
+    archived.add_argument("--metadata-archive", type=Path,
+                          help="reuse the bounded public input-index archive after hash verification")
+    parser.add_argument("--export-metadata", action="store_true",
+                        help="export only authenticated metadata; requires --include-guest --metadata")
     args = parser.parse_args()
     require(not args.output.exists() and not args.output.is_symlink())
     _, sources = committed()
     guest_raw = sources[tools.FILES[-1]] if args.include_guest else None
+    items = (build_plan(json.loads(sources[prep.LOCK]), json.loads(guest_raw))
+             if guest_raw else plan(json.loads(sources[prep.LOCK])))
+    require(not args.export_metadata or (args.include_guest and args.metadata))
     metadata = None
     if args.metadata:
-        items = (build_plan(json.loads(sources[prep.LOCK]), json.loads(guest_raw))
-                 if guest_raw else plan(json.loads(sources[prep.LOCK])))
         with base.directory(args.metadata) as fd:
             metadata = {name: base.read_at(fd, name.removeprefix("metadata/"), 32 << 20)
                         for name in items if name.startswith("metadata/")}
+    if args.metadata_archive:
+        union = build_plan(json.loads(sources[prep.LOCK]), json.loads(sources[tools.FILES[-1]]))
+        all_metadata = unpack_metadata(base.read(args.metadata_archive, MAX_METADATA), union)
+        metadata = {name: raw for name, raw in all_metadata.items() if name in items}
+    if args.export_metadata:
+        raw = archive_metadata(metadata, items)
+        base.publish(args.output.absolute(), {"metadata.tar.gz": raw,
+            "metadata.sha256": (base.digest(raw) + "  metadata.tar.gz\n").encode("ascii")})
+        print("Authenticated input-index archive exported; no network or package execution.")
+        return
     files = fetch(sources[prep.LOCK], base.processes.execute_process_group,
                   guest_raw=guest_raw, metadata=metadata)
     base.publish(args.output.absolute(), files)
@@ -175,5 +230,5 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+    except (OSError, ValueError, KeyError, TypeError, EOFError, tarfile.TarError, subprocess.SubprocessError):
         sys.exit("Pinned tools fetch rejected; no installation or execution.")

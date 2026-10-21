@@ -33,7 +33,21 @@ python3 -I scripts/prepare_mkosi_inputs.py \
 The caller must supply the separately verified, pinned mkosi source archive
 described in [build input preparation](p3-t1-mkosi-build-inputs.md).
 For the current lock, use the archived `metadata/` directory from the verified
-prepared bundle. Publishing an independently retrievable immutable input bundle
+prepared bundle, or export its deterministic index-only archive:
+
+```sh
+python3 -I -S -B scripts/fetch_mkosi_tools.py --include-guest \
+  --metadata /absolute/private/archived-indexes --export-metadata \
+  --output /absolute/private/index-export
+```
+
+This verifies all seven original hashes before exporting `metadata.tar.gz` and
+its checksum; it makes no network request. A fresh builder can use
+`--metadata-archive /absolute/private/metadata.tar.gz` instead of `--metadata`.
+Archive decoding is bounded and rejects links, traversal, duplicates, unexpected
+entries, ownership/mode changes and changed contents. It never extracts paths
+from the archive to disk. The same seven-index archive supports either the
+tools-only or combined fetch. An independently retrievable published archive
 is still required before calling this a self-contained clean-host build.
 The combined archive cache uses SHA-256 filenames consumed by that preparer;
 the default tools-only layout remains compatible with the existing native probe.
