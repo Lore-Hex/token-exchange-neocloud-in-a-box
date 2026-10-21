@@ -17,7 +17,7 @@ ROOT = Path(__file__).absolute().parent.parent
 SCRIPT = "scripts/prepare-engine-application.py"
 APPLICATION = "scripts/engine_application.py"
 TEST = "scripts/test_engine_application.py"
-RECORDER_SHA = "ed1bd32f7d95cca253c2da0ad4f54502ec586413711b1662d925710e3dbb2825"
+RECORDER_SHA = "5b408e55f7a9598667fd85b646dcbfe973cbfb19d8c6a3d28c8b5ddbff2d75b0"
 APPLICATION_SHA = "ce69e94d64434294f674c4be66e1a41fe8a08864535e6dbe242db365559b7406"
 
 
