@@ -69,17 +69,25 @@ class StageRecorderTests(unittest.TestCase):
         return code, printed.getvalue(), calls
 
     def test_parallel_worker_limit_is_forwarded_and_recorded(self):
-        code, _, calls = self.run_fixture(workers=4)
+        self.assert_parallel_record(4)
+
+    def test_eight_worker_limit_is_forwarded_and_recorded(self):
+        self.assert_parallel_record(8)
+        source = (stage.ROOT / "internal/modelpack/stage.go").read_text()
+        self.assertIn("const MaxStageWorkers = " + str(stage.MAX_WORKERS), source)
+
+    def assert_parallel_record(self, workers):
+        code, _, calls = self.run_fixture(workers=workers)
         self.assertEqual(code, 0)
         argv = calls.call_args_list[-1].args[0]
-        self.assertEqual(argv[argv.index("--workers") + 1], "4")
+        self.assertEqual(argv[argv.index("--workers") + 1], str(workers))
         report = stage.parse(stage.read(self.evidence / "output.log"))
         record = stage.parse(stage.read(self.evidence / "run.json"))
-        self.assertEqual(report["download_workers"], 4)
-        self.assertIn("--workers 4", record["command"])
+        self.assertEqual(report["download_workers"], workers)
+        self.assertIn("--workers " + str(workers), record["command"])
 
     def test_invalid_workers_rejected_before_execution(self):
-        for workers in (0, -1, 5, True):
+        for workers in (0, -1, 9, True):
             with self.assertRaises(ValueError):
                 self.run_fixture(workers=workers)
             self.assertFalse(self.evidence.exists())

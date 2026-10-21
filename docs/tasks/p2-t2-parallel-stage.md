@@ -1,6 +1,6 @@
 # Bounded Parallel Weight Staging
 
-`nib model stage --download` accepts `--workers 1..4`. The default remains
+`nib model stage --download` accepts `--workers 1..8`. The default remains
 one worker, with the same proof shape and pinned manifest verification.
 `host/record-stage.py run` accepts the same option and records nondefault
 worker counts in the evidence and command.
@@ -13,11 +13,17 @@ must pass its size/hash checks before atomic no-overwrite publication.
 
 A shared cancellation context stops sibling downloads on failure. Every
 worker and its partial-file cleanup finishes before the staging lock is
-released. Each worker has its own hash and copy buffer. Four workers is a
-ceiling, not a measured optimal setting.
+released. Each worker has its own hash and 256 KiB copy buffer. Eight workers
+use 2 MiB of copy buffers, excluding TLS/HTTP/runtime overhead. The ceiling
+was raised from four to eight to permit better utilization of large-node
+download links; this is not a claim of measured optimal throughput. Total
+body budget, one-attempt policy, exact hashes and time bounds are unchanged.
 
 Focused race tests cover actual overlapping requests, the concurrency bound,
 identical serial/parallel proofs, verified reuse, failure cancellation/join,
 partial cleanup, invalid counts, and oversized/corrupt response bodies.
 These are local fake-transport tests, not download-throughput measurements.
 The original single-stream hardware evidence is retained unchanged.
+An additional nine-file race test requires eight overlapping requests, joins
+all workers, checks the same global body budget and serial proof, and verifies
+that resuming with eight workers makes no requests for complete files.

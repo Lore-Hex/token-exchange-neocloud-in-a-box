@@ -4,8 +4,10 @@ package modelpack
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -132,7 +134,7 @@ func TestStageParallelFailureJoinsAndCleans(t *testing.T) {
 }
 
 func TestStageParallelRejectsInvalidWorkers(t *testing.T) {
-	for _, workers := range []int{-1, 5} {
+	for _, workers := range []int{-1, MaxStageWorkers + 1} {
 		pack, dir, bodies, options := stageFixture(t)
 		options.Workers = workers
 		var calls atomic.Int32
@@ -144,6 +146,77 @@ func TestStageParallelRejectsInvalidWorkers(t *testing.T) {
 		if _, err := os.Stat(dir); !os.IsNotExist(err) {
 			t.Fatal("invalid worker count created a directory")
 		}
+	}
+}
+
+func TestStageMaximumConcurrencyPreservesBudgetProofAndResume(t *testing.T) {
+	m := &Manifest{Repository: "org/model", Revision: testRev}
+	bodies := make(map[string]string)
+	for i := range MaxStageWorkers + 1 {
+		name := fmt.Sprintf("part-%02d.safetensors", i)
+		body := "synthetic " + name
+		bodies[name] = body
+		m.Files = append(m.Files, File{Path: name, Bytes: int64(len(body)), SHA256: fmt.Sprintf("%x", sha256.Sum256([]byte(body)))})
+		m.TotalBytes += int64(len(body))
+	}
+	pack, dir := writePack(t, m), filepath.Join(t.TempDir(), "staged")
+	options := StageOptions{MaxBytes: m.TotalBytes + int64(len(m.Files)), Timeout: 5 * time.Second, Workers: MaxStageWorkers}
+	started, release := make(chan struct{}, len(m.Files)), make(chan struct{})
+	var active, peak, calls atomic.Int32
+	d := parallelWeights(bodies, func(r *http.Request) error {
+		n := active.Add(1)
+		defer active.Add(-1)
+		calls.Add(1)
+		for old := peak.Load(); n > old && !peak.CompareAndSwap(old, n); old = peak.Load() {
+		}
+		started <- struct{}{}
+		select {
+		case <-release:
+			return nil
+		case <-r.Context().Done():
+			return r.Context().Err()
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	type result struct {
+		proof *StageProof
+		err   error
+	}
+	done := make(chan result, 1)
+	go func() {
+		proof, err := stage(ctx, pack, dir, options, d)
+		done <- result{proof, err}
+	}()
+	for range MaxStageWorkers {
+		select {
+		case <-started:
+		case <-ctx.Done():
+			t.Fatal("maximum workers did not overlap")
+		}
+	}
+	close(release)
+	got := <-done
+	if got.err != nil || got.proof == nil || peak.Load() != MaxStageWorkers || active.Load() != 0 || calls.Load() != int32(len(m.Files)) {
+		t.Fatalf("incorrect maximum worker result: %v peak=%d", got.err, peak.Load())
+	}
+	if got.proof.DownloadedBytes != m.TotalBytes || got.proof.DownloadedBytes > options.MaxBytes {
+		t.Fatal("maximum concurrency changed the body budget")
+	}
+	options.Workers = 1
+	serial, err := stage(ctx, pack, filepath.Join(t.TempDir(), "serial"), options, parallelWeights(bodies, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, _ := json.Marshal(got.proof)
+	b, _ := json.Marshal(serial)
+	if string(a) != string(b) {
+		t.Fatal("maximum-worker proof changed")
+	}
+	options.Workers = MaxStageWorkers
+	resumed, err := stage(ctx, pack, dir, options, d)
+	if err != nil || resumed.ReusedFiles != len(m.Files) || resumed.DownloadedBytes != 0 || calls.Load() != int32(len(m.Files)) {
+		t.Fatalf("maximum-worker resume refetched complete files: %v", err)
 	}
 }
 

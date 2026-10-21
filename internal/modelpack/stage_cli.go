@@ -19,10 +19,10 @@ func runStage(ctx context.Context, args []string, out, errOut io.Writer) int {
 	download := flags.Bool("download", false, "download pinned public weights")
 	maxBytes := flags.Int64("max-bytes", 0, "maximum downloaded body bytes")
 	timeout := flags.Duration("timeout", 0, "maximum run duration, up to 24h")
-	workers := flags.Int("workers", 1, "concurrent downloads, between 1 and 4")
-	if flags.Parse(args) != nil || *workers < 1 || *workers > 4 || (!*download && (flags.NArg() != 1 || *maxBytes != 0 || *timeout != 0 || *workers != 1)) ||
+	workers := flags.Int("workers", 1, fmt.Sprintf("concurrent downloads, between 1 and %d", MaxStageWorkers))
+	if flags.Parse(args) != nil || *workers < 1 || *workers > MaxStageWorkers || (!*download && (flags.NArg() != 1 || *maxBytes != 0 || *timeout != 0 || *workers != 1)) ||
 		(*download && (flags.NArg() != 2 || *maxBytes <= 0 || *timeout <= 0)) {
-		fmt.Fprintln(errOut, "usage: nib model stage <pack> | stage --download --max-bytes N --timeout D [--workers 1..4] <pack> <absolute-staged-directory>")
+		fmt.Fprintf(errOut, "usage: nib model stage <pack> | stage --download --max-bytes N --timeout D [--workers 1..%d] <pack> <absolute-staged-directory>\n", MaxStageWorkers)
 		return 2
 	}
 	if !*download {
