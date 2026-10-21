@@ -30,6 +30,33 @@ inputs = load("scripts/guest_package_inputs.py")
 
 
 class BuildTests(unittest.TestCase):
+    def test_payload_rejection_reports_stage_and_never_executes_packages(self):
+        def materialize(files, root):
+            root.mkdir()
+
+        publish = host.base.publish
+
+        def reject_payload(destination, files):
+            if destination.name == "payload":
+                raise ValueError("synthetic-payload-rejection")
+            publish(destination, files)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary).resolve() / "evidence"
+            with mock.patch.object(host, "prepare", return_value=({}, {}, {}, {}, {})), \
+                    mock.patch.object(host.prep, "assemble", return_value=({}, {})), \
+                    mock.patch.object(host.probe.ownership, "host_inputs", return_value=({}, {})), \
+                    mock.patch.object(host.probe, "materialize", side_effect=materialize), \
+                    mock.patch.object(host.base, "publish", side_effect=reject_payload), \
+                    mock.patch.object(host.base.processes, "execute_process_group") as execute:
+                self.assertEqual(host.run(Path("/unused"), Path("/unused"), output, "a" * 40, {}), 1)
+            execute.assert_not_called()
+            report = json.loads((output / "result.json").read_bytes())
+            self.assertEqual(report["stage"], "payload-publication")
+            self.assertEqual(report["result"], "fail")
+            self.assertTrue(report["payload_removed"])
+            self.assertFalse(report["process_cleanup_confirmed"])
+
     def test_inventory_requires_exact_configured_versions(self):
         raw = b"Package: example\nVersion: 1.2\nArchitecture: amd64\nStatus: install ok installed\n\n"
         self.assertEqual(worker.configured(raw, {"example": "1.2"}, inputs.paragraphs), 1)

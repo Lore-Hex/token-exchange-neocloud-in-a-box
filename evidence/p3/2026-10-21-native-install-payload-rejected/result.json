@@ -1,0 +1,16 @@
+{
+  "bootable": false,
+  "deployable": false,
+  "failure_kind": "invalid-result-or-cleanup",
+  "git_sha": "5571de118ba7d03b9efea33bd9478ab14b92e8a8",
+  "mapping_helper_hashes": {
+    "/usr/bin/newgidmap": "076d35f3dd11680a17725ea7b694715bc909182eeb930f1771ef0550e4779459",
+    "/usr/bin/newuidmap": "e26eed17f29ce6ee829855064b83f9ab20afdd9503ec4517f1ce8c1230bebaad"
+  },
+  "payload_removed": true,
+  "process_cleanup_confirmed": false,
+  "result": "fail",
+  "schema": "nib.mkosi-installation/v1",
+  "stage": "preparation",
+  "worker": null
+}
