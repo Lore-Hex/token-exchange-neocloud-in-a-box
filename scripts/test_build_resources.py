@@ -33,6 +33,8 @@ class ResourceTests(unittest.TestCase):
                 if key == "cgroup.kill" and kill_failure:
                     raise OSError("PRIVATE")
                 values[key] = value
+                if key == "cgroup.kill":
+                    values["cgroup.events"] = "populated 0\nfrozen 0"
             with mock.patch.dict(resource.cgroup.__wrapped__.__globals__, open_root=opened, read=read, write=write):
                 yield root, values, writes
 
@@ -47,9 +49,11 @@ class ResourceTests(unittest.TestCase):
                 self.assertTrue((root / name).is_dir())
                 self.assertEqual(len(name), 42)
                 self.assertEqual(os.fstat(fd).st_ino, (root / name).stat().st_ino)
+                values["cgroup.events"] = "populated 1\nfrozen 0"
             self.assertTrue(state["empty_verified"])
             self.assertTrue(state["group_removed"])
             self.assertEqual(state["oom_kill"], 0)
+            self.assertEqual(state["populated_before_cleanup"], 1)
             self.assertEqual(writes[-1], ("cgroup.kill", "1"))
             self.assertEqual(list(root.iterdir()), [sibling])
 
@@ -115,6 +119,23 @@ class ResourceTests(unittest.TestCase):
         self.assertNotIn('rmtree', text)
         self.assertEqual(resource.LIMITS, {"memory.max": "8589934592", "memory.swap.max": "0",
             "memory.oom.group": "1", "pids.max": "256", "cpu.max": "200000 100000"})
+
+    def test_empty_group_cannot_claim_detached_child_proof(self):
+        @contextmanager
+        def completed(state):
+            state.update(limits_read_back=True, empty_verified=True, group_removed=True,
+                         oom_kill=0, memory_peak_bytes=40 << 20, populated_before_cleanup=0)
+            yield 123, "nib-build-" + "a" * 32
+        with mock.patch.dict(resource.probe.__globals__, cgroup=completed, run_child=lambda fd, name: None):
+            result = resource.probe()
+        self.assertEqual(result["result"], "fail")
+        self.assertFalse(result["detached_child_cleanup_verified"])
+
+    def test_detached_child_is_fixed_and_independently_bounded(self):
+        self.assertIn("os.setsid()", resource.CHILD)
+        self.assertIn("signal.alarm(60)", resource.CHILD)
+        self.assertIn("os.waitpid(child, os.WNOHANG) == (0, 0)", resource.CHILD)
+        self.assertLess(resource.CHILD.index("os.close(descriptor)"), resource.CHILD.index("os.write(ready_write"))
 
 
 if __name__ == "__main__":
