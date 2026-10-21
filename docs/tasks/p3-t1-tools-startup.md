@@ -41,3 +41,13 @@ Even a passing result leaves `mkosi_executed`, `namespaces_validated`,
 `abi_validated`, `installable_verified`, `bootable` and `deployable` false.
 Successful startup of these binaries is not evidence of all library interfaces,
 namespace creation, package configuration, image reproducibility or attestation.
+
+## Recorded execution
+
+The [October 21 run](../../evidence/p3/2026-10-21-tools-startup-pass/run.json)
+at producer `f309d8a814fdf1180e30a99df6e8466b03b5ab26` passed all seven
+checks on a local Linux/amd64 Docker container and confirmed cleanup.
+Its [content-free output](../../evidence/p3/2026-10-21-tools-startup-pass/output.log)
+binds the image, package receipt, completed checks and their output hashes.
+Both files are unchanged committed-runner output. This is startup evidence
+only; all broader qualification flags remain false.

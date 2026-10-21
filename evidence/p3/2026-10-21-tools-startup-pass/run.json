@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S -B host/probe-mkosi-tools.py --run --inputs PRIVATE --bundle PRIVATE --output PRIVATE",
+  "ended_utc": "2026-10-21T03:04:59Z",
+  "execution": "software",
+  "git_sha": "f309d8a814fdf1180e30a99df6e8466b03b5ab26",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "linux-amd64",
+    "provider": "local-docker"
+  },
+  "notes": "Seven fixed tools startup probes only. No package installation, maintainer scripts, mkosi build, namespace validation, ABI qualification, boot or attestation. Private command paths are normalized; output.log contains fixed classes, counts and hashes, never raw process output.",
+  "phase": "P3",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-21T03:04:56Z",
+  "task": "T1"
+}
