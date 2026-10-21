@@ -65,6 +65,12 @@ OPENCV_CALLBACKS = ("_nib_cv2_config", "_nib_cv2_paths", "_nib_cv2_native")
 CUTLASS_COMPILER = "cutlass.base_dsl.compiler"
 CUTLASS_SOURCE = "nvidia_cutlass_dsl/dsl_packages/cutlass/base_dsl/compiler.py"
 CUTLASS_SOURCE_SHA = "26a940ac92440a63561411b0818c3f88da363b1247ab54fcb5572d242d382c3b"
+# TileLang 0.1.12 Linux abi3 wheel bbeb5573cbe2544a51a5c9a6cc737c5e3b5c2d95411caa3687fd9b08eb9d5f97.
+# Its bundled TVM and Cython wrapper are private namespaces, not general search roots.
+TILELANG_ENV_SHA = "0c1aeb8521890e4822d84052171c2573ba9d72849d45d40f21014166d0add639"
+TILELANG_TVM_SHA = "0121abb909736236a4300622968c5fdced080f3b124860344a986a1cf5002943"
+TILELANG_NATIVE_SHA = "ffa5c118c75e3dabdbeff8d6ae1d91d07a08f66c8d14c449d13ba0b5f89c4604"
+TILELANG_CALLBACKS = ("_nib_tilelang_libs", "_nib_tilelang_tvm")
 SIX_NAMES = (
     "moves", "moves.BaseHTTPServer", "moves.CGIHTTPServer", "moves.SimpleHTTPServer",
     "moves._dummy_thread", "moves._thread", "moves.builtins", "moves.cPickle",
@@ -148,6 +154,29 @@ def cutlass_compiler_code(raw, path, require):
     return compile(ast.fix_missing_locations(tree), path, "exec", flags=0, dont_inherit=True, optimize=0)
 
 
+def tilelang_env_code(raw, path, require):
+    """Replace exactly two path mutations, not the upstream compiler behavior."""
+    require(hashlib.sha256(raw).hexdigest() == TILELANG_ENV_SHA)
+    tree = ast.parse(raw, filename=path)
+    require(not any(isinstance(node, ast.Name) and node.id in TILELANG_CALLBACKS for node in ast.walk(tree)))
+    replacements = (
+        ("for lib in TL_LIBS:\n    if lib not in sys.path:\n        sys.path.insert(0, lib)",
+         "_nib_tilelang_libs(TL_LIBS, DEV)"),
+        ('def prepend_pythonpath(path):\n'
+         '    if not os.environ.get("PYTHONPATH", None):\n        os.environ["PYTHONPATH"] = path\n'
+         '    else:\n        os.environ["PYTHONPATH"] = path + os.pathsep + os.environ["PYTHONPATH"]\n'
+         '    sys.path.insert(0, path)',
+         'def prepend_pythonpath(path):\n    _nib_tilelang_tvm(path)'),
+    )
+    for original, replacement in replacements:
+        expected = ast.dump(ast.parse(original).body[0])
+        matches = [node for node in ast.walk(tree) if ast.dump(node) == expected]
+        require(len(matches) == 1 and matches[0] in tree.body)
+        index = tree.body.index(matches[0])
+        tree.body[index] = ast.copy_location(ast.parse(replacement).body[0], matches[0])
+    return compile(ast.fix_missing_locations(tree), path, "exec", flags=0, dont_inherit=True, optimize=0)
+
+
 def vecisa_library(args, layout, helpers):
     """Recognize pinned VecISA's one Linux dlopen template; never eval input."""
     require = helpers.require
@@ -222,6 +251,8 @@ def install_lab(layout, helpers, checkpoint=None):
             and not any(name == "cv2" or name.startswith("cv2.") for name in sys.modules)
             and PATTERN_TARGET not in sys.modules
             and CUTLASS_COMPILER not in sys.modules
+            and not any(name.split(".", 1)[0] in ("tilelang", "tvm", "tilelang_cython_wrapper")
+                        for name in sys.modules)
             and not any(name == source or name.startswith(source + ".")
                         for name in sys.modules for source in SIX_SOURCES)
             and not {"sitecustomize", "usercustomize"} & set(sys.modules)
@@ -265,6 +296,7 @@ def install_lab(layout, helpers, checkpoint=None):
              "pattern_status": "not-registered", "pattern_module": None, "pattern_loading": None,
              "pattern_callback": None,
              "opencv_status": "not-loaded", "opencv_module": None, "opencv_native": None,
+             "tilelang_status": "not-loaded", "tilelang_env": None, "tilelang_tvm": False,
              "six": {name: {"status": "not-loaded", "module": None, "importer": None,
                             "class": None, "class_fields": None, "registry": None,
                             "registry_object": None, "moved": (), "aliases": {}, "pending": set()}
@@ -275,6 +307,11 @@ def install_lab(layout, helpers, checkpoint=None):
         raise ValueError("lab Python boundary rejected")
 
     def check():
+        if (state["tilelang_status"] == "failed"
+                or (state["tilelang_env"] is not None
+                    and sys.modules.get("tilelang.env") is not state["tilelang_env"])):
+            state["tilelang_status"] = "failed"
+            reject()
         if ((state["opencv_status"] == "not-loaded" and "cv2" in sys.modules)
                 or (state["opencv_status"] == "active" and
                     (sys.modules.get("cv2") is not state["opencv_module"]
@@ -432,6 +469,79 @@ def install_lab(layout, helpers, checkpoint=None):
             require(metadata.version("nvidia-cutlass-dsl-libs-core") == "4.8.0")
             exec(self.get_code(module.__name__), module.__dict__)
             check()
+
+    class TileLangSource(SourceOnly):
+        def exec_module(self, module):
+            root = selected + "/tilelang"
+            try:
+                require(state["tilelang_status"] == "not-loaded" and self.path == root + "/env.py"
+                        and module.__name__ == "tilelang.env" and sys.modules.get(module.__name__) is module)
+                state["tilelang_status"] = "loading"
+                state["tilelang_env"] = module
+                check()
+                from importlib import metadata
+                require(metadata.version("tilelang") == "0.1.12"
+                        and "PYTHONPATH" not in os.environ
+                        and "TVM_IMPORT_PYTHON_PATH" not in os.environ
+                        and "TVM_LIBRARY_PATH" not in os.environ)
+                steps = {"libs": False, "tvm": False}
+
+                def libs(paths, dev):
+                    check()
+                    require(steps == {"libs": False, "tvm": False} and dev is False
+                            and type(paths) is list and paths == [root + "/lib"])
+                    raw = helpers.read_source(root + "/lib/tilelang_cython_wrapper.abi3.so", 1 << 20)
+                    require(hashlib.sha256(raw).hexdigest() == TILELANG_NATIVE_SHA)
+                    steps["libs"] = True
+
+                def tvm(path):
+                    check()
+                    require(steps == {"libs": True, "tvm": False}
+                            and type(path) is str and path == root + "/3rdparty/tvm/python")
+                    raw = helpers.read_source(path + "/tvm/__init__.py", 32768)
+                    require(hashlib.sha256(raw).hexdigest() == TILELANG_TVM_SHA)
+                    steps["tvm"] = True
+
+                module.__dict__.update(zip(TILELANG_CALLBACKS, (libs, tvm)))
+                raw = helpers.read_source(self.path, 32768)
+                exec(tilelang_env_code(raw, self.path, require), module.__dict__)
+                require(steps == {"libs": True, "tvm": True} and "PYTHONPATH" not in os.environ)
+                state["tilelang_tvm"] = True
+                state["tilelang_status"] = "active"
+                check()
+            except BaseException:
+                state["tilelang_status"] = "failed"
+                raise
+            finally:
+                for name in TILELANG_CALLBACKS:
+                    module.__dict__.pop(name, None)
+
+    def tilelang_spec(fullname, path, target):
+        require(state["tilelang_status"] == "active" and state["tilelang_tvm"] and target is None)
+        root = selected + "/tilelang"
+        if fullname == "tilelang_cython_wrapper":
+            require(path is None)
+            origin = root + "/lib/tilelang_cython_wrapper.abi3.so"
+            raw = helpers.read_source(origin, 1 << 20)
+            require(hashlib.sha256(raw).hexdigest() == TILELANG_NATIVE_SHA)
+            loader = importlib.machinery.ExtensionFileLoader(fullname, origin)
+            return importlib.util.spec_from_file_location(fullname, origin, loader=loader)
+        tvm_root = root + "/3rdparty/tvm/python"
+        if fullname == "tvm":
+            require(path is None)
+            path = [tvm_root]
+        else:
+            require(type(path) is list and path and all(type(p) is str
+                    and os.path.normpath(p) == p and p.startswith(tvm_root + "/tvm")
+                    and (p == tvm_root + "/tvm" or p.startswith(tvm_root + "/tvm/")) for p in path))
+        spec = importlib.machinery.PathFinder.find_spec(fullname, path)
+        require(spec is not None and type(spec.loader) is importlib.machinery.SourceFileLoader
+                and spec.origin.startswith(tvm_root + "/tvm/"))
+        if fullname == "tvm":
+            require(spec.origin == tvm_root + "/tvm/__init__.py"
+                    and hashlib.sha256(helpers.read_source(spec.origin, 32768)).hexdigest() == TILELANG_TVM_SHA)
+        spec.loader = SourceOnly(fullname, spec.origin)
+        return spec
 
     def register_metadata(cls):
         # The pinned backport's install decorator otherwise adds an unrestricted
@@ -745,6 +855,8 @@ def install_lab(layout, helpers, checkpoint=None):
         @staticmethod
         def find_spec(fullname, path=None, target=None):
             check()
+            if fullname == "tvm" or fullname.startswith("tvm.") or fullname == "tilelang_cython_wrapper":
+                return tilelang_spec(fullname, path, target)
             if fullname.split(".", 1)[0] in ("sitecustomize", "usercustomize"):
                 reject()
             source_name = next((name for name in SIX_SOURCES if fullname.startswith(name + ".")), None)
@@ -775,6 +887,12 @@ def install_lab(layout, helpers, checkpoint=None):
                 return spec
             try:
                 spec = importlib.machinery.PathFinder.find_spec(fullname, path, target)
+                if fullname == "tilelang.env":
+                    require(state["tilelang_status"] == "not-loaded" and target is None
+                            and spec is not None and type(spec.loader) is importlib.machinery.SourceFileLoader
+                            and spec.origin == selected + "/tilelang/env.py")
+                    spec.loader = TileLangSource(fullname, spec.origin)
+                    return spec
                 if fullname == CUTLASS_COMPILER:
                     require(target is None and spec is not None
                             and type(spec.loader) is importlib.machinery.SourceFileLoader
