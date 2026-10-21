@@ -26,7 +26,7 @@ LIMITS = {"memory.max": str(8 << 30), "memory.swap.max": "0", "memory.oom.group"
 ALLOWED = set(LIMITS) | {"cgroup.controllers", "cgroup.subtree_control", "cgroup.type", "cgroup.events",
                          "cgroup.procs", "cgroup.kill", "memory.current", "memory.peak", "memory.events"}
 CHILD = """
-import json, os, pathlib, sys
+import os, pathlib, signal, sys
 fd, name = int(sys.argv[1]), sys.argv[2]
 assert name.startswith('nib-build-') and len(name) == 42
 os.write(fd, str(os.getpid()).encode('ascii'))
@@ -40,10 +40,26 @@ assert limits == {'memory.max': '8589934592', 'memory.swap.max': '0', 'memory.oo
 payload = bytearray(32 << 20)
 for offset in range(0, len(payload), 4096):
     payload[offset] = 1
+ready_read, ready_write = os.pipe()
 child = os.fork()
 if child == 0:
-    os._exit(0 if pathlib.Path('/proc/self/cgroup').read_text() == '0::/' + name + '\\n' else 1)
-assert os.waitpid(child, 0)[1] == 0
+    os.close(ready_read)
+    os.setsid()
+    signal.alarm(60)
+    assert os.getsid(0) == os.getpid()
+    assert pathlib.Path('/proc/self/cgroup').read_text() == '0::/' + name + '\\n'
+    # Close the output pipe before reporting readiness so communicate() can
+    # finish while this bounded, detached descendant deliberately remains.
+    for descriptor in (0, 1, 2):
+        os.close(descriptor)
+    assert os.write(ready_write, b'READY') == 5
+    os.close(ready_write)
+    while True:
+        signal.pause()
+os.close(ready_write)
+assert os.read(ready_read, 6) == b'READY'
+os.close(ready_read)
+assert os.waitpid(child, os.WNOHANG) == (0, 0)
 assert int((root / 'memory.current').read_text()) >= len(payload)
 print('NIB_BUILD_CGROUP_OK', flush=True)
 """
@@ -128,6 +144,7 @@ def cgroup(state):
             if fd is not None:
                 current = os.stat(name, dir_fd=root, follow_symlinks=False)
                 require((current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino))
+                state["populated_before_cleanup"] = numeric_fields(read(fd, "cgroup.events"))["populated"]
                 # cgroup.kill includes descendants which escaped a process group.
                 write(fd, "cgroup.kill", "1")
                 deadline = time.monotonic() + 10
@@ -178,7 +195,7 @@ def run_child(fd, name):
 def probe():
     state = {"limits_read_back": False, "worker_join_and_inheritance_verified": False,
              "empty_verified": False, "group_removed": False, "oom_kill": None,
-             "memory_peak_bytes": None}
+             "memory_peak_bytes": None, "populated_before_cleanup": None}
     try:
         with cgroup(state) as (fd, name):
             run_child(fd, name)
@@ -187,9 +204,11 @@ def probe():
         pass
     passed = (all(state[key] is True for key in ("limits_read_back", "worker_join_and_inheritance_verified",
                                                  "empty_verified", "group_removed"))
-              and state["oom_kill"] == 0)
-    return {"schema": "nib.build-resource-probe/v1", "result": "pass" if passed else "fail", **state,
+              and state["oom_kill"] == 0 and state["populated_before_cleanup"] == 1)
+    return {"schema": "nib.build-resource-probe/v2", "result": "pass" if passed else "fail", **state,
             "limits": LIMITS, "probe_seconds": 20, "cleanup_seconds": 10,
+            "detached_child_fallback_seconds": 60,
+            "detached_child_cleanup_verified": passed,
             "host_runtime_pinned": False, "package_installation_executed": False,
             "image_built": False, "confidential_qualified": False}
 
