@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S -B host/probe-mkosi-native.py --archive PRIVATE --output PRIVATE",
+  "ended_utc": "2026-10-21T13:51:27Z",
+  "execution": "software",
+  "git_sha": "f165c89fc090157b149236452ca192c674d4a684",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "ubuntu-24.04-x86_64",
+    "provider": "github-actions"
+  },
+  "notes": "Pinned mkosi sandbox and synthetic checker on an unprivileged ephemeral runner. The runner kernel, Python and userspace are not pinned build inputs. No package installation, image build, boot or attestation. No host security changes.",
+  "phase": "P3",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-21T13:51:27Z",
+  "task": "T1"
+}
