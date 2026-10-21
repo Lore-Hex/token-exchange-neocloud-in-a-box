@@ -1,0 +1,2 @@
+‣ Tools tree / is missing /etc/resolv.conf
+‣ (If you're using a default tools tree, run mkosi -f clean to remove the old tools tree without /etc/resolv.conf)

@@ -91,6 +91,15 @@ def add_awk(tree, pin):
     return links
 
 
+def add_resolver_mountpoint(tree):
+    # mkosi ecf7f570 __init__.py:5017-5029 requires this placeholder even
+    # offline. Never import the host's resolver, nameservers or search domains.
+    name = "etc/resolv.conf"
+    require(name not in tree and tools.resolve(tree, name, ancestors_only=True) == name)
+    tree[name] = {"kind": "file", "data": b"", "mode": 0o644}
+    return {name: {"bytes": 0, "sha256": base.digest(b""), "mode": 0o644}}
+
+
 def classify(tree, pins):
     expected = pins["packages"]["grub-pc-bin"]["members"]
     foreign = {}
@@ -141,6 +150,7 @@ def assemble(inputs, revision, sources):
                     require(control.get("postinst") == pin["postinst"])
             tools.merge(tree, incoming)
     aliases = add_awk(tree, pins["packages"]["gawk"])
+    prepared_files = add_resolver_mountpoint(tree)
     classification = classify(tree, pins)
     executables = {name: tools.executable(tree, name) for name in HOST_PROGRAMS}
     archive = tools.tar_bytes(tree)
@@ -153,6 +163,7 @@ def assemble(inputs, revision, sources):
         "scope": "data-only-exact-tools-tree", "tools_packages": len(lock["packages"]),
         "source_hashes": {p: base.digest(data) for p, data in sorted(sources.items())},
         "tools_lock_sha256": base.digest(lock_raw), "prepared_aliases": aliases,
+        "prepared_files": prepared_files,
         "package_configuration_simulated": False, "classification": classification,
         "host_executables": executables, "upstream_executed": False,
         "package_scripts_executed": False, "package_binaries_executed": False,

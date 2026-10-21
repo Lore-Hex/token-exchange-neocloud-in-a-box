@@ -204,6 +204,21 @@ class ClassificationTests(unittest.TestCase):
 
 
 class ContractTests(unittest.TestCase):
+    def test_resolver_is_empty_and_cannot_replace_package_data_or_follow_aliases(self):
+        tree = {}
+        receipt = prep.add_resolver_mountpoint(tree)
+        self.assertEqual(tree, {"etc/resolv.conf": {"kind": "file", "data": b"", "mode": 0o644}})
+        self.assertEqual(receipt, {"etc/resolv.conf":
+            {"bytes": 0, "sha256": prep.base.digest(b""), "mode": 0o644}})
+        cases = [tree, {"etc/resolv.conf": fixtures.file(b"nameserver private")},
+                 {"etc/resolv.conf": {"kind": "link", "target": "/private", "mode": 0o777}},
+                 {"etc": {"kind": "link", "target": "/private", "mode": 0o777}}]
+        for case in cases:
+            before = copy.deepcopy(case)
+            with self.subTest(case=case), self.assertRaises(ValueError):
+                prep.add_resolver_mountpoint(case)
+            self.assertEqual(case, before)
+
     def fixture(self, root):
         foreign, foreign_pins = foreign_fixture()
         host = {name.lstrip("/"): fixtures.file(binary()) for name in prep.HOST_PROGRAMS
@@ -254,6 +269,13 @@ class ContractTests(unittest.TestCase):
                 with tarfile.open(fileobj=io.BytesIO(files["tools-root.tar"])) as archive:
                     self.assertEqual(archive.getmember("usr/bin/awk").linkname, "/etc/alternatives/awk")
                     self.assertEqual(archive.extractfile(NAME).read(), b"synthetic-public-certificate")
+                    resolver = archive.getmember("etc/resolv.conf")
+                    self.assertTrue(resolver.isfile())
+                    self.assertEqual((resolver.size, resolver.mode), (0, 0o644))
+                    self.assertEqual(archive.extractfile(resolver).read(), b"")
+                inventory = json.loads(files["root-inventory.json"])
+                self.assertIn("etc/resolv.conf", inventory)
+                self.assertEqual(report["prepared_files"]["etc/resolv.conf"]["sha256"], prep.base.digest(b""))
                 for key in ("abi_validated", "runtime_linkage_validated", "deployable", "bootable",
                             "installable_verified", "package_binaries_executed", "package_scripts_executed",
                             "upstream_executed", "package_configuration_simulated"):
