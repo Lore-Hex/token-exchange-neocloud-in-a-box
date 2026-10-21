@@ -29,6 +29,36 @@ GPU_PROBE = None
 CORRECTNESS = None
 ENTRY_CHECKPOINTS = 17
 EXCEPTION_PACKET_BYTES = 3 + 8 * 36
+WORKER_EXCEPTION_PATH = "/cache/worker-exception.bin"
+
+
+def record_worker_exception(error, roots):
+    """First failure wins in a fresh private cache; diagnostic errors are inert."""
+    if type(error) is SystemExit and error.code in (None, 0):
+        return
+    fd = None
+    try:
+        packet = exception_packet(error, roots)
+        fd = os.open(WORKER_EXCEPTION_PATH,
+                     os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+        require(os.write(fd, packet) == EXCEPTION_PACKET_BYTES)
+    except BaseException:
+        pass
+    finally:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
+def read_worker_exception():
+    try:
+        raw = read_source(WORKER_EXCEPTION_PATH, EXCEPTION_PACKET_BYTES)
+    except FileNotFoundError:
+        return None
+    require(len(raw) == EXCEPTION_PACKET_BYTES)
+    return decode_exception(raw)
 
 
 class EntryCheckpointWriter:
@@ -501,6 +531,7 @@ def application_and_request(contract, sources, modules, application, measured):
         result["startup"] = {"outcome": "launch-failed", "wait_ms": 0,
                              "exit_code": None, "health_probes": 0,
                              "exception_diagnostic": None,
+                             "worker_exception_diagnostic": None,
                              "checkpoints": {"status": "not-started", "last_id": None}}
         checkpoints = EntryCheckpointReader(result["startup"]["checkpoints"])
         errors = EntryCheckpointReader({"status": "not-started", "last_id": None})
@@ -524,6 +555,7 @@ def application_and_request(contract, sources, modules, application, measured):
             # when a complete fixed packet or EOF can be required without blocking.
             if engine.poll() is not None:
                 result["startup"]["exception_diagnostic"] = read_entry_exception(errors)
+                result["startup"]["worker_exception_diagnostic"] = read_worker_exception()
         if pre_serve:
             require(result["startup"]["exception_diagnostic"] is None
                     and hardware(contract.get("gpu_family", "B200"), security) == result["hardware"])
@@ -649,7 +681,13 @@ def lab_entry():
             signal.alarm(55)
             vecisa_load(path, sys.modules[__name__])
         else:
-            dispatch_lab(rest, state, sys.modules[__name__])
+            roots = (ROOT + "/", *tuple(path.rstrip("/") + "/" for path in contract["paths"]))
+            observer = lambda error: record_worker_exception(error, roots)
+            try:
+                dispatch_lab(rest, state, sys.modules[__name__], worker_observer=observer)
+            except BaseException as error:
+                observer(error)
+                raise
 
 
 if __name__ == "__main__":

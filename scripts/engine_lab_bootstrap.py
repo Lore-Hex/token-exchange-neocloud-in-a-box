@@ -828,7 +828,30 @@ def registry_entry(state, helpers):
     state["check"]()
 
 
-def dispatch_lab(args, state, helpers):
+def observed_spawn(values, observer):
+    """Observe child target failures without changing multiprocessing outcomes."""
+    from multiprocessing.process import BaseProcess
+    from multiprocessing.spawn import spawn_main
+    original = BaseProcess.run
+
+    def run(process):
+        try:
+            return original(process)
+        except BaseException as error:
+            try:
+                observer(error)
+            except BaseException:
+                pass
+            raise
+
+    BaseProcess.run = run
+    try:
+        spawn_main(**values)
+    finally:
+        BaseProcess.run = original
+
+
+def dispatch_lab(args, state, helpers, worker_observer=None):
     if args == ["-m", REGISTRY_MODULE]:
         registry_entry(state, helpers)
         return
@@ -837,7 +860,10 @@ def dispatch_lab(args, state, helpers):
         from multiprocessing.spawn import spawn_main
         state["spawn_entry"] = True
         sys.argv[:] = [state["layout"]["launcher"], "--multiprocessing-fork"]
-        spawn_main(**values)
+        if worker_observer is None:
+            spawn_main(**values)
+        else:
+            observed_spawn(values, worker_observer)
     else:
         from multiprocessing.resource_tracker import main
         main(*values)

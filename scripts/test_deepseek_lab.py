@@ -37,6 +37,7 @@ lab = module("scripts/engine_lab.py")
 lab.require = helpers.require
 lab.os = os
 lab.sys = sys
+lab.read_source = helpers.read_source
 probe = module("scripts/engine_lab_probe.py")
 host = module("host/record-deepseek-lab.py")
 snapshot = module("scripts/e2e/snapshot.py")
@@ -261,6 +262,10 @@ def spawn_one(depth):
     process.join(15)
     assert process.exitcode == 0
     return result
+def failing_worker():
+    raise ValueError("synthetic-private-worker-failure")
+def capture_worker(error):
+    print(json.dumps({"worker_type": type(error).__name__}), flush=True)
 if __name__ == "__main__":
     if ARGS == ["positive"]:
         result = {"parent": observe(), "child": spawn_one(1)}
@@ -274,6 +279,13 @@ if __name__ == "__main__":
         print(json.dumps(result))
     elif ARGS == ["fresh"]:
         print(json.dumps(observe()))
+    elif ARGS == ["worker-failure"]:
+        import multiprocessing as mp
+        process = mp.Process(target=failing_worker)
+        process.start()
+        process.join(15)
+        assert process.exitcode == 1
+        print(json.dumps({"worker_exit": process.exitcode}))
     elif ARGS and ARGS[0] == "reject":
         import multiprocessing as mp
         from importlib import metadata
@@ -291,8 +303,74 @@ if __name__ == "__main__":
         except ValueError:
             print('{"rejected":true}')
         else: raise AssertionError("boundary accepted")
-    else: dispatch_lab(ARGS, STATE, sys.modules[__name__])
+    else: dispatch_lab(ARGS, STATE, sys.modules[__name__], worker_observer=capture_worker)
 '''
+
+
+class WorkerDiagnosticTests(unittest.TestCase):
+    def test_first_fixed_packet_wins_without_exception_content(self):
+        with tempfile.TemporaryDirectory() as root, \
+                mock.patch.object(lab, "WORKER_EXCEPTION_PATH", str(Path(root).resolve() / "failure.bin")):
+            self.assertIsNone(lab.read_worker_exception())
+            for error in (SystemExit(0), SystemExit(None)):
+                lab.record_worker_exception(error, ())
+            self.assertFalse(Path(lab.WORKER_EXCEPTION_PATH).exists())
+            lab.record_worker_exception(ValueError("PRIVATE prompt and credential"), ())
+            raw = Path(lab.WORKER_EXCEPTION_PATH).read_bytes()
+            self.assertEqual(len(raw), lab.EXCEPTION_PACKET_BYTES)
+            self.assertNotIn(b"PRIVATE", raw)
+            lab.record_worker_exception(RuntimeError("later private failure"), ())
+            self.assertEqual(Path(lab.WORKER_EXCEPTION_PATH).read_bytes(), raw)
+            self.assertEqual(lab.read_worker_exception()["type"], "value")
+
+    def test_worker_diagnostic_rejects_links_partial_and_oversized_packets(self):
+        with tempfile.TemporaryDirectory() as root, \
+                mock.patch.object(lab, "WORKER_EXCEPTION_PATH", str(Path(root).resolve() / "failure.bin")):
+            target = Path(root) / "target"
+            target.write_bytes(b"preserve")
+            path = Path(lab.WORKER_EXCEPTION_PATH)
+            path.symlink_to(target)
+            lab.record_worker_exception(ValueError("PRIVATE"), ())
+            self.assertEqual(target.read_bytes(), b"preserve")
+            with self.assertRaises(OSError):
+                lab.read_worker_exception()
+            path.unlink()
+            packet = lab.exception_packet(ValueError("PRIVATE"), ())
+            for raw in (packet[:-1], packet + b"extra"):
+                path.write_bytes(raw)
+                with self.assertRaises(ValueError):
+                    lab.read_worker_exception()
+            path.write_bytes(packet)
+            os.link(path, target.with_name("hardlink"))
+            with self.assertRaises(ValueError):
+                lab.read_worker_exception()
+
+    def test_spawn_observer_keeps_exact_target_exception_and_restores_method(self):
+        from multiprocessing.process import BaseProcess
+        original = BaseProcess.run
+        failure = ValueError("PRIVATE")
+        def target():
+            raise failure
+        process = BaseProcess(target=target)
+        for broken_observer in (False, True):
+            observer = mock.Mock(side_effect=RuntimeError("observer") if broken_observer else None)
+            with mock.patch("multiprocessing.spawn.spawn_main", side_effect=lambda **_: process.run()):
+                with self.assertRaises(ValueError) as caught:
+                    bootstrap.observed_spawn({"pipe_handle": 3}, observer)
+            self.assertIs(caught.exception, failure)
+            observer.assert_called_once_with(failure)
+            self.assertIs(BaseProcess.run, original)
+
+    def test_successful_spawn_target_has_no_diagnostic(self):
+        from multiprocessing.process import BaseProcess
+        original = BaseProcess.run
+        target, observer = mock.Mock(), mock.Mock()
+        process = BaseProcess(target=target, args=("synthetic",))
+        with mock.patch("multiprocessing.spawn.spawn_main", side_effect=lambda **_: process.run()):
+            bootstrap.observed_spawn({"pipe_handle": 3}, observer)
+        target.assert_called_once_with("synthetic")
+        observer.assert_not_called()
+        self.assertIs(BaseProcess.run, original)
 
 
 class BootstrapLayoutTests(unittest.TestCase):
@@ -375,6 +453,15 @@ class BootstrapTests(unittest.TestCase):
             self.assertEqual(item, {"isolated": True, "no_site": True, "no_bytecode": True, "paths": True,
                                     "value": "source-not-bytecode", "version": "1.0", "site": False, "before_unpickle": True})
         self.assertTrue(row["tracker"])
+        self.assertFalse(list(self.root.rglob("*.pyc")))
+
+    def test_real_spawn_observes_target_before_bootstrap_swallows_error(self):
+        result = subprocess.run([self.layout["wrapper"], "worker-failure"], cwd="/",
+                                capture_output=True, timeout=45)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual([json.loads(line) for line in result.stdout.splitlines()],
+                         [{"worker_type": "ValueError"}, {"worker_exit": 1}])
+        self.assertNotIn(b"synthetic-private-worker-failure", result.stdout)
         self.assertFalse(list(self.root.rglob("*.pyc")))
 
     def test_fork_forkserver_paths_numa_and_generic_python_rejected(self):
