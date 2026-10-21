@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S scripts/record-engine-cpu-entry.py --slug cpu-opencv-runtime-9115b95",
+  "ended_utc": "2026-10-20T23:52:41Z",
+  "execution": "software",
+  "git_sha": "9115b95792e2d82571391dfa017872eca527746a",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "local-software-experiment",
+    "provider": "local"
+  },
+  "notes": "CPU-only pre-serve diagnostic, not the P0 deny-all import sandbox. No model/weights/GPU runtime/ports/network/credentials; serve.cmd and worker routes never invoked. Imports may probe absent CUDA or compile dependencies; cache is bounded noexec. A failure is not proof of the earlier GPU startup cause; a pass is not GPU/ABI/inference qualification. Candidate BLOCKED; confidential=false. Docker/OS/interpreter trusted. Payload SHA-256: a592062aa414fd767e6e8f792febc6945c0dc54a731f54e30693e919d69a2826",
+  "phase": "P2",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-20T23:43:35Z",
+  "task": "T3"
+}

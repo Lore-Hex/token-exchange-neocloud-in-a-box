@@ -2,6 +2,7 @@
 """Isolated spawn-only lab bootstrap, NOT the P0 process-denying guard."""
 
 import importlib.machinery
+import importlib.util
 import ast
 import ctypes
 import hashlib
@@ -46,6 +47,16 @@ SIX_SOURCES = {
                               "sha256": "4ce39f422ee71467ccac8bed76beb05f8c321c7f0ceda9279ae2dfa3670106b3"},
 }
 SIX_REGISTER = "_nib_register_six"
+# opencv-python-headless 5.0.0.93, OpenCV 40738fb16ceddb5fb3fea747585f7ce6abb0605b.
+# The remaining files are generated wheel contents from the pinned engine image.
+OPENCV_SOURCES = {
+    "__init__.py": "69192904dead3ada37c8b305ee850ac7474924730881a9d5e0b2390944eb5aae",
+    "config.py": "974e2d4096ee1a9a9a341df1bf33e16973683bf1ac733006de27ff2f23bc584d",
+    "config-3.py": "9a7aadf724b822001f5e963b01fd4e375d45e2cbbe328d2ca7b42a440c083a1c",
+    "version.py": "e718587212508acdcb296839c287c7fa346edb621005ffb199c26397592544ed",
+}
+OPENCV_NATIVE_SHA = "9e29605abcc31c9942d0e7dffc53b4ccaa601676c794327b0ea71a570a0c26c2"
+OPENCV_CALLBACKS = ("_nib_cv2_config", "_nib_cv2_paths", "_nib_cv2_native")
 SIX_NAMES = (
     "moves", "moves.BaseHTTPServer", "moves.CGIHTTPServer", "moves.SimpleHTTPServer",
     "moves._dummy_thread", "moves._thread", "moves.builtins", "moves.cPickle",
@@ -63,6 +74,32 @@ SIX_NAMES = (
     "moves.urllib_error", "moves.urllib_parse", "moves.urllib_request", "moves.urllib_response",
     "moves.urllib_robotparser", "moves.xmlrpc_client", "moves.xmlrpc_server",
 )
+
+
+def opencv_source_code(raw, path, require):
+    """Replace three exact loader operations, preserving upstream Python exports."""
+    require(hashlib.sha256(raw).hexdigest() == OPENCV_SOURCES["__init__.py"])
+    tree = ast.parse(raw, filename=path)
+    require(not any(isinstance(node, ast.Name) and node.id in OPENCV_CALLBACKS for node in ast.walk(tree)))
+    replacements = (
+        ("from .load_config_py3 import exec_file_wrapper", "exec_file_wrapper = _nib_cv2_config"),
+        ("for p in reversed(l_vars['PYTHON_EXTENSIONS_PATHS']):\n"
+         "    sys.path.insert(1 if not applySysPathWorkaround else 0, p)",
+         "_nib_cv2_paths(l_vars['PYTHON_EXTENSIONS_PATHS'], l_vars['BINARIES_PATHS'])"),
+        ('native_module = importlib.import_module("cv2")', 'native_module = _nib_cv2_native()'),
+    )
+    for original, replacement in replacements:
+        expected = ast.dump(ast.parse(original).body[0])
+        matches = [node for node in ast.walk(tree) if ast.dump(node) == expected]
+        require(len(matches) == 1)
+        match = matches[0]
+        class Replace(ast.NodeTransformer):
+            def visit(self, node):
+                if node is match:
+                    return ast.copy_location(ast.parse(replacement).body[0], node)
+                return super().visit(node)
+        tree = Replace().visit(tree)
+    return compile(ast.fix_missing_locations(tree), path, "exec", flags=0, dont_inherit=True, optimize=0)
 
 
 def six_source_code(raw, path, name, require):
@@ -162,6 +199,7 @@ def install_lab(layout, helpers, checkpoint=None):
         old["check"]()
         return old
     require(not any(name == "vllm" or name.startswith("vllm.") or name == "torch" for name in sys.modules)
+            and not any(name == "cv2" or name.startswith("cv2.") for name in sys.modules)
             and PATTERN_TARGET not in sys.modules
             and not any(name == source or name.startswith(source + ".")
                         for name in sys.modules for source in SIX_SOURCES)
@@ -205,6 +243,7 @@ def install_lab(layout, helpers, checkpoint=None):
              "distutils_active": False, "distutils_delegate": None,
              "pattern_status": "not-registered", "pattern_module": None, "pattern_loading": None,
              "pattern_callback": None,
+             "opencv_status": "not-loaded", "opencv_module": None, "opencv_native": None,
              "six": {name: {"status": "not-loaded", "module": None, "importer": None,
                             "class": None, "class_fields": None, "registry": None,
                             "registry_object": None, "moved": (), "aliases": {}, "pending": set()}
@@ -215,6 +254,13 @@ def install_lab(layout, helpers, checkpoint=None):
         raise ValueError("lab Python boundary rejected")
 
     def check():
+        if ((state["opencv_status"] == "not-loaded" and "cv2" in sys.modules)
+                or (state["opencv_status"] == "active" and
+                    (sys.modules.get("cv2") is not state["opencv_module"]
+                     or vars(state["opencv_module"]).get("_native") is not state["opencv_native"]))):
+            state["opencv_status"] = "failed"
+        if state["opencv_status"] == "failed":
+            reject()
         for name, six in state["six"].items():
             check_six(name, six)
         if ((PATTERN_TARGET in sys.modules and (sys.modules[PATTERN_TARGET] is None
@@ -407,6 +453,75 @@ def install_lab(layout, helpers, checkpoint=None):
                 module._remove_shim = remove_shim
                 module.add_shim = lambda: None if state["distutils_active"] else insert_shim()
             check()
+
+    class OpenCVSource(SourceOnly):
+        def exec_module(self, module):
+            root = selected + "/cv2"
+            try:
+                require(state["opencv_status"] == "not-loaded" and self.path == root + "/__init__.py"
+                        and module.__name__ == "cv2" and sys.modules.get("cv2") is module)
+                state["opencv_status"] = "loading"
+                state["opencv_module"] = module
+                check()
+                from importlib import metadata
+                require(metadata.version("opencv-python-headless") == "5.0.0.93")
+                sources = {}
+                for name, digest in OPENCV_SOURCES.items():
+                    raw = helpers.read_source(root + "/" + name, 16384)
+                    require(hashlib.sha256(raw).hexdigest() == digest)
+                    sources[name] = raw
+                steps = {"configs": 0, "paths": False, "native": False}
+
+                def config(path, g_vars, l_vars):
+                    check()
+                    require(steps["configs"] < 2 and not steps["paths"] and not steps["native"]
+                            and g_vars is module.__dict__ and type(l_vars) is dict
+                            and l_vars.get("LOADER_DIR") == root)
+                    name = ("config.py", "config-3.py")[steps["configs"]]
+                    require(path == root + "/" + name)
+                    # Execute the already-verified bytes, not a second open of
+                    # the config path selected by OpenCV's discovery loop.
+                    exec(compile(sources[name], path, "exec", dont_inherit=True, optimize=0), g_vars, l_vars)
+                    steps["configs"] += 1
+                    check()
+
+                def paths(extensions, binaries):
+                    check()
+                    require(steps == {"configs": 2, "paths": False, "native": False}
+                            and type(extensions) is list and extensions == [root]
+                            and type(binaries) is list and binaries == [root + "/../../lib64"])
+                    steps["paths"] = True
+
+                def native():
+                    check()
+                    require(steps == {"configs": 2, "paths": True, "native": False}
+                            and "cv2" not in sys.modules)
+                    steps["native"] = True
+                    path = root + "/cv2.abi3.so"
+                    raw = helpers.read_source(path, 80 << 20)
+                    require(hashlib.sha256(raw).hexdigest() == OPENCV_NATIVE_SHA)
+                    del raw
+                    loader = importlib.machinery.ExtensionFileLoader("cv2", path)
+                    spec = importlib.util.spec_from_file_location("cv2", path, loader=loader)
+                    value = importlib.util.module_from_spec(spec)
+                    loader.exec_module(value)
+                    check()
+                    require(value.__name__ == "cv2" and value.__file__ == path)
+                    state["opencv_native"] = value
+                    return value
+
+                module.__dict__.update(zip(OPENCV_CALLBACKS, (config, paths, native)))
+                exec(opencv_source_code(sources["__init__.py"], self.path, require), module.__dict__)
+                require(steps == {"configs": 2, "paths": True, "native": True}
+                        and sys.modules.get("cv2") is module)
+                state["opencv_status"] = "active"
+                check()
+            except BaseException:
+                state["opencv_status"] = "failed"
+                raise
+            finally:
+                for name in OPENCV_CALLBACKS:
+                    module.__dict__.pop(name, None)
 
     class SixSource(SourceOnly):
         def exec_module(self, module):
@@ -610,6 +725,12 @@ def install_lab(layout, helpers, checkpoint=None):
                 return spec
             try:
                 spec = importlib.machinery.PathFinder.find_spec(fullname, path, target)
+                if fullname == "cv2":
+                    require(state["opencv_status"] == "not-loaded" and target is None
+                            and spec is not None and type(spec.loader) is importlib.machinery.SourceFileLoader
+                            and spec.origin == selected + "/cv2/__init__.py")
+                    spec.loader = OpenCVSource(fullname, spec.origin)
+                    return spec
                 if fullname in SIX_SOURCES:
                     require(state["six"][fullname]["status"] == "not-loaded" and target is None
                             and spec is not None and type(spec.loader) is importlib.machinery.SourceFileLoader
@@ -622,6 +743,8 @@ def install_lab(layout, helpers, checkpoint=None):
                     spec.loader = PatternSource(fullname, spec.origin)
                     return spec
             except BaseException:
+                if fullname == "cv2":
+                    state["opencv_status"] = "failed"
                 if fullname in SIX_SOURCES:
                     state["six"][fullname]["status"] = "failed"
                 if fullname in PATTERN_SOURCES:
