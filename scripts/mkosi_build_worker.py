@@ -74,6 +74,43 @@ def install(processes, output, report):
     result.check_returncode()
 
 
+def failure_diagnostics(error):
+    """Identify our failing operation, never exception text, locals or paths."""
+    names = {__file__: "build-worker", "/nib/snapshot.py": "process-supervisor"}
+    frames = []
+    traceback = error.__traceback__
+    while traceback is not None:
+        name = names.get(traceback.tb_frame.f_code.co_filename)
+        if name is not None:
+            frames.append({"source": name, "line": traceback.tb_lineno})
+            frames = frames[-8:]
+        traceback = traceback.tb_next
+    return frames
+
+
+def process_states(proc=Path("/proc")):
+    """Count only states in the already-verified private PID namespace."""
+    counts = {state: 0 for state in ("R", "S", "D", "Z", "T", "t", "X", "I")}
+    try:
+        paths = [path for path in proc.iterdir() if path.name.isascii() and path.name.isdecimal()]
+        require(len(paths) <= 256)
+        for path in paths:
+            try:
+                with (path / "status").open("rb") as stream:
+                    raw = stream.read(16385)
+            except FileNotFoundError:
+                continue
+            require(len(raw) <= 16384)
+            states = [line.split()[1:2] for line in raw.splitlines() if line.startswith(b"State:")]
+            require(len(states) == 1 and len(states[0]) == 1)
+            state = states[0][0].decode("ascii")
+            require(state in counts)
+            counts[state] += 1
+    except (OSError, ValueError):
+        return None
+    return counts
+
+
 def main():
     stage = "preflight"
     report = {"schema": "nib.mkosi-install-worker/v1", "result": "fail", "stage": stage,
@@ -108,6 +145,9 @@ def main():
         report["installed_packages"] = configured(raw, expected, inputs.paragraphs)
         report.update(result="pass", configured_state_verified=True, package_installation_executed=True)
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
+        report["failure_frames"] = failure_diagnostics(exc)
+        if stage == "installation":
+            report["private_process_states"] = process_states()
         report["failure_kind"] = ("timeout" if isinstance(exc, subprocess.TimeoutExpired)
                                   else "process-exit" if isinstance(exc, subprocess.CalledProcessError)
                                   else "output-limit" if "output_limit_stream" in report
