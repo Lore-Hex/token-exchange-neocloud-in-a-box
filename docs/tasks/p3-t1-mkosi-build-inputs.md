@@ -92,7 +92,9 @@ Use a committed producer, physical absolute paths, the seven previously pinned
 index files and the public mkosi archive. The shared archive cache may include
 other packages; only exact `<SHA256>.deb` names selected by these locks are read.
 Selected inputs must be bounded, stable, single-link regular files opened
-without following symlinks or blocking on FIFOs. No network fetch is implemented.
+without following symlinks or blocking on FIFOs. This preparer never uses the
+network. The separate [fixed input fetcher](p3-t1-build-input-fetch.md) can obtain
+the exact public archive/index union before preparation; it cannot update pins.
 
 ```sh
 python3 -I scripts/prepare_mkosi_inputs.py \

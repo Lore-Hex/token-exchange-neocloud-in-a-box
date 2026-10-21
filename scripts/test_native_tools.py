@@ -2,6 +2,7 @@
 """Synthetic fetch/materialization/lifecycle checks; no network or namespaces."""
 import ast
 import copy
+import gzip
 import io
 import json
 from pathlib import Path
@@ -39,6 +40,78 @@ def files(tree=None):
 
 
 class FetchTests(unittest.TestCase):
+    def guest(self):
+        value = lock()
+        value["scope"] = fetcher.GUEST_SCOPE
+        value["indexes"].append({"id": "nvidia", "encoding": "plain", "file": "nvidia.packages",
+            "index_path": "Packages", "base_url": fetcher.NVIDIA_BASE,
+            "inrelease_url": fetcher.NVIDIA_BASE + "InRelease", "bytes": 3,
+            "sha256": base.digest(b"gpu")})
+        value["packages"].append({"Package": "nvidia-synthetic", "index": "nvidia", "Size": "3",
+            "SHA256": base.digest(b"drv"), "Filename": "./nvidia-synthetic_1_amd64.deb"})
+        value["archive_bytes"] = 6
+        return value
+
+    def test_guest_union_is_exact_and_reuses_shared_inputs(self):
+        tools_lock = json.loads((ROOT / fetcher.prep.LOCK).read_bytes())
+        guest = json.loads((ROOT / fetcher.tools.FILES[-1]).read_bytes())
+        items = fetcher.build_plan(tools_lock, guest)
+        archives = {name: row for name, row in items.items() if name.startswith("archives/")}
+        self.assertEqual(len(archives), 269)
+        self.assertEqual(sum(row[1] for row in archives.values()), 516283494)
+        self.assertEqual(len(items), 276)
+        self.assertTrue(all(name == "archives/" + row[2] + ".deb" for name, row in archives.items()))
+        self.assertEqual(items["metadata/nvidia.packages"][0], fetcher.NVIDIA_BASE + "Packages")
+        self.assertGreater(max(row[1] for row in archives.values()), 32 << 20)
+        self.assertLessEqual(max(row[1] for row in archives.values()), base.MAX_ARCHIVE)
+        with self.assertRaises(ValueError):
+            fetcher.plan(guest)
+
+    def test_guest_fetch_deduplicates_and_keeps_all_hash_gates(self):
+        guest = self.guest()
+        responses = {base.digest(raw): raw for raw in (b"idx", b"deb", b"gpu", b"drv")}
+        items = fetcher.build_plan(lock(), guest)
+        by_url = {url: responses[sha] for url, _, sha in items.values()}
+        execute = mock.Mock(side_effect=lambda argv, **kw:
+                            subprocess.CompletedProcess(argv, 0, by_url[argv[-1]], b""))
+        files = fetcher.fetch(base.encoded(lock()), execute, clock=lambda: 0, guest_raw=base.encoded(guest))
+        self.assertEqual(execute.call_count, 4)
+        self.assertEqual(files["archives/" + base.digest(b"drv") + ".deb"], b"drv")
+        self.assertEqual(files["guest-inputs.json"], base.encoded(guest))
+        self.assertEqual(files["metadata/nvidia.packages"], b"gpu")
+        by_url[fetcher.NVIDIA_BASE + "Packages"] = b"NEW"
+        with self.assertRaises(ValueError):
+            fetcher.fetch(base.encoded(lock()), execute, clock=lambda: 0, guest_raw=base.encoded(guest))
+
+    def test_guest_rejects_mirrors_traversal_conflicts_and_larger_inputs(self):
+        mutations = (
+            lambda g: g["indexes"][-1].update(base_url="https://evil.test/"),
+            lambda g: g["indexes"][-1].update(index_path="../Packages"),
+            lambda g: g["indexes"][-1].update(encoding="xz"),
+            lambda g: g["indexes"][-1].update(file="../../Packages"),
+            lambda g: g["indexes"][0].update(sha256="1" * 64),
+            lambda g: g["packages"][0].update(Version="different"),
+            lambda g: g["packages"][-1].update(Filename="./../bad.deb"),
+            lambda g: g["packages"][-1].update(Filename="./bad.deb?key=private"),
+            lambda g: g["packages"][-1].update(Filename="pool/driver.deb"),
+            lambda g: g["indexes"][-1].update(bytes=(32 << 20) + 1),
+        )
+        for mutate in mutations:
+            guest = self.guest()
+            mutate(guest)
+            with self.subTest(guest=guest), self.assertRaises(ValueError):
+                fetcher.build_plan(lock(), guest)
+        guest = self.guest()
+        guest["packages"][-1]["Size"] = str((128 << 20) + 1)
+        guest["archive_bytes"] = (128 << 20) + 4
+        with self.assertRaises(ValueError):
+            fetcher.build_plan(lock(), guest)
+        for url in (fetcher.NVIDIA_BASE + "../secret", fetcher.NVIDIA_BASE + "..",
+                    fetcher.NVIDIA_BASE + "%2e", fetcher.NVIDIA_BASE + "Packages?token=private",
+                    "https://user@developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/Packages"):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                fetcher.public_url(url, nvidia=True)
+
     def test_real_committed_plan_has_exact_bounded_inputs(self):
         value = json.loads((ROOT / fetcher.prep.LOCK).read_bytes())
         items = fetcher.plan(value)
@@ -48,6 +121,53 @@ class FetchTests(unittest.TestCase):
             self.assertTrue(url.startswith(("https://archive.ubuntu.com/", "https://security.ubuntu.com/")))
             if name.startswith("metadata/"):
                 self.assertTrue(url.endswith("/by-hash/SHA256/" + sha))
+
+    def test_archived_metadata_is_verified_before_any_network_and_not_refetched(self):
+        execute = mock.Mock(return_value=subprocess.CompletedProcess([], 0, b"deb", b""))
+        metadata = {"metadata/noble-main.xz": b"idx"}
+        result = fetcher.fetch(base.encoded(lock()), execute, clock=lambda: 0, metadata=metadata)
+        self.assertEqual(result["metadata/noble-main.xz"], b"idx")
+        self.assertEqual(execute.call_count, 1)
+        self.assertTrue(execute.call_args.args[0][-1].endswith(".deb"))
+        for bad in ({}, {**metadata, "extra": b"x"}, {"metadata/noble-main.xz": b"new"},
+                    {"metadata/noble-main.xz": b"id"}, {"metadata/noble-main.xz": "idx"}):
+            execute.reset_mock()
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                fetcher.fetch(base.encoded(lock()), execute, clock=lambda: 0, metadata=bad)
+            execute.assert_not_called()
+
+    def test_metadata_archive_roundtrip_is_deterministic_and_exact(self):
+        items = fetcher.build_plan(lock(), self.guest())
+        metadata = {"metadata/noble-main.xz": b"idx", "metadata/nvidia.packages": b"gpu"}
+        raw = fetcher.archive_metadata(metadata, items)
+        self.assertEqual(raw, fetcher.archive_metadata(metadata, items))
+        self.assertEqual(fetcher.unpack_metadata(raw, items), metadata)
+        with self.assertRaises(ValueError):
+            fetcher.archive_metadata({**metadata, "unexpected": b"data"}, items)
+
+    def test_metadata_archive_rejects_links_duplicates_paths_and_changed_bytes(self):
+        items = fetcher.plan(lock())
+        def make(kind):
+            stream = io.BytesIO()
+            with tarfile.open(fileobj=stream, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+                entry = tarfile.TarInfo("noble-main.xz")
+                entry.size, entry.mode, entry.mtime = 3, 0o444, tools.EPOCH
+                raw = b"idx"
+                if kind == "symlink":
+                    entry.type, entry.size, entry.linkname = tarfile.SYMTYPE, 0, "/private"
+                if kind == "path": entry.name = "../private"
+                if kind == "hash": raw = b"bad"
+                if kind == "mode": entry.mode = 0o777
+                if kind == "owner": entry.uid = 1
+                archive.addfile(entry, io.BytesIO(raw))
+                if kind == "duplicate": archive.addfile(entry, io.BytesIO(raw))
+            return gzip.compress(stream.getvalue(), mtime=0)
+        for kind in ("symlink", "path", "hash", "mode", "owner", "duplicate"):
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                fetcher.unpack_metadata(make(kind), items)
+        raw = fetcher.archive_metadata({"metadata/noble-main.xz": b"idx"}, items)
+        with mock.patch.dict(fetcher.unpack_metadata.__globals__, {"MAX_METADATA": 1}), self.assertRaises(ValueError):
+            fetcher.unpack_metadata(raw, items)
 
     def test_fetch_is_exact_content_bounded_and_scrubs_environment(self):
         raw = base.encoded(lock())
