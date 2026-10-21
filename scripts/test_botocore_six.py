@@ -234,6 +234,49 @@ moves = Moves(__name__ + ".moves")''')
 ''' + STICKY)
         self.assertEqual(self.run_fixture("fresh"), {"rejected": True})
 
+    def test_optional_windows_import_preserves_healthy_linux_registry(self):
+        self.fixture(POSITIVE + '''
+    for _ in range(2):
+        try: from botocore.vendored.six.moves import winreg
+        except ImportError: pass
+        else: raise AssertionError("Windows-only import accepted")
+        try: importlib.import_module("botocore.vendored.six.moves.winreg")
+        except ModuleNotFoundError as error:
+            assert error.name == "botocore.vendored.six.moves.winreg"
+        else: raise AssertionError("Windows-only module accepted")
+        assert "botocore.vendored.six.moves.winreg" not in sys.modules
+        assert STATE["six"]["botocore.vendored.six"]["status"] == "active"
+        assert not STATE["six"]["botocore.vendored.six"]["pending"]
+        STATE["check"]()
+''' + POSITIVE)
+        self.assertTrue(self.run_fixture("positive")["tracker"])
+
+    def test_optional_windows_import_cannot_execute_a_shadow(self):
+        shadow = self.package / "optional_shadow"
+        shadow.mkdir()
+        (shadow / "winreg.py").write_text('raise AssertionError("shadow executed")\n')
+        self.fixture(POSITIVE + "    moves.__path__ = [" + repr(str(shadow)) + "]\n" + '''
+    try: importlib.import_module("botocore.vendored.six.moves.winreg")
+    except ModuleNotFoundError: pass
+    else: raise AssertionError("shadow accepted")
+    STATE["check"]()
+''' + POSITIVE)
+        self.assertTrue(self.run_fixture("positive")["tracker"])
+
+    def test_optional_windows_import_does_not_bypass_invalid_state(self):
+        for mutation in (
+            'sys.platform = "win32"',
+            'six._importer.known_modules = dict(six._importer.known_modules)',
+            'six._importer.known_modules["botocore.vendored.six.moves.winreg"] = moves',
+        ):
+            with self.subTest(mutation=mutation):
+                self.fixture(POSITIVE + "    " + mutation + '''
+    try: importlib.import_module("botocore.vendored.six.moves.winreg")
+    except ValueError: pass
+    else: raise AssertionError("invalid state accepted as optional absence")
+''' + STICKY)
+                self.assertEqual(self.run_fixture("fresh"), {"rejected": True})
+
     def test_failed_target_import_cannot_be_recovered_by_a_cached_alias(self):
         self.fixture('''    import importlib, types
     import botocore.vendored.six
