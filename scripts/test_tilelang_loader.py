@@ -90,6 +90,27 @@ class TileLangTests(unittest.TestCase):
         self.assertTrue(self.run_fixture("positive")["tracker"])
         self.assertFalse(list(self.root.rglob("*.pyc")))
 
+    def test_optional_probes_before_registration_are_absent_not_boundary_faults(self):
+        self.fixture('''    if "tilelang.env" not in sys.modules:
+        for name in ("tvm", "tilelang_cython_wrapper"):
+            assert importlib.util.find_spec(name) is None
+            try: importlib.import_module(name)
+            except ModuleNotFoundError as error: assert error.name == name
+            else: raise AssertionError("private namespace loaded before registration")
+            assert name not in sys.modules
+        assert STATE["tilelang_status"] == "not-loaded"
+        assert not STATE["tilelang_tvm"]
+        STATE["check"]()
+''' + POSITIVE)
+        self.assertTrue(self.run_fixture("positive")["tracker"])
+
+    def test_unregistered_probe_does_not_accept_reload_or_supplied_package_paths(self):
+        for arguments in ('"tvm", ["/untrusted"]', '"tvm.child", ["/untrusted"]',
+                          '"tvm", None, types.ModuleType("tvm")'):
+            with self.subTest(arguments=arguments):
+                self.fixture('    STATE["finders"][-1].find_spec(' + arguments + ')\n')
+                self.rejected()
+
     def test_original_source_reproduces_path_guard_rejection(self):
         self.fixture('''    global tilelang_env_code
     tilelang_env_code = lambda raw, path, require: compile(raw, path, "exec")
