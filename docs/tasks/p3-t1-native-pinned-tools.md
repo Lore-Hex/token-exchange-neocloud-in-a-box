@@ -1,7 +1,7 @@
 # Native Pinned Tools Runtime
 
-Status: the seven-tool native runtime probe passed on October 21, 2026;
-the additional PID-isolation run failed and remains unqualified.
+Status: the seven-tool runtime and additional PID-isolation probe both passed
+on October 21, 2026. Earlier failed attempts are preserved below.
 This builds on the [native namespace proof](p3-t1-native-mkosi-probe.md), not
 on a relaxed Docker policy. It does not install packages or build a guest.
 
@@ -107,7 +107,7 @@ Sources: the existing [tools lock and archive review](p3-t1-mkosi-build-inputs.m
 and [Debian repository by-hash format](https://wiki.debian.org/DebianRepository/Format#A.22by-hash.22_acquisition).
 
 Tests: `python -B -m unittest discover -s scripts -p 'test_native_tools.py'`.
-# PID Procfs Mount Order
+## PID Procfs Mount Order
 
 The source-bound diagnostic on main `ed5ab563149c26abf60177b0fce22f646526633a`
 failed before worker execution with `unshare-permission-denied`. Cleanup and
@@ -135,3 +135,32 @@ temporarily sees host procfs, and worker namespace root can administer its own
 mounts. Installation requires a separately qualified final mount/capability
 boundary, UID ownership and resource limits. Actual execution must prove this
 candidate before any installation or image qualification claim.
+
+The corrected command passed in [run 39624972686](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39624972686)
+at merged main `80e0db46d72a48d0d755ffd7ee7755f3c36d11ac`. Original
+[result](../../evidence/p3/2026-10-21-native-pid-isolated/result.json) and
+[run](../../evidence/p3/2026-10-21-native-pid-isolated/run.json) prove private PID
+namespace/procfs, all seven startups and process/payload cleanup. This supports
+the procfs mount-order diagnosis; it is not kernel syscall tracing.
+
+## Mapped Ownership Candidate
+
+`--mapped-ownership --pid-isolation` tests existing subordinate UID/GID support
+without installing packages or changing host policy. It requires root-owned,
+non-writable sub-ID files and setuid mapping helpers, one non-overlapping range
+for the current user, and at least 65535 subordinate identities. Missing or
+ambiguous ranges fail; no sudo, new range, chown suppression or single-ID retry
+is used. Host identities are kept in the temporary payload, not evidence.
+
+The verified tools tree's ELF loader starts its pinned util-linux 2.39.3
+`unshare` with explicit `inner:outer:count` maps and the caller mapped to root.
+Its [upstream implementation](https://github.com/util-linux/util-linux/blob/v2.39.3/sys-utils/unshare.c)
+invokes the existing `newuidmap`/`newgidmap` helpers; those host binaries remain
+unpinned builder dependencies whose hashes are recorded, not release inputs.
+The same mkosi namespace and pinned PID launcher follow. Before starting tools,
+the child verifies both complete maps and actual independent UID/GID changes on
+one private-tmpfs file, including identities 65534 and 65535, then removes it.
+
+This is a candidate, not a passed ownership result or an installer. Final
+mount/capability confinement, OS resource limits and exact build controls remain
+required before running the reviewed package hooks.

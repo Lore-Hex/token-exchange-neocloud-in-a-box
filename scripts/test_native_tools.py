@@ -159,7 +159,8 @@ class MaterializationTests(unittest.TestCase):
 
 
 class LifecycleTests(unittest.TestCase):
-    def run_probe(self, *, stdout=host.SUCCESS, stderr=b"", code=0, error=None, pid_isolation=False):
+    def run_probe(self, *, stdout=host.SUCCESS, stderr=b"", code=0, error=None, pid_isolation=False,
+                  mapped_ownership=False):
         execute = mock.Mock(side_effect=error, return_value=subprocess.CompletedProcess([], code, stdout, stderr))
         real_readlink = host.os.readlink
         def readlink(path, *args, **kwargs):
@@ -169,7 +170,8 @@ class LifecycleTests(unittest.TestCase):
                     return original
             return real_readlink(path, *args, **kwargs)
         with mock.patch.object(host.os, "readlink", side_effect=readlink):
-            report = host.run(files(), {"mkosi-sandbox.py": b"synthetic"}, execute, pid_isolation=pid_isolation)
+            report = host.run(files(), {"mkosi-sandbox.py": b"synthetic"}, execute,
+                              pid_isolation=pid_isolation, mapped_ownership=mapped_ownership)
         return report, execute
 
     def test_pinned_root_replaces_host_runtime_and_cleanup_passes(self):
@@ -227,6 +229,39 @@ class LifecycleTests(unittest.TestCase):
             self.assertFalse(report["host_processes_hidden"])
             self.assertTrue(report["payload_removed"])
 
+    def test_mapped_mode_uses_pinned_loader_and_existing_helper_contract(self):
+        expected = {"uid": 1001, "gid": 1001, "subuid": 100000, "subgid": 200000}
+        hashes = {"/usr/bin/newuidmap": "a" * 64, "/usr/bin/newgidmap": "b" * 64}
+        with mock.patch.object(host.ownership, "host_inputs", return_value=(expected, hashes)):
+            report, execute = self.run_probe(pid_isolation=True, mapped_ownership=True)
+        argv = execute.call_args.args[0]
+        self.assertTrue(argv[0].endswith("/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"))
+        self.assertEqual(argv[1], "--inhibit-cache")
+        self.assertIn("--map-users=1:100000:65535", argv)
+        self.assertIn("--map-groups=1:200000:65535", argv)
+        self.assertEqual(argv[-1], "mapped-ownership")
+        self.assertNotIn("--suppress-chown", argv)
+        self.assertEqual(report["schema"], "nib.mkosi-native-tools/v3")
+        self.assertTrue(report["mapped_ownership_validated"])
+        self.assertEqual(report["host_mapping_helpers_sha256"], hashes)
+        self.assertNotIn("100000", json.dumps(report))
+        self.assertTrue(report["payload_removed"])
+
+    def test_missing_mapping_rejects_before_any_tool(self):
+        with mock.patch.object(host.ownership, "host_inputs", side_effect=ValueError("PRIVATE")):
+            report, execute = self.run_probe(pid_isolation=True, mapped_ownership=True)
+        execute.assert_not_called()
+        self.assertEqual(report["result"], "fail")
+        self.assertEqual(report["stage"], "host-subordinate-mapping")
+        self.assertFalse(report["mapped_ownership_validated"])
+        self.assertTrue(report["payload_removed"])
+        self.assertNotIn("PRIVATE", json.dumps(report))
+
+    def test_mapped_ownership_requires_pid_and_boolean(self):
+        for options in ({"mapped_ownership": True}, {"mapped_ownership": 1, "pid_isolation": True}):
+            with self.assertRaises(ValueError):
+                host.run({}, {}, mock.Mock(), **options)
+
     def test_failure_classes_never_persist_process_output(self):
         cases = {
             b"unshare: mount PRIVATE /proc failed: Operation not permitted\n": "unshare-permission-denied",
@@ -275,7 +310,7 @@ class LifecycleTests(unittest.TestCase):
 
 class ChildTests(unittest.TestCase):
     def run_child(self, *, namespace_error=None, probe_result="pass", bad_snapshot=False,
-                  pid=False, pid_error=None):
+                  pid=False, pid_error=None, mapped=False, ownership_error=None):
         module = types.ModuleType("native_tools_child_test")
         exec(compile((ROOT / host.CHILD).read_bytes(), host.CHILD, "exec"), module.__dict__)
         snapshot = b"def execute_process_group(*args, **kwargs): raise AssertionError('synthetic')\n"
@@ -285,19 +320,23 @@ class ChildTests(unittest.TestCase):
         check = mock.Mock(side_effect=namespace_error)
         probe = mock.Mock(return_value={"result": probe_result, "checks": [None] * 7})
         pid_check = mock.Mock(side_effect=pid_error)
+        ownership_check = mock.Mock(side_effect=ownership_error)
         worker = dict(host.native.worker.__dict__)
-        reader = mock.Mock(side_effect=[base.encoded(config), snapshot])
+        reader = mock.Mock(side_effect=([b'{"synthetic":true}'] if mapped else [])
+                           + [base.encoded(config), snapshot])
         worker.update(read=reader, probe=probe)
         output = io.BytesIO()
         error = None
         with mock.patch.object(module.sys, "platform", "linux"), \
                 mock.patch.object(module.sys, "version_info", (3, 12)), \
                 mock.patch.object(module.sys, "flags", types.SimpleNamespace(isolated=True, no_site=True, dont_write_bytecode=True)), \
-                mock.patch.object(module.sys, "argv", ["native-tools.py", *ORIGINAL, *(["pid:[100]"] if pid else [])]), \
+                mock.patch.object(module.sys, "argv", ["native-tools.py", *ORIGINAL,
+                    *(["pid:[100]"] if pid else []), *(["mapped-ownership"] if mapped else [])]), \
                 mock.patch.object(module.sys, "stdout", types.SimpleNamespace(buffer=output)), \
                 mock.patch.object(module.os, "geteuid", return_value=0), \
                 mock.patch.object(module.os, "getegid", return_value=0), \
-                mock.patch.object(module.runpy, "run_path", side_effect=[worker, {"check": check}, {"check": pid_check}]):
+                mock.patch.object(module.runpy, "run_path", side_effect=[worker, {"check": check},
+                    {"check": pid_check}, {"check": ownership_check}]):
             try:
                 module.main()
             except ValueError as exc:
@@ -306,6 +345,10 @@ class ChildTests(unittest.TestCase):
             pid_check.assert_called_once_with("pid:[100]")
         else:
             pid_check.assert_not_called()
+        if mapped and pid_error is None:
+            ownership_check.assert_called_once_with({"synthetic": True})
+        else:
+            ownership_check.assert_not_called()
         return error, output.getvalue(), reader, check, probe
 
     def test_child_requires_namespace_proof_before_seven_tools(self):
@@ -348,6 +391,18 @@ class ChildTests(unittest.TestCase):
             self.assertEqual(error.stage, expected)
             self.assertEqual(str(error), expected)
             self.assertEqual(output, b"")
+
+    def test_ownership_check_precedes_tools_and_rejects_without_output(self):
+        error, output, _, _, probe = self.run_child(pid=True, mapped=True)
+        self.assertIsNone(error)
+        self.assertEqual(output, host.SUCCESS)
+        probe.assert_called_once()
+        error, output, _, _, probe = self.run_child(pid=True, mapped=True,
+                                                   ownership_error=ValueError("PRIVATE"))
+        self.assertEqual(error.stage, "ownership")
+        self.assertEqual(output, b"")
+        self.assertNotIn("PRIVATE", str(error))
+        probe.assert_not_called()
 
 
 class PIDTests(unittest.TestCase):

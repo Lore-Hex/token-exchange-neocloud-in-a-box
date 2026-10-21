@@ -9,7 +9,7 @@ import sys
 import types
 
 
-STAGES = ("worker-preflight", "namespaces", "pid", "inputs", "tools")
+STAGES = ("worker-preflight", "namespaces", "pid", "ownership", "inputs", "tools")
 
 
 class ProbeFailure(ValueError):
@@ -29,13 +29,18 @@ def main():
             raise ValueError("worker-preflight")
         worker = types.SimpleNamespace(**runpy.run_path("/nib/probe.py", run_name="tools_probe"))
         checker = types.SimpleNamespace(**runpy.run_path("/nib/namespace-check.py", run_name="namespace_check"))
-        worker.require(len(sys.argv) in (5, 6))
+        worker.require(len(sys.argv) in (5, 6, 7)
+                       and (len(sys.argv) != 7 or sys.argv[6] == "mapped-ownership"))
         stage = "namespaces"
         checker.check(sys.argv[1:5])
-        if len(sys.argv) == 6:
+        if len(sys.argv) >= 6:
             stage = "pid"
             pid = types.SimpleNamespace(**runpy.run_path("/nib/pid-check.py", run_name="pid_check"))
             pid.check(sys.argv[5])
+        if len(sys.argv) == 7:
+            stage = "ownership"
+            owner = types.SimpleNamespace(**runpy.run_path("/nib/ownership.py", run_name="ownership_check"))
+            owner.check(json.loads(worker.read(Path("/nib/ownership-input.json"), 4096)))
         stage = "inputs"
         inputs = json.loads(worker.read(Path("/nib/input.json"), 16384))
         worker.validate_input(inputs)

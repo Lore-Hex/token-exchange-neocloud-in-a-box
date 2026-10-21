@@ -7,6 +7,10 @@ on:
         description: Also verify the pinned PID namespace and private procfs
         type: boolean
         default: false
+      mapped_ownership:
+        description: Verify existing subordinate-ID mapping and private file ownership (requires PID isolation)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -38,9 +42,11 @@ jobs:
       - name: Test pinned tools in native isolation
         env:
           PID_ISOLATION: ${{ inputs.pid_isolation }}
+          MAPPED_OWNERSHIP: ${{ inputs.mapped_ownership }}
         run: |
           args=()
           if [ "$PID_ISOLATION" = true ]; then args+=(--pid-isolation); fi
+          if [ "$MAPPED_OWNERSHIP" = true ]; then args+=(--mapped-ownership); fi
           /usr/bin/python3.10 -I -S -B host/probe-mkosi-native-tools.py \
             --inputs "$PWD/build/native-tools/inputs" \
             --archive "$PWD/build/native-tools/source.tar.gz" \
