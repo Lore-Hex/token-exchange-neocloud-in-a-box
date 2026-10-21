@@ -277,7 +277,7 @@ func TestStageProductionTransportHasNoAmbientSecrets(t *testing.T) {
 	defer d.client.CloseIdleConnections()
 	tr := d.client.Transport.(*http.Transport)
 	if tr.Proxy != nil || !tr.DisableCompression || tr.MaxResponseHeaderBytes != 64<<10 || tr.ResponseHeaderTimeout <= 0 ||
-		d.client.Jar != nil || d.client.Timeout != time.Hour {
+		d.client.Jar != nil || d.client.Timeout != 0 {
 		t.Fatal("unsafe download transport defaults")
 	}
 }
@@ -324,7 +324,7 @@ func TestStageBodyBoundsAndPartialCleanup(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer root.Close()
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			f := in.files[0]
 			consumed := int64(0)

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestWeightRedirectPolicy(t *testing.T) {
@@ -52,7 +53,9 @@ func TestWeightDownloadRedirectsDoNotReadBodiesOrForwardCredentials(t *testing.T
 		}
 		return response(bodies["config.json"]), nil
 	})}}
-	body, err := d.open(context.Background(), in.pack, in.files[0])
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	body, err := d.open(ctx, in.pack, in.files[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,10 +101,73 @@ func TestWeightHTTPFailureBounds(t *testing.T) {
 				}
 				return res, nil
 			})}}
-			body, err := d.open(context.Background(), in.pack, in.files[0])
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			body, err := d.open(ctx, in.pack, in.files[0])
 			if body != nil || err == nil || strings.Contains(err.Error(), "PRIVATE") || data.read != 0 || calls > 5 {
 				t.Fatal("HTTP failure escaped limits or leaked")
 			}
 		})
+	}
+}
+
+func TestWeightTransferKeepsApprovedRunDeadline(t *testing.T) {
+	pack, _, _, _ := stageFixture(t)
+	in, err := loadStage(pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Hour)
+	defer cancel()
+	want, _ := ctx.Deadline()
+	d := newWeightDownload()
+	d.client.CloseIdleConnections()
+	d.client.Transport = roundTrip(func(r *http.Request) (*http.Response, error) {
+		got, ok := r.Context().Deadline()
+		if !ok || !got.Equal(want) {
+			t.Fatal("HTTP client shortened the approved staging deadline")
+		}
+		res := response("")
+		res.ContentLength = -1
+		res.Body = &contextWeightBody{ctx: r.Context()}
+		return res, nil
+	})
+	body, err := d.open(ctx, in.pack, in.files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer body.Close()
+	cancel()
+	if _, err := body.Read(make([]byte, 1)); !errors.Is(err, context.Canceled) {
+		t.Fatal("body read escaped run cancellation")
+	}
+}
+
+type contextWeightBody struct{ ctx context.Context }
+
+func (b *contextWeightBody) Read([]byte) (int, error) {
+	<-b.ctx.Done()
+	return 0, b.ctx.Err()
+}
+func (*contextWeightBody) Close() error { return nil }
+
+func TestWeightDownloadRejectsMissingOrExcessiveDeadlineBeforeNetwork(t *testing.T) {
+	pack, _, _, _ := stageFixture(t)
+	in, err := loadStage(pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	long, cancel := context.WithTimeout(context.Background(), 25*time.Hour)
+	defer cancel()
+	expired, stop := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer stop()
+	d := &weightDownload{client: &http.Client{Transport: roundTrip(func(*http.Request) (*http.Response, error) {
+		t.Fatal("invalid deadline reached the network")
+		return nil, errors.New("unexpected network")
+	})}}
+	for _, ctx := range []context.Context{context.Background(), long, expired} {
+		if body, err := d.open(ctx, in.pack, in.files[0]); err == nil || body != nil {
+			t.Fatal("unbounded, excessive or expired transfer accepted")
+		}
 	}
 }

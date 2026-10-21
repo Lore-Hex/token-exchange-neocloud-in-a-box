@@ -23,7 +23,9 @@ func newWeightDownload() *weightDownload {
 	t.DisableCompression = true
 	t.MaxResponseHeaderBytes = 64 << 10
 	t.ResponseHeaderTimeout = 60 * time.Second
-	return &weightDownload{client: &http.Client{Transport: t, Timeout: time.Hour,
+	// Stage supplies the validated whole-run deadline, including body reads.
+	// A separate one-hour client timeout truncates the 101 GB Engram files.
+	return &weightDownload{client: &http.Client{Transport: t,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}
 }
@@ -60,6 +62,10 @@ func allowedWeightURL(u, original *url.URL) bool {
 }
 
 func (d *weightDownload) open(ctx context.Context, p *Pack, f config.ManifestFile) (io.ReadCloser, error) {
+	deadline, bounded := ctx.Deadline()
+	if !bounded || time.Until(deadline) > 24*time.Hour {
+		return nil, errors.New("modelpack: bounded download context required")
+	}
 	original, err := url.Parse("https://huggingface.co/" + p.Repository + "/resolve/" + p.Revision + "/" + f.Path)
 	if err != nil {
 		return nil, errors.New("modelpack: cannot construct pinned file URL")
