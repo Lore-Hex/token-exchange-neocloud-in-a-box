@@ -1378,6 +1378,26 @@ class PayloadTests(unittest.TestCase):
         self.assertFalse(contract["confidential"])
         self.assertFalse(contract["deployable"])
 
+    def test_pre_serve_has_no_weights_mount_and_smaller_resource_bounds(self):
+        files, contract = host.make_payload(self.builder, "1" * 40, self.bundle, self.extra,
+                                            b"fake", "pre-serve", "B300")
+        self.assertEqual(contract["operation"], "pre-serve")
+        self.assertEqual(contract["gpu_family"], "B300")
+        self.assertEqual(contract["arguments"], self.contract["arguments"])
+        self.assertNotIn("correctness.py", files)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / "payload").mkdir()
+            (root / "payload/lab.json").write_bytes(files["lab.json"])
+            args = host.create_command("owned", "owner", root, None, contract, {"config": {"Env": []}})
+            self.assertEqual(args.count("--mount"), 1)
+            self.assertEqual(args[args.index("--memory") + 1], "8g")
+            self.assertEqual(args[args.index("--memory-swap") + 1], "8g")
+            self.assertEqual(args[args.index("--cpus") + 1], "2")
+            self.assertEqual(args[args.index("--network") + 1], "none")
+            with self.assertRaises(ValueError):
+                host.create_command("owned", "owner", root, "/weights", contract, {"config": {"Env": []}})
+
     def test_b300_payload_binds_family_without_changing_engine_or_sandbox(self):
         args = (self.builder, "1"*40, self.bundle, self.extra, b"fake-linux-binary")
         old_files, old = host.make_payload(*args, "local-correctness")
@@ -1454,6 +1474,8 @@ class PayloadTests(unittest.TestCase):
             "--prepare-hardware-diagnostic": ("hardware-diagnostic", "B200", "confidential"),
             "--prepare-local-correctness": ("local-correctness", "B200", "confidential"),
             "--prepare-local-correctness-b300": ("local-correctness", "B300", "confidential"),
+            "--prepare-pre-serve": ("pre-serve", "B200", "confidential"),
+            "--prepare-pre-serve-b300": ("pre-serve", "B300", "confidential"),
             "--prepare-nonconfidential-baseline": ("local-correctness", "B200", "nonconfidential"),
             "--prepare-nonconfidential-baseline-b300": ("local-correctness", "B300", "nonconfidential"),
         }
@@ -1567,6 +1589,18 @@ class PayloadTests(unittest.TestCase):
             path.parent.mkdir(parents=True)
             path.write_bytes(self.extra[host.SMOKE])
             host.validate_result(row, root, self.contract, self.builder.recorder)
+            pre_contract = {**self.contract, "operation": "pre-serve"}
+            pre = {**row, "schema": "nib.deepseek-lab-pre-serve/v1", "entry_pass": True,
+                   "functional_pass": False, "completion": None,
+                   "startup": {**row["startup"], "outcome": "prepared", "exit_code": 0, "health_probes": 0,
+                               "checkpoints": {"status": "eof", "last_id": 16}}}
+            host.validate_result(pre, root, pre_contract, self.builder.recorder)
+            for key, value in (("functional_pass", True), ("completion", row["completion"]),
+                               ("entry_pass", False), ("engine_stopped", False), ("stage", "weights")):
+                with self.subTest(pre_field=key), self.assertRaises(ValueError):
+                    host.validate_result({**pre, key: value}, root, pre_contract, self.builder.recorder)
+            with self.assertRaises(ValueError):
+                host.validate_result([], root, pre_contract, self.builder.recorder)
             for section in ("application", "hardware", "completion", "startup"):
                 changed = copy.deepcopy(row)
                 changed[section]["private"] = "sentinel"
@@ -1847,6 +1881,40 @@ writer.close()
                 writer.assert_not_called()
                 context.assert_not_called()
 
+    @mock.patch.object(sys, "flags", types.SimpleNamespace(isolated=True, no_site=True))
+    @mock.patch.object(sys, "dont_write_bytecode", True)
+    def test_pre_serve_entry_stops_before_serve_and_closes_both_pipes(self):
+        channel, errors = self.reader(), self.reader()
+        child, error_child = os.dup(channel.writer), os.dup(errors.writer)
+        channel.close_writer()
+        errors.close_writer()
+        channel.observation["status"] = "open"
+        contract = {"operation": "pre-serve", "paths": ["/stdlib", "/dyn", "/selected"]}
+        def prepared(actual, writer):
+            self.assertIs(actual, contract)
+            for code in range(3, 17):
+                writer.emit(code)
+            return mock.Mock(), object()
+        try:
+            with mock.patch.object(sys, "argv", ["launch.py", "a" * 64, "engine", "--checkpoint-fd", str(child),
+                                                "--error-fd", str(error_child)]), \
+                    mock.patch.object(lab, "lab_context", return_value=(contract, {}, [None], {}, {})), \
+                    mock.patch.object(lab, "recheck_sources"), \
+                    mock.patch.object(lab, "prepare_engine", side_effect=prepared) as prepare, \
+                    mock.patch.object(lab, "run_engine") as serve:
+                lab.lab_entry()
+                prepare.assert_called_once()
+                serve.assert_not_called()
+            channel.finish()
+            self.assertEqual(channel.observation, {"status": "eof", "last_id": 16})
+            self.assertIsNone(lab.read_entry_exception(errors))
+            for fd in (child, error_child):
+                with self.assertRaises(OSError):
+                    os.fstat(fd)
+        finally:
+            channel.finish()
+            errors.finish()
+
     def test_error_pipe_is_bounded_and_never_formats_exceptions(self):
         packet = lab.exception_packet(ValueError("PRIVATE prompt key"), ())
         for raw in (b"", packet, packet[:-1], packet + b"extra", b"x" * len(packet)):
@@ -1885,6 +1953,52 @@ writer.close()
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_pre_serve_waits_without_http_and_requires_complete_checkpoints(self):
+        for code, last in ((0, 16), (1, 12), (0, 15), (0, 17)):
+            engine = mock.Mock()
+            engine.wait.return_value = code
+            observation = {"outcome": "launch-failed", "wait_ms": 0, "exit_code": None, "health_probes": 0}
+            checkpoints = mock.Mock(observation={"status": "eof", "last_id": last})
+            with mock.patch.object(lab, "http_request") as http:
+                if (code, last) == (0, 16):
+                    lab.observe_pre_serve(engine, observation, checkpoints)
+                    self.assertEqual(observation["outcome"], "prepared")
+                else:
+                    with self.assertRaises(ValueError):
+                        lab.observe_pre_serve(engine, observation, checkpoints)
+                    self.assertEqual(observation["outcome"], "child-exited")
+                http.assert_not_called()
+            engine.wait.assert_called_once_with(timeout=300)
+
+    def test_pre_serve_lifecycle_cannot_check_weights_or_send_requests(self):
+        @contextmanager
+        def selected(*_):
+            yield types.SimpleNamespace(deadline=0), (None, types.SimpleNamespace(deadline=0))
+        app = types.SimpleNamespace(verify_layout=lambda *_: None, selected_tree=selected,
+                                    inspect=lambda *_: {}, apply=lambda *_: {"stages": 5})
+        for code in (0, 1):
+            engine = mock.Mock(pid=99999999)
+            engine.wait.return_value = engine.poll.return_value = code
+            def start(argv, **kwargs):
+                os.write(int(argv[3]), bytes(range(1, 17 if code == 0 else 13)))
+                if code:
+                    os.write(int(argv[5]), lab.exception_packet(ValueError("PRIVATE"), ()))
+                return engine
+            with mock.patch.object(lab, "hardware", return_value={"fixed": True}), \
+                    mock.patch.object(lab, "quiet_command") as weights, \
+                    mock.patch.object(lab, "http_request") as http, \
+                    mock.patch.object(lab.subprocess, "Popen", side_effect=start), \
+                    mock.patch.object(lab.os, "killpg"):
+                row = lab.application_and_request({"operation": "pre-serve"}, {},
+                                                  [None, None, None, app], {"files": []}, {})
+                weights.assert_not_called()
+                http.assert_not_called()
+            self.assertEqual(row["entry_pass"], code == 0)
+            self.assertFalse(row["functional_pass"])
+            self.assertIsNone(row["completion"])
+            self.assertTrue(row["engine_stopped"])
+            self.assertNotIn("PRIVATE", json.dumps(row))
+
     def test_startup_observations_are_bounded_and_content_free(self):
         for scenario in ("ready", "exit", "signal", "timeout", "models", "supervisor"):
             observation = {"outcome": "launch-failed", "wait_ms": 0,

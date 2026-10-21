@@ -97,8 +97,8 @@ def committed(builder, revision, name):
 
 
 def make_payload(builder, revision, bundle, extra, binary, operation="functional", family="B200", security="confidential"):
-    require(operation in ("functional", "hardware-diagnostic", "local-correctness"))
-    require(family in ("B200", "B300") and (family == "B200" or operation == "local-correctness"))
+    require(operation in ("functional", "hardware-diagnostic", "local-correctness", "pre-serve"))
+    require(family in ("B200", "B300") and (family == "B200" or operation in ("local-correctness", "pre-serve")))
     require(security in ("confidential", "nonconfidential") and (security == "confidential"
             or operation == "local-correctness"))
     files, _ = builder.prepare_files(revision, bundle, extra)
@@ -214,9 +214,9 @@ def bundle_inputs(path, expected):
     contract = recorder.overlay.load_json(read(path / "payload/lab.json"))
     require(contract["git_sha"] == receipt["git_sha"] and contract["status"] == "BLOCKED"
             and contract["deployable"] is False and contract["confidential"] is False
-            and contract["operation"] in ("functional", "hardware-diagnostic", "local-correctness"))
+            and contract["operation"] in ("functional", "hardware-diagnostic", "local-correctness", "pre-serve"))
     family = contract.get("gpu_family", "B200")
-    require(family in ("B200", "B300") and (family == "B200" or contract["operation"] == "local-correctness"))
+    require(family in ("B200", "B300") and (family == "B200" or contract["operation"] in ("local-correctness", "pre-serve")))
     probe = load("lab_profile_validation", path / "payload/probe.py", contract["sources"]["probe.py"])
     probe.security_profile(contract)
     config = recorder.raw_metadata(path / "metadata", contract)
@@ -224,19 +224,22 @@ def bundle_inputs(path, expected):
 
 
 def create_command(name, owner, bundle, weights, contract, config):
-    require(contract["operation"] in ("functional", "hardware-diagnostic", "local-correctness"))
+    require(contract["operation"] in ("functional", "hardware-diagnostic", "local-correctness", "pre-serve"))
     payload = str(Path(bundle) / "payload")
+    pre_serve = contract["operation"] == "pre-serve"
+    require((weights is None) == pre_serve)
     command = ["docker", "container", "create", "--name", name, "--label", LABEL + "=" + owner,
                "--pull", "never", "--platform", "linux/amd64", "--runtime", "nvidia",
                "--gpus", '"device=0,1,2,3"', "--network", "none", "--cap-drop", "ALL",
                "--security-opt", "no-new-privileges", "--pids-limit", "1024",
-               "--memory", "768g", "--memory-swap", "768g", "--cpus", "64",
+               "--memory", "8g" if pre_serve else "768g", "--memory-swap", "8g" if pre_serve else "768g",
+               "--cpus", "2" if pre_serve else "64",
                "--ipc", "private", "--shm-size", "2g", "--cgroupns", "private",
                "--restart", "no", "--log-driver", "none", "--no-healthcheck", "--user", "0:0",
                "--workdir", "/", "--tmpfs", "/cache:rw,nosuid,nodev,size=16g,mode=0700",
                "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777",
                "--mount", "type=bind,src=" + payload + ",dst=/opt/nib,readonly",
-               "--mount", "type=bind,src=" + str(weights) + ",dst=/model,readonly",
+               *([] if pre_serve else ["--mount", "type=bind,src=" + str(weights) + ",dst=/model,readonly"]),
                "--entrypoint", "/usr/bin/env"]
     names = set()
     constraints = {}
@@ -260,6 +263,7 @@ def create_command(name, owner, bundle, weights, contract, config):
 
 
 def check_container(info, name, owner, bundle, weights, contract, config, image_id):
+    pre_serve = contract["operation"] == "pre-serve"
     command = create_command(name, owner, bundle, weights, contract, config)
     cfg, host = info["Config"], info["HostConfig"]
     require(info["Image"] == image_id and cfg["Image"] == contract["base_image"]
@@ -274,7 +278,8 @@ def check_container(info, name, owner, bundle, weights, contract, config, image_
             and not host.get("DeviceCgroupRules") and not host.get("PortBindings") and not host.get("PublishAllPorts")
             and not host.get("PidMode") and not host.get("UTSMode") and not host.get("VolumesFrom") and not host.get("Binds")
             and host["IpcMode"] == "private" and host["ShmSize"] == 2 << 30 and host["CgroupnsMode"] == "private"
-            and host["Memory"] == host["MemorySwap"] == 768 << 30 and host["NanoCpus"] == 64000000000
+            and host["Memory"] == host["MemorySwap"] == (8 if pre_serve else 768) << 30
+            and host["NanoCpus"] == (2 if pre_serve else 64) * 1000000000
             and host["PidsLimit"] == 1024 and host["RestartPolicy"]["Name"] == "no" and host["LogConfig"]["Type"] == "none"
             and set(host["SecurityOpt"]) in ({"no-new-privileges"}, {"no-new-privileges=true"})
             and cfg["Healthcheck"]["Test"] == ["NONE"]
@@ -285,10 +290,12 @@ def check_container(info, name, owner, bundle, weights, contract, config, image_
             and devices[0]["Capabilities"] == [["gpu"]] and devices[0]["Count"] == 0
             and devices[0]["Driver"] in ("", "nvidia") and not devices[0].get("Options"))
     mounts = info["Mounts"]
-    require(len(mounts) == 2)
+    expected_mounts = {("bind", str(Path(bundle) / "payload"), "/opt/nib", False)}
+    if not pre_serve:
+        expected_mounts.add(("bind", str(weights), "/model", False))
+    require(len(mounts) == len(expected_mounts))
     require({(m["Type"], m["Source"], m["Destination"], m["RW"]) for m in mounts}
-            == {("bind", str(Path(bundle) / "payload"), "/opt/nib", False),
-                ("bind", str(weights), "/model", False)})
+            == expected_mounts)
 
 
 def cleanup(recorder, name, owner, env):
@@ -431,12 +438,18 @@ def validate_result(row, bundle, contract, recorder):
         probe.validate_diagnostic(row)
         return
     correctness = contract.get("operation") == "local-correctness"
+    pre_serve = contract.get("operation") == "pre-serve"
     fields = {"schema", "status", "deployable", "confidential", "functional_pass",
               "stage", "application", "hardware", "completion", "startup", "engine_stopped"}
     expected_schema = "nib.deepseek-lab-result/v2"
     if correctness:
         fields.add("correctness")
         expected_schema = "nib.deepseek-lab-correctness-result/v2"
+    if pre_serve:
+        fields.add("entry_pass")
+        expected_schema = "nib.deepseek-lab-pre-serve/v1"
+        require(type(row) is dict and type(row.get("entry_pass")) is bool and row.get("functional_pass") is False
+                and row.get("completion") is None and row.get("stage") not in ("weights", "request"))
     require(type(row) is dict and set(row) == fields
             and row["schema"] == expected_schema and row["status"] == "BLOCKED"
             and row["deployable"] is False and row["confidential"] is False
@@ -453,24 +466,32 @@ def validate_result(row, bundle, contract, recorder):
         errors.require = require
         errors.validate_exception(startup["exception_diagnostic"])
         require(startup["exception_diagnostic"] is None or startup["outcome"] == "child-exited")
-        require(startup["outcome"] in ("launch-failed", "child-exited", "startup-timeout",
-                                      "models-rejected", "ready", "supervisor-failure")
+        outcomes = ("launch-failed", "child-exited", "startup-timeout", "supervisor-failure")
+        outcomes += ("prepared",) if pre_serve else ("models-rejected", "ready")
+        require(startup["outcome"] in outcomes
                 and type(startup["wait_ms"]) is int and 0 <= startup["wait_ms"] <= MAX_SECONDS * 1000
                 and type(startup["health_probes"]) is int and 0 <= startup["health_probes"] <= MAX_SECONDS + 1)
+        if pre_serve:
+            require(startup["health_probes"] == 0)
         checkpoints = startup["checkpoints"]
         require(type(checkpoints) is dict and set(checkpoints) == {"status", "last_id"}
                 and checkpoints["status"] in ("not-started", "eof", "incomplete", "invalid", "overflow", "read-failed")
                 and (checkpoints["last_id"] is None
                      or type(checkpoints["last_id"]) is int and 1 <= checkpoints["last_id"] <= 17)
                 and (checkpoints["status"] != "not-started" or checkpoints["last_id"] is None))
-        if startup["outcome"] == "child-exited":
+        if startup["outcome"] in ("child-exited", "prepared"):
             require(type(startup["exit_code"]) is int and -128 <= startup["exit_code"] <= 255)
         else:
             require(startup["exit_code"] is None)
         if startup["outcome"] == "launch-failed":
             require(startup["wait_ms"] == 0 and startup["health_probes"] == 0)
         if row["stage"] in ("request", "complete"):
-            require(startup["outcome"] == "ready" and startup["health_probes"] > 0)
+            if pre_serve:
+                require(startup["outcome"] == "prepared" and startup["exit_code"] == 0
+                        and startup["health_probes"] == 0
+                        and checkpoints == {"status": "eof", "last_id": 16})
+            else:
+                require(startup["outcome"] == "ready" and startup["health_probes"] > 0)
         else:
             require(startup["outcome"] != "ready" and row["functional_pass"] is False)
     if row["hardware"] is not None:
@@ -530,6 +551,9 @@ def validate_result(row, bundle, contract, recorder):
             require(row["correctness"] is not None and row["correctness"]["all_cases_pass"])
     require(row["hardware"] is not None or (row["application"] is None and row["completion"] is None))
     require(row["application"] is not None or row["completion"] is None)
+    if pre_serve:
+        require(row["entry_pass"] == (row["stage"] == "complete" and row["engine_stopped"] is True
+                                     and row["hardware"] is not None and row["application"] is not None))
     require(len(json.dumps(row)) <= 60000)
 
 
@@ -557,6 +581,8 @@ def main():
         "prepare-hardware-diagnostic": ("hardware-diagnostic", "B200", "confidential"),
         "prepare-local-correctness": ("local-correctness", "B200", "confidential"),
         "prepare-local-correctness-b300": ("local-correctness", "B300", "confidential"),
+        "prepare-pre-serve": ("pre-serve", "B200", "confidential"),
+        "prepare-pre-serve-b300": ("pre-serve", "B300", "confidential"),
         "prepare-nonconfidential-baseline": ("local-correctness", "B200", "nonconfidential"),
         "prepare-nonconfidential-baseline-b300": ("local-correctness", "B300", "nonconfidential"),
     }
@@ -574,14 +600,19 @@ def main():
             require(not any((args.receipt_sha256, args.weights, args.output, args.deadline)))
             prepare(destination, *profile)
             return 0
-    require(sys.platform == "linux" and all((args.receipt_sha256, args.weights, args.output, args.deadline)))
+    require(sys.platform == "linux" and all((args.receipt_sha256, args.output, args.deadline)))
     deadline = dt.datetime.strptime(args.deadline, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp()
     require(0 < deadline - time.time() <= MAX_SECONDS)
-    bundle, weights, output = (Path(p) for p in (args.run, args.weights, args.output))
-    require(all(p.is_absolute() and p == p.resolve() for p in (bundle, weights, output))
+    bundle, output = (Path(p) for p in (args.run, args.output))
+    weights = Path(args.weights) if args.weights else None
+    paths = (bundle, output) + ((weights,) if weights is not None else ())
+    require(all(p.is_absolute() and p == p.resolve() for p in paths)
             and not os.path.lexists(output) and not any(a == b or a in b.parents or b in a.parents
-                                                       for a, b in ((bundle, weights), (bundle, output), (weights, output))))
+                                                       for i, a in enumerate(paths) for b in paths[i + 1:]))
     receipt, contract, config, recorder = bundle_inputs(bundle, args.receipt_sha256)
+    require((weights is None) == (contract["operation"] == "pre-serve"))
+    if contract["operation"] == "pre-serve":
+        require(deadline - time.time() <= 1080)
     if contract["operation"] == "hardware-diagnostic":
         require(deadline - time.time() <= 300)
     signal.signal(signal.SIGTERM, cancel)
@@ -615,6 +646,11 @@ def main():
                            "Fixed call stages, return codes and bounded numeric observations only. "
                            "All original CC/readiness policy checks retained; no settings changes. "
                            "Candidate BLOCKED; deployable=false; confidential=false; not attestation or qualification.")
+    if contract["operation"] == "pre-serve":
+        record["notes"] = ("GPU pre-serve diagnostic only: same image application, imports and argument validation. "
+                           "No model mount, weight validation, serve.cmd, HTTP probes or inference. "
+                           "Candidate BLOCKED; no confidential or ABI qualification.")
+        record["command"] = record["command"].replace(" --weights <private-weights>", "")
     with tempfile.TemporaryDirectory(prefix="nib-lab-evidence-") as temporary:
         recorder.publish_evidence(record, report, bundle / "payload/nib", Path(temporary).resolve(), output, env)
     print(json.dumps({"recorded": True, "functional_pass": report["functional_pass"],

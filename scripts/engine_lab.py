@@ -178,10 +178,10 @@ def lab_context(expected):
     contract = json.loads(raw)
     family = contract.get("gpu_family", "B200")
     require(family in ("B200", "B300")
-            and (family == "B200" or contract["operation"] == "local-correctness"))
+            and (family == "B200" or contract["operation"] in ("local-correctness", "pre-serve")))
     require(contract["schema"] == "nib.deepseek-lab-input/v1" and contract["status"] == "BLOCKED"
             and contract["deployable"] is False and contract["confidential"] is False
-            and contract["operation"] in ("functional", "hardware-diagnostic", "local-correctness")
+            and contract["operation"] in ("functional", "hardware-diagnostic", "local-correctness", "pre-serve")
             and platform.system() == "Linux" and platform.machine() == "x86_64"
             and platform.python_version() == "3.12.3" and sys.pycache_prefix is None
             and os.getcwd() == "/" and dict(os.environ) == contract["environment"])
@@ -443,6 +443,24 @@ def observe_startup(engine, observation, checkpoints=None):
         observation["wait_ms"] = int(elapsed * 1000)
 
 
+def observe_pre_serve(engine, observation, checkpoints):
+    started = time.monotonic()
+    observation["outcome"] = "supervisor-failure"
+    try:
+        try:
+            code = engine.wait(timeout=300)
+        except subprocess.TimeoutExpired:
+            observation["outcome"] = "startup-timeout"
+            raise
+        require(type(code) is int and -128 <= code <= 255)
+        observation.update(outcome="child-exited", exit_code=code)
+        checkpoints.finish()
+        require(code == 0 and checkpoints.observation == {"status": "eof", "last_id": 16})
+        observation["outcome"] = "prepared"
+    finally:
+        observation["wait_ms"] = int((time.monotonic() - started) * 1000)
+
+
 def application_and_request(contract, sources, modules, application, measured):
     overlay, diagnostic, descriptor, app = modules
     result = {"schema": "nib.deepseek-lab-result/v2", "status": "BLOCKED", "deployable": False,
@@ -450,15 +468,19 @@ def application_and_request(contract, sources, modules, application, measured):
               "application": None, "hardware": None, "completion": None,
               "startup": None, "engine_stopped": False}
     correctness = contract["operation"] == "local-correctness"
+    pre_serve = contract["operation"] == "pre-serve"
     if correctness:
         result.update(schema="nib.deepseek-lab-correctness-result/v2", correctness=None)
+    if pre_serve:
+        result.update(schema="nib.deepseek-lab-pre-serve/v1", entry_pass=False)
     engine = checkpoints = errors = None
     started = time.monotonic()
     try:
         security = GPU_PROBE.security_profile(contract)
         result["hardware"] = hardware(contract.get("gpu_family", "B200"), security)
-        result["stage"] = "weights"
-        quiet_command([ROOT + "/nib", "model", "check-local", ROOT + "/pack", "/model"], WEIGHTS_SECONDS)
+        if not pre_serve:
+            result["stage"] = "weights"
+            quiet_command([ROOT + "/nib", "model", "check-local", ROOT + "/pack", "/model"], WEIGHTS_SECONDS)
         result["stage"] = "application"
         app.verify_layout(overlay, descriptor, diagnostic, application, measured)
         stages = [{item["path"]: sources[f"application/stages/{n}/" + item["path"]] for item in application["files"]}
@@ -492,10 +514,18 @@ def application_and_request(contract, sources, modules, application, measured):
             checkpoints.close_writer()
             errors.close_writer()
         try:
-            observe_startup(engine, result["startup"], checkpoints)
+            if pre_serve:
+                observe_pre_serve(engine, result["startup"], checkpoints)
+            else:
+                observe_startup(engine, result["startup"], checkpoints)
         finally:
-            if engine.poll() is not None or result["startup"]["outcome"] == "ready":
+            if engine.poll() is not None or result["startup"]["outcome"] in ("ready", "prepared"):
                 result["startup"]["exception_diagnostic"] = read_entry_exception(errors)
+        if pre_serve:
+            require(result["startup"]["exception_diagnostic"] is None
+                    and hardware(contract.get("gpu_family", "B200"), security) == result["hardware"])
+            result.update(stage="complete", entry_pass=True)
+            return result
         result["stage"] = "request"
         if correctness:
             result["correctness"] = CORRECTNESS.run(
@@ -536,6 +566,8 @@ def application_and_request(contract, sources, modules, application, measured):
                 engine.wait(timeout=10)
                 result["functional_pass"] = False
         # Whole-container destruction, not leader exit, establishes final cleanup.
+        if pre_serve and not result["engine_stopped"]:
+            result["entry_pass"] = False
     return result
 
 
@@ -555,10 +587,13 @@ def lab_entry():
             checkpoints.emit(1)
             contract, _, modules, application, _ = lab_context(sys.argv[1])
             roots = (ROOT + "/", *tuple(path.rstrip("/") + "/" for path in contract["paths"]))
-            require(contract["operation"] in ("functional", "local-correctness"))
+            require(contract["operation"] in ("functional", "local-correctness", "pre-serve"))
             checkpoints.emit(2)
             recheck_sources(modules[0], application, contract["paths"])
-            run_engine(contract, checkpoints, errors)
+            if contract["operation"] == "pre-serve":
+                prepare_engine(contract, checkpoints)
+            else:
+                run_engine(contract, checkpoints, errors)
         except BaseException as error:
             if errors is not None and errors.fd is not None:
                 try:
@@ -580,7 +615,7 @@ def lab_entry():
         signal.alarm(60)
         print(json.dumps(diagnostic_request(), sort_keys=True))
         return
-    require(contract["operation"] in ("functional", "local-correctness"))
+    require(contract["operation"] in ("functional", "local-correctness", "pre-serve"))
     if mode == "apply" and len(rest) == 1:
         for path in ("/cache/home", "/cache/tmp", "/cache/hf", "/cache/deep-gemm", "/cache/triton",
                      "/cache/inductor", "/cache/torch", "/cache/xdg"):
