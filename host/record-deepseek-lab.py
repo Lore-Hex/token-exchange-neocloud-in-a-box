@@ -95,9 +95,11 @@ def committed(builder, revision, name):
     return builder.checker.git(ROOT, "cat-file", "blob", row[2])
 
 
-def make_payload(builder, revision, bundle, extra, binary, operation="functional", family="B200"):
+def make_payload(builder, revision, bundle, extra, binary, operation="functional", family="B200", security="confidential"):
     require(operation in ("functional", "hardware-diagnostic", "local-correctness"))
     require(family in ("B200", "B300") and (family == "B200" or operation == "local-correctness"))
+    require(security in ("confidential", "nonconfidential") and (security == "confidential"
+            or (operation == "local-correctness" and family == "B200")))
     files, _ = builder.prepare_files(revision, bundle, extra)
     app = builder.overlay.load_json(files["payload/contract.json"])
     measured = builder.application.measurement(builder.overlay, extra[builder.application.EVIDENCE])
@@ -127,12 +129,14 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
                 "environment": runtime.lab_environment(plan), "sources": {name: digest(data) for name, data in payload.items()}}
     if family == "B300":
         contract["gpu_family"] = family
+    if security == "nonconfidential":
+        contract["gpu_security"] = security
     payload["lab.json"] = builder.overlay.json_bytes(contract)
     payload["python"] = runtime.wrapper_bytes(contract["interpreter"]["resolved"], contract["environment"], digest(payload["lab.json"]))
     return payload, contract
 
 
-def prepare(destination, operation="functional", family="B200"):
+def prepare(destination, operation="functional", family="B200", security="confidential"):
     builder = load("lab_application_builder", ROOT / BUILDER, BUILDER_SHA)
     revision, bundle, extra = builder.inputs(ROOT)
     for name in (SCRIPT, HELPER, RUNTIME, LAB_BOOTSTRAP, PROBE, SMOKE, TEST, SIX_TEST,
@@ -147,7 +151,7 @@ def prepare(destination, operation="functional", family="B200"):
         work = Path(temporary).resolve()
         env = recorder.offline_environment(work / "control")
         binary, source_sha = recorder.build_validator(ROOT, revision, work, {**env, "GOOS": "linux", "GOARCH": "amd64"})
-        payload, contract = make_payload(builder, revision, bundle, extra, read(binary, MAX_BYTES), operation, family)
+        payload, contract = make_payload(builder, revision, bundle, extra, read(binary, MAX_BYTES), operation, family, security)
         config = recorder.raw_metadata(ROOT / "build/engine-image-metadata", contract)
         runtime = load("lab_environment_constants", ROOT / RUNTIME, digest(extra[RUNTIME]))
         image_env = dict(item.split("=", 1) for item in config["config"]["Env"])
@@ -211,6 +215,8 @@ def bundle_inputs(path, expected):
             and contract["operation"] in ("functional", "hardware-diagnostic", "local-correctness"))
     family = contract.get("gpu_family", "B200")
     require(family in ("B200", "B300") and (family == "B200" or contract["operation"] == "local-correctness"))
+    probe = load("lab_profile_validation", path / "payload/probe.py", contract["sources"]["probe.py"])
+    probe.security_profile(contract)
     config = recorder.raw_metadata(path / "metadata", contract)
     return receipt, contract, config, recorder
 
@@ -462,7 +468,10 @@ def validate_result(row, bundle, contract, recorder):
             require(startup["outcome"] != "ready" and row["functional_pass"] is False)
     if row["hardware"] is not None:
         probe = load("lab_hardware_validation", Path(bundle) / "payload/probe.py", contract["sources"]["probe.py"])
-        probe.validate_report(row["hardware"], family=contract.get("gpu_family", "B200"))
+        if probe.security_profile(contract) == "nonconfidential":
+            probe.validate_nonconfidential_report(row["hardware"])
+        else:
+            probe.validate_report(row["hardware"], family=contract.get("gpu_family", "B200"))
     if row["application"] is not None:
         # Reuse the existing exact application-receipt validator unchanged. This
         # temporary validation envelope is not evidence of a P0 import attempt.
@@ -540,18 +549,23 @@ def main():
     action.add_argument("--prepare-hardware-diagnostic")
     action.add_argument("--prepare-local-correctness")
     action.add_argument("--prepare-local-correctness-b300")
+    action.add_argument("--prepare-nonconfidential-baseline")
     action.add_argument("--run", metavar="PRIVATE_BUNDLE")
     parser.add_argument("--receipt-sha256")
     parser.add_argument("--weights")
     parser.add_argument("--output")
     parser.add_argument("--deadline", help="Required UTC hard cutoff, YYYY-MM-DDTHH:MM:SSZ, at most 80 minutes away.")
     args = parser.parse_args()
-    if args.prepare or args.prepare_hardware_diagnostic or args.prepare_local_correctness or args.prepare_local_correctness_b300:
+    if (args.prepare or args.prepare_hardware_diagnostic or args.prepare_local_correctness
+            or args.prepare_local_correctness_b300 or args.prepare_nonconfidential_baseline):
         require(not any((args.receipt_sha256, args.weights, args.output, args.deadline)))
-        prepare(args.prepare or args.prepare_hardware_diagnostic or args.prepare_local_correctness or args.prepare_local_correctness_b300,
+        prepare(args.prepare or args.prepare_hardware_diagnostic or args.prepare_local_correctness
+                or args.prepare_local_correctness_b300 or args.prepare_nonconfidential_baseline,
                 "hardware-diagnostic" if args.prepare_hardware_diagnostic else
-                "local-correctness" if args.prepare_local_correctness or args.prepare_local_correctness_b300 else "functional",
-                "B300" if args.prepare_local_correctness_b300 else "B200")
+                "local-correctness" if (args.prepare_local_correctness or args.prepare_local_correctness_b300
+                                        or args.prepare_nonconfidential_baseline) else "functional",
+                "B300" if args.prepare_local_correctness_b300 else "B200",
+                "nonconfidential" if args.prepare_nonconfidential_baseline else "confidential")
         return 0
     require(sys.platform == "linux" and all((args.receipt_sha256, args.weights, args.output, args.deadline)))
     deadline = dt.datetime.strptime(args.deadline, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp()
@@ -587,6 +601,8 @@ def main():
                        "Candidate BLOCKED; deployable=false; confidential=false; no attestation or ABI qualification. "
                        "Generated JIT code is private output, not verified native provenance. "
                        "CUDA field is the observed driver-supported CUDA API version, not a runtime measurement."}
+    if contract.get("gpu_security") == "nonconfidential":
+        record["notes"] += " Explicit nonconfidential baseline; CC-disabled observations are not confidential evidence."
     if diagnostic:
         record["notes"] = ("Denial-only read-only hardware diagnostic; no weights, application, engine or inference. "
                            "Fixed call stages, return codes and bounded numeric observations only. "

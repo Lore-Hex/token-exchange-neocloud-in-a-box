@@ -1004,6 +1004,66 @@ class HardwareTests(unittest.TestCase):
         self.assertEqual(row["family"], "B300")
         self.assertEqual(row["protected_kib"], [250 << 20] * 4)
 
+    def test_nonconfidential_is_explicit_and_never_accepted_by_cc_validator(self):
+        library = DiagnosticTests().library(feature=0, environment=0, multigpu=0)
+        with mock.patch.object(probe.c, "CDLL", return_value=library):
+            raw = probe.NVML().observe(nonconfidential=True)
+        row = probe.validate_nonconfidential(raw)
+        self.assertEqual(row["cc_feature"], "disabled")
+        self.assertIsNone(row["system_ready"])
+        self.assertFalse(row["attestation_verified"])
+        self.assertEqual(row["total_kib"], [180 << 20] * 4)
+        self.assertNotIn("protected_kib", row)
+        for validate, value in ((probe.validate, raw), (probe.validate_report, row),
+                                (probe.validate_nonconfidential, self.raw()),
+                                (probe.validate_nonconfidential_report, probe.validate(self.raw()))):
+            with self.subTest(validator=validate.__name__), self.assertRaises(ValueError):
+                validate(value)
+        for key, value in (("feature", 1), ("feature", False), ("environment", 1), ("environment", 2),
+                           ("multigpu", 2), ("devtools", 1), ("ready", 1), ("cuda_driver", 12080),
+                           ("driver", "private-sentinel"), ("private", "sentinel")):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                probe.validate_nonconfidential({**raw, key: value})
+        for value in (0, True, 119 << 20, 2 << 30):
+            changed = copy.deepcopy(raw)
+            changed["devices"][0]["total_kib"] = value
+            with self.assertRaises(ValueError):
+                probe.validate_nonconfidential(changed)
+        for value in ({**row, "attestation_verified": True}, {**row, "protected_kib": row["total_kib"]},
+                      {**row, "family": "B300"}, {**row, "cuda_driver": "12.8"}):
+            with self.assertRaises(ValueError):
+                probe.validate_nonconfidential_report(value)
+
+    def test_nonconfidential_observer_never_queries_readiness_or_changes_mode(self):
+        library = DiagnosticTests().library(feature=0, environment=0, multigpu=0)
+        library.nvmlSystemGetConfComputeGpusReadyState = mock.Mock(side_effect=AssertionError("readiness"))
+        library.nvmlDeviceGetConfComputeMemSizeInfo = mock.Mock(side_effect=AssertionError("protected"))
+        library.nvmlShutdown = mock.Mock(return_value=0)
+        with mock.patch.object(probe.c, "CDLL", return_value=library):
+            probe.validate_nonconfidential(probe.NVML().observe(nonconfidential=True))
+            library.nvmlShutdown.assert_called_once_with()
+            library.nvmlSystemGetConfComputeGpusReadyState.assert_not_called()
+            library.nvmlDeviceGetConfComputeMemSizeInfo.assert_not_called()
+            for value in (1, None, "true"):
+                with self.assertRaises(ValueError):
+                    probe.NVML().observe(nonconfidential=value)
+            with self.assertRaises(ValueError):
+                probe.NVML().observe("B300", nonconfidential=True)
+        for symbol in ("nvmlSystemGetConfComputeSettings", "nvmlDeviceGetMemoryInfo", "nvmlShutdown"):
+            with self.subTest(symbol=symbol), mock.patch.object(probe.c, "CDLL", return_value=
+                    DiagnosticTests().library(feature=0, environment=0, multigpu=0, codes={symbol: 3})):
+                with self.assertRaises(ValueError):
+                    probe.NVML().observe(nonconfidential=True)
+
+    def test_profile_has_no_auto_downgrade(self):
+        self.assertEqual(probe.security_profile({}), "confidential")
+        contract = {"operation": "local-correctness", "gpu_security": "nonconfidential"}
+        self.assertEqual(probe.security_profile(contract), "nonconfidential")
+        for change in ({"operation": "functional"}, {"operation": "hardware-diagnostic"},
+                       {"gpu_family": "B300"}, {"gpu_security": None}, {"gpu_security": "auto"}):
+            with self.assertRaises(ValueError):
+                probe.security_profile({**contract, **change})
+
 
 class DiagnosticTests(unittest.TestCase):
     def library(self, *, codes=None, count=4, feature=1, environment=2, devtools=0, multigpu=2,
@@ -1011,7 +1071,7 @@ class DiagnosticTests(unittest.TestCase):
                 driver=b"595.91.07"):
         codes = codes or {}
         library = types.SimpleNamespace()
-        for symbol in probe.CALL_STAGES:
+        for symbol in set(probe.CALL_STAGES) | probe.NONCONFIDENTIAL_CALLS:
             def call(*args, symbol=symbol):
                 code = codes.get(symbol, 0)
                 if isinstance(code, Exception):
@@ -1037,6 +1097,10 @@ class DiagnosticTests(unittest.TestCase):
                 elif symbol == "nvmlDeviceGetConfComputeMemSizeInfo":
                     args[1]._obj.protectedMemSizeKib = memory
                     args[1]._obj.unprotectedMemSizeKib = 0
+                elif symbol == "nvmlDeviceGetMemoryInfo":
+                    args[1]._obj.total = memory * 1024
+                    args[1]._obj.free = memory * 1024
+                    args[1]._obj.used = 0
                 return 0
             setattr(library, symbol, call)
         return library
@@ -1285,6 +1349,41 @@ class PayloadTests(unittest.TestCase):
                                   ("local-correctness", "H200"), ("local-correctness", None)):
             with self.subTest(operation=operation, family=family), self.assertRaises(ValueError):
                 host.make_payload(*args, operation, family)
+
+    def test_nonconfidential_payload_binds_opt_in_and_preserves_all_other_controls(self):
+        args = (self.builder, "1" * 40, self.bundle, self.extra, b"fake-linux-binary")
+        old_files, old = host.make_payload(*args, "local-correctness")
+        files, contract = host.make_payload(*args, "local-correctness", "B200", "nonconfidential")
+        self.assertNotIn("gpu_security", old)
+        self.assertEqual(contract, {**old, "gpu_security": "nonconfidential"})
+        self.assertEqual({k for k in files if files[k] != old_files[k]}, {"lab.json", "python"})
+        self.assertIn(hashlib.sha256(files["lab.json"]).hexdigest().encode(), files["python"])
+        self.assertFalse(contract["confidential"])
+        self.assertFalse(contract["deployable"])
+        for operation, family, security in (("functional", "B200", "nonconfidential"),
+                ("hardware-diagnostic", "B200", "nonconfidential"),
+                ("local-correctness", "B300", "nonconfidential"),
+                ("local-correctness", "B200", None), ("local-correctness", "B200", "auto")):
+            with self.subTest(operation=operation, family=family, security=security), self.assertRaises(ValueError):
+                host.make_payload(*args, operation, family, security)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / "payload").mkdir()
+            for key in ("lab.json", "probe.py"):
+                (root / "payload" / key).write_bytes(files[key])
+            raw = HardwareTests().raw()
+            raw.update(feature=0, environment=0, multigpu=0, ready=None,
+                       devices=[{"b200": True, "total_kib": 180 << 20} for _ in range(4)])
+            row = {"schema": "nib.deepseek-lab-correctness-result/v1", "status": "BLOCKED",
+                   "deployable": False, "confidential": False, "functional_pass": False, "stage": "weights",
+                   "hardware": probe.validate_nonconfidential(raw), "application": None,
+                   "completion": None, "correctness": None, "startup": None, "engine_stopped": False}
+            host.validate_result(row, root, contract, None)
+            with self.assertRaises(ValueError):
+                host.validate_result(row, root, old, None)
+            command = host.create_command("owned", "owner", root, "/weights", contract, {"config": {"Env": []}})
+            self.assertEqual(command[command.index("--network") + 1], "none")
+            self.assertNotIn("--privileged", command)
 
     def test_diagnostic_main_publishes_failed_nvml_observations_with_authoritative_schema(self):
         recorder = self.builder.recorder

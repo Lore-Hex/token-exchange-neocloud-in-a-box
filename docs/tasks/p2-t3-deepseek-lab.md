@@ -2,6 +2,8 @@
 
 This is an **experimental, nonqualifying** path for one approved Linux x86_64
 B200 CC test host, or the explicit B300 correctness experiment below.
+An explicit [nonconfidential B200 baseline](p2-t3-nonconfidential-baseline.md)
+supports P2 functional testing without changing either default CC policy.
 It is not a production profile, GCP gate completion, TDX
 verification, an attestation, or ABI qualification. The candidate remains
 `BLOCKED`, `deployable:false`, `confidential:false`, and evidence `result:fail`
