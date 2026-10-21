@@ -382,6 +382,42 @@ class BootstrapTests(unittest.TestCase):
             with self.subTest(variant=variant):
                 self.assertEqual(self.run_fixture("reject", variant), {"rejected": True})
 
+    def registry_fixture(self):
+        path = self.package / "vllm/model_executor/models/registry.py"
+        path.parent.mkdir(parents=True)
+        for directory in (path.parent, path.parent.parent, path.parent.parent.parent):
+            (directory / "__init__.py").touch()
+        source = b'''import sys, json
+def _run():
+    state = sys._nib_lab_bootstrap
+    state["check"]()
+    # Represents upstream unpickling, after the sealed bootstrap is installed.
+    print(json.dumps({"isolated": bool(sys.flags.isolated),
+                      "no_site": bool(sys.flags.no_site),
+                      "before_unpickle": sys.path == state["layout"]["paths"]}))
+'''
+        path.write_bytes(source)
+        self.source += ("\nREGISTRY_SHA256=" + repr(hashlib.sha256(source).hexdigest()) + "\n").encode()
+        (self.root / "launch.py").write_bytes(self.source + DRIVER.encode())
+        return path
+
+    def test_exact_registry_subprocess_reenters_before_unpickle(self):
+        self.registry_fixture()
+        self.assertEqual(self.run_fixture("-m", bootstrap.REGISTRY_MODULE),
+                         {"isolated": True, "no_site": True, "before_unpickle": True})
+
+    def test_registry_source_and_nonexact_module_routes_reject(self):
+        path = self.registry_fixture()
+        for args in (("-m", "os"), ("-m", bootstrap.REGISTRY_MODULE, "extra"),
+                     ("-m", bootstrap.REGISTRY_MODULE + ".other"), ("-c", "import os")):
+            result = subprocess.run([self.layout["wrapper"], *args], cwd="/", capture_output=True, timeout=30)
+            self.assertNotEqual(result.returncode, 0)
+        path.write_bytes(path.read_bytes() + b"\nraise AssertionError('unreviewed code ran')\n")
+        result = subprocess.run([self.layout["wrapper"], "-m", bootstrap.REGISTRY_MODULE],
+                                cwd="/", capture_output=True, timeout=30)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn(b"unreviewed code ran", result.stderr)
+
     def test_timestamp_valid_stale_bytecode_ignored(self):
         import importlib.util
         import marshal
