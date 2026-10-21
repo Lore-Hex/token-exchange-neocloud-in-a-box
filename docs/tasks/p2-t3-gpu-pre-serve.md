@@ -35,5 +35,25 @@ python3 -I -S /absolute/private/bundle/record-deepseek-lab.py \
   --output /absolute/private/evidence --deadline APPROVED_UTC_CUTOFF
 ```
 
-Verification: GPU lifecycle unit tests and `make check`. No actual pre-serve
-pass is claimed until a committed record from this producer is available.
+Verification: GPU lifecycle unit tests and `make check` (1,082 Python tests,
+both Go race suites, lint and secret scans). Final-head hosted CI passed before
+the hardware run.
+
+## Recorded B300 Result
+
+On October 21, 2026, producer `3301cd4b4a93f24fc45befc15129148305e70601`
+completed this diagnostic on four selected B300 GPUs with CC enabled, devtools
+off, production environment and NVLE observed. The original
+[run record](../../evidence/p2/2026-10-21-b300-pre-serve/run.json) and
+[result](../../evidence/p2/2026-10-21-b300-pre-serve/output.log) are unchanged.
+
+The measured entry wait was 26,998 ms. All 16 checkpoints reached EOF, the
+entry process exited zero, no exception packet was emitted, hardware observations
+were unchanged and the owned container was removed. `entry_pass` is true.
+
+The outer receipt intentionally remains `result:fail`, `status:BLOCKED` and
+`functional_pass:false`: this did not mount or validate weights, load the model,
+execute inference, measure quality, qualify host ABI or establish end-to-end
+attestation. The local image identity still relies on the Docker daemon rather
+than independently rehashing every local image layer. A passing startup
+diagnostic must not be advertised as a confidential inference node.

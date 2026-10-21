@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S host/record-deepseek-lab.py --run <private-bundle> --receipt-sha256 <digest> --output <private-evidence> --deadline <approved-UTC-cutoff>",
+  "ended_utc": "2026-10-21T17:11:09Z",
+  "execution": "hardware",
+  "git_sha": "3301cd4b4a93f24fc45befc15129148305e70601",
+  "hardware_validated": false,
+  "host": {
+    "cuda": "13.2",
+    "driver": "595.91.07",
+    "gpus": "four-selected-B300",
+    "machine": "approved-isolated-lab",
+    "provider": "spheron"
+  },
+  "notes": "GPU pre-serve diagnostic only: same image application, imports and argument validation. No model mount, weight validation, serve.cmd, HTTP probes or inference. Candidate BLOCKED; no confidential or ABI qualification.",
+  "phase": "P2",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-21T17:07:06Z",
+  "task": "T3"
+}

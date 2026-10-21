@@ -1,0 +1,115 @@
+{
+  "cleanup": "confirmed",
+  "confidential": false,
+  "container_observation": {
+    "exit_code": 0,
+    "oom_killed": false,
+    "status": "exited"
+  },
+  "deployable": false,
+  "experiment": {
+    "application": {
+      "abi_validated": false,
+      "after_inventory_sha256": "0c0fa880028029cf8ebc9f76b5707a0ca01f8ffa8a731d2feb50fef575d7a0d3",
+      "alternate_roots": "unchanged-excluded-from-import-contract",
+      "application_measurement_sha256": "52a15aafc3044821740c5d408e5fc44f6635bea36c30f5af51f5866120810440",
+      "base_image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+      "before_inventory_sha256": "e702e944656badc6e136f6ddcf51f6f0cb6694f262dfaeb84afca7c91c870b0c",
+      "classified_nonhost_assets": "four-exact-published-crosscompile-assets-not-host-abi",
+      "dependency_scope": "selected-exact-upstream-pins-only",
+      "deployable": false,
+      "engine_executed": false,
+      "generic_overlay_admission": "not-granted",
+      "git_sha": "3301cd4b4a93f24fc45befc15129148305e70601",
+      "hardware_validated": false,
+      "image": null,
+      "image_origin_verified": false,
+      "import_contract_sha256": "0d1905913990c11f6094981b1bcab2578b8f68b2eaa4805f60106e25c571b516",
+      "native_inventory_unchanged": true,
+      "packaging": {
+        "bytecode_executed": false,
+        "entrypoint_scope": "exact-upstream-map-only",
+        "listed_bytecode_policy": "unchanged",
+        "plugins_loaded": false,
+        "policy_sha256": "f45b654271ca89e35e2cd94c3aa338c6de83bf673e28a1a0e9c45a449183ff85",
+        "removal_plan_sha256": "210a50805b36797d06e1d17425f6eacba6f90f1e04aaa7c0560692c05ffb3b3f",
+        "removal_verified_before_patch": true,
+        "removed_unlisted_bytecode_files": 2879
+      },
+      "removed_bytecode_files": 2879,
+      "schema": "nib.engine-overlay/v1",
+      "scope": "exact-image-experimental-application-only",
+      "source_bundle_sha256": "5bc30ae64975d258dec8cf5eade897d38cdcdabfb405ef4408d87474ebb52792",
+      "stages": 5,
+      "startup_hooks": "unchanged-inert-only-under-isolated-no-site-bootstrap",
+      "status": "BLOCKED",
+      "wheel_record": "original-preserved-overlay-receipt-required"
+    },
+    "completion": null,
+    "confidential": false,
+    "deployable": false,
+    "engine_stopped": true,
+    "entry_pass": true,
+    "functional_pass": false,
+    "hardware": {
+      "attestation_verified": false,
+      "cc_feature": "enabled",
+      "cuda_driver": "13.2",
+      "devtools": "off",
+      "driver": "595.91.07",
+      "environment": "production",
+      "family": "B300",
+      "multigpu": "nvle",
+      "protected_kib": [
+        279661632,
+        279661632,
+        279661632,
+        279661632
+      ],
+      "selected_gpus": 4,
+      "status": "observed",
+      "system_ready": true
+    },
+    "schema": "nib.deepseek-lab-pre-serve/v1",
+    "stage": "complete",
+    "startup": {
+      "checkpoints": {
+        "last_id": 16,
+        "status": "eof"
+      },
+      "exception_diagnostic": null,
+      "exit_code": 0,
+      "health_probes": 0,
+      "outcome": "prepared",
+      "wait_ms": 26998
+    },
+    "status": "BLOCKED"
+  },
+  "experiment_step": "completed",
+  "functional_pass": false,
+  "image": {
+    "binding": "local-manifest-reference-platform-and-diffids",
+    "daemon_os_interpreter_trusted": true,
+    "docker_reported_id": "sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "local_config_bytes_rehashed": false,
+    "local_layers_rehashed": false,
+    "manifest_sha256": "6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "platform": "linux/amd64",
+    "raw_config_link_verified": true,
+    "raw_config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d"
+  },
+  "output_bytes": 2507,
+  "provenance": {
+    "config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d",
+    "git_sha": "3301cd4b4a93f24fc45befc15129148305e70601",
+    "image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "manifest_sha256": "b74ae635c35372cf6c350e4b33ef60c90ff01fe6426ad0fa7bc99b1982fe5bed",
+    "pack_revision": "1bae0e1088993b9b82de08f59de5be5a34e42170",
+    "payload_sha256": "9d1ec94a4ecb7b1d6c3141317ce3203cfa701eb60df184e1dbf4445d63d46718",
+    "receipt_sha256": "1199f53f7e21ccde679c4e0f187fac2eca52699276ca60c013beb8ec5aad481e",
+    "source_bundle_sha256": "5bc30ae64975d258dec8cf5eade897d38cdcdabfb405ef4408d87474ebb52792"
+  },
+  "result": "fail",
+  "stage": "completed",
+  "status": "BLOCKED"
+}
