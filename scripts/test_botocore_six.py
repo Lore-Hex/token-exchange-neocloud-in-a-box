@@ -81,20 +81,19 @@ POSITIVE = '''    import importlib
     assert moved is six_target and moved.__name__ == "six_target"
     assert importlib.import_module("botocore.vendored.six.moves.http_client") is moved
     assert tuple(sys.meta_path) == before
-    assert STATE["six_status"] == "active" and not STATE["six_pending"]
-    assert "_nib_register_botocore_six" not in vars(six)
+    assert STATE["six"]["botocore.vendored.six"]["status"] == "active"
+    assert not STATE["six"]["botocore.vendored.six"]["pending"]
+    assert "_nib_register_six" not in vars(six)
     assert flat.__spec__.loader.get_code(flat.__spec__.name) is None
     assert flat.__spec__.loader.get_source(flat.__spec__.name) is None
-    import six as canonical
-    assert canonical.VALUE == "unrelated-canonical"
     STATE["check"]()
 '''
-STICKY = '''    assert STATE["six_status"] == "failed"
+STICKY = '''    assert STATE["six"]["botocore.vendored.six"]["status"] == "failed"
     # Python returns cached modules without invoking finders. That must not
     # reset failure or permit the next guarded boundary/uncached virtual load.
     if "botocore.vendored.six" in sys.modules:
         importlib.import_module("botocore.vendored.six")
-        assert STATE["six_status"] == "failed"
+        assert STATE["six"]["botocore.vendored.six"]["status"] == "failed"
     try: STATE["check"]()
     except ValueError: pass
     else: raise AssertionError("failed adapter recovered")
@@ -106,29 +105,39 @@ STICKY = '''    assert STATE["six_status"] == "failed"
 '''
 
 
-class SixTests(unittest.TestCase):
+class SixFixture:
     setUp = lab.BootstrapTests.setUp
     run_fixture = lab.BootstrapTests.run_fixture
+    source_name = "botocore.vendored.six"
+
+    @property
+    def source_row(self):
+        return lab.bootstrap.SIX_SOURCES[self.source_name]
 
     def fixture(self, body=POSITIVE, source=SIX, target='VALUE = "target"\n'):
         sources = {
             "botocore/__init__.py": "",
             "botocore/vendored/__init__.py": "",
-            "botocore/vendored/six.py": source.ljust(34549),
-            "botocore-1.43.114.dist-info/METADATA": "Name: botocore\nVersion: 1.43.114\n",
             "six_target.py": target,
-            "six.py": 'VALUE = "unrelated-canonical"\n',
         }
+        pins = "\nSIX_NAMES=" + repr(NAMES) + "\n"
+        for name, row in lab.bootstrap.SIX_SOURCES.items():
+            text = (source if name == self.source_name else SIX).ljust(row["bytes"])
+            sources[row["path"]] = text
+            sources[row["distribution"] + "-" + row["version"] + ".dist-info/METADATA"] = (
+                "Name: " + row["distribution"] + "\nVersion: " + row["version"] + "\n")
+            pins += "SIX_SOURCES[" + repr(name) + "][\"sha256\"]=" + repr(hashlib.sha256(text.encode()).hexdigest()) + "\n"
         for name, text in sources.items():
             path = self.package / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
-        pins = ("\nSIX_SHA=" + repr(hashlib.sha256(sources[lab.bootstrap.SIX_PATH].encode()).hexdigest())
-                + "\nSIX_NAMES=" + repr(NAMES) + "\n").encode()
-        self.six_source = self.source + pins
+        self.six_source = self.source + pins.encode()
+        body = body.replace("botocore.vendored.six", self.source_name)
         self.six_driver = lab.DRIVER.replace("    import fake_engine", "    import fake_engine\n" + body)
         (self.root / "launch.py").write_bytes(self.six_source + self.six_driver.encode())
 
+
+class SixTests(SixFixture, unittest.TestCase):
     def test_virtual_aliases_in_fresh_spawn_grandchild_before_unpickle(self):
         self.fixture()
         row = self.run_fixture("positive")
@@ -155,10 +164,10 @@ moves = Moves(__name__ + ".moves")''')
         self.assertTrue(self.run_fixture("positive")["tracker"])
 
     def test_only_the_last_registration_call_is_changed(self):
-        raw = SIX.ljust(34549).encode()
-        with mock.patch.object(lab.bootstrap, "SIX_SHA", hashlib.sha256(raw).hexdigest()):
+        raw = SIX.ljust(self.source_row["bytes"]).encode()
+        with mock.patch.dict(self.source_row, {"sha256": hashlib.sha256(raw).hexdigest()}):
             with mock.patch.object(lab.bootstrap, "compile", create=True) as compile_mock:
-                lab.bootstrap.six_source_code(raw, "six.py", lab.helpers.require)
+                lab.bootstrap.six_source_code(raw, "six.py", self.source_name, lab.helpers.require)
                 actual = compile_mock.call_args.args[0]
             expected = ast.parse(raw, filename="six.py")
             call = expected.body[-1].value
@@ -166,11 +175,11 @@ moves = Moves(__name__ + ".moves")''')
             self.assertEqual(ast.dump(actual, include_attributes=True), ast.dump(expected, include_attributes=True))
             for invalid in (raw + b"\n", raw.replace(b"synthetic", b"DIFFERENT")):
                 with self.subTest(invalid=len(invalid)), self.assertRaises(ValueError):
-                    lab.bootstrap.six_source_code(invalid, "six.py", lab.helpers.require)
+                    lab.bootstrap.six_source_code(invalid, "six.py", self.source_name, lab.helpers.require)
 
     def test_unadapted_registration_still_fails_the_unchanged_finder_guard(self):
-        self.fixture('''    global SIX_MODULE
-    SIX_MODULE = "unadapted.fixture"
+        self.fixture('''    global SIX_SOURCES
+    SIX_SOURCES = {}
     import botocore.vendored.six
     assert len(sys.meta_path) == len(STATE["finders"]) + 1
     try: STATE["check"]()
@@ -190,7 +199,7 @@ moves = Moves(__name__ + ".moves")''')
             'six._importer.known_modules["botocore.vendored.six.moves.http_client"].mod = "private_target"',
             'six._importer.find_spec = lambda *args: None',
             'type(six._importer).find_spec = lambda *args: None',
-            'six._importer.name = "six"',
+            'six._importer.name = "unreviewed.six"',
             'six._importer = object()',
             'sys.modules["botocore.vendored.six"] = object()',
             'del sys.modules["botocore.vendored.six"]',
@@ -270,7 +279,7 @@ moves = Moves(__name__ + ".moves")''')
     except ValueError: pass
     else: raise AssertionError("changed source accepted")
 ''' + STICKY)
-        (self.package / lab.bootstrap.SIX_PATH).write_text('raise AssertionError("unverified source executed")\n')
+        (self.package / self.source_row["path"]).write_text('raise AssertionError("unverified source executed")\n')
         self.assertEqual(self.run_fixture("fresh"), {"rejected": True})
 
     def test_distribution_version_mismatch_is_sticky(self):
@@ -279,8 +288,9 @@ moves = Moves(__name__ + ".moves")''')
     except ValueError: pass
     else: raise AssertionError("wrong version accepted")
 ''' + STICKY)
-        (self.package / "botocore-1.43.114.dist-info/METADATA").write_text(
-            "Name: botocore\nVersion: 1.43.115\n")
+        row = self.source_row
+        (self.package / (row["distribution"] + "-" + row["version"] + ".dist-info/METADATA")).write_text(
+            "Name: " + row["distribution"] + "\nVersion: 0.0.0\n")
         self.assertEqual(self.run_fixture("fresh"), {"rejected": True})
 
     def test_shadow_source_outside_selected_path_is_sticky(self):
@@ -298,7 +308,7 @@ moves = Moves(__name__ + ".moves")''')
 
     def test_source_backed_bytecode_is_never_executed(self):
         self.fixture()
-        source = self.package / lab.bootstrap.SIX_PATH
+        source = self.package / self.source_row["path"]
         cache = Path(importlib.util.cache_from_source(str(source)))
         cache.parent.mkdir()
         cache.write_bytes(importlib.util.MAGIC_NUMBER
@@ -312,7 +322,7 @@ moves = Moves(__name__ + ".moves")''')
     except ValueError: pass
     else: raise AssertionError("sourceless bytecode accepted")
 ''' + STICKY)
-        source = self.package / lab.bootstrap.SIX_PATH
+        source = self.package / self.source_row["path"]
         source.with_suffix(".pyc").write_bytes(
             importlib.util.MAGIC_NUMBER + struct.pack("<III", 0, 0, 0)
             + marshal.dumps(compile('raise AssertionError("sourceless code executed")', str(source), "exec")))
@@ -323,11 +333,95 @@ moves = Moves(__name__ + ".moves")''')
         for name in ("botocore.vendored.six", "botocore.vendored.six.moves"):
             with self.subTest(name=name):
                 self.fixture()
+                name = name.replace("botocore.vendored.six", self.source_name)
                 prefix = 'import types\nsys.modules[' + repr(name) + ']=types.ModuleType("injected")\n'
                 (self.root / "launch.py").write_bytes(self.six_source + prefix.encode() + self.six_driver.encode())
                 result = subprocess.run([self.layout["wrapper"], "fresh"], cwd="/", capture_output=True, timeout=10)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(result.stdout, b"")
+
+
+class StandardSixTests(SixTests):
+    source_name = "six"
+
+    def test_shadow_source_outside_selected_path_is_sticky(self):
+        self.fixture('''    import importlib
+    try: importlib.import_module("botocore.vendored.six")
+    except ValueError: pass
+    else: raise AssertionError("shadow source accepted")
+''' + STICKY)
+        (self.package / "six.py").unlink()
+        (self.package / "setuptools/_vendor/six.py").write_text('raise AssertionError("shadow executed")\n')
+        self.assertEqual(self.run_fixture("fresh"), {"rejected": True})
+
+
+class CombinedSixTests(SixFixture, unittest.TestCase):
+    def test_only_two_pinned_sources_match_the_unchanged_finder_catalog(self):
+        cpu = lab.module("scripts/engine_cpu_entry.py")
+        self.assertEqual(set(lab.bootstrap.SIX_SOURCES), {"six", "botocore.vendored.six"})
+        for row in lab.bootstrap.SIX_SOURCES.values():
+            spec = next(item for item in cpu.FINDER_SPECS if item["installed"] == row["path"])
+            self.assertEqual((spec["bytes"], spec["sha256"]), (row["bytes"], row["sha256"]))
+
+    def test_both_modules_interleave_without_registering_or_sharing_virtual_packages(self):
+        for first, second in (("six", "botocore.vendored.six"), ("botocore.vendored.six", "six")):
+            with self.subTest(first=first):
+                self.fixture('''    import importlib
+    before = tuple(sys.meta_path)
+    first, second = ''' + repr((first, second)) + '''
+    one = importlib.import_module(first)
+    left = importlib.import_module(first + ".moves.urllib.parse")
+    two = importlib.import_module(second)
+    right = importlib.import_module(second + ".moves.urllib_parse")
+    assert one is not two and one.moves is not two.moves and left is not right
+    assert left is importlib.import_module(first + ".moves.urllib_parse")
+    assert right is importlib.import_module(second + ".moves.urllib.parse")
+    target = importlib.import_module(first + ".moves.http_client")
+    assert importlib.import_module(second + ".moves.http_client") is target
+    for name in (first, second):
+        assert STATE["six"][name]["status"] == "active"
+        assert not STATE["six"][name]["pending"]
+    assert STATE["six"][first]["registry_object"] is not STATE["six"][second]["registry_object"]
+    assert tuple(sys.meta_path) == before
+    STATE["check"]()
+''')
+                self.assertTrue(self.run_fixture("positive")["tracker"])
+
+    def test_cross_namespace_module_registry_and_alias_replacement_is_sticky(self):
+        for change in (
+            'sys.modules["botocore.vendored.six"] = other',
+            'six._importer = other._importer',
+            'six._importer.known_modules = other._importer.known_modules',
+            'sys.modules["botocore.vendored.six.moves"] = other.moves',
+        ):
+            with self.subTest(change=change):
+                self.fixture(POSITIVE + '''    other = importlib.import_module("six")
+    importlib.import_module("six.moves")
+    ''' + change + '''
+    try: STATE["check"]()
+    except ValueError: pass
+    else: raise AssertionError("cross-namespace replacement accepted")
+''' + STICKY)
+                self.assertEqual(self.run_fixture("fresh"), {"rejected": True})
+
+    def test_reload_in_either_namespace_after_both_loads_stays_failed(self):
+        for name in ("six", "six.moves", "botocore.vendored.six", "botocore.vendored.six.moves"):
+            with self.subTest(name=name):
+                self.fixture('''    import importlib
+    for name in ("six.moves", "botocore.vendored.six.moves"):
+        importlib.import_module(name)
+    try: importlib.reload(sys.modules[''' + repr(name) + '''])
+    except ValueError: pass
+    else: raise AssertionError("reload accepted")
+    try: STATE["check"]()
+    except ValueError: pass
+    else: raise AssertionError("shared guard recovered")
+    assert any(row["status"] == "failed" for row in STATE["six"].values())
+    assert tuple(sys.meta_path) == tuple(STATE["finders"])
+    print('{"rejected":true}')
+    raise SystemExit(0)
+''')
+                self.assertEqual(self.run_fixture("fresh"), {"rejected": True})
 
 
 if __name__ == "__main__":

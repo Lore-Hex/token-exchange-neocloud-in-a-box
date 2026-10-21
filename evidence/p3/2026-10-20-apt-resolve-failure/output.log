@@ -1,0 +1,29 @@
+{
+  "bootable": false,
+  "cleanup": "confirmed",
+  "config_sha256": "d32f7f89bbbe8b9686d9702a27835b48feaec78457a6671198e8c2aaebcaccf9",
+  "deployable": false,
+  "finished_at": "2026-10-20T18:52:08Z",
+  "git_sha": "03d52b4b078c8102b296e03603ec34c00c0c3401",
+  "image_archive_sha256": "6c64249d47cef04c2b029fab997edc8561d527b7000acd1e267b231ff50ab714",
+  "installable_verified": false,
+  "layer_sha256": "54443fb63ca3b8236520f4d34da26560eb30e19df0f819488c00bbb98f1b4c8d",
+  "result": "fail",
+  "schema": "nib.apt-container-run/v1",
+  "simulation": {
+    "bootable": false,
+    "deployable": false,
+    "git_sha": "03d52b4b078c8102b296e03603ec34c00c0c3401",
+    "guest_lock_sha256": "ea8a93155131f15d460f6b3c147063e672e718d027366ab6c53c4264066a8883",
+    "installable_verified": false,
+    "maintainer_scripts_executed": false,
+    "package_installation_executed": false,
+    "plan": null,
+    "result": "fail",
+    "schema": "nib.apt-simulation/v1",
+    "stage": "resolve",
+    "target_packages": 145
+  },
+  "stage": "complete",
+  "started_at": "2026-10-20T18:52:06Z"
+}

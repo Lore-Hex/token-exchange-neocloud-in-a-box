@@ -35,6 +35,18 @@ worker, tau, agg = runner.worker, runner.tau, runner.aggregate
 CANARY = "private-prompt-canary-do-not-retain"
 
 
+def selected_manifest():
+    return {"mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "digest": "sha256:6e13e65c55e33adf203d77ee371cf8bf5d81bd4902ef07565721f46bf44917af",
+            "size": 1752, "platform": {"os": "linux", "architecture": "amd64"}}
+
+
+def image_inspection():
+    return {"Id": selected_manifest()["digest"], "Descriptor": selected_manifest(),
+            "Os": "linux", "Architecture": "amd64", "Config": {},
+            "RepoDigests": ["python@" + runner.IMAGE_DIGEST]}
+
+
 def chosen(manifest):
     return runner.select(manifest, "airline", manifest["domains"]["airline"]["task_ids"][0], 0, "candidate")
 
@@ -380,7 +392,7 @@ class PreparationTests(unittest.TestCase):
                 worker.verify_tree(root, index, time.monotonic() + 5)
 
     def test_container_command_has_no_gpu_network_ports_credentials_or_pull(self):
-        args = runner.create_command("fixed", "a" * 32, Path("/private/payload"), "b" * 64, "sha256:" + "c" * 64)
+        args = runner.create_command("fixed", "a" * 32, Path("/private/payload"), "b" * 64)
         for key, value in (("--network", "none"), ("--cap-drop", "ALL"), ("--user", "65534:65534"),
                            ("--pull", "never"), ("--memory", "4g"), ("--cpus", "2"),
                            ("--log-driver", "none"), ("--runtime", "runc")):
@@ -391,6 +403,9 @@ class PreparationTests(unittest.TestCase):
         self.assertIn("LITELLM_LOCAL_MODEL_COST_MAP=True", args)
         self.assertNotIn("--gpus", args)
         self.assertNotIn("--publish", args)
+        self.assertEqual(args[args.index("--platform") + 1], "linux/amd64")
+        self.assertEqual(args[args.index("--entrypoint") + 2], runner.runtime.TARGET["image"])
+        self.assertNotIn(selected_manifest()["digest"], args)
 
     def test_result_validator_rejects_content_injection_or_false_pass(self):
         manifest = fixtures.manifest()
@@ -480,6 +495,45 @@ sys.exit(w['main']())
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_original_create_failure_preserves_historical_source_and_cleanup_uncertainty(self):
+        directory = ROOT / "evidence/p2/2026-10-20-tau-scripted-create-ce7ce3f"
+        documents = []
+        for name, sha in (("run.json", "c7b3690ced11075ba9706800a935507835dde1427a97a4367e4ba5879c20afe2"),
+                          ("output.log", "5883bb8df282a360437916fc336cdcf2211331d2e5eec71122acd18e8e5b77a7")):
+            raw = (directory / name).read_bytes()
+            self.assertEqual(tau.digest(raw), sha)
+            self.assertLessEqual(len(raw), 16384)
+            documents.append(json.loads(raw))
+        envelope, report = documents
+        revision = "ce7ce3ff46594941be9137450b255e97c521e5a8"
+        self.assertEqual(report["toolkit"]["git_sha"], revision)
+        self.assertEqual(report["plan_sha256"], "6f41147c008d73a580bbe3f6c8c4dbeff469e42453137b32e6130bf348671d66")
+        self.assertEqual((report["started_utc"], report["ended_utc"]),
+                         ("2026-10-20T20:37:28Z", "2026-10-20T20:37:29Z"))
+        self.assertEqual((report["stage"], report["cleanup"], report["result"]),
+                         ("create", "create-completion-unknown", "fail"))
+        self.assertIsNone(report["diagnostic"])
+        for key in ("cleanup_confirmed", "quality_accepted", "confidential", "live_transport"):
+            self.assertIs(report[key], False)
+        self.assertEqual(len(report["toolkit"]["files"]), 14)
+        checker = module("check-engine-candidate.py")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            for name, sha in report["toolkit"]["files"].items():
+                raw = checker.git(ROOT, "show", revision + ":" + name)
+                self.assertEqual(tau.digest(raw), sha)
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(raw)
+            # Only our exact historical host helpers; no wheels, upstream or Docker.
+            historical = types.ModuleType("historical_tau_create_failure")
+            historical.__file__ = str(root / "scripts/tau_trial.py")
+            exec(compile(Path(historical.__file__).read_bytes(), historical.__file__, "exec"), historical.__dict__)
+            self.assertEqual(report["image"], historical.runtime.TARGET["image"])
+            self.assertEqual(report["platform"], historical.runtime.TARGET["platform"])
+            self.assertEqual(envelope, historical.evidence_record(
+                revision, report["plan_sha256"], report["started_utc"], report))
+
     def test_authoritative_offline_schema_accepts_software_not_hardware_claim(self):
         recorder = module("record-engine-image.py")
         revision = recorder.checker.git(ROOT, "rev-parse", "HEAD").decode().strip()
@@ -493,11 +547,12 @@ class LifecycleTests(unittest.TestCase):
             self.assertEqual(json.loads((root / "evidence/run.json").read_bytes()), record)
 
     def info(self, args):
-        image = "sha256:" + "c" * 64
+        image = runner.runtime.TARGET["image"]
         name = args[args.index("--name") + 1]
         label = args[args.index("--label") + 1].split("=")
         mount = args[args.index("--mount") + 1]
-        return {"Name": "/" + name, "Image": image,
+        return {"Name": "/" + name, "Image": runner.IMAGE_DIGEST, "Platform": "linux",
+                "ImageManifestDescriptor": selected_manifest(),
                 "Config": {"Image": image, "Labels": {label[0]: label[1]}, "Entrypoint": ["/usr/bin/env"],
                            "Cmd": args[args.index(image) + 1:], "User": "65534:65534", "WorkingDir": "/scratch",
                            "Healthcheck": {"Test": ["NONE"]}, "Tty": False, "OpenStdin": False},
@@ -516,6 +571,46 @@ class LifecycleTests(unittest.TestCase):
     def test_create_timeout_late_daemon_and_inspection_timeout_cannot_certify_cleanup(self):
         self.exercise_lifecycle(("create_timeout", "create_late", "inspect_timeout"))
 
+    def test_explicit_platform_inspection_fails_closed_before_container_creation(self):
+        self.exercise_lifecycle(("image_unsupported_platform", "image_wrong_arch",
+                                 "image_wrong_digest", "image_volumes", "image_missing_descriptor",
+                                 "image_wrong_repository", "image_descriptor_mismatch"))
+
+    def test_container_identity_mismatch_cannot_start_or_certify_uncertain_create(self):
+        self.exercise_lifecycle(("container_index", "container_reference", "container_descriptor",
+                                 "container_missing_descriptor", "container_platform"))
+
+    def test_terminal_manifest_drift_cannot_pass_after_valid_creation(self):
+        self.exercise_lifecycle(("terminal_descriptor",))
+
+    def test_selected_manifest_checks_all_identity_fields_without_assuming_annotations(self):
+        image = image_inspection()
+        image["Descriptor"]["annotations"] = {"public-build-label": "ignored"}
+        expected = runner.check_image(image)
+        self.assertEqual(expected, selected_manifest())
+        mutations = {"mediaType": "application/vnd.oci.image.index.v1+json", "digest": "invalid",
+                     "size": True, "platform": {"os": "linux", "architecture": "arm64"}}
+        for key, value in mutations.items():
+            bad = copy.deepcopy(image)
+            bad["Descriptor"][key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                runner.check_image(bad)
+        for size in (0, -1, (1 << 20) + 1, "1752"):
+            bad = copy.deepcopy(image)
+            bad["Descriptor"]["size"] = size
+            with self.subTest(size=size), self.assertRaises(ValueError):
+                runner.check_image(bad)
+        for key in selected_manifest():
+            args = runner.create_command("fixed", "a" * 32, Path("/private/payload"), "b" * 64)
+            info = self.info(args)
+            changed = {"mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+                       "digest": "sha256:" + "f" * 64, "size": 1753,
+                       "platform": {"os": "linux", "architecture": "arm64"}}
+            info["ImageManifestDescriptor"][key] = changed[key]
+            with self.subTest(container_field=key), self.assertRaises(ValueError):
+                runner.check_container(info, "fixed", "a" * 32, Path("/private/payload"),
+                                       "b" * 64, expected)
+
     def exercise_lifecycle(self, failures):
         for failure in failures:
             with self.subTest(failure=failure):
@@ -532,7 +627,7 @@ class LifecycleTests(unittest.TestCase):
                 result = {"schema": "nib.tau-scripted-trial/v1", "stage": "completed", "completed": True,
                           "report": report, "accounting": accounting, "quality_accepted": False, "confidential": False,
                           "live_transport": False, "token_usage": "synthetic-not-tokenized", "upstream_executed": True}
-                state = {"exists": False, "queries": 0}
+                state = {"exists": False, "queries": 0, "inspections": 0}
                 calls = []
                 published = {}
                 def capture(argv, *, env, timeout, limit):
@@ -544,14 +639,35 @@ class LifecycleTests(unittest.TestCase):
                     config = json.loads((Path(env["DOCKER_CONFIG"]) / "config.json").read_bytes())
                     self.assertEqual(config, {"auths": {"https://index.docker.io/v1/": {}}})
                     if args[:2] == ["image", "inspect"]:
-                        return tau.encoded([{"Id": "sha256:" + "c" * 64, "Os": "linux", "Architecture": "amd64",
-                                             "RepoDigests": [runner.runtime.TARGET["image"]], "Config": {}}])
+                        self.assertEqual(args, ["image", "inspect", "--platform", "linux/amd64",
+                                                runner.runtime.TARGET["image"]])
+                        if failure == "image_unsupported_platform":
+                            raise ValueError(CANARY)
+                        image = image_inspection()
+                        if failure == "image_wrong_arch":
+                            image["Architecture"] = "arm64"
+                        if failure == "image_wrong_digest":
+                            image["RepoDigests"] = ["python@sha256:" + "f" * 64]
+                        if failure == "image_volumes":
+                            image["Config"]["Volumes"] = {"/unexpected": {}}
+                        if failure == "image_missing_descriptor":
+                            del image["Descriptor"]
+                        if failure == "image_wrong_repository":
+                            image["RepoDigests"] = ["unreviewed/python@" + runner.IMAGE_DIGEST]
+                        if failure == "image_descriptor_mismatch":
+                            image["Id"] = "sha256:" + "f" * 64
+                        return tau.encoded([image])
                     if args[0] == "create":
+                        # A selected member need not be locally addressable by ID.
+                        # The fixed, full index reference must reach the daemon.
+                        self.assertEqual(args[args.index("--entrypoint") + 2], runner.runtime.TARGET["image"])
+                        self.assertNotIn(selected_manifest()["digest"], args)
                         if failure in ("create_timeout", "create_late"):
                             raise TimeoutError(CANARY)
                         state.update(exists=True, info=self.info(args))
                         return b"d" * 64
                     if args[0] == "inspect":
+                        state["inspections"] += 1
                         if failure == "inspect_timeout":
                             raise TimeoutError(CANARY)
                         info = copy.deepcopy(state["info"])
@@ -559,6 +675,17 @@ class LifecycleTests(unittest.TestCase):
                             info["HostConfig"]["NetworkMode"] = "bridge"
                         if failure == "oom":
                             info["State"]["OOMKilled"] = True
+                        if failure == "container_index":
+                            info["Image"] = selected_manifest()["digest"]
+                        if failure == "container_reference":
+                            info["Config"]["Image"] = "python:latest"
+                        if failure == "container_missing_descriptor":
+                            del info["ImageManifestDescriptor"]
+                        if failure == "container_platform":
+                            info["ImageManifestDescriptor"]["platform"]["architecture"] = "arm64"
+                        if failure == "container_descriptor" or (failure == "terminal_descriptor"
+                                                                 and state["inspections"] == 2):
+                            info["ImageManifestDescriptor"]["digest"] = "sha256:" + "f" * 64
                         return tau.encoded([info])
                     if args[0] == "start":
                         if failure == "attach":
@@ -599,27 +726,32 @@ class LifecycleTests(unittest.TestCase):
                 envelope = json.loads(published["run.json"])
                 self.assertEqual(envelope["execution"], "software")
                 self.assertFalse(envelope["hardware_validated"])
-                uncertain = failure in ("create_timeout", "create_late", "inspect_timeout", "policy")
+                uncertain = failure in ("create_timeout", "create_late", "inspect_timeout", "policy") \
+                    or (failure or "").startswith("container_")
                 self.assertEqual(summary["cleanup_confirmed"], failure != "cleanup" and not uncertain)
                 self.assertEqual(summary["cleanup"], "create-completion-unknown" if uncertain else
                                  "failed" if failure == "cleanup" else "confirmed")
-                if failure in ("create_timeout", "create_late"):
+                if failure in ("create_timeout", "create_late") or (failure or "").startswith("image_"):
                     self.assertFalse(any(args[0] in ("inspect", "start", "rm") for args in calls))
                 else:
                     self.assertTrue(any(args[0] == "rm" for args in calls))
+                if (failure or "").startswith("image_"):
+                    self.assertFalse(any(args[0] == "create" for args in calls))
+                    self.assertEqual(summary["stage"], "image")
+                    self.assertIsNone(summary["diagnostic"])
                 if failure == "create_late":
                     self.assertTrue(state["exists"])
                     self.assertEqual(state["queries"], 2)
                     self.assertEqual(envelope["result"], "fail")
-                if failure == "policy":
+                if failure == "policy" or (failure or "").startswith("container_"):
                     self.assertFalse(any(args[0] == "start" for args in calls))
                 if failure == "output":
                     self.assertIsNone(summary["diagnostic"])
 
     def test_inspect_rejects_every_critical_container_policy_mutation(self):
-        args = runner.create_command("fixed", "a" * 32, Path("/private/payload"), "b" * 64, "sha256:" + "c" * 64)
+        args = runner.create_command("fixed", "a" * 32, Path("/private/payload"), "b" * 64)
         original = self.info(args)
-        runner.check_container(original, "fixed", "a" * 32, Path("/private/payload"), "b" * 64, "sha256:" + "c" * 64)
+        runner.check_container(original, "fixed", "a" * 32, Path("/private/payload"), "b" * 64, selected_manifest())
         changes = {"NetworkMode": "host", "ReadonlyRootfs": False, "Runtime": "nvidia", "CapDrop": [],
                    "Privileged": True, "Devices": [{"PathOnHost": "/dev/x"}], "DeviceRequests": [{"Count": -1}],
                    "PortBindings": {"80/tcp": [{}]}, "Memory": 0, "MemorySwap": 0, "NanoCpus": 0,
@@ -628,7 +760,7 @@ class LifecycleTests(unittest.TestCase):
             info = copy.deepcopy(original)
             info["HostConfig"][key] = value
             with self.assertRaises(ValueError):
-                runner.check_container(info, "fixed", "a" * 32, Path("/private/payload"), "b" * 64, "sha256:" + "c" * 64)
+                runner.check_container(info, "fixed", "a" * 32, Path("/private/payload"), "b" * 64, selected_manifest())
 
 
 if __name__ == "__main__":

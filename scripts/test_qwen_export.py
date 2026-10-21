@@ -497,6 +497,83 @@ class LifecycleTests(unittest.TestCase):
             self.assertEqual(output.read(), b"archive")
 
 
+class ProcessGroupCleanupTests(unittest.TestCase):
+    def process(self):
+        return Mock(pid=12345, stdout=Mock(), stderr=Mock(),
+                    wait=Mock(return_value=0))
+
+    def test_denied_signal_still_reaps_and_requires_independent_absence(self):
+        for failures in ((PermissionError(), ProcessLookupError()),
+                         (PermissionError(), PermissionError())):
+            process = self.process()
+            with self.subTest(failures=failures), \
+                    patch.object(container.snapshot.os, "killpg",
+                                 side_effect=[*failures, ProcessLookupError()]) as kill:
+                container.snapshot.cleanup_process_group(process)
+            self.assertEqual([call.args for call in kill.call_args_list], [
+                (12345, container.snapshot.signal.SIGTERM),
+                (12345, container.snapshot.signal.SIGKILL), (12345, 0)])
+            self.assertEqual(process.wait.call_count, 2)
+            for call in process.wait.call_args_list:
+                self.assertEqual(call.kwargs, {"timeout": 10})
+            process.stdout.close.assert_called_once()
+            process.stderr.close.assert_called_once()
+
+    def test_denied_absence_query_never_reports_cleanup_success(self):
+        process = self.process()
+        with patch.object(container.snapshot.os, "killpg",
+                          side_effect=[PermissionError(), PermissionError(), PermissionError()]), \
+                self.assertRaisesRegex(ValueError, "process-group absence unproven"):
+            container.snapshot.cleanup_process_group(process)
+        self.assertEqual(process.wait.call_count, 2)
+        process.stdout.close.assert_called_once()
+        process.stderr.close.assert_called_once()
+
+    def test_term_denial_and_wait_timeout_still_attempt_kill_and_reap(self):
+        process = self.process()
+        process.wait.side_effect = [subprocess.TimeoutExpired(["fixture"], 10), 0]
+        with patch.object(container.snapshot.os, "killpg",
+                          side_effect=[PermissionError(), None, ProcessLookupError()]) as kill:
+            container.snapshot.cleanup_process_group(process)
+        self.assertEqual(kill.call_args_list[1].args,
+                         (12345, container.snapshot.signal.SIGKILL))
+        self.assertEqual(process.wait.call_count, 2)
+        process.stdout.close.assert_called_once()
+        process.stderr.close.assert_called_once()
+
+    def test_unreaped_child_stays_failure_and_pipes_close(self):
+        process = self.process()
+        process.wait.side_effect = subprocess.TimeoutExpired(["fixture"], 10)
+        with patch.object(container.snapshot.os, "killpg", side_effect=PermissionError()) as kill, \
+                self.assertRaisesRegex(ValueError, "process-group absence unproven"):
+            container.snapshot.cleanup_process_group(process)
+        self.assertEqual(kill.call_count, 2)
+        self.assertEqual(process.wait.call_count, 2)
+        process.stdout.close.assert_called_once()
+        process.stderr.close.assert_called_once()
+
+    def test_surviving_descendant_stays_failure_after_child_reaped(self):
+        process = self.process()
+        with patch.object(container.snapshot.os, "killpg"), \
+                patch.object(container.snapshot.time, "monotonic", side_effect=[0, 5]), \
+                self.assertRaisesRegex(ValueError, "process-group absence unproven"):
+            container.snapshot.cleanup_process_group(process)
+        process.stdout.close.assert_called_once()
+        process.stderr.close.assert_called_once()
+
+    def test_output_failure_is_preserved_after_denied_signal_and_proven_cleanup(self):
+        process = self.process()
+        with patch.object(container.snapshot.subprocess, "Popen", return_value=process), \
+                patch.object(container.snapshot, "bounded_output",
+                             side_effect=ValueError("tool output limit exceeded")), \
+                patch.object(container.snapshot.os, "killpg",
+                             side_effect=[PermissionError(), ProcessLookupError(), ProcessLookupError()]), \
+                self.assertRaisesRegex(ValueError, "tool output limit exceeded"):
+            container.snapshot.execute_process_group(["fixture"], env={}, max_output_bytes=10)
+        process.stdout.close.assert_called_once()
+        process.stderr.close.assert_called_once()
+
+
 class RecorderTests(unittest.TestCase):
     def test_publication_requires_snapshot_schema_cleanup_and_evidence(self):
         for failure in (None, "snapshot", "schema", "cleanup", "evidence", "publication", "collision", "partial-cleanup"):

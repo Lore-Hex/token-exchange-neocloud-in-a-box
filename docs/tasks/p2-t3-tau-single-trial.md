@@ -1,5 +1,9 @@
 # P2.T3 scripted single-trial integration
 
+The separate [bounded parent transport prerequisite](p2-t3-tau-parent-transport.md)
+tests pipe framing and sole parent accounting without changing this scripted
+CLI or enabling live dispatch.
+
 Depends on PR84, reviewed head
 `ffcb4f91d68337b5a6e5908294ca62e6d58517dd`, and its
 [source/wheel closure](p2-t3-tau-runtime.md). This is a **synthetic integration
@@ -114,7 +118,19 @@ read-only rootfs, all capabilities dropped, no-new-privileges, 2 CPUs, 4 GiB
 memory/swap ceiling, 64 PIDs, and a 256 MiB noexec scratch tmpfs. No image pull
 is allowed. Docker uses a private credential-free config and an explicitly
 selected local Unix socket. Inspection rejects policy drift before start;
-normal completion requires no OOM, exit zero and stopped state. The owned
+image inspection explicitly selects the same `linux/amd64` platform as create.
+The [Docker inspection contract](https://docs.docker.com/reference/cli/docker/image/inspect/)
+requires API 1.49+ for `--platform`; unsupported daemons fail before create,
+without falling back to host-default inspection. A multi-platform digest can
+otherwise inspect the host's ARM member despite an AMD64 pull. The inspected
+member must still match the pinned repository digest, platform and no-volumes
+policy. Creation uses the unchanged **full immutable index reference**, not the
+platform inspection's `Id`. Both inspections must expose the selected OCI
+manifest descriptor; container inspection must match its digest, size, media
+type and exact `linux/amd64` platform, the pinned outer index in `Image`, and
+the requested full reference in `Config.Image`. Missing descriptors or a
+different image-store/API representation fail closed, with no legacy fallback.
+Normal completion requires no OOM, exit zero and stopped state. The owned
 container is force-removed and an independent label query must be empty.
 Create completion is uncertain from immediately before dispatch until exact
 owned-container inspection succeeds. Client timeout or failed inspection keeps
@@ -172,3 +188,55 @@ python3 -B -m unittest discover -s scripts -p 'test_tau*.py'
 
 An actual runtime report is still required to establish whether the selected
 wheel/source layout imports and runs successfully in the pinned image.
+
+## Image reference correction and retained failure
+
+The [unchanged original attempt](../../evidence/p2/2026-10-20-tau-scripted-create-ce7ce3f/run.json)
+at producer `ce7ce3ff46594941be9137450b255e97c521e5a8`,
+20:37:28-20:37:29 UTC, stopped at `create` with
+`cleanup=create-completion-unknown`. Its [original output](../../evidence/p2/2026-10-20-tau-scripted-create-ce7ce3f/output.log)
+has no trial diagnostic: no benchmark import or execution was established.
+Later empty label and historical-event queries are not original cleanup proof.
+The original client exception was suppressed; its exact message/cause was not
+recovered and is not inferred as a recorded fact. This fix does not reclassify
+the attempt. Tests verify both original byte hashes, all 14 historical toolkit
+source hashes and the producer's envelope; they do not reconstruct or execute
+the 74-wheel payload from the artifact alone.
+
+Separate read-only inspection on the local Docker 29.4.0 / API 1.54 daemon
+found platform-selected `Id` and `Descriptor.digest` both equal to
+`sha256:6e13e65c55e33adf203d77ee371cf8bf5d81bd4902ef07565721f46bf44917af`
+(OCI manifest, size 1752, `linux/amd64`). The full pinned index reference was
+locally addressable; that bare member ID was not. The source-backed correction
+uses the requested reference and keeps the explicit platform and `--pull never`.
+No container was created or run to develop the correction.
+
+The inspected daemon commit is
+[`daa0cb7f23594cdbcce5002e370027d3fd36ffd7`](https://github.com/moby/moby/commit/daa0cb7f23594cdbcce5002e370027d3fd36ffd7),
+not floating `master`. Its exact source chain is:
+
+- [`ImageInspect`](https://github.com/moby/moby/blob/daa0cb7f23594cdbcce5002e370027d3fd36ffd7/daemon/containerd/image_inspect.go):
+  explicit platform replaces the returned target with `multi.Best.Target()`;
+  both `Id` and `Descriptor` describe that member, while repository digests
+  still describe the outer image-store target.
+- [`GetImage` / `resolveImage`](https://github.com/moby/moby/blob/daa0cb7f23594cdbcce5002e370027d3fd36ffd7/daemon/containerd/image.go):
+  digest resolution searches image-store **target** digests and enforces the
+  repository for named digests. `GetImage` keeps the outer `img.Target.Digest`
+  as image ID and separately selects `ManifestDescriptor`.
+- [`dockerOciImageToDockerImagePartial`](https://github.com/moby/moby/blob/daa0cb7f23594cdbcce5002e370027d3fd36ffd7/daemon/containerd/imagespec.go)
+  passes that ID to `image.NewImage`;
+  [`create`](https://github.com/moby/moby/blob/daa0cb7f23594cdbcce5002e370027d3fd36ffd7/daemon/create.go)
+  stores both `img.ID()` and `img.Details.ManifestDescriptor`;
+  [`ContainerInspect`](https://github.com/moby/moby/blob/daa0cb7f23594cdbcce5002e370027d3fd36ffd7/daemon/inspect.go)
+  returns `Image` from the former and `ImageManifestDescriptor` from the latter.
+- The observed CLI commit
+  [`9d7ad9ff180b43ae5577d048a7bac1159ce7bacf`](https://github.com/docker/cli/blob/9d7ad9ff180b43ae5577d048a7bac1159ce7bacf/cli/command/container/create.go)
+  forwards the explicit platform and only pulls on the `always`/`missing`
+  branches, not `never`.
+  [`parse`](https://github.com/docker/cli/blob/9d7ad9ff180b43ae5577d048a7bac1159ce7bacf/cli/command/container/opts.go)
+  retains the input reference in `Config.Image`.
+
+This is trusted-local-daemon reference/descriptor consistency, not independent
+rehashing of config/layer bytes, Docker attestation, a successful tau trial or
+confidential qualification. No image pin, architecture, budget, network policy,
+cleanup uncertainty rule or upstream dependency closure is relaxed.
