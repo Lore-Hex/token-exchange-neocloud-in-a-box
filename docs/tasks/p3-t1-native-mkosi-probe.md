@@ -73,3 +73,16 @@ sysctl workaround. The future guest remains Ubuntu 24.04, and the pinned tools
 container still invokes Python 3.12. A build-host probe is not a guest change.
 Ubuntu 22.04 runners are entering deprecation, so this is a bounded diagnostic,
 not a durable release-builder commitment.
+
+## Native Ubuntu 22.04 Result
+
+[Run 39614110868](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39614110868)
+on `6e864bebbb123a79f063ca562bcd686b8ab5365c` passed the unchanged isolation
+checks at 2026-10-21 14:07:55 UTC. The original
+[evidence](../../evidence/p3/2026-10-21-native-mkosi-22-pass/run.json) confirms
+distinct namespaces, the fixed checker, source hashes and cleanup. The earlier
+24.04 failure remains recorded. This validates a native sandbox prerequisite,
+not a guest image or a reproducible host runtime.
+
+The next [pinned-tools probe](p3-t1-native-pinned-tools.md) replaces the host
+runtime inside the sandbox with the reconstructed Ubuntu 24.04 tools tree.

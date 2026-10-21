@@ -1,0 +1,34 @@
+{
+  "bootable": false,
+  "deployable": false,
+  "failure_kind": null,
+  "git_sha": "6e864bebbb123a79f063ca562bcd686b8ab5365c",
+  "host_runtime_pinned": false,
+  "maintainer_scripts_executed": false,
+  "mkosi_build_executed": false,
+  "mkosi_executed": true,
+  "namespaces_validated": true,
+  "package_installation_executed": false,
+  "payload_removed": true,
+  "payload_sha256": {
+    "LICENSES/GPL-2.0-only.txt": "ab15fd526bd8dd18a9e77ebc139656bf4d33e97fc7238cd11bf60e2b9b8666c6",
+    "LICENSES/LGPL-2.1-or-later.txt": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551",
+    "LICENSES/OFL-1.1.txt": "866747cbccae229433e946b90fcfc457b81c33ac89e593855770851354f9e6c3",
+    "LICENSES/PSF-2.0.txt": "ab745c5061d1dea43a3885e5b4b6befc7e983954954775c5736debeefcdfd89b",
+    "mkosi-sandbox.py": "b8d943a23b80158f96925e1ddee2ccbab6834cb3e15a3e3224172962292cb4a1",
+    "namespace-check.py": "5836e053fb4def73f683248e523992b4e39e3c03aff7ea7fc805382aabe2d985"
+  },
+  "process_cleanup_confirmed": true,
+  "result": "pass",
+  "schema": "nib.mkosi-native-probe/v1",
+  "source": {
+    "archive_sha256": "3d38e848f9b1108ec76d873f2c378dfc7d4b536ad89deffe8c97504f7a8dff43",
+    "files": 325,
+    "git_blob_correspondence": true,
+    "git_sha": "ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b",
+    "license_files_preserved": true,
+    "source_bytes": 1616290,
+    "upstream_executed": false
+  },
+  "stage": "complete"
+}
