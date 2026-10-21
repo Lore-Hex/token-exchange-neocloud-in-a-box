@@ -308,6 +308,59 @@ if __name__ == "__main__":
 '''
 
 
+class BoundarySiteTests(unittest.TestCase):
+    def test_every_process_boundary_rejects_at_a_distinct_source_site(self):
+        source = (ROOT / "scripts/engine_lab_bootstrap.py").read_bytes()
+        tree = ast.parse(source)
+        install = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "install_lab")
+        check = next(n for n in install.body if isinstance(n, ast.FunctionDef) and n.name == "check")
+        code = compile(ast.Module(body=[check], type_ignores=[]), "sealed-lab-source", "exec")
+        sites = set()
+        for mutation in ("none", "path", "executable", "spawn-executable", "start-method", "cwd",
+                         "pycache", "plugins", "worker-method", "numa", "pattern", "finders"):
+            fake_sys = types.SimpleNamespace(path=["/sealed"], executable="/wrapper", modules={},
+                                             pycache_prefix=None, meta_path=["sealed-finder"])
+            fake_os = types.SimpleNamespace(getcwd=lambda: "/", fsencode=os.fsencode,
+                environ={"VLLM_PLUGINS": "", "VLLM_WORKER_MULTIPROC_METHOD": "spawn"})
+            fake_mp = types.SimpleNamespace(get_start_method=lambda: "spawn")
+            fake_spawn = types.SimpleNamespace(get_executable=lambda: b"/wrapper")
+            state = {"opencv_status": "not-loaded", "six": {}, "pattern_module": None,
+                     "pattern_status": "not-registered", "finders": ["sealed-finder"]}
+            if mutation == "path": fake_sys.path = ["/private"]
+            elif mutation == "executable": fake_sys.executable = "/private"
+            elif mutation == "spawn-executable": fake_spawn.get_executable = lambda: b"/private"
+            elif mutation == "start-method": fake_mp.get_start_method = lambda: "fork"
+            elif mutation == "cwd": fake_os.getcwd = lambda: "/private"
+            elif mutation == "pycache": fake_sys.pycache_prefix = "/private"
+            elif mutation == "plugins": fake_os.environ["VLLM_PLUGINS"] = "private"
+            elif mutation == "worker-method": fake_os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "fork"
+            elif mutation == "numa": fake_os.environ["NUMACTL_PYTHON"] = "/private"
+            elif mutation == "pattern": state["pattern_status"] = "failed"
+            elif mutation == "finders": fake_sys.meta_path.append("private")
+
+            def reject():
+                raise ValueError("fixed category")
+
+            namespace = {"sys": fake_sys, "os": fake_os, "mp": fake_mp, "spawn": fake_spawn,
+                         "state": state, "layout": {"paths": ["/sealed"], "wrapper": "/wrapper"},
+                         "PATTERN_TARGET": bootstrap.PATTERN_TARGET, "reject": reject}
+            exec(code, namespace)
+            with self.subTest(mutation=mutation):
+                if mutation == "none":
+                    namespace["check"]()
+                    continue
+                try:
+                    namespace["check"]()
+                except ValueError as error:
+                    frame = error.__traceback__.tb_next
+                    self.assertEqual(frame.tb_frame.f_code.co_filename, "sealed-lab-source")
+                    self.assertNotIn(frame.tb_lineno, sites)
+                    sites.add(frame.tb_lineno)
+                else:
+                    self.fail("changed process boundary accepted")
+        self.assertEqual(len(sites), 11)
+
+
 class WorkerDiagnosticTests(unittest.TestCase):
     def test_caught_startup_observer_never_formats_content_and_preserves_factory(self):
         class Private:

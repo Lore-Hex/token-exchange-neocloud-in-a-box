@@ -63,3 +63,23 @@ Tests cover unformattable private message/exception objects, original factory
 delegation/restoration, wrong module/path/line, absent exception, source drift
 and observer failure. Hardware inference remains unproven; the next fresh
 bounded run must produce the underlying diagnostic or a successful result.
+
+## Process-boundary rejection
+
+The [bc54c085 trial](../../evidence/p2/2026-10-21-b300-process-boundary/run.json)
+captured the GPU worker's caught exception. Its
+[original packet](../../evidence/p2/2026-10-21-b300-process-boundary/output.log)
+ends at the lab launcher's `check()` compound process-state condition, then
+`reject()`: source SHA-256
+`bf8f4b91de36ed6d1b948a474051eaaeb2079ad03b4d9e9e6cc2e795295cca77`,
+lines 1440, 1023 and 997. All weights/application stages passed, no OOM
+occurred and cleanup was confirmed. There is still no inference result.
+
+That one source site represented eleven separate guards, so the receipt does
+not identify which state changed. Each existing predicate now has its own
+rejection source line. Evaluation order and rejection behavior remain the
+same; no path, environment value, exception text or module representation is
+exported. A test independently mutates every guard and proves all eleven
+reject at distinct source sites, while unchanged state passes. This only
+improves diagnosis; no upstream mutation has been admitted. A fresh bounded
+trial is required to identify the exact rejected condition.
