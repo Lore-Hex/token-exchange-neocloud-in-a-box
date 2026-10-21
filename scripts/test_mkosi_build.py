@@ -71,6 +71,7 @@ class BuildTests(unittest.TestCase):
     def test_root_launcher_bounds_child_and_closes_join_descriptor(self):
         child = mock.Mock(pid=123, returncode=0)
         child.wait.return_value = 0
+        child.poll.return_value = 0
         with mock.patch.object(launcher.os, "open", return_value=91) as opened, \
                 mock.patch.object(launcher.os, "close") as close, \
                 mock.patch.object(launcher.os, "killpg") as kill, \
@@ -82,7 +83,7 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(popen.call_args.kwargs["stderr"], subprocess.DEVNULL)
         self.assertTrue(popen.call_args.kwargs["start_new_session"])
         child.wait.assert_any_call(timeout=2500)
-        kill.assert_called_once_with(123, launcher.signal.SIGKILL)
+        kill.assert_not_called()
         close.assert_called_once_with(91)
         self.assertIn("os.setgroups([])", launcher.CHILD)
         self.assertLess(launcher.CHILD.index("os.close(fd)"), launcher.CHILD.index("os.setuid(uid)"))
@@ -90,6 +91,7 @@ class BuildTests(unittest.TestCase):
 
     def test_launcher_timeout_still_kills_and_waits(self):
         child = mock.Mock(pid=123)
+        child.poll.return_value = None
         child.wait.side_effect = [subprocess.TimeoutExpired([], 2500), 0]
         with mock.patch.object(launcher.os, "open", return_value=91), \
                 mock.patch.object(launcher.os, "close") as close, \

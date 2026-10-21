@@ -66,7 +66,7 @@ def launch(fd, uid, gid, arguments):
         return child.wait(timeout=2500)
     finally:
         os.close(procs)
-        if child is not None:
+        if child is not None and child.poll() is None:
             try:
                 os.killpg(child.pid, signal.SIGKILL)
             except ProcessLookupError:
