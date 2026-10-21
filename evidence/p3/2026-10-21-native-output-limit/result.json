@@ -1,0 +1,60 @@
+{
+  "bootable": false,
+  "deployable": false,
+  "failure_kind": "invalid-result-or-cleanup",
+  "git_sha": "0fb1cf790d70d778efe26b79dbbc7b46fc2f33e6",
+  "mapping_helper_hashes": {
+    "/usr/bin/newgidmap": "076d35f3dd11680a17725ea7b694715bc909182eeb930f1771ef0550e4779459",
+    "/usr/bin/newuidmap": "e26eed17f29ce6ee829855064b83f9ab20afdd9503ec4517f1ce8c1230bebaad"
+  },
+  "payload_removed": true,
+  "prepared_receipt_sha256": "4eff1f98c0edc679e607b4bedf3762cc7a02c35163a90f03ca8888d1d146b3e6",
+  "process_cleanup_confirmed": true,
+  "result": "fail",
+  "schema": "nib.mkosi-installation/v1",
+  "stage": "installation",
+  "tools_receipt_sha256": "8f8f935a5b0ee566283ddeb35b6b036ec087e0730fdfe66fd7b9b0d63f71d467",
+  "worker": {
+    "bootable": false,
+    "configured_state_verified": false,
+    "deployable": false,
+    "dkms_built": false,
+    "failure_frames": [
+      {
+        "line": 142,
+        "source": "build-worker"
+      },
+      {
+        "line": 60,
+        "source": "build-worker"
+      },
+      {
+        "line": 39,
+        "source": "process-supervisor"
+      },
+      {
+        "line": 124,
+        "source": "process-supervisor"
+      }
+    ],
+    "failure_kind": "output-limit",
+    "installed_packages": 0,
+    "installer_exit_code": null,
+    "output_limit_stream": "stderr",
+    "package_installation_executed": null,
+    "private_process_states": {
+      "D": 0,
+      "I": 0,
+      "R": 1,
+      "S": 0,
+      "T": 0,
+      "X": 0,
+      "Z": 0,
+      "t": 0
+    },
+    "reproducibility_verified": false,
+    "result": "fail",
+    "schema": "nib.mkosi-install-worker/v1",
+    "stage": "installation"
+  }
+}

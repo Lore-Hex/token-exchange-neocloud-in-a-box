@@ -63,8 +63,10 @@ def install(processes, output, report):
         # Only public package/source diagnostics occur in this isolated build.
         # Preserve the bounded prefix, never an exception message or locals.
         report["output_limit_stream"] = error.stream
-        (output / "installer.stdout").write_bytes(error.stdout)
-        (output / "installer.stderr").write_bytes(error.stderr)
+        if error.stdout:
+            (output / "installer.stdout").write_bytes(error.stdout)
+        if error.stderr:
+            (output / "installer.stderr").write_bytes(error.stderr)
         raise
     report["installer_exit_code"] = result.returncode
     if result.stdout:

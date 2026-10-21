@@ -92,6 +92,21 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(report, {"installer_exit_code": 1})
             self.assertEqual((output / "installer.stderr").read_bytes(), b"public failure")
 
+    def test_output_limit_empty_stream_does_not_block_other_artifact(self):
+        processes = host.base.processes
+        for stream in ("stdout", "stderr"):
+            stdout, stderr = ((b"public prefix", b"") if stream == "stdout" else (b"", b"public prefix"))
+            error = processes.OutputLimitExceeded(stream, stdout, stderr)
+            with self.subTest(stream=stream), tempfile.TemporaryDirectory() as temporary:
+                output = Path(temporary)
+                with mock.patch.object(processes, "execute_process_group", side_effect=error):
+                    with self.assertRaises(processes.OutputLimitExceeded):
+                        worker.install(processes, output, {})
+                self.assertEqual([p.name for p in output.iterdir()], ["installer." + stream])
+                # Exercise the actual host reader, which intentionally rejects
+                # empty artifacts instead of silently accepting bad evidence.
+                self.assertEqual(host.base.read(output / ("installer." + stream), 2 << 20), b"public prefix")
+
     def test_candidate_tools_alias_names_only_the_private_root(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
