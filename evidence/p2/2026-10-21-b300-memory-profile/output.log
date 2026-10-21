@@ -1,0 +1,194 @@
+{
+  "cleanup": "confirmed",
+  "confidential": false,
+  "container_observation": {
+    "exit_code": 0,
+    "oom_killed": false,
+    "status": "exited"
+  },
+  "deployable": false,
+  "experiment": {
+    "application": {
+      "abi_validated": false,
+      "after_inventory_sha256": "0c0fa880028029cf8ebc9f76b5707a0ca01f8ffa8a731d2feb50fef575d7a0d3",
+      "alternate_roots": "unchanged-excluded-from-import-contract",
+      "application_measurement_sha256": "52a15aafc3044821740c5d408e5fc44f6635bea36c30f5af51f5866120810440",
+      "base_image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+      "before_inventory_sha256": "e702e944656badc6e136f6ddcf51f6f0cb6694f262dfaeb84afca7c91c870b0c",
+      "classified_nonhost_assets": "four-exact-published-crosscompile-assets-not-host-abi",
+      "dependency_scope": "selected-exact-upstream-pins-only",
+      "deployable": false,
+      "engine_executed": false,
+      "generic_overlay_admission": "not-granted",
+      "git_sha": "97d906790f205e0d1cf57e2f7b051a2c69e4033c",
+      "hardware_validated": false,
+      "image": null,
+      "image_origin_verified": false,
+      "import_contract_sha256": "0d1905913990c11f6094981b1bcab2578b8f68b2eaa4805f60106e25c571b516",
+      "native_inventory_unchanged": true,
+      "packaging": {
+        "bytecode_executed": false,
+        "entrypoint_scope": "exact-upstream-map-only",
+        "listed_bytecode_policy": "unchanged",
+        "plugins_loaded": false,
+        "policy_sha256": "f45b654271ca89e35e2cd94c3aa338c6de83bf673e28a1a0e9c45a449183ff85",
+        "removal_plan_sha256": "210a50805b36797d06e1d17425f6eacba6f90f1e04aaa7c0560692c05ffb3b3f",
+        "removal_verified_before_patch": true,
+        "removed_unlisted_bytecode_files": 2879
+      },
+      "removed_bytecode_files": 2879,
+      "schema": "nib.engine-overlay/v1",
+      "scope": "exact-image-experimental-application-only",
+      "source_bundle_sha256": "b50e4e56a164aa271bd89c62667c43396a4f585b21b1a43ee0d82837a708c59e",
+      "stages": 5,
+      "startup_hooks": "unchanged-inert-only-under-isolated-no-site-bootstrap",
+      "status": "BLOCKED",
+      "wheel_record": "original-preserved-overlay-receipt-required"
+    },
+    "completion": null,
+    "confidential": false,
+    "correctness": null,
+    "deployable": false,
+    "engine_stopped": true,
+    "functional_pass": false,
+    "hardware": {
+      "attestation_verified": false,
+      "cc_feature": "enabled",
+      "cuda_driver": "13.2",
+      "devtools": "off",
+      "driver": "595.91.07",
+      "environment": "production",
+      "family": "B300",
+      "multigpu": "nvle",
+      "protected_kib": [
+        279661632,
+        279661632,
+        279661632,
+        279661632
+      ],
+      "selected_gpus": 4,
+      "status": "observed",
+      "system_ready": true
+    },
+    "schema": "nib.deepseek-lab-correctness-result/v2",
+    "stage": "startup",
+    "startup": {
+      "checkpoints": {
+        "last_id": 17,
+        "status": "eof"
+      },
+      "exception_diagnostic": {
+        "frames": [
+          {
+            "line": 175,
+            "source_sha256": "481f62779faa29b87a5b7a1f003a90b94eec81d84fbe6fd8e4e2e843297149bf"
+          },
+          {
+            "line": 167,
+            "source_sha256": "386b528a69029507f80a2df4d6df2a4fa6ba2ba811501dc3449ceea58b5cd90a"
+          },
+          {
+            "line": 175,
+            "source_sha256": "481f62779faa29b87a5b7a1f003a90b94eec81d84fbe6fd8e4e2e843297149bf"
+          },
+          {
+            "line": 1120,
+            "source_sha256": "386b528a69029507f80a2df4d6df2a4fa6ba2ba811501dc3449ceea58b5cd90a"
+          },
+          {
+            "line": 682,
+            "source_sha256": "386b528a69029507f80a2df4d6df2a4fa6ba2ba811501dc3449ceea58b5cd90a"
+          },
+          {
+            "line": 144,
+            "source_sha256": "8b7a477f978a8532852fd81e241c78182516bc4975d672d580a5848a76e11eb6"
+          },
+          {
+            "line": 1351,
+            "source_sha256": "8740c9af331597573d59941d3d65a58dbfd93c92f0144fd187b44bb25a6e4a2e"
+          },
+          {
+            "line": 1431,
+            "source_sha256": "8740c9af331597573d59941d3d65a58dbfd93c92f0144fd187b44bb25a6e4a2e"
+          }
+        ],
+        "observer_failed": false,
+        "source_unavailable": true,
+        "truncated": true,
+        "type": "runtime"
+      },
+      "exit_code": 1,
+      "health_probes": 262,
+      "outcome": "child-exited",
+      "wait_ms": 262102,
+      "worker_exception_diagnostic": {
+        "frames": [
+          {
+            "line": 315,
+            "source_sha256": "458fd729771681b124d3a4d5b1c575f689bf789a5e0c8cc9f5c524eb6ec84f87"
+          },
+          {
+            "line": 163,
+            "source_sha256": "dd5d531e592e675d17d10c7fa43ec3fbc7078fc494a762471bbb66825c55656f"
+          },
+          {
+            "line": 455,
+            "source_sha256": "948c15e09617b02e2d0746d9ee20b43168b083da71313d05f06b29a753f8570b"
+          },
+          {
+            "line": 99,
+            "source_sha256": "948c15e09617b02e2d0746d9ee20b43168b083da71313d05f06b29a753f8570b"
+          },
+          {
+            "line": 449,
+            "source_sha256": "8c6d5f09f7c535d40fa1c30ebfcb35e0601c2abf32286a82cf151af7ddf72473"
+          },
+          {
+            "line": 401,
+            "source_sha256": "8c6d5f09f7c535d40fa1c30ebfcb35e0601c2abf32286a82cf151af7ddf72473"
+          },
+          {
+            "line": 103,
+            "source_sha256": "948c15e09617b02e2d0746d9ee20b43168b083da71313d05f06b29a753f8570b"
+          },
+          {
+            "line": 444,
+            "source_sha256": "948c15e09617b02e2d0746d9ee20b43168b083da71313d05f06b29a753f8570b"
+          }
+        ],
+        "observer_failed": false,
+        "source_unavailable": false,
+        "truncated": true,
+        "type": "runtime"
+      }
+    },
+    "status": "BLOCKED"
+  },
+  "experiment_step": "completed",
+  "functional_pass": false,
+  "image": {
+    "binding": "local-manifest-reference-platform-and-diffids",
+    "daemon_os_interpreter_trusted": true,
+    "docker_reported_id": "sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "local_config_bytes_rehashed": false,
+    "local_layers_rehashed": false,
+    "manifest_sha256": "6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "platform": "linux/amd64",
+    "raw_config_link_verified": true,
+    "raw_config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d"
+  },
+  "output_bytes": 4363,
+  "provenance": {
+    "config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d",
+    "git_sha": "97d906790f205e0d1cf57e2f7b051a2c69e4033c",
+    "image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "manifest_sha256": "b74ae635c35372cf6c350e4b33ef60c90ff01fe6426ad0fa7bc99b1982fe5bed",
+    "pack_revision": "1bae0e1088993b9b82de08f59de5be5a34e42170",
+    "payload_sha256": "cf5250c01931109b19198f99455f36d0433ee24ebb3b2c92a5f44962b5f1a6d0",
+    "receipt_sha256": "789f8e0a15eda0194de708b20f875076e2963381bdbe764806eb7f7a0b363a38",
+    "source_bundle_sha256": "b50e4e56a164aa271bd89c62667c43396a4f585b21b1a43ee0d82837a708c59e"
+  },
+  "result": "fail",
+  "stage": "completed",
+  "status": "BLOCKED"
+}

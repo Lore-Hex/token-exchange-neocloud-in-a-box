@@ -886,11 +886,12 @@ def registry_entry(state, helpers):
 WORKER_LOG_MODULE = "vllm.v1.executor.multiproc_executor"
 WORKER_LOG_SOURCE = "vllm/v1/executor/multiproc_executor.py"
 WORKER_LOG_SHA256 = "948c15e09617b02e2d0746d9ee20b43168b083da71313d05f06b29a753f8570b"
+WORKER_LOG_SITES = frozenset((953, 959, 1000, 1063))
 
 
 @contextmanager
 def observed_worker_logs(state, helpers, observer):
-    """Observe the pinned startup catch before vLLM suppresses its exception."""
+    """Observe pinned worker catches before RPC transport stringifies errors."""
     import logging
     original = logging.getLogRecordFactory()
     path = state["layout"]["selected_root"] + "/" + WORKER_LOG_SOURCE
@@ -898,10 +899,10 @@ def observed_worker_logs(state, helpers, observer):
     def factory(*args, **kwargs):
         record = original(*args, **kwargs)
         try:
-            # vLLM 5df63a7, worker_main's startup-only logger.exception at 953.
+            # vLLM 5df63a7: startup, busy loop, async output and worker RPC catches.
             # Never format the message, arguments, exception or stack locals.
             if (type(record) is logging.LogRecord and record.name == WORKER_LOG_MODULE
-                    and record.pathname == path and record.lineno == 953
+                    and record.pathname == path and record.lineno in WORKER_LOG_SITES
                     and type(record.exc_info) is tuple and len(record.exc_info) == 3
                     and isinstance(record.exc_info[1], BaseException)):
                 raw = helpers.read_source(path, 2 << 20)
