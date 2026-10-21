@@ -128,9 +128,9 @@ class BuildTests(unittest.TestCase):
 
     def test_private_build_identity_does_not_require_or_inherit_host_accounts(self):
         with mock.patch.dict(os.environ, {"USER": "private-host-user", "LOGNAME": "private-host-login",
-                                          "SECRET": "private-secret"}, clear=True):
+                                          "SECRET": "private-secret", "TMPDIR": "/private-host-tmp"}, clear=True):
             environment = worker.installation_environment()
-        self.assertEqual(environment, {"PATH": "/usr/bin:/usr/sbin:/bin:/sbin", "HOME": "/tmp",
+        self.assertEqual(environment, {"PATH": "/usr/bin:/usr/sbin:/bin:/sbin", "HOME": "/tmp", "TMPDIR": "/tmp",
             "USER": "root", "LOGNAME": "root", "LANG": "C", "LC_ALL": "C",
             "PYTHONDONTWRITEBYTECODE": "1", "SOURCE_DATE_EPOCH": "1792454400"})
         with mock.patch("pwd.getpwuid", side_effect=KeyError("uid not found")) as passwd:
@@ -143,6 +143,19 @@ class BuildTests(unittest.TestCase):
             passwd.assert_not_called()
         environment["USER"] = "changed"
         self.assertEqual(worker.installation_environment()["USER"], "root")
+
+    def test_install_scratch_uses_existing_private_tmpfs_not_readonly_tools_root(self):
+        environment = worker.installation_environment()
+        # Exact selection expression in pinned mkosi run.py:vartmpdir, without
+        # importing upstream or executing its package hooks.
+        with mock.patch.dict(os.environ, environment, clear=True):
+            scratch = Path(os.getenv("TMPDIR", "/var/tmp")) / "mkosi-var-tmp-fixture"
+        self.assertEqual(scratch.parent, Path("/tmp"))
+        with mock.patch.object(host.os, "readlink", return_value="fixture-namespace"), \
+                mock.patch.object(host.probe.ownership, "prefix", return_value=[]):
+            command = host.command(Path("/private/tools"), Path("/private/payload"), Path("/private/output"), {})
+        self.assertIn(["--tmpfs", str(scratch.parent)], [command[i:i+2] for i in range(len(command)-1)])
+        self.assertIn(["--ro-bind", "/private/tools", "/"], [command[i:i+3] for i in range(len(command)-2)])
 
     def test_payload_rejection_reports_stage_and_never_executes_packages(self):
         def materialize(files, root):
