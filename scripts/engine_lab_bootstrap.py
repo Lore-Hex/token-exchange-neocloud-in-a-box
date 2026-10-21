@@ -59,6 +59,12 @@ OPENCV_SOURCES = {
 }
 OPENCV_NATIVE_SHA = "9e29605abcc31c9942d0e7dffc53b4ccaa601676c794327b0ea71a570a0c26c2"
 OPENCV_CALLBACKS = ("_nib_cv2_config", "_nib_cv2_paths", "_nib_cv2_native")
+# nvidia-cutlass-dsl-libs-core 4.8.0, public wheel SHA-256
+# b32716d2ed10c185cdbbb6b5c6fca26a3113a60e6e2fe4e2f0cb15966422b621.
+# Its compiler imports siblings relatively; do not expose them as top-level modules.
+CUTLASS_COMPILER = "cutlass.base_dsl.compiler"
+CUTLASS_SOURCE = "nvidia_cutlass_dsl/dsl_packages/cutlass/base_dsl/compiler.py"
+CUTLASS_SOURCE_SHA = "26a940ac92440a63561411b0818c3f88da363b1247ab54fcb5572d242d382c3b"
 SIX_NAMES = (
     "moves", "moves.BaseHTTPServer", "moves.CGIHTTPServer", "moves.SimpleHTTPServer",
     "moves._dummy_thread", "moves._thread", "moves.builtins", "moves.cPickle",
@@ -128,6 +134,18 @@ def pattern_env_code(raw, path, require):
     require(len(calls) == 1 and not calls[0].args and not calls[0].keywords)
     calls[0].func.id = PATTERN_REGISTER
     return compile(tree, path, "exec", flags=0, dont_inherit=True, optimize=0)
+
+
+def cutlass_compiler_code(raw, path, require):
+    """Omit one pinned global search-path append; preserve relative imports."""
+    require(hashlib.sha256(raw).hexdigest() == CUTLASS_SOURCE_SHA)
+    tree = ast.parse(raw, filename=path)
+    expected = ast.dump(ast.parse("sys.path.append(_SCRIPT_PATH)").body[0])
+    matches = [node for node in ast.walk(tree) if ast.dump(node) == expected]
+    require(len(matches) == 1 and matches[0] in tree.body)
+    index = tree.body.index(matches[0])
+    tree.body[index] = ast.copy_location(ast.Pass(), matches[0])
+    return compile(ast.fix_missing_locations(tree), path, "exec", flags=0, dont_inherit=True, optimize=0)
 
 
 def vecisa_library(args, layout, helpers):
@@ -203,6 +221,7 @@ def install_lab(layout, helpers, checkpoint=None):
     require(not any(name == "vllm" or name.startswith("vllm.") or name == "torch" for name in sys.modules)
             and not any(name == "cv2" or name.startswith("cv2.") for name in sys.modules)
             and PATTERN_TARGET not in sys.modules
+            and CUTLASS_COMPILER not in sys.modules
             and not any(name == source or name.startswith(source + ".")
                         for name in sys.modules for source in SIX_SOURCES)
             and not {"sitecustomize", "usercustomize"} & set(sys.modules)
@@ -398,6 +417,21 @@ def install_lab(layout, helpers, checkpoint=None):
             # modules; the application separately rejects stale candidate caches.
             raw = helpers.read_source(self.path, 16 << 20)
             return compile(raw, self.path, "exec", flags=0, dont_inherit=True, optimize=0)
+
+    class CutlassSource(SourceOnly):
+        def get_code(self, fullname):
+            check()
+            require(fullname == CUTLASS_COMPILER and self.path == selected + "/" + CUTLASS_SOURCE)
+            return cutlass_compiler_code(helpers.read_source(self.path, 128 << 10), self.path, require)
+
+        def exec_module(self, module):
+            check()
+            require(module.__name__ == CUTLASS_COMPILER and sys.modules.get(CUTLASS_COMPILER) is module
+                    and module.__spec__.loader is self)
+            from importlib import metadata
+            require(metadata.version("nvidia-cutlass-dsl-libs-core") == "4.8.0")
+            exec(self.get_code(module.__name__), module.__dict__)
+            check()
 
     def register_metadata(cls):
         # The pinned backport's install decorator otherwise adds an unrestricted
@@ -741,6 +775,12 @@ def install_lab(layout, helpers, checkpoint=None):
                 return spec
             try:
                 spec = importlib.machinery.PathFinder.find_spec(fullname, path, target)
+                if fullname == CUTLASS_COMPILER:
+                    require(target is None and spec is not None
+                            and type(spec.loader) is importlib.machinery.SourceFileLoader
+                            and spec.origin == selected + "/" + CUTLASS_SOURCE)
+                    spec.loader = CutlassSource(fullname, spec.origin)
+                    return spec
                 if fullname == "cv2":
                     require(state["opencv_status"] == "not-loaded" and target is None
                             and spec is not None and type(spec.loader) is importlib.machinery.SourceFileLoader

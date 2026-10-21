@@ -83,3 +83,6 @@ exported. A test independently mutates every guard and proves all eleven
 reject at distinct source sites, while unchanged state passes. This only
 improves diagnosis; no upstream mutation has been admitted. A fresh bounded
 trial is required to identify the exact rejected condition.
+
+The following trial identified the changed path and its pinned CuTe compiler
+source. See the [source-backed compatibility fix](p2-t3-cutlass-compiler.md).
