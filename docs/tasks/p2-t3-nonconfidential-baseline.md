@@ -4,10 +4,14 @@ An explicit `--prepare-nonconfidential-baseline` option prepares the existing
 bounded local-correctness experiment for four selected B200 GPUs whose NVML
 settings affirmatively report CC disabled. This is part of P2's ordinary-GPU
 functional testing, not a confidential fallback or a production profile.
+The separate `--prepare-nonconfidential-baseline-b300` option selects four B300
+devices with a 200 GiB per-device memory floor. Both the family and security
+profile are hash-bound in the prepared contract and checked in the container
+and host result validator; neither is inferred or downgraded automatically.
 
 The default B200 and B300 CC profiles are unchanged. They still reject
 disabled CC, unknown modes, debug mode and unready devices. The new source-bound
-`gpu_security` field is allowed only for B200 local correctness. Missing means
+`gpu_security` field is allowed only for B200/B300 local correctness. Missing means
 the original confidential profile; unknown values reject. No auto-selection,
 retry into a weaker mode, GPU setter or readiness mutation is added.
 
@@ -30,6 +34,10 @@ GPU name or CUDA image label substitutes for these runtime checks.
 ```sh
 python3 -I -S host/record-deepseek-lab.py \
   --prepare-nonconfidential-baseline /absolute/private/baseline-bundle
+
+# Use only for an explicitly approved B300 ordinary-GPU experiment.
+python3 -I -S host/record-deepseek-lab.py \
+  --prepare-nonconfidential-baseline-b300 /absolute/private/b300-baseline-bundle
 ```
 
 Execute the prepared bundle through the same documented recorder and private

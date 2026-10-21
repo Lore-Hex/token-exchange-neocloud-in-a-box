@@ -1048,7 +1048,7 @@ class HardwareTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     probe.NVML().observe(nonconfidential=value)
             with self.assertRaises(ValueError):
-                probe.NVML().observe("B300", nonconfidential=True)
+                probe.NVML().observe("H200", nonconfidential=True)
         for symbol in ("nvmlSystemGetConfComputeSettings", "nvmlDeviceGetMemoryInfo", "nvmlShutdown"):
             with self.subTest(symbol=symbol), mock.patch.object(probe.c, "CDLL", return_value=
                     DiagnosticTests().library(feature=0, environment=0, multigpu=0, codes={symbol: 3})):
@@ -1059,10 +1059,49 @@ class HardwareTests(unittest.TestCase):
         self.assertEqual(probe.security_profile({}), "confidential")
         contract = {"operation": "local-correctness", "gpu_security": "nonconfidential"}
         self.assertEqual(probe.security_profile(contract), "nonconfidential")
+        self.assertEqual(probe.security_profile({**contract, "gpu_family": "B300"}), "nonconfidential")
         for change in ({"operation": "functional"}, {"operation": "hardware-diagnostic"},
-                       {"gpu_family": "B300"}, {"gpu_security": None}, {"gpu_security": "auto"}):
+                       {"gpu_family": "H200"}, {"gpu_family": []},
+                       {"gpu_security": None}, {"gpu_security": "auto"}):
             with self.assertRaises(ValueError):
                 probe.security_profile({**contract, **change})
+
+    def test_b300_nonconfidential_family_and_memory_are_bound(self):
+        library = DiagnosticTests().library(feature=0, environment=0, multigpu=0,
+                                            name=b"NVIDIA B300", memory=250 << 20)
+        library.nvmlSystemGetConfComputeGpusReadyState = mock.Mock(side_effect=AssertionError("readiness"))
+        library.nvmlDeviceGetConfComputeMemSizeInfo = mock.Mock(side_effect=AssertionError("protected"))
+        with mock.patch.object(probe.c, "CDLL", return_value=library):
+            raw = probe.NVML().observe("B300", nonconfidential=True)
+        row = probe.validate_nonconfidential(raw, family="B300")
+        self.assertEqual(row["family"], "B300")
+        self.assertEqual(row["total_kib"], [250 << 20] * 4)
+        self.assertFalse(row["attestation_verified"])
+        self.assertNotIn("protected_kib", row)
+        library.nvmlSystemGetConfComputeGpusReadyState.assert_not_called()
+        library.nvmlDeviceGetConfComputeMemSizeInfo.assert_not_called()
+        for validator, value, kwargs in (
+                (probe.validate_nonconfidential, raw, {}),
+                (probe.validate_nonconfidential_report, row, {}),
+                (probe.validate, raw, {"family": "B300"}),
+                (probe.validate_report, row, {"family": "B300"})):
+            with self.subTest(validator=validator.__name__), self.assertRaises(ValueError):
+                validator(value, **kwargs)
+        for device in ({"b300": False, "total_kib": 250 << 20},
+                       {"b200": True, "total_kib": 250 << 20},
+                       {"b300": True, "total_kib": 199 << 20},
+                       {"b300": True, "total_kib": True}):
+            changed = copy.deepcopy(raw)
+            changed["devices"][0] = device
+            with self.subTest(device=device), self.assertRaises(ValueError):
+                probe.validate_nonconfidential(changed, family="B300")
+        with mock.patch.object(lab, "GPU_PROBE", probe, create=True), \
+                mock.patch.object(lab, "quiet_command", return_value=json.dumps(row).encode()):
+            self.assertEqual(lab.hardware("B300", "nonconfidential"), row)
+            with self.assertRaises(ValueError):
+                lab.hardware("B200", "nonconfidential")
+            with self.assertRaises(ValueError):
+                lab.hardware("B300", "confidential")
 
 
 class DiagnosticTests(unittest.TestCase):
@@ -1362,7 +1401,7 @@ class PayloadTests(unittest.TestCase):
         self.assertFalse(contract["deployable"])
         for operation, family, security in (("functional", "B200", "nonconfidential"),
                 ("hardware-diagnostic", "B200", "nonconfidential"),
-                ("local-correctness", "B300", "nonconfidential"),
+                ("local-correctness", "H200", "nonconfidential"),
                 ("local-correctness", "B200", None), ("local-correctness", "B200", "auto")):
             with self.subTest(operation=operation, family=family, security=security), self.assertRaises(ValueError):
                 host.make_payload(*args, operation, family, security)
@@ -1384,6 +1423,49 @@ class PayloadTests(unittest.TestCase):
             command = host.create_command("owned", "owner", root, "/weights", contract, {"config": {"Env": []}})
             self.assertEqual(command[command.index("--network") + 1], "none")
             self.assertNotIn("--privileged", command)
+
+    def test_b300_baseline_payload_and_result_keep_security_and_family_separate(self):
+        args = (self.builder, "1" * 40, self.bundle, self.extra, b"fake-linux-binary")
+        cc_files, cc_contract = host.make_payload(*args, "local-correctness", "B300")
+        files, contract = host.make_payload(*args, "local-correctness", "B300", "nonconfidential")
+        self.assertEqual(contract, {**cc_contract, "gpu_security": "nonconfidential"})
+        self.assertEqual({k for k in files if files[k] != cc_files[k]}, {"lab.json", "python"})
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / "payload").mkdir()
+            (root / "payload/probe.py").write_bytes(files["probe.py"])
+            raw = HardwareTests().raw()
+            raw.update(feature=0, environment=0, multigpu=0, ready=None,
+                       devices=[{"b300": True, "total_kib": 250 << 20} for _ in range(4)])
+            row = {"schema": "nib.deepseek-lab-correctness-result/v1", "status": "BLOCKED",
+                   "deployable": False, "confidential": False, "functional_pass": False, "stage": "weights",
+                   "hardware": probe.validate_nonconfidential(raw, family="B300"), "application": None,
+                   "completion": None, "correctness": None, "startup": None, "engine_stopped": False}
+            host.validate_result(row, root, contract, None)
+            for changed in (cc_contract, {**contract, "gpu_family": "B200"}):
+                with self.assertRaises(ValueError):
+                    host.validate_result(row, root, changed, None)
+
+    def test_prepare_cli_profiles_remain_explicit_and_mutually_exclusive(self):
+        cases = {
+            "--prepare": ("functional", "B200", "confidential"),
+            "--prepare-hardware-diagnostic": ("hardware-diagnostic", "B200", "confidential"),
+            "--prepare-local-correctness": ("local-correctness", "B200", "confidential"),
+            "--prepare-local-correctness-b300": ("local-correctness", "B300", "confidential"),
+            "--prepare-nonconfidential-baseline": ("local-correctness", "B200", "nonconfidential"),
+            "--prepare-nonconfidential-baseline-b300": ("local-correctness", "B300", "nonconfidential"),
+        }
+        for option, profile in cases.items():
+            with self.subTest(option=option), mock.patch.object(host, "prepare") as prepare, \
+                    mock.patch.object(sys, "argv", [host.SCRIPT, option, "/private/bundle"]):
+                self.assertEqual(host.main(), 0)
+                prepare.assert_called_once_with("/private/bundle", *profile)
+        for args in (["--prepare-nonconfidential-baseline-b300", "/private/bundle", "--prepare", "/other"],
+                     ["--prepare-nonconfidential-baseline-b300", "/private/bundle", "--weights", "/weights"]):
+            with mock.patch.object(host, "prepare") as prepare, \
+                    mock.patch.object(sys, "argv", [host.SCRIPT, *args]), self.assertRaises(ValueError):
+                host.main()
+            prepare.assert_not_called()
 
     def test_diagnostic_main_publishes_failed_nvml_observations_with_authoritative_schema(self):
         recorder = self.builder.recorder
