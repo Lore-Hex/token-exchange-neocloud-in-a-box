@@ -19,6 +19,7 @@ ROOT = Path(__file__).absolute().parent.parent
 HELPER = "scripts/prepare_mkosi_tools.py"
 SCRIPT = "scripts/prepare_mkosi_probe.py"
 WORKER = "scripts/mkosi_tools_probe.py"
+RUNNER = "host/probe-mkosi-tools.py"
 
 
 def bootstrap():
@@ -44,6 +45,10 @@ def bootstrap():
 
 prep, HELPER_SOURCE = bootstrap()
 tools, base, require = prep.tools, prep.base, prep.require
+
+
+def committed():
+    return tools.committed((*prep.mkosi.EXTRA, HELPER, prep.POLICY, SCRIPT, WORKER, RUNNER))
 
 
 def build(inputs, revision, sources):
@@ -92,7 +97,7 @@ def main():
     args = parser.parse_args()
     if args.output:
         tools.separate_output(args.output, (args.inputs,))
-    revision, sources = tools.committed((*prep.mkosi.EXTRA, HELPER, prep.POLICY, SCRIPT, WORKER))
+    revision, sources = committed()
     require(sources[HELPER] == HELPER_SOURCE and sources[prep.HELPER] == prep.HELPER_SOURCE
             and sources[tools.FILES[0]] == prep.mkosi.TOOLS_SOURCE)
     files, report = build(args.inputs, revision, sources)
