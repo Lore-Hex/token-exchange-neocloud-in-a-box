@@ -107,3 +107,31 @@ Sources: the existing [tools lock and archive review](p3-t1-mkosi-build-inputs.m
 and [Debian repository by-hash format](https://wiki.debian.org/DebianRepository/Format#A.22by-hash.22_acquisition).
 
 Tests: `python -B -m unittest discover -s scripts -p 'test_native_tools.py'`.
+# PID Procfs Mount Order
+
+The source-bound diagnostic on main `ed5ab563149c26abf60177b0fce22f646526633a`
+failed before worker execution with `unshare-permission-denied`. Cleanup and
+payload removal passed. Original evidence is retained under
+`evidence/p3/2026-10-21-native-pid-permission-denied/`. It does not identify the
+exact denied syscall or establish any successful PID isolation.
+
+The previous command retained only `/proc/self/ns` after pivoting into its
+tools root. Linux's [mnt_already_visible and mount_too_revealing checks](https://github.com/torvalds/linux/blob/v6.8/fs/namespace.c#L4981-L5061)
+reject a new procfs in an unprivileged mount namespace when no complete procfs
+is already visible. A subtree bind does not satisfy that condition. This is a
+source-backed explanation to test, not a claim of kernel tracing from the run.
+
+PID mode now gives the pinned util-linux launcher a read-only complete `/proc`
+bind, then requires `unshare --pid --fork --mount-proc=/proc --kill-child=KILL`
+to replace it before executing the fixed worker. There is no caller command,
+shell, package installation, or automatic non-PID retry in between. The worker
+still rejects unless its PID is 1, parent is 0, PID namespace differs from the
+host, procfs contains only process 1, and all existing namespace/readonly/network
+checks pass before any tool invocation. The non-PID mode retains its narrower
+namespace-only bind. No host policy, capability, or privilege setting changes.
+
+This is not yet a general-purpose hostile-workload sandbox: the trusted launcher
+temporarily sees host procfs, and worker namespace root can administer its own
+mounts. Installation requires a separately qualified final mount/capability
+boundary, UID ownership and resource limits. Actual execution must prove this
+candidate before any installation or image qualification claim.
