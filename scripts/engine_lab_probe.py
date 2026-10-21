@@ -46,9 +46,10 @@ class DeviceMemory(c.Structure):
 
 def security_profile(contract):
     profile = contract.get("gpu_security", "confidential")
+    family = contract.get("gpu_family", "B200")
     require(profile in ("confidential", "nonconfidential"))
     require(profile == "confidential" or (contract.get("operation") == "local-correctness"
-            and contract.get("gpu_family", "B200") == "B200"))
+            and type(family) is str and family in MEMORY_FLOORS))
     return profile
 
 
@@ -96,7 +97,7 @@ class NVML:
 
     def observe(self, family="B200", *, nonconfidential=False):
         key = family_key(family)
-        require(type(nonconfidential) is bool and (not nonconfidential or family == "B200"))
+        require(type(nonconfidential) is bool)
         self.call("nvmlInit_v2")
         try:
             count = c.c_uint()
@@ -189,7 +190,8 @@ def validate_report(row, *, family="B200"):
     return row
 
 
-def validate_nonconfidential(raw):
+def validate_nonconfidential(raw, *, family="B200"):
+    key = family_key(family)
     require(type(raw) is dict and set(raw) == {"feature", "environment", "devtools", "multigpu", "ready",
                                              "devices", "driver", "cuda_driver"})
     require(all(type(raw[k]) is int and raw[k] == 0 for k in ("feature", "environment", "devtools", "multigpu"))
@@ -197,27 +199,28 @@ def validate_nonconfidential(raw):
             and 13000 <= raw["cuda_driver"] <= 99999
             and type(raw["devices"]) is list and len(raw["devices"]) == 4)
     for row in raw["devices"]:
-        require(type(row) is dict and set(row) == {"b200", "total_kib"} and row["b200"] is True)
+        require(type(row) is dict and set(row) == {key, "total_kib"} and row[key] is True)
     return validate_nonconfidential_report({
-        "status": "observed", "selected_gpus": 4, "family": "B200", "cc_feature": "disabled",
+        "status": "observed", "selected_gpus": 4, "family": family, "cc_feature": "disabled",
         "environment": "unavailable", "devtools": "off", "multigpu": "none", "system_ready": None,
         "driver": raw["driver"], "cuda_driver": f"{raw['cuda_driver'] // 1000}.{(raw['cuda_driver'] % 1000) // 10}",
-        "total_kib": [d["total_kib"] for d in raw["devices"]], "attestation_verified": False})
+        "total_kib": [d["total_kib"] for d in raw["devices"]], "attestation_verified": False}, family=family)
 
 
-def validate_nonconfidential_report(row):
+def validate_nonconfidential_report(row, *, family="B200"):
+    family_key(family)
     require(type(row) is dict and set(row) == {"status", "selected_gpus", "family", "cc_feature", "environment",
                                              "devtools", "multigpu", "system_ready", "driver", "cuda_driver",
                                              "total_kib", "attestation_verified"})
     require(row["status"] == "observed" and type(row["selected_gpus"]) is int and row["selected_gpus"] == 4
-            and row["family"] == "B200" and row["cc_feature"] == "disabled" and row["environment"] == "unavailable"
+            and row["family"] == family and row["cc_feature"] == "disabled" and row["environment"] == "unavailable"
             and row["devtools"] == "off" and row["multigpu"] == "none" and row["system_ready"] is None
             and row["attestation_verified"] is False
             and type(row["driver"]) is str and re.fullmatch(r"[0-9]{3}\.[0-9]{1,3}(?:\.[0-9]{1,3})?", row["driver"])
             and type(row["cuda_driver"]) is str and re.fullmatch(r"[0-9]{2}\.[0-9]", row["cuda_driver"])
             and float(row["cuda_driver"]) >= 13
             and type(row["total_kib"]) is list and len(row["total_kib"]) == 4
-            and all(type(n) is int and MEMORY_FLOORS["B200"] <= n <= 1 << 30 for n in row["total_kib"]))
+            and all(type(n) is int and MEMORY_FLOORS[family] <= n <= 1 << 30 for n in row["total_kib"]))
     return row
 
 

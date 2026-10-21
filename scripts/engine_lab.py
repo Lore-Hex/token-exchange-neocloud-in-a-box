@@ -229,8 +229,7 @@ def quiet_command(argv, timeout, *, output=False):
 def hardware(family="B200", security="confidential"):
     raw = quiet_command([ROOT + "/python", "probe"], 15, output=True)
     if security == "nonconfidential":
-        require(family == "B200")
-        return GPU_PROBE.validate_nonconfidential_report(json.loads(raw))
+        return GPU_PROBE.validate_nonconfidential_report(json.loads(raw), family=family)
     require(security == "confidential")
     return GPU_PROBE.validate_report(json.loads(raw), family=family)
 
@@ -559,7 +558,8 @@ def lab_entry():
                      "wrapper": ROOT + "/python", "launcher": ROOT + "/launch.py"}, sys.modules[__name__])
         family = contract.get("gpu_family", "B200")
         if GPU_PROBE.security_profile(contract) == "nonconfidential":
-            observation = GPU_PROBE.validate_nonconfidential(GPU_PROBE.NVML().observe(family, nonconfidential=True))
+            observation = GPU_PROBE.validate_nonconfidential(
+                GPU_PROBE.NVML().observe(family, nonconfidential=True), family=family)
         else:
             observation = GPU_PROBE.validate(GPU_PROBE.NVML().observe(family), family=family)
         print(json.dumps(observation, sort_keys=True))

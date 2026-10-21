@@ -99,7 +99,7 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
     require(operation in ("functional", "hardware-diagnostic", "local-correctness"))
     require(family in ("B200", "B300") and (family == "B200" or operation == "local-correctness"))
     require(security in ("confidential", "nonconfidential") and (security == "confidential"
-            or (operation == "local-correctness" and family == "B200")))
+            or operation == "local-correctness"))
     files, _ = builder.prepare_files(revision, bundle, extra)
     app = builder.overlay.load_json(files["payload/contract.json"])
     measured = builder.application.measurement(builder.overlay, extra[builder.application.EVIDENCE])
@@ -469,7 +469,7 @@ def validate_result(row, bundle, contract, recorder):
     if row["hardware"] is not None:
         probe = load("lab_hardware_validation", Path(bundle) / "payload/probe.py", contract["sources"]["probe.py"])
         if probe.security_profile(contract) == "nonconfidential":
-            probe.validate_nonconfidential_report(row["hardware"])
+            probe.validate_nonconfidential_report(row["hardware"], family=contract.get("gpu_family", "B200"))
         else:
             probe.validate_report(row["hardware"], family=contract.get("gpu_family", "B200"))
     if row["application"] is not None:
@@ -545,28 +545,28 @@ def main():
             raise ValueError("lab arguments rejected")
     parser = QuietParser(description=__doc__)
     action = parser.add_mutually_exclusive_group(required=True)
-    action.add_argument("--prepare")
-    action.add_argument("--prepare-hardware-diagnostic")
-    action.add_argument("--prepare-local-correctness")
-    action.add_argument("--prepare-local-correctness-b300")
-    action.add_argument("--prepare-nonconfidential-baseline")
+    preparations = {
+        "prepare": ("functional", "B200", "confidential"),
+        "prepare-hardware-diagnostic": ("hardware-diagnostic", "B200", "confidential"),
+        "prepare-local-correctness": ("local-correctness", "B200", "confidential"),
+        "prepare-local-correctness-b300": ("local-correctness", "B300", "confidential"),
+        "prepare-nonconfidential-baseline": ("local-correctness", "B200", "nonconfidential"),
+        "prepare-nonconfidential-baseline-b300": ("local-correctness", "B300", "nonconfidential"),
+    }
+    for option in preparations:
+        action.add_argument("--" + option)
     action.add_argument("--run", metavar="PRIVATE_BUNDLE")
     parser.add_argument("--receipt-sha256")
     parser.add_argument("--weights")
     parser.add_argument("--output")
     parser.add_argument("--deadline", help="Required UTC hard cutoff, YYYY-MM-DDTHH:MM:SSZ, at most 80 minutes away.")
     args = parser.parse_args()
-    if (args.prepare or args.prepare_hardware_diagnostic or args.prepare_local_correctness
-            or args.prepare_local_correctness_b300 or args.prepare_nonconfidential_baseline):
-        require(not any((args.receipt_sha256, args.weights, args.output, args.deadline)))
-        prepare(args.prepare or args.prepare_hardware_diagnostic or args.prepare_local_correctness
-                or args.prepare_local_correctness_b300 or args.prepare_nonconfidential_baseline,
-                "hardware-diagnostic" if args.prepare_hardware_diagnostic else
-                "local-correctness" if (args.prepare_local_correctness or args.prepare_local_correctness_b300
-                                        or args.prepare_nonconfidential_baseline) else "functional",
-                "B300" if args.prepare_local_correctness_b300 else "B200",
-                "nonconfidential" if args.prepare_nonconfidential_baseline else "confidential")
-        return 0
+    for option, profile in preparations.items():
+        destination = getattr(args, option.replace("-", "_"))
+        if destination:
+            require(not any((args.receipt_sha256, args.weights, args.output, args.deadline)))
+            prepare(destination, *profile)
+            return 0
     require(sys.platform == "linux" and all((args.receipt_sha256, args.weights, args.output, args.deadline)))
     deadline = dt.datetime.strptime(args.deadline, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp()
     require(0 < deadline - time.time() <= MAX_SECONDS)
