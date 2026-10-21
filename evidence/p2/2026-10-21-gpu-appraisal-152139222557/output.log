@@ -1,0 +1,53 @@
+{
+  "appraisal": {
+    "claim_failure": null,
+    "claims": {
+      "authenticated_gpu_count": 8,
+      "certificates_and_revocation_valid": true,
+      "debug_disabled": true,
+      "distinct_devices": true,
+      "local_device_identity_matches": true,
+      "measurements_match": true,
+      "nonce_matches": true,
+      "secure_boot": true
+    },
+    "cli_contract_verified": true,
+    "confidential_qualified": false,
+    "deployable": false,
+    "gpu_appraisal_verified": true,
+    "installation_completed": false,
+    "nvml_shutdown": true,
+    "package_sha256": {
+      "libnvat": "cca9409160a7bf793323cc0aafcdc1f569ecc99f346fc6abc6961c850a153b22",
+      "nvattest": "f717e8749cf51921b06871ec54084f56c03a6e93d5daeff967f3694f3c1155e1"
+    },
+    "package_version": "2.0.0.1790976895-1",
+    "persistence_enabled_count": 8,
+    "readiness_header_reference": "1a1e86da474d340d7cf58274588f4a4afc8772e7",
+    "readiness_requested": true,
+    "readiness_transition": "enabled-readback-verified",
+    "ready_after": 1,
+    "ready_before": 0,
+    "result": "pass",
+    "runtime_ready": false,
+    "schema": "nib.lab-gpu-appraisal/v1",
+    "script_sha256": "c72f45b3af7a27e5826f50543c15b02662f2e840d2c87a33ed4a359199a74c2c",
+    "source_reference": "11b2bfeb42a1158aa08744603ecb239ccb3d2265",
+    "stage": "complete"
+  },
+  "confidential_qualified": false,
+  "deployable": false,
+  "hardware_validated": false,
+  "result": "pass",
+  "runtime_ready": false,
+  "schema": "nib.gpu-appraisal-recording/v1",
+  "source": {
+    "files": {
+      "host/attest-lab-gpus.py": "c72f45b3af7a27e5826f50543c15b02662f2e840d2c87a33ed4a359199a74c2c",
+      "host/probe.py": "dd196679dc4b6d7ee335b3d62900b25484734884bd3da6e74f925260ad7864ff",
+      "host/record-gpu-appraisal.py": "0b9def4712df555aa03007a12adad3b10c9a29148757e0519688b7f9f0ed7051",
+      "host/record-probe.py": "77858e523ae744bc585b28aa68cc759afbdc542dd972466185f52e3a699c40e2"
+    },
+    "git_sha": "6e864bebbb123a79f063ca562bcd686b8ab5365c"
+  }
+}

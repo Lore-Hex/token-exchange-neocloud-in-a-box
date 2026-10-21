@@ -343,6 +343,30 @@ class RecordedAppraisalEvidenceTests(unittest.TestCase):
         self.assertTrue(all(value is True for name, value in checked["claims"].items()
                             if name != "authenticated_gpu_count"))
 
+    def test_october_21_eight_b300_appraisal_remains_gpu_only(self):
+        checked = self.check_record(
+            "2026-10-21-gpu-appraisal-152139222557",
+            "6e864bebbb123a79f063ca562bcd686b8ab5365c",
+            {"run.json": "3e7929a9b0a7b73ef188dcdbaa7fff51a742a5b26e6884551bf871799257fe4d",
+             "output.log": "5acf0218ab2405be29ceb3e39f688471d7684b42e3ced1c53101dd39b862d6bb"},
+            passed=True)
+        self.assertEqual(checked["claims"]["authenticated_gpu_count"], 8)
+        self.assertTrue(all(value is True for name, value in checked["claims"].items()
+                            if name != "authenticated_gpu_count"))
+        self.assertEqual((checked["ready_before"], checked["ready_after"]), (0, 1))
+        self.assertEqual(checked["readiness_transition"], "enabled-readback-verified")
+
+        inventory = json.loads((ROOT / "evidence/p2/2026-10-21-hardware-probe-152011207366"
+                                / "output.log").read_bytes())
+        facts = inventory["inventory"]["checks"]
+        self.assertEqual(facts["cpu_vendor"], "amd")
+        self.assertFalse(facts["attestation_interfaces_present"]["intel_tdx_guest"])
+        self.assertEqual(len(facts["gpus"]), 8)
+        self.assertEqual({row["family"] for row in facts["gpus"]}, {"B300"})
+        self.assertFalse(inventory["inventory"]["eight_b200_reported"])
+        self.assertEqual(inventory["result"], "fail")
+        self.assertFalse(inventory["confidential_qualified"])
+
 
 if __name__ == "__main__":
     unittest.main()
