@@ -41,7 +41,9 @@ def configured(raw, expected, parser):
 def installation_environment():
     # mkosi config.py calls getpass.getuser(). UID 0 exists only in the private
     # namespace, not in the extracted tools tree's intentionally absent passwd.
-    return {"PATH": "/usr/bin:/usr/sbin:/bin:/sbin", "HOME": "/tmp",
+    # mkosi vartmpdir() honors TMPDIR; its fallback /var/tmp is in our read-only
+    # authenticated tools root. /tmp is already a private resource-bound tmpfs.
+    return {"PATH": "/usr/bin:/usr/sbin:/bin:/sbin", "HOME": "/tmp", "TMPDIR": "/tmp",
             "USER": "root", "LOGNAME": "root", "LANG": "C", "LC_ALL": "C",
             "PYTHONDONTWRITEBYTECODE": "1", "SOURCE_DATE_EPOCH": "1792454400"}
 
