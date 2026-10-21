@@ -459,13 +459,16 @@ def validate_result(row, bundle, contract, recorder):
     if row["stage"] in ("hardware", "weights", "application", "prelaunch"):
         require(startup is None)
     else:
+        startup_fields = {"outcome", "wait_ms", "exit_code", "health_probes", "checkpoints", "exception_diagnostic"}
         require(type(startup) is dict
-                and set(startup) == {"outcome", "wait_ms", "exit_code", "health_probes", "checkpoints", "exception_diagnostic"})
+                and set(startup) in (startup_fields, startup_fields | {"worker_exception_diagnostic"}))
         errors = load("lab_exception_validation", Path(bundle) / "payload/exception.py",
                       contract["sources"]["exception.py"])
         errors.require = require
         errors.validate_exception(startup["exception_diagnostic"])
         require(startup["exception_diagnostic"] is None or startup["outcome"] == "child-exited")
+        errors.validate_exception(startup.get("worker_exception_diagnostic"))
+        require(startup.get("worker_exception_diagnostic") is None or startup["outcome"] == "child-exited")
         outcomes = ("launch-failed", "child-exited", "startup-timeout", "supervisor-failure")
         outcomes += ("prepared",) if pre_serve else ("models-rejected", "ready")
         require(startup["outcome"] in outcomes
