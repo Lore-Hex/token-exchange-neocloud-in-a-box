@@ -24,11 +24,13 @@ class OutputLimitExceeded(ValueError):
 
 
 def execute_process_group(args, *, env, cwd=None, timeout=1800, capture_output=True,
-                          stdout_file=None, max_output_bytes=None, stdin=None):
+                          stdout_file=None, max_output_bytes=None, max_stderr_bytes=65536, stdin=None):
     """Bound the entire local tool tree, including Docker CLI plugins."""
     stream = subprocess.PIPE if capture_output else subprocess.DEVNULL
     if ((stdout_file is not None and max_output_bytes is None)
-            or (max_output_bytes is not None and (not capture_output or max_output_bytes <= 0))):
+            or (max_output_bytes is not None and (not capture_output or max_output_bytes <= 0))
+            or type(max_stderr_bytes) is not int or not 0 < max_stderr_bytes <= 2 << 20
+            or (max_stderr_bytes != 65536 and max_output_bytes is None)):
         raise ValueError("streaming output requires a byte limit")
     process = subprocess.Popen(args, env=env, cwd=cwd, start_new_session=True,
                                stdout=stream, stderr=stream, stdin=stdin)
@@ -36,7 +38,7 @@ def execute_process_group(args, *, env, cwd=None, timeout=1800, capture_output=T
         if max_output_bytes is None:
             stdout, stderr = process.communicate(timeout=timeout)
         else:
-            stdout, stderr = bounded_output(process, args, timeout, stdout_file, max_output_bytes)
+            stdout, stderr = bounded_output(process, args, timeout, stdout_file, max_output_bytes, max_stderr_bytes)
         return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
     finally:
         cleanup_process_group(process)
@@ -98,7 +100,7 @@ def reap_group_children(group):
             return
 
 
-def bounded_output(process, args, timeout, output, limit):
+def bounded_output(process, args, timeout, output, limit, stderr_limit=65536):
     """Drain both pipes without retaining a Docker archive or unbounded diagnostics."""
     deadline = time.monotonic() + timeout
     buffers = {process.stdout: bytearray(), process.stderr: bytearray()}
@@ -117,8 +119,8 @@ def bounded_output(process, args, timeout, output, limit):
                     selector.unregister(pipe)
                     continue
                 sizes[pipe] += len(chunk)
-                if sizes[pipe] > (limit if pipe is process.stdout else 65536):
-                    cap = limit if pipe is process.stdout else 65536
+                cap = limit if pipe is process.stdout else stderr_limit
+                if sizes[pipe] > cap:
                     if pipe is not process.stdout or output is None:
                         buffers[pipe].extend(chunk[:max(0, cap - len(buffers[pipe]))])
                     raise OutputLimitExceeded("stdout" if pipe is process.stdout else "stderr",
