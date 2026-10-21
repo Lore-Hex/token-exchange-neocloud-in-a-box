@@ -49,7 +49,13 @@ Older prepared bundles retain their original source and evidence shape.
 New engine-entry checkpoint bundles pass one explicit numeric FD through
 `Popen(pass_fds=...)` and the exact `engine --checkpoint-fd N` route. The child
 requires a write-only, nonblocking FIFO, makes it non-inheritable, and closes
-it before calling `serve.cmd`, including on earlier failures. Worker, tracker,
+it before calling `serve.cmd`, including on earlier failures. The separate error
+pipe remains open only in the API server process, with inheritance disabled,
+so a `serve.cmd` startup exception can produce the existing fixed category and
+source-coordinate packet. The supervisor reads this pipe only after process
+exit, never while a ready server still holds it open. No raw log/error text is
+captured. Both endpoints are closed by their existing lifecycle cleanup.
+Worker, tracker,
 VecISA and other reentry routes do not accept checkpoint arguments.
 
 Only ordered one-byte IDs are emitted: 1 source binding, 2 patched-source
