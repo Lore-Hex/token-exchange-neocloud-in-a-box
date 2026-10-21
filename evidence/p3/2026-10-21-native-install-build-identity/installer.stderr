@@ -1,0 +1,19 @@
+Traceback (most recent call last):
+  File "/nib/upstream/mkosi/run.py", line 104, in uncaught_exception_handler
+    yield
+  File "/usr/lib/python3.12/contextlib.py", line 81, in inner
+    return func(*args, **kwds)
+           ^^^^^^^^^^^^^^^^^^^
+  File "/nib/upstream/mkosi/__main__.py", line 38, in main
+    args, tools, images = parse_config(sys.argv[1:], resources=resources)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nib/upstream/mkosi/config.py", line 5528, in parse_config
+    argparser = create_argument_parser()
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nib/upstream/mkosi/config.py", line 4716, in create_argument_parser
+    default=f"mkosi of {getpass.getuser()}",
+                        ^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/getpass.py", line 169, in getuser
+    return pwd.getpwuid(os.getuid())[0]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyError: 'getpwuid(): uid not found: 0'

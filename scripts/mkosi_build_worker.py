@@ -38,6 +38,14 @@ def configured(raw, expected, parser):
     return len(actual)
 
 
+def installation_environment():
+    # mkosi config.py calls getpass.getuser(). UID 0 exists only in the private
+    # namespace, not in the extracted tools tree's intentionally absent passwd.
+    return {"PATH": "/usr/bin:/usr/sbin:/bin:/sbin", "HOME": "/tmp",
+            "USER": "root", "LOGNAME": "root", "LANG": "C", "LC_ALL": "C",
+            "PYTHONDONTWRITEBYTECODE": "1", "SOURCE_DATE_EPOCH": "1792454400"}
+
+
 def main():
     stage = "preflight"
     report = {"schema": "nib.mkosi-install-worker/v1", "result": "fail", "stage": stage,
@@ -68,9 +76,8 @@ def main():
             (config / name).symlink_to("/nib/prepared/" + name)
         stage = "installation"
         report["package_installation_executed"] = None
-        result = processes.execute_process_group(COMMAND, env={"PATH": "/usr/bin:/usr/sbin:/bin:/sbin",
-            "HOME": "/tmp", "LANG": "C", "LC_ALL": "C", "PYTHONDONTWRITEBYTECODE": "1",
-            "SOURCE_DATE_EPOCH": "1792454400"}, timeout=1800, max_output_bytes=2 << 20,
+        result = processes.execute_process_group(COMMAND, env=installation_environment(),
+            timeout=1800, max_output_bytes=2 << 20,
             stdin=subprocess.DEVNULL)
         report["installer_exit_code"] = result.returncode
         # This is a source/package-only lab with no user data or credentials.

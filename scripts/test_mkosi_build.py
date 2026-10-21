@@ -2,6 +2,7 @@
 """Offline installer contracts; never run package hooks or alter host cgroups."""
 import ast
 from contextlib import contextmanager
+import getpass
 import json
 import os
 from pathlib import Path
@@ -30,6 +31,24 @@ inputs = load("scripts/guest_package_inputs.py")
 
 
 class BuildTests(unittest.TestCase):
+    def test_private_build_identity_does_not_require_or_inherit_host_accounts(self):
+        with mock.patch.dict(os.environ, {"USER": "private-host-user", "LOGNAME": "private-host-login",
+                                          "SECRET": "private-secret"}, clear=True):
+            environment = worker.installation_environment()
+        self.assertEqual(environment, {"PATH": "/usr/bin:/usr/sbin:/bin:/sbin", "HOME": "/tmp",
+            "USER": "root", "LOGNAME": "root", "LANG": "C", "LC_ALL": "C",
+            "PYTHONDONTWRITEBYTECODE": "1", "SOURCE_DATE_EPOCH": "1792454400"})
+        with mock.patch("pwd.getpwuid", side_effect=KeyError("uid not found")) as passwd:
+            with mock.patch.dict(os.environ, {}, clear=True):
+                with self.assertRaises(KeyError):
+                    getpass.getuser()
+            passwd.reset_mock()
+            with mock.patch.dict(os.environ, environment, clear=True):
+                self.assertEqual(getpass.getuser(), "root")
+            passwd.assert_not_called()
+        environment["USER"] = "changed"
+        self.assertEqual(worker.installation_environment()["USER"], "root")
+
     def test_payload_rejection_reports_stage_and_never_executes_packages(self):
         def materialize(files, root):
             root.mkdir()

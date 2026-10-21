@@ -65,3 +65,26 @@ creation or descriptor-relative no-follow traversal. The original coarse stage
 does not prove that this was the run's only issue. New fixed stages distinguish
 tools materialization, payload publication and upstream modes/links; a separate
 test proves publication rejection cannot reach package execution.
+
+## Second native run: private build identity
+
+[Run 39661661824](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39661661824)
+passed payload preparation and entered the isolated installation worker. It
+failed in pinned mkosi `config.py:4716`, where `getpass.getuser()` fell back to
+`pwd.getpwuid(0)` and the minimal extracted tools tree had no passwd entry.
+The original [run](../../evidence/p3/2026-10-21-native-install-build-identity/run.json),
+[result](../../evidence/p3/2026-10-21-native-install-build-identity/result.json),
+[diagnostic](../../evidence/p3/2026-10-21-native-install-build-identity/installer.stderr)
+and [resource receipt](../../evidence/p3/2026-10-21-native-install-build-identity/resources.json)
+are preserved. Process and cgroup cleanup passed, no OOM occurred, and no
+package-installation success is claimed.
+
+The installer's fixed environment now declares `USER=root` and `LOGNAME=root`
+only after the existing namespace/UID/GID checks. Python's documented
+[`getpass.getuser`](https://docs.python.org/3.12/library/getpass.html#getpass.getuser)
+uses these before passwd lookup. The pinned mkosi call is in
+[`create_argument_parser`](https://github.com/systemd/mkosi/blob/ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b/mkosi/config.py#L4716).
+No host passwd/group database is mounted, no account is created, and no
+privilege, capability, network or filesystem permission is broadened. A test
+reproduces missing-passwd failure, then verifies the fixed isolated identity
+without calling the host account lookup or inheriting ambient variables.

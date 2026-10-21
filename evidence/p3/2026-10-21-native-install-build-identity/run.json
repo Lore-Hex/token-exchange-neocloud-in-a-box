@@ -1,0 +1,20 @@
+{
+  "command": "host/run-mkosi-build.py --downloads PRIVATE --archive PRIVATE --output PRIVATE",
+  "ended_utc": "2026-10-21T19:31:41Z",
+  "execution": "software",
+  "git_sha": "25b285fefb5547173f1e8af687a3a2d6c6306750",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "ubuntu-22.04-x86_64",
+    "provider": "github-actions"
+  },
+  "notes": "One bounded offline installation; no boot, UKI, verity, DKMS, reproducibility or hardware qualification.",
+  "phase": "P3",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-21T19:30:50Z",
+  "task": "T1"
+}
