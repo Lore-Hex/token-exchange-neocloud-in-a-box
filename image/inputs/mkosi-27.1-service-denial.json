@@ -1,0 +1,14 @@
+{
+  "schema": "nib.mkosi-service-denial-patch/v1",
+  "mkosi_git_sha": "ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b",
+  "source_path": "mkosi/installer/apt.py",
+  "source_url": "https://github.com/systemd/mkosi/blob/ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b/mkosi/installer/apt.py",
+  "license": "LGPL-2.1-or-later",
+  "patch_path": "image/patches/mkosi-27.1-service-denial.patch",
+  "patch_bytes": 351,
+  "patch_sha256": "430661f2b9fa5c96cc5e9d2cc505f91b427d1a5c7b2a1177a561322dfb1ab2dd",
+  "input_bytes": 12501,
+  "input_sha256": "5e41cd4b654ca26ec5316f0b74c728d42eb22a66d80ed7b07c525c369e7e2b87",
+  "result_bytes": 12532,
+  "result_sha256": "777620f9d966aa3ce736c2abe22758f8af007711d889b9f4b81d1deb8aeeaef5"
+}

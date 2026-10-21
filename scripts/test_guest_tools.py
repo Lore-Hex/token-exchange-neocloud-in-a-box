@@ -6,6 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import struct
 import tarfile
@@ -288,6 +289,94 @@ class SimulationTests(unittest.TestCase):
         for setting in (b'Dir::Etc::parts "/work/etc/parts";', b'Dir::State::status "/work/status";',
                         b"#clear DPkg::Pre-Install-Pkgs;", b'Acquire::Retries "0";'):
             self.assertIn(setting, config)
+
+    def test_preferences_are_explicit_private_empty_regular_file_and_directory(self):
+        for mask in (0, 0o077):
+            with self.subTest(umask=mask), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                previous = os.umask(mask)
+                try:
+                    sim.setup(root)
+                finally:
+                    os.umask(previous)
+                preferences = root / "etc/preferences"
+                fragments = root / "etc/preferences.d"
+                info = preferences.lstat()
+                self.assertTrue(stat.S_ISREG(info.st_mode))
+                self.assertEqual((stat.S_IMODE(info.st_mode), info.st_nlink, info.st_size),
+                                 (0o600, 1, 0))
+                self.assertEqual(preferences.read_bytes(), b"")
+                info = fragments.lstat()
+                self.assertTrue(stat.S_ISDIR(info.st_mode))
+                self.assertEqual(stat.S_IMODE(info.st_mode), 0o700)
+                self.assertEqual(list(fragments.iterdir()), [])
+                self.assertEqual((root / "apt.conf").read_bytes(), sim.configuration())
+        for key, path in (("preferences", "/work/etc/preferences"),
+                          ("preferencesparts", "/work/etc/preferences.d")):
+            setting = f'Dir::Etc::{key} "{path}";'.encode()
+            self.assertEqual(sim.configuration().count(setting), 1)
+
+    def test_preexisting_or_misplaced_preferences_reject_without_overwrite(self):
+        for name in ("etc/preferences", "etc/preferences.d", "preferences", "preferences.d"):
+            for kind in ("file", "directory", "symlink", "fifo"):
+                with self.subTest(name=name, kind=kind), tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory).resolve()
+                    target = root / name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    if kind == "file":
+                        target.write_bytes(b"PRIVATE existing state")
+                    elif kind == "directory":
+                        target.mkdir()
+                    elif kind == "symlink":
+                        target.symlink_to(root / "absent")
+                    else:
+                        os.mkfifo(target)
+                    before = target.lstat()
+                    with self.assertRaises(ValueError):
+                        sim.setup(root)
+                    after = target.lstat()
+                    self.assertEqual((before.st_ino, before.st_mode, before.st_size),
+                                     (after.st_ino, after.st_mode, after.st_size))
+                    self.assertFalse((root / "apt.conf").exists())
+                    if kind == "file":
+                        self.assertEqual(target.read_bytes(), b"PRIVATE existing state")
+
+    def test_setup_rejects_missing_relative_link_or_non_directory_work(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / "file").write_bytes(b"PRIVATE")
+            (root / "link").symlink_to(root, target_is_directory=True)
+            for work in (root / "missing", root / "file", root / "link", Path("relative-work")):
+                with self.subTest(work=work), self.assertRaises(ValueError):
+                    sim.setup(work)
+
+    def test_preferences_creation_failure_is_sanitized_and_prevents_all_commands(self):
+        real_setup, real_open, real_mkdir = sim.setup, os.open, Path.mkdir
+        for name in ("etc/preferences", "etc/preferences.d"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                target = root / name
+
+                def open_file(path, *args, **kwargs):
+                    if Path(path) == target:
+                        raise OSError("PRIVATE creation failure")
+                    return real_open(path, *args, **kwargs)
+
+                def mkdir(path, *args, **kwargs):
+                    if path == target:
+                        raise OSError("PRIVATE creation failure")
+                    return real_mkdir(path, *args, **kwargs)
+
+                execute = mock.Mock()
+                with mock.patch.object(sim, "setup", side_effect=lambda _: real_setup(root)), \
+                        mock.patch.object(os, "open", side_effect=open_file), \
+                        mock.patch.object(Path, "mkdir", autospec=True, side_effect=mkdir):
+                    result = sim.simulate(inputs(), execute)
+                execute.assert_not_called()
+                self.assertFalse(target.exists())
+                self.assertEqual((result["stage"], result["result"], result["diagnostic"]["reason"]),
+                                 ("setup", "fail", "setup-error"))
+                self.assertNotIn("PRIVATE", json.dumps(result))
 
 
 def container(tag):

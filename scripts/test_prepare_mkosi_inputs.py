@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Nonexecuting synthetic source/package fixtures; no upstream runtime imports."""
 import copy
+from contextlib import contextmanager
 import gzip
 import hashlib
 import io
@@ -27,6 +28,35 @@ def module(name, path):
 
 tool = module("mkosi_test_tool", ROOT / "scripts/prepare_mkosi_inputs.py")
 fixtures = module("mkosi_deb_fixtures", ROOT / "scripts/test_prepare_guest_packages.py")
+PATCH = (ROOT / tool.EXTRA[3]).read_bytes()
+PATCH_PIN = json.loads((ROOT / tool.EXTRA[4]).read_bytes())
+
+
+def synthetic_installer():
+    # Only this reviewed synthetic method runs. No upstream module is imported.
+    prefix = (b"# SPDX-License-Identifier: LGPL-2.1-or-later\nclass Installer:\n"
+              b"    @classmethod\n    def install(cls, context, allow_downgrade=False):\n")
+    prefix += b"\n" * (258 - len(prefix.splitlines()))
+    hunk = PATCH.splitlines(keepends=True)[3:]
+    before = b"".join(line[1:] for line in hunk if line.startswith(b" "))
+    after = b"".join(line[1:] for line in hunk)
+    tail = (b"\n        arguments = []\n\n        if allow_downgrade:\n"
+            b"            arguments += ['--allow-downgrades']\n"
+            b"        cls.invoke(context, 'install', arguments, apivfs=True)\n"
+            b"        policyrcd.unlink()\n")
+    original, result = prefix + before + tail, prefix + after + tail
+    pin = {**PATCH_PIN, "input_bytes": len(original), "input_sha256": tool.base.digest(original),
+           "result_bytes": len(result), "result_sha256": tool.base.digest(result)}
+    return original, result, pin
+
+
+@contextmanager
+def fixture_umask(value):
+    old = os.umask(value)
+    try:
+        yield
+    finally:
+        os.umask(old)
 
 
 def source(entries=None, transform=None):
@@ -35,6 +65,7 @@ def source(entries=None, transform=None):
         ("mkosi/__main__.py", b'raise RuntimeError("must not execute upstream")\n', "100644"),
         ("LICENSES/LGPL-2.1-or-later.txt", b"synthetic license fixture\n", "100644"),
         ("entry", b"mkosi/__main__.py", "120000"),
+        (tool.PATCH_TARGET, synthetic_installer()[0], "100644"),
     ]
     prefix = "mkosi-" + tool.COMMIT + "/"
     pin = {"schema": "nib.mkosi-source/v1", "version": "27.1", "git_sha": tool.COMMIT,
@@ -66,13 +97,13 @@ def source(entries=None, transform=None):
 class SourceTests(unittest.TestCase):
     def test_complete_source_and_license_preserved_without_execution(self):
         raw, pin = source()
-        result = tool.verify_source(raw, pin)
-        self.assertEqual(result["files"], 4)
+        result, members = tool.verify_source(raw, pin)
+        self.assertEqual(result["files"], 5)
         self.assertEqual(result["source_bytes"], sum(r["bytes"] for r in pin["source_files"].values()))
         self.assertTrue(result["git_blob_correspondence"])
         self.assertTrue(result["license_files_preserved"])
         self.assertFalse(result["upstream_executed"])
-        self.assertEqual(tool.verify_source(raw, pin), result)
+        self.assertEqual(tool.verify_source(raw, pin), (result, members))
 
     def test_archive_and_every_source_hash_git_blob_size_and_mode_bound(self):
         raw, pin = source()
@@ -178,6 +209,7 @@ class PreparationTests(unittest.TestCase):
             {"file": "fixture.packages", "bytes": len(self.index), "sha256": tool.base.digest(self.index)}]}
         self.sources = {tool.EXTRA[0]: b"bound test code", tool.EXTRA[1]: tool.base.encoded(pin),
                         tool.EXTRA[2]: tool.base.encoded(self.lock),
+                        tool.EXTRA[3]: PATCH, tool.EXTRA[4]: tool.base.encoded(synthetic_installer()[2]),
                         tool.tools.FILES[-1]: tool.base.encoded(self.lock)}
 
     def prepare(self):
@@ -189,6 +221,10 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual((files, report), self.prepare())
         self.assertEqual(report["unique_archives"], 1)
         self.assertEqual(files["mkosi-source.tar.gz"], self.raw)
+        self.assertEqual(files["mkosi-service-denial.patch"], PATCH)
+        self.assertEqual(files["mkosi-overlay/" + tool.PATCH_TARGET], synthetic_installer()[1])
+        self.assertEqual(report["local_patch"]["pin"], synthetic_installer()[2])
+        self.assertIs(report["local_patch"]["executed"], False)
         self.assertEqual(files["repo/pool/" + tool.base.package_name(self.row)], self.deb)
         self.assertNotIn(b"exit 99", files["maintainer-inventory.json"])
         control = json.loads(files["maintainer-inventory.json"])["packages"][0]
@@ -210,6 +246,13 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual(json.loads((destination / "receipt.json").read_bytes()), report)
         with self.assertRaises(FileExistsError):
             tool.base.publish(destination, files)
+        for name in ("mkosi-service-denial.patch", "mkosi-service-denial.json",
+                     "mkosi-overlay/" + tool.PATCH_TARGET):
+            path = destination / name
+            path.write_bytes(b"changed")
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                tool.base.verify(destination, files)
+            path.write_bytes(files[name])
         (destination / "mkosi-source.tar.gz").write_bytes(b"changed")
         with self.assertRaises(ValueError):
             tool.base.verify(destination, files)
@@ -306,6 +349,129 @@ class BindingTests(unittest.TestCase):
                 (root / tool.EXTRA[1]).write_bytes(b"uncommitted")
                 with self.assertRaises(ValueError):
                     tool.tools.committed(tool.EXTRA)
+                (root / tool.EXTRA[1]).write_bytes((ROOT / tool.EXTRA[1]).read_bytes())
+                for name in tool.EXTRA[3:]:
+                    path = root / name
+                    path.write_bytes(b"uncommitted")
+                    with self.subTest(name=name), self.assertRaises(ValueError):
+                        tool.tools.committed(tool.EXTRA)
+                    path.write_bytes((ROOT / name).read_bytes())
+
+
+class ServiceDenialTests(unittest.TestCase):
+    def setUp(self):
+        self.original, self.expected, self.pin = synthetic_installer()
+        self.members = {tool.PATCH_TARGET: self.original}
+        self.source_pin = {"source_files": {tool.PATCH_TARGET: {
+            "bytes": len(self.original), "sha256": tool.base.digest(self.original), "mode": "100644"}}}
+
+    def apply(self, patch=PATCH, pin=None):
+        return tool.service_denial_patch(self.members, self.source_pin, patch, pin or self.pin)
+
+    def installer(self, raw):
+        namespace = {"umask": fixture_umask}
+        exec(compile(raw, "synthetic-service-denial", "exec", dont_inherit=True), namespace)
+        return namespace["Installer"]
+
+    def test_patch_metadata_binds_actual_upstream_manifest_and_license(self):
+        source_pin = json.loads((ROOT / tool.EXTRA[1]).read_bytes())
+        row = source_pin["source_files"][tool.PATCH_TARGET]
+        self.assertEqual((row["bytes"], row["sha256"]),
+                         (PATCH_PIN["input_bytes"], PATCH_PIN["input_sha256"]))
+        self.assertEqual((len(PATCH), tool.base.digest(PATCH)),
+                         (PATCH_PIN["patch_bytes"], PATCH_PIN["patch_sha256"]))
+        self.assertEqual(PATCH_PIN["mkosi_git_sha"], source_pin["git_sha"])
+        self.assertEqual(PATCH_PIN["license"], "LGPL-2.1-or-later")
+
+    def test_exact_insert_preserves_every_other_byte_and_source_objects(self):
+        saved = copy.deepcopy((self.members, self.source_pin, self.pin))
+        result = self.apply()
+        self.assertEqual(result, self.expected)
+        self.assertEqual(result.replace(b"        policyrcd.chmod(0o755)\n", b""), self.original)
+        self.assertEqual((self.members, self.source_pin, self.pin), saved)
+
+    def test_absent_and_existing_modes_deny_before_each_transaction(self):
+        installer = self.installer(self.apply())
+        for prior in (None, 0o644, 0o755, 0o777):
+            with self.subTest(prior=prior), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                policy = root / "usr/sbin/policy-rc.d"
+                if prior is not None:
+                    policy.parent.mkdir(parents=True)
+                    policy.write_bytes(b"old policy must be replaced")
+                    policy.chmod(prior)
+                def invoke(context, action, arguments, *, apivfs):
+                    self.assertEqual((action, arguments, apivfs), ("install", [], True))
+                    self.assertEqual(policy.read_bytes(), b"#!/bin/sh\nexit 101\n")
+                    self.assertEqual(stat.S_IMODE(policy.stat().st_mode), 0o755)
+                with mock.patch.object(installer, "invoke", create=True, side_effect=invoke) as call:
+                    with fixture_umask(0o077):
+                        installer.install(types.SimpleNamespace(root=root))
+                        self.assertFalse(policy.exists())
+                        installer.install(types.SimpleNamespace(root=root))
+                    self.assertEqual(call.call_count, 2)
+                self.assertFalse(policy.exists())
+
+    def test_original_synthetic_control_is_nonexecutable(self):
+        installer = self.installer(self.original)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            def invoke(*args, **kwargs):
+                self.assertEqual(stat.S_IMODE((root / "usr/sbin/policy-rc.d").stat().st_mode), 0o644)
+            with mock.patch.object(installer, "invoke", create=True, side_effect=invoke):
+                installer.install(types.SimpleNamespace(root=root))
+
+    def test_chmod_error_never_invokes_apt_and_failed_transaction_retry_denies(self):
+        installer = self.installer(self.apply())
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            context = types.SimpleNamespace(root=root)
+            with mock.patch.object(installer, "invoke", create=True) as call:
+                with mock.patch.object(Path, "chmod", side_effect=OSError("synthetic")):
+                    with self.assertRaises(OSError):
+                        installer.install(context)
+                call.assert_not_called()
+            with mock.patch.object(installer, "invoke", create=True, side_effect=RuntimeError("synthetic")):
+                with self.assertRaises(RuntimeError):
+                    installer.install(context)
+            policy = root / "usr/sbin/policy-rc.d"
+            policy.chmod(0o644)
+            def invoke(*args, **kwargs):
+                self.assertEqual(stat.S_IMODE(policy.stat().st_mode), 0o755)
+                self.assertEqual(policy.read_bytes(), b"#!/bin/sh\nexit 101\n")
+            with mock.patch.object(installer, "invoke", create=True, side_effect=invoke):
+                installer.install(context)
+            self.assertFalse(policy.exists())
+
+    def test_tampered_pin_patch_input_output_or_license_reject(self):
+        for key, value in (("input_sha256", "0" * 64), ("result_sha256", "0" * 64),
+                           ("patch_sha256", "0" * 64), ("input_bytes", 1), ("result_bytes", 1),
+                           ("patch_bytes", 1), ("mkosi_git_sha", "0" * 40),
+                           ("license", "Apache-2.0"), ("source_path", "other.py"),
+                           ("patch_path", "../other.patch"), ("extra", True)):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.apply(pin={**self.pin, key: value})
+        with self.assertRaises(ValueError):
+            self.apply(patch=PATCH + b"x")
+        self.members[tool.PATCH_TARGET] += b"x"
+        with self.assertRaises(ValueError):
+            self.apply()
+
+    def test_no_fuzzy_offset_reapply_or_arbitrary_hunks(self):
+        for mutation in (b"\n" + self.original, self.expected,
+                         self.original.replace(b'"usr/sbin/policy-rc.d"', b'"usr/sbin/other"')):
+            self.members[tool.PATCH_TARGET] = mutation
+            self.source_pin["source_files"][tool.PATCH_TARGET].update(
+                bytes=len(mutation), sha256=tool.base.digest(mutation))
+            pin = {**self.pin, "input_bytes": len(mutation), "input_sha256": tool.base.digest(mutation)}
+            with self.subTest(mutation=len(mutation)), self.assertRaises(ValueError):
+                self.apply(pin=pin)
+        self.setUp()
+        for patch in (PATCH.replace(b"@@ -259,5 +259,6 @@", b"@@ -258,5 +258,6 @@"),
+                      PATCH.replace(b"chmod(0o755)", b"chmod(0o777)"), PATCH + b"@@ extra\n"):
+            pin = {**self.pin, "patch_bytes": len(patch), "patch_sha256": tool.base.digest(patch)}
+            with self.subTest(patch=len(patch)), self.assertRaises(ValueError):
+                self.apply(patch=patch, pin=pin)
 
 
 if __name__ == "__main__":

@@ -71,6 +71,29 @@ tau = runtime.tau
 aggregate = load("scripts/tau_aggregate.py")
 worker = load(WORKER)
 probe = load("host/probe.py")
+IMAGE_DIGEST = runtime.TARGET["image"].split("@")[1]
+
+
+def manifest_identity(descriptor):
+    require(type(descriptor) is dict
+            and descriptor.get("mediaType") == "application/vnd.oci.image.manifest.v1+json"
+            and type(descriptor.get("digest")) is str
+            and re.fullmatch("sha256:[0-9a-f]{64}", descriptor["digest"])
+            and type(descriptor.get("size")) is int and 0 < descriptor["size"] <= 1 << 20
+            and descriptor.get("platform") == {"os": "linux", "architecture": "amd64"})
+    return {key: descriptor[key] for key in ("mediaType", "digest", "size", "platform")}
+
+
+def check_image(image):
+    selected = manifest_identity(image["Descriptor"])
+    references = {name + "@" + IMAGE_DIGEST for name in
+                  ("python", "library/python", "docker.io/library/python")}
+    require(image["Os"] == "linux" and image["Architecture"] == "amd64"
+            and image["Id"] == selected["digest"]
+            and type(image["RepoDigests"]) is list
+            and any(type(item) is str and item in references for item in image["RepoDigests"])
+            and not image["Config"].get("Volumes"))
+    return selected
 
 
 def identity(deadline):
@@ -214,7 +237,7 @@ def validate_plan(payload, sha, toolkit, deadline):
     return plan, manifest
 
 
-def create_command(name, owner, payload, sha, image_id):
+def create_command(name, owner, payload, sha):
     return ["create", "--name", name, "--label", LABEL + "=" + owner, "--pull", "never",
             "--platform", "linux/amd64", "--runtime", "runc", "--user", "65534:65534",
             "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
@@ -223,17 +246,22 @@ def create_command(name, owner, payload, sha, image_id):
             "--log-driver", "none", "--no-healthcheck", "--workdir", "/scratch",
             "--mount", "type=bind,src=" + str(payload) + ",dst=/opt/nib,readonly",
             "--tmpfs", "/scratch:rw,nosuid,nodev,noexec,size=256m,mode=0700,uid=65534,gid=65534",
-            "--entrypoint", "/usr/bin/env", image_id, "-i",
+            "--entrypoint", "/usr/bin/env", runtime.TARGET["image"], "-i",
             *[key + "=" + value for key, value in sorted(ENVIRONMENT.items())],
             "/usr/local/bin/python3", "-I", "-S", "-B", "/opt/nib/" + WORKER, sha]
 
 
-def check_container(info, name, owner, payload, sha, image_id):
+def check_container(info, name, owner, payload, sha, selected_manifest):
     cfg, host = info["Config"], info["HostConfig"]
-    command = create_command(name, owner, payload, sha, image_id)
-    require(info["Name"] == "/" + name and info["Image"] == image_id
-            and cfg["Image"] == image_id and cfg["Labels"].get(LABEL) == owner
-            and cfg["Entrypoint"] == ["/usr/bin/env"] and cfg["Cmd"] == command[command.index(image_id) + 1:]
+    command = create_command(name, owner, payload, sha)
+    # Moby containerd keeps the outer index in Image, not the selected manifest.
+    # See the exact daemon/CLI source chain in p2-t3-tau-single-trial.md.
+    require(info["Image"] == IMAGE_DIGEST and info["Platform"] == "linux"
+            and manifest_identity(info["ImageManifestDescriptor"]) == selected_manifest)
+    require(info["Name"] == "/" + name
+            and cfg["Image"] == runtime.TARGET["image"] and cfg["Labels"].get(LABEL) == owner
+            and cfg["Entrypoint"] == ["/usr/bin/env"]
+            and cfg["Cmd"] == command[command.index(runtime.TARGET["image"]) + 1:]
             and cfg["User"] == "65534:65534" and cfg["WorkingDir"] == "/scratch"
             and cfg["Healthcheck"]["Test"] == ["NONE"] and not cfg["Tty"] and not cfg["OpenStdin"])
     require(host["NetworkMode"] == "none" and host["ReadonlyRootfs"] is True
@@ -326,26 +354,21 @@ def run(payload, sha, destination, socket):
             rows = tau.json_value(command("image", "inspect", "--platform", plan["platform"],
                                           runtime.TARGET["image"]))
             require(type(rows) is list and len(rows) == 1)
-            image = rows[0]
-            require(image["Os"] == "linux" and image["Architecture"] == "amd64"
-                    and any(item.endswith("@" + runtime.TARGET["image"].split("@")[1])
-                            for item in image["RepoDigests"])
-                    and re.fullmatch("sha256:[0-9a-f]{64}", image["Id"])
-                    and not image["Config"].get("Volumes"))
+            selected_manifest = check_image(rows[0])
             stage = "create"
             # Killing the bounded client cannot cancel an in-flight daemon create.
             # Only the exact owned-container inspection establishes completion.
             create_unknown = True
-            command(*create_command(name, owner, payload, sha, image["Id"]))
+            command(*create_command(name, owner, payload, sha))
             info = tau.json_value(command("inspect", name))[0]
-            check_container(info, name, owner, payload, sha, image["Id"])
+            check_container(info, name, owner, payload, sha, selected_manifest)
             create_unknown = False
             stage = "trial"
             raw = command("start", "--attach", name, seconds=SECONDS, limit=16384)
             observed = tau.json_value(raw)
             check_result(observed, plan, manifest)
             terminal = tau.json_value(command("inspect", name))[0]
-            check_container(terminal, name, owner, payload, sha, image["Id"])
+            check_container(terminal, name, owner, payload, sha, selected_manifest)
             require(terminal["State"]["Running"] is False and terminal["State"]["OOMKilled"] is False
                     and terminal["State"]["ExitCode"] == 0)
             result = observed

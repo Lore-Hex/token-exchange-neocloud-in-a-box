@@ -31,31 +31,42 @@ def execute_process_group(args, *, env, cwd=None, timeout=1800, capture_output=T
             stdout, stderr = bounded_output(process, args, timeout, stdout_file, max_output_bytes)
         return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
     finally:
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            pass
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        process.wait(timeout=10)
+        cleanup_process_group(process)
+
+
+def cleanup_process_group(process):
+    """Always reap/close; denied signals do not replace proof of group absence."""
+    try:
+        reaped = False
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(process.pid, sig)
+            except (ProcessLookupError, PermissionError):
+                # A denied signal can race an exited child; reaping still matters.
+                # Persistent denial or a surviving group fails the final query.
+                pass
+            try:
+                process.wait(timeout=10)
+                reaped = True
+            except subprocess.TimeoutExpired:
+                reaped = False
+        if not reaped:
+            raise ValueError("tool process-group absence unproven")
+    finally:
         for pipe in (process.stdout, process.stderr):
             if pipe is not None:
                 pipe.close()
-        deadline = time.monotonic() + 5
-        while True:
-            try:
-                os.killpg(process.pid, 0)
-            except ProcessLookupError:
-                break
-            if time.monotonic() >= deadline:
-                raise ValueError("tool process-group absence unproven")
-            time.sleep(0.05)
+    deadline = time.monotonic() + 5
+    while True:
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            break
+        except PermissionError:
+            raise ValueError("tool process-group absence unproven") from None
+        if time.monotonic() >= deadline:
+            raise ValueError("tool process-group absence unproven")
+        time.sleep(0.05)
 
 
 def bounded_output(process, args, timeout, output, limit):

@@ -1,0 +1,1718 @@
+{
+  "packages": {
+    "ca-certificates": {
+      "archive_bytes": 139430,
+      "archive_sha256": "6bac2a01979e210d9eac1d4d56747ec709ea60654744d66705dc3c36e7629e50",
+      "members": {
+        "usr/share/ca-certificates/mozilla/NetLock_Arany_=Class_Gold=_F\u0151tan\u00fas\u00edtv\u00e1ny.crt": {
+          "bytes": 1476,
+          "mode": 420,
+          "sha256": "40f60f2e2f83fb6c63ddefeba7939a7852b2d468183ea939cc4dcac8fe4cc87d"
+        }
+      },
+      "source_url": "https://archive.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20260601~24.04.1_all.deb",
+      "version": "20260601~24.04.1"
+    },
+    "gawk": {
+      "archive_bytes": 463234,
+      "archive_sha256": "baaf6853bea746485bff4ae0e506599b3c5093ebe6ec9b9584e4272f94f75b93",
+      "members": {
+        "usr/bin/gawk": {
+          "bytes": 739840,
+          "mode": 493,
+          "sha256": "9150b42e78b22231bd83131e1db2530a7a7fa0677e189ac7c5cc1520c42c9e88"
+        }
+      },
+      "postinst": {
+        "bytes": 492,
+        "sha256": "95e1e850c9df6ac5534ec74e67f94b3f1e579216d54ce7e83a06860dc6c40439"
+      },
+      "source_url": "https://archive.ubuntu.com/ubuntu/pool/main/g/gawk/gawk_5.2.1-2ubuntu0.1_amd64.deb",
+      "version": "1:5.2.1-2ubuntu0.1"
+    },
+    "grub-pc-bin": {
+      "archive_bytes": 1100520,
+      "archive_sha256": "698d80bc51c0c593fbc829758365a0e4bce96819e2c8c754ae77dfe39b0388df",
+      "elf": {
+        "byte_order": "little",
+        "class": 32,
+        "machine": 3,
+        "version": 1
+      },
+      "members": {
+        "usr/lib/grub/i386-pc/915resolution.mod": {
+          "bytes": 7812,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "758c9e5f28238e26f74334607dd93b176c694267f05b2a464064938dfe0f90d2"
+        },
+        "usr/lib/grub/i386-pc/acpi.mod": {
+          "bytes": 10604,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "a005827d5ae76a2b8a1f4e366d503a319576859a76dd2debbc5d4ede09360f28"
+        },
+        "usr/lib/grub/i386-pc/adler32.mod": {
+          "bytes": 1228,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "211ea2021bb291fd82618f0b65e50e7c2436fb5f32bf5c20d6cb34f2af1df732"
+        },
+        "usr/lib/grub/i386-pc/affs.mod": {
+          "bytes": 5596,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "accb0c2617079b03df15d66103c92d5453ba6e85fe6d2aec7075ca1d75acbaa1"
+        },
+        "usr/lib/grub/i386-pc/afs.mod": {
+          "bytes": 6040,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "3b2761019562eb2008819b82cbe23e708038945e6639636e3bb89643c044295e"
+        },
+        "usr/lib/grub/i386-pc/afsplitter.mod": {
+          "bytes": 1492,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "2e0eee9e2840b14eabfde0c4e63f276624d679fc71a6be29c8221c4918c4af26"
+        },
+        "usr/lib/grub/i386-pc/ahci.mod": {
+          "bytes": 15616,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "ec2ec63c3fcac76e04a10154e62954567f40d52b83bbacd47e1d4f6f256e132e"
+        },
+        "usr/lib/grub/i386-pc/all_video.mod": {
+          "bytes": 492,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "dfaa89f5364aadf6b440d37385692472e21d6957254b20363f8436704afa77c8"
+        },
+        "usr/lib/grub/i386-pc/aout.mod": {
+          "bytes": 956,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "31ae78b2e0ebeee90dc5216df65bb26530a01f0191c9c33706adc12dc1e8561c"
+        },
+        "usr/lib/grub/i386-pc/archelp.mod": {
+          "bytes": 3020,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "56cb96e55c607585a8ba8ed166080cb38d79be5104164bc6e4ee16de9e8e2527"
+        },
+        "usr/lib/grub/i386-pc/at_keyboard.mod": {
+          "bytes": 4140,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "af798ef3a9db6f07b97ff74756125a9446f7724d322a9751baffee183a2860e5"
+        },
+        "usr/lib/grub/i386-pc/ata.mod": {
+          "bytes": 5524,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "122e242bfe7ddb924d6f59b4f1c4d977aac4b2ee29b3e1bac2801943aedcd43a"
+        },
+        "usr/lib/grub/i386-pc/backtrace.mod": {
+          "bytes": 1576,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "8997691a682f6cace7205bf83a5aa4df82dc73376ad8126899172da090d324fb"
+        },
+        "usr/lib/grub/i386-pc/bfs.mod": {
+          "bytes": 6780,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "3f2f67b2136fa6160d97627285057bd89e067eab7a8d8417dcba3608254690f1"
+        },
+        "usr/lib/grub/i386-pc/biosdisk.mod": {
+          "bytes": 4628,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "755528e646fc26d35fd757fdc38217f5149407d9be0ca3dbd864a9a4462835a5"
+        },
+        "usr/lib/grub/i386-pc/bitmap.mod": {
+          "bytes": 2188,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "f9008d5a920756345aa475b2b4063d765803a15a23bbcd42c69525b35b34eab1"
+        },
+        "usr/lib/grub/i386-pc/bitmap_scale.mod": {
+          "bytes": 3604,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "e7e562080761892a60664b9fc1db0d29c35e1a2c7507ad9fb203d0ffb04d0a6d"
+        },
+        "usr/lib/grub/i386-pc/blocklist.mod": {
+          "bytes": 2028,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "00084efd8a9c18513961cd3d93c38a875286ab8ca179d3bc3e68c979e3424abc"
+        },
+        "usr/lib/grub/i386-pc/boot.mod": {
+          "bytes": 2628,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "03622f297989baa34fb9554d9b1cec32da5d46e59fb88445633106a6d333e042"
+        },
+        "usr/lib/grub/i386-pc/bsd.mod": {
+          "bytes": 31264,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "9f5407c4b9437c91a332ffbb0c85a5a96ef8d02787607baf034274ece0460bf1"
+        },
+        "usr/lib/grub/i386-pc/bswap_test.mod": {
+          "bytes": 2252,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "172849cde59029e9c2dfed855276a01de8edfd8aa02318fee54a2e752c0c9e84"
+        },
+        "usr/lib/grub/i386-pc/btrfs.mod": {
+          "bytes": 20024,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "c0b2a4670763bb8628b002ac0aadbfcb1136bbe3827bf5879b3589fba3c0538f"
+        },
+        "usr/lib/grub/i386-pc/bufio.mod": {
+          "bytes": 2100,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "d8be03487c09dee5d86f9ee8a4b7cac6a33ae890a4170ff274e80428172c4390"
+        },
+        "usr/lib/grub/i386-pc/cat.mod": {
+          "bytes": 2852,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "3899d467b3ee5305b24aee91ee406e10f50d0a16a8c8c59f5616d5b42a721fff"
+        },
+        "usr/lib/grub/i386-pc/cbfs.mod": {
+          "bytes": 3900,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "c0f9af1b4d5405d9cb80021ac6407444fc94e49267a2bdb55c4ba5c37629ca4c"
+        },
+        "usr/lib/grub/i386-pc/cbls.mod": {
+          "bytes": 3340,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "7c076cc0659006fd8d901569293ceb5ba84c3a7c62f3e9b86d86633ef0bd83e3"
+        },
+        "usr/lib/grub/i386-pc/cbmemc.mod": {
+          "bytes": 2448,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "58e0add130d418f0d2798e090462d1a30d711174101cc9ce6ebf30b7854698ec"
+        },
+        "usr/lib/grub/i386-pc/cbtable.mod": {
+          "bytes": 1048,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "5c5f58694724755d98148170352176ba5d14521ccaf3d95ba1afc23f2ff58ef8"
+        },
+        "usr/lib/grub/i386-pc/cbtime.mod": {
+          "bytes": 2772,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "ec1b37df46fd5754533cdc4244b0b1e30b9ef3b17db875e31606fa319d5237e0"
+        },
+        "usr/lib/grub/i386-pc/chain.mod": {
+          "bytes": 3396,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "e043e4411e92f4097bb63716de9e5370fbcfc91aedcc512937f1cfb8b55b8e36"
+        },
+        "usr/lib/grub/i386-pc/cmdline_cat_test.mod": {
+          "bytes": 2960,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "ee86ed550c91d6951796eb4a12c115e7f7c50d68812be1bb46aedabc9ea2e910"
+        },
+        "usr/lib/grub/i386-pc/cmosdump.mod": {
+          "bytes": 1164,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "417f10d1fe2274b255ef46fd2e96702c7b0634a356b53593b15f9b6b1760a95c"
+        },
+        "usr/lib/grub/i386-pc/cmostest.mod": {
+          "bytes": 1820,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "6e94af6a4e7ad4641ab064208f27cbae9bc233187441e3ea97688e933aae010d"
+        },
+        "usr/lib/grub/i386-pc/cmp.mod": {
+          "bytes": 2224,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "be595f9f231edb987f80a3d7ddf0046b5c8c498bb360d40dd854a8c4e95a1cc9"
+        },
+        "usr/lib/grub/i386-pc/cmp_test.mod": {
+          "bytes": 4608,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "d4cedcecc56e3df76cf228df14fc0dab612db0545b2439107f7d52c214126e10"
+        },
+        "usr/lib/grub/i386-pc/configfile.mod": {
+          "bytes": 2204,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "dd1e601d913d45e0c8876ddb56011e6df626172f097dcb25c5a2dfcdaef39e25"
+        },
+        "usr/lib/grub/i386-pc/cpio.mod": {
+          "bytes": 2744,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "e79976872824219b0e139bbce79f765dfe641373181970244c31ca1382e6c88f"
+        },
+        "usr/lib/grub/i386-pc/cpio_be.mod": {
+          "bytes": 2988,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "e267e5f4660bf732eff2520df7d86bfa7f6dbf683bd400be1a5654a9fce0014e"
+        },
+        "usr/lib/grub/i386-pc/cpuid.mod": {
+          "bytes": 1664,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "386224379e75e5b8c219759a636726ab8e7967575635f2dd1f198110a39cd876"
+        },
+        "usr/lib/grub/i386-pc/crc64.mod": {
+          "bytes": 1572,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "c169e64b3ba0c3f0d77d82d12f525572d514141b095492785199a55c7d40be71"
+        },
+        "usr/lib/grub/i386-pc/crypto.mod": {
+          "bytes": 4896,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "0485688349b36bc868dab723bf2e78f945aa97a966b1da6ec3cd8807720a7c68"
+        },
+        "usr/lib/grub/i386-pc/cryptodisk.mod": {
+          "bytes": 14716,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "f8004a0282a1f9c61adc17b558c84d79d25a225abf88aad6ed28587458db0053"
+        },
+        "usr/lib/grub/i386-pc/cs5536.mod": {
+          "bytes": 3588,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "5f6f7abfb8ae933ec93d3f6b32065e185e9cbd96042b930961596708ff1f7421"
+        },
+        "usr/lib/grub/i386-pc/ctz_test.mod": {
+          "bytes": 1684,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "caa0d95decec05ef099c0fb9b1d250d78bf76c84d77e0f5c821b443f8dc8a155"
+        },
+        "usr/lib/grub/i386-pc/date.mod": {
+          "bytes": 2116,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "db17062e70847ade2e8fede691b7b17a42214d704aefb5ab3508439c576a6ff6"
+        },
+        "usr/lib/grub/i386-pc/datehook.mod": {
+          "bytes": 1716,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "24b2415d60e372d1dbeb9f3faeb88dabc520934fc1ac222ef190398621d48af0"
+        },
+        "usr/lib/grub/i386-pc/datetime.mod": {
+          "bytes": 2148,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "f813a5ed8794d629d6598a663da6dcc18b2e3915ad1ae44d3e58608804f648c6"
+        },
+        "usr/lib/grub/i386-pc/disk.mod": {
+          "bytes": 2300,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "2e02c7f32ede6d9b8ed20013bac5a3f66222b58dd871d442b9c16e945e8d4cc2"
+        },
+        "usr/lib/grub/i386-pc/diskfilter.mod": {
+          "bytes": 9868,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "21fc5d8fde60da39d6735e10b43bf32c4053346485bf9b867b88400e601f3dd2"
+        },
+        "usr/lib/grub/i386-pc/div.mod": {
+          "bytes": 956,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "a1efde63a458dc1cba9041368821aa7757f7cd93fc5c6b8e0e7870357a9c9f04"
+        },
+        "usr/lib/grub/i386-pc/div_test.mod": {
+          "bytes": 5560,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "591d56b4c7c7a061e4276f928d648b413ffbe9875569aa2388a2c5d335d6ad7b"
+        },
+        "usr/lib/grub/i386-pc/dm_nv.mod": {
+          "bytes": 1768,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "20a45c276502450211e639c28f9f14ec94e24bc021948e326fd568c0bf1f157c"
+        },
+        "usr/lib/grub/i386-pc/drivemap.mod": {
+          "bytes": 5284,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "f0244efada1b1a8d724f10bd9248d72981d66bd9cb27e904336702405706d760"
+        },
+        "usr/lib/grub/i386-pc/echo.mod": {
+          "bytes": 1896,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "559369bbc092b71bad4f041554dd03df1632ab24aa819898bf88e9f0c7dc5f58"
+        },
+        "usr/lib/grub/i386-pc/efiemu.mod": {
+          "bytes": 23720,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "c1d77263239d43db9b6bd485faf1ff1e40c1abcda1728076de4c00aedbe11d27"
+        },
+        "usr/lib/grub/i386-pc/efiemu32.o": {
+          "bytes": 7620,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "a30d8565288ae01205d76e6938d384f7bc9b81642b00e1528517d33cd3113265"
+        },
+        "usr/lib/grub/i386-pc/ehci.mod": {
+          "bytes": 16128,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "aca55433698923e84c89c9d1d457f2a15129633f97262edf5e704ea201c71007"
+        },
+        "usr/lib/grub/i386-pc/elf.mod": {
+          "bytes": 5728,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "d6f0e57ad0727663be75c92c9f3d594b6de290508e89ade083a8fd7386803c1f"
+        },
+        "usr/lib/grub/i386-pc/eval.mod": {
+          "bytes": 1368,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "6149b3bf8aca6175663df5ff83b0b7bc55eca61435c8e255eccf0df0074d286d"
+        },
+        "usr/lib/grub/i386-pc/exfat.mod": {
+          "bytes": 5916,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "d656b00093e7440b25da98e98e17b1a9fd236f7b3abe0290ad87b5065d8c16aa"
+        },
+        "usr/lib/grub/i386-pc/exfctest.mod": {
+          "bytes": 1380,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "1ec6112df11c6b4dc5f226ec1f48764b48fc23ed410bf079848a7f86949999ea"
+        },
+        "usr/lib/grub/i386-pc/ext2.mod": {
+          "bytes": 6128,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "761f2ee0bd47bf6efc5f25312140a8ad1b28ad06d748be8d8dc5752242d73d30"
+        },
+        "usr/lib/grub/i386-pc/extcmd.mod": {
+          "bytes": 4608,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "e91b6568a689b4e66cabaec49a8505db690ca407cf0831ba57c329631e083e55"
+        },
+        "usr/lib/grub/i386-pc/f2fs.mod": {
+          "bytes": 6632,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "39eef0391ba1a9ccafc0f48a67ebbb458c9a8dcbd0a017cd3ccc64f10be99702"
+        },
+        "usr/lib/grub/i386-pc/fat.mod": {
+          "bytes": 6060,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "11b168d92b1e2e9e5b97303c4f650dba73f4024f436cff933887b3310f5ff1fd"
+        },
+        "usr/lib/grub/i386-pc/file.mod": {
+          "bytes": 17140,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "65aec7258e017be8ab33afc7773cf6ea5fae1b3f4d9126d84f85176018c3f647"
+        },
+        "usr/lib/grub/i386-pc/font.mod": {
+          "bytes": 13512,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "4567b426eb42acec68c7f60c7afac9b5284c3cd9e610727bc0d5f1134423567e"
+        },
+        "usr/lib/grub/i386-pc/freedos.mod": {
+          "bytes": 2612,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "f9631a024c102b175f8272de6a5812d67b61df8e9cd2412645d408fbce7abca2"
+        },
+        "usr/lib/grub/i386-pc/fshelp.mod": {
+          "bytes": 2924,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "32b97e6b53187fdfe542f7e781a7b9fa36cda3fd0ca2c9b51edfb3a8dfbcbaa9"
+        },
+        "usr/lib/grub/i386-pc/functional_test.mod": {
+          "bytes": 34168,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "35703071a38782c661aec472af33f9a9f707059221d1580aad121d0cf578bc1c"
+        },
+        "usr/lib/grub/i386-pc/gcry_arcfour.mod": {
+          "bytes": 1580,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "7b381171fc9b1a6b991178140872078885c1132b7d1007a740716d300d92f84f"
+        },
+        "usr/lib/grub/i386-pc/gcry_blowfish.mod": {
+          "bytes": 8000,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "9526d43c3a31acc5a6cbb8e4d454f2f0a554b5d45df0a8609e8db30118b520c8"
+        },
+        "usr/lib/grub/i386-pc/gcry_camellia.mod": {
+          "bytes": 33516,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "ec4a0b600674e7fb6e7080e00ef623973fcb38986b85c58bd5d6f3137da14167"
+        },
+        "usr/lib/grub/i386-pc/gcry_cast5.mod": {
+          "bytes": 16356,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "dc0dbb3a1ecdf89d85bdae7d58756f88ce61a229668fbf3857f5f12f12633331"
+        },
+        "usr/lib/grub/i386-pc/gcry_crc.mod": {
+          "bytes": 10532,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "bf4f7b3b60a3e1999b8bec308ced51afe4e3549c373ad301cc4ccf6b25a706f5"
+        },
+        "usr/lib/grub/i386-pc/gcry_des.mod": {
+          "bytes": 19136,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "a7a15f702f065ec04289e643d18e8db2db1e7cfde7b94923b1a9d590d7efb5d7"
+        },
+        "usr/lib/grub/i386-pc/gcry_dsa.mod": {
+          "bytes": 2188,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "562757b7c8a1d7c291d9f86d6277afeb4ed311fbf7042900acba843f7ba92d48"
+        },
+        "usr/lib/grub/i386-pc/gcry_idea.mod": {
+          "bytes": 2884,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "76103fc9a80db6c392bffcc6634da047a4a4f73ef73611b920db56ed7f7abe67"
+        },
+        "usr/lib/grub/i386-pc/gcry_md4.mod": {
+          "bytes": 3048,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "504971b5468f60e08c5564433927f0ad3f033b22a32774d31c2abed34e34996f"
+        },
+        "usr/lib/grub/i386-pc/gcry_md5.mod": {
+          "bytes": 3668,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "92c1058de947a9358a7c6054e572fabadf03faacd3c6e9c2c3fda975340bb92b"
+        },
+        "usr/lib/grub/i386-pc/gcry_rfc2268.mod": {
+          "bytes": 2316,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "bfa2bda5eca8e6420dd92174c3ddeaf13baf75e40fc056f36fac15b1abefaeac"
+        },
+        "usr/lib/grub/i386-pc/gcry_rijndael.mod": {
+          "bytes": 19312,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "91dd3812fa5bdd19d2cfd81de0b843170ed8c6b7472a8c57ccd3b2f3baedcb95"
+        },
+        "usr/lib/grub/i386-pc/gcry_rmd160.mod": {
+          "bytes": 8248,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "80b2aa89b38eb712a321b27bb8b48f5245648f8df6a53fdff846b4021a578465"
+        },
+        "usr/lib/grub/i386-pc/gcry_rsa.mod": {
+          "bytes": 1968,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "c162610841bb1493ea53c7e4a0e4038e0aa89b605de21753ea309a8dc4a52078"
+        },
+        "usr/lib/grub/i386-pc/gcry_seed.mod": {
+          "bytes": 14792,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "91eff6b0b46bd9bed6d9a014fb0306f53c66c21430af6d4c3422942740b787b2"
+        },
+        "usr/lib/grub/i386-pc/gcry_serpent.mod": {
+          "bytes": 17764,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "d5bfd5c7185d525d3224e08a6ddf9b94cc479fab5b8e3db69d69da2b05ba82a4"
+        },
+        "usr/lib/grub/i386-pc/gcry_sha1.mod": {
+          "bytes": 8592,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "09df55808b2a305b254602d4191945046032f63aec00da37ee9e020499d849bc"
+        },
+        "usr/lib/grub/i386-pc/gcry_sha256.mod": {
+          "bytes": 4376,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "b395d0fc43f3bb9def9c76bc9c5fa4e1859af9375584a21e797c79872d97b7d3"
+        },
+        "usr/lib/grub/i386-pc/gcry_sha512.mod": {
+          "bytes": 7908,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "75a156ed4a61e9e4c253f8f247e3b2ce23c49a23b915cf9f0d8e763e39335a2c"
+        },
+        "usr/lib/grub/i386-pc/gcry_tiger.mod": {
+          "bytes": 12180,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "2e745fc48db79820eb9f36b893ebcb150b08d97a5fb2fdb5b5113f86509489f9"
+        },
+        "usr/lib/grub/i386-pc/gcry_twofish.mod": {
+          "bytes": 36816,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "e98751c74a3bad1d86dd0ce3cbafbd85ba4b9796f550a8be29fc1f9c98680b0a"
+        },
+        "usr/lib/grub/i386-pc/gcry_whirlpool.mod": {
+          "bytes": 24588,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "7cc194b6598c167414ab716bce8b55f9165b768bb174fcba69a6e9eae7354635"
+        },
+        "usr/lib/grub/i386-pc/gdb.mod": {
+          "bytes": 25124,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "c683030b55643328e09f7b15fa28b029d637cf5ec6f26c1bdc4fd14173947343"
+        },
+        "usr/lib/grub/i386-pc/geli.mod": {
+          "bytes": 5552,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "9761dfe6d02617e7425e885ea9926c008f9ece544ce54d9f34a8a2ff518552c2"
+        },
+        "usr/lib/grub/i386-pc/gettext.mod": {
+          "bytes": 4908,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "1fa4b3187fe6a454b0ba4a64af51f31f2536dff58375b9720d1299f951fb5212"
+        },
+        "usr/lib/grub/i386-pc/gfxmenu.mod": {
+          "bytes": 38952,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "de353eb2981f1057a1266713e91ccd7dba43e0d7aa32a6c8a5dd0ba82d097adf"
+        },
+        "usr/lib/grub/i386-pc/gfxterm.mod": {
+          "bytes": 9892,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "859b418bdb18f9e692999d9595849a4e1ee167b9e248e16eb6ce77d9d432e565"
+        },
+        "usr/lib/grub/i386-pc/gfxterm_background.mod": {
+          "bytes": 2796,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "69935e76b8e3fad526e0b0caf47edf469201fa4f99fe3bd21c237f3ea0f22b7e"
+        },
+        "usr/lib/grub/i386-pc/gfxterm_menu.mod": {
+          "bytes": 4912,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "2ff6bff3643ad170cd16ec740c9566f54522c1e15dbe0999ad74b221e8795b64"
+        },
+        "usr/lib/grub/i386-pc/gptsync.mod": {
+          "bytes": 3716,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "0c7b92e447038b629f44764a80ef2f97d531a8ba5bbdb2d6198ae4010a416e29"
+        },
+        "usr/lib/grub/i386-pc/gzio.mod": {
+          "bytes": 8756,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "64c76e2f5189a9ec59702d1d2d1ced44fe8a31082191b7e769b3c9df1e021d2f"
+        },
+        "usr/lib/grub/i386-pc/halt.mod": {
+          "bytes": 4640,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "2fbdcb4a623378bf23c0e67c78ec14f2e6ea137e83fc9abfe11a9e6bb365e9d1"
+        },
+        "usr/lib/grub/i386-pc/hashsum.mod": {
+          "bytes": 5168,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "10397f0dded473392cb9d67e6698e983332f7af3dfecd74e8aee8b6c2d323ac0"
+        },
+        "usr/lib/grub/i386-pc/hdparm.mod": {
+          "bytes": 6512,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "00075030f332b09a13eccfaf80a29d0d0855c4cbacb9f7b602808ff6ceb69c70"
+        },
+        "usr/lib/grub/i386-pc/hello.mod": {
+          "bytes": 1140,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "80ee23a284ac3e174543cf2cdf1ad08189f97534bb888bf77038c1cbd68afa72"
+        },
+        "usr/lib/grub/i386-pc/help.mod": {
+          "bytes": 2592,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "f61add09ecf8b4acfe701894f47aacd67a6bfc2f9ed74fd7f3d1160c2473209e"
+        },
+        "usr/lib/grub/i386-pc/hexdump.mod": {
+          "bytes": 3072,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "33cd45c0830c41cc74eb726d2f36d94e6e8631d5df55c716b2b8b21ff30d7207"
+        },
+        "usr/lib/grub/i386-pc/hfs.mod": {
+          "bytes": 6900,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "c7b9b18056c62767efb43282c86e0f257c1fab1a42ea7203b9ec1e54204e4277"
+        },
+        "usr/lib/grub/i386-pc/hfsplus.mod": {
+          "bytes": 8116,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "db0dc230dcda6746b2df021dab3fb50bf8a7f027074a5ccebedc9543b3e738b6"
+        },
+        "usr/lib/grub/i386-pc/hfspluscomp.mod": {
+          "bytes": 2988,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "b66b5455ad7113ca9d2646d0eeb77af13c25e5ee7a9a2aa2112ff6c4924c1c20"
+        },
+        "usr/lib/grub/i386-pc/http.mod": {
+          "bytes": 5856,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "c64715e5e8fa381664864dfe017f4b4626f6867c8099e91d58180c89e0b6b664"
+        },
+        "usr/lib/grub/i386-pc/hwmatch.mod": {
+          "bytes": 2452,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "3aa3e9335f5c44fd6fe8d67ac0997b90f08d62a6c3d33f464dbe30a3b93cd7cb"
+        },
+        "usr/lib/grub/i386-pc/iorw.mod": {
+          "bytes": 2800,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "709e326d8f5c78939b17367a17c9d63ecaac5fab050c9b333a55e7c535488817"
+        },
+        "usr/lib/grub/i386-pc/iso9660.mod": {
+          "bytes": 9212,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "f21032ab09e9422fc1b8a0363f6cb17a764128f77c21af6140e5bfa2979ddf10"
+        },
+        "usr/lib/grub/i386-pc/jfs.mod": {
+          "bytes": 6432,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "161a60bce68906a57cfaf7e2cdca9847ce1fe05cbf5bd773372a99e8fca95767"
+        },
+        "usr/lib/grub/i386-pc/jpeg.mod": {
+          "bytes": 7808,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "ee7709a094361b72ab9aec99d5d6721675297dd4dbbe1e3b2d0621ec740c04e7"
+        },
+        "usr/lib/grub/i386-pc/json.mod": {
+          "bytes": 4244,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "939f5eafcd057f5d87ee1184af37e05f2187f2ab7ec80756fee39098100a37b7"
+        },
+        "usr/lib/grub/i386-pc/kernel.img": {
+          "bytes": 33068,
+          "elf_type": 2,
+          "mode": 420,
+          "sha256": "12192b8f135a57acb7278c54bc4fe57d7045a08faafef5e2bccb3a1d8312eb5d"
+        },
+        "usr/lib/grub/i386-pc/keylayouts.mod": {
+          "bytes": 4976,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "66d1cfe1a26291cc67dbf7ac25175f4eb67de54aae6f6755898ef7c692e4becd"
+        },
+        "usr/lib/grub/i386-pc/keystatus.mod": {
+          "bytes": 1840,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "3181ebf7e75f9c4cd32f33d8f2d6aa8cf0568faec1a91316342a8cc786d55a00"
+        },
+        "usr/lib/grub/i386-pc/ldm.mod": {
+          "bytes": 6252,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "d38a3f25c3080e5ff60b6a9537b7a8393671f355f600037b996fd5b2c49e2f29"
+        },
+        "usr/lib/grub/i386-pc/legacy_password_test.mod": {
+          "bytes": 14404,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "3c47305ad6abdf95f750f45e43413869d0942a060ec85e0067fc59e0664f203b"
+        },
+        "usr/lib/grub/i386-pc/legacycfg.mod": {
+          "bytes": 30100,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "24814ff7cc63d44f55b8c049de0ecfa60cff42260dbedf544540b9cf2d64dc6f"
+        },
+        "usr/lib/grub/i386-pc/linux.mod": {
+          "bytes": 13540,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "537c9b98de1505113bf91351f1675dcee5882d38427cb65e7a582997a713af71"
+        },
+        "usr/lib/grub/i386-pc/linux16.mod": {
+          "bytes": 5516,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "570214439e97aa33d6309da61278a16791845997ce5920544c4fb7cc84fea007"
+        },
+        "usr/lib/grub/i386-pc/loadenv.mod": {
+          "bytes": 5748,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "5b98538f06b53f7221c92135a86b23ac6afbc14d26f5d007e66081a693af4235"
+        },
+        "usr/lib/grub/i386-pc/loopback.mod": {
+          "bytes": 3352,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "731d2da183347489570d54d0caab00f444d7a818edac7d8470eea414536d46f7"
+        },
+        "usr/lib/grub/i386-pc/ls.mod": {
+          "bytes": 3876,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "717bb877d11496e6acd0134cc826d620199075182b6ab33d7babac69d4279e6a"
+        },
+        "usr/lib/grub/i386-pc/lsacpi.mod": {
+          "bytes": 4740,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "0de5d9eec62d75b56c3c816533d4d4a686cf9123e5d41ad6594a8b3e6d4d45d1"
+        },
+        "usr/lib/grub/i386-pc/lsapm.mod": {
+          "bytes": 2232,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "b153c16f5d35b7fe6fcc6b3e9971688a3e579f999a2695bcd7c34fbada026771"
+        },
+        "usr/lib/grub/i386-pc/lsmmap.mod": {
+          "bytes": 1820,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "e9cee31b3b16bb2bd8212e9c4bb945a485426d963c4d37b6f9ed6ec15b2d4bce"
+        },
+        "usr/lib/grub/i386-pc/lspci.mod": {
+          "bytes": 4796,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "f30e6e0fc9ddcae5355aa4aa25e1a63f47ef6d68766f6d426747af795ed24ce1"
+        },
+        "usr/lib/grub/i386-pc/luks.mod": {
+          "bytes": 3912,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "69950b40c070523f1883b1e74a26427590d868678a6ead436ddce24b9b5fb78d"
+        },
+        "usr/lib/grub/i386-pc/luks2.mod": {
+          "bytes": 14388,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "c133c8c7b8e2bfb1140ac076981f3ef93694f9770382928aa0f6175285a069e2"
+        },
+        "usr/lib/grub/i386-pc/lvm.mod": {
+          "bytes": 8548,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "472cb49108979284ac9a0050f21ec9a395ea438ac5ca395525039efb15580394"
+        },
+        "usr/lib/grub/i386-pc/lzopio.mod": {
+          "bytes": 4752,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "3ebab1a02d4549316923cdf5a9cf5616f8fc806e6ac2fc46f6d972fcd5fbcb79"
+        },
+        "usr/lib/grub/i386-pc/macbless.mod": {
+          "bytes": 3192,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "7c93cb2c796a144b841ef4d89342d421974acfc21d82a450d3dded3c294548a6"
+        },
+        "usr/lib/grub/i386-pc/macho.mod": {
+          "bytes": 7372,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "af59482cc949048e03f4946a760e47047da18dfde87030ee9eea8f73d70464ce"
+        },
+        "usr/lib/grub/i386-pc/mda_text.mod": {
+          "bytes": 2044,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "e96b9abb74f7e4a8b65a7b5463608ad70dd5b6da0bd5b989d73bdcf823d77abd"
+        },
+        "usr/lib/grub/i386-pc/mdraid09.mod": {
+          "bytes": 2104,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "5dfe97f4268fb135a5d0a13d1c8fb559f4bb94cb0e5a6194c4f48c0c986ea07f"
+        },
+        "usr/lib/grub/i386-pc/mdraid09_be.mod": {
+          "bytes": 1964,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "b206728cada6f46f1f1a2838739d87a88c35c4b039ad77ca0aeed8634dcb35c0"
+        },
+        "usr/lib/grub/i386-pc/mdraid1x.mod": {
+          "bytes": 1868,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "7df4384a5390c66df2b543b80ee3026c53a9dc5291b0377b2a8dbd25f396b26d"
+        },
+        "usr/lib/grub/i386-pc/memdisk.mod": {
+          "bytes": 2100,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "b7c240fc97a7b5c24d28d869545fd7fe276930a4ba6aa35436869d7dc0f0b2a4"
+        },
+        "usr/lib/grub/i386-pc/memrw.mod": {
+          "bytes": 2800,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "11a90cf044105edc9ae3f58655a047a92da6ef1005a195a38764653655c9bd62"
+        },
+        "usr/lib/grub/i386-pc/minicmd.mod": {
+          "bytes": 3664,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "978ccea5baa421bf803ff7fe17a01b1490ce2e9dfa84e6600220cce89095de75"
+        },
+        "usr/lib/grub/i386-pc/minix.mod": {
+          "bytes": 3616,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "9db49786a2612c391ec99e21ed34e7e67ffb7446da317b72775b171dfa56b67d"
+        },
+        "usr/lib/grub/i386-pc/minix2.mod": {
+          "bytes": 3744,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "912f4bd58f4871947c964b82e703f0ebbf723834973a8b410d003f33f251b228"
+        },
+        "usr/lib/grub/i386-pc/minix2_be.mod": {
+          "bytes": 3876,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "969f15910cc348538ca83f796632569cd0c0860cb21373ea9ec9689f52327013"
+        },
+        "usr/lib/grub/i386-pc/minix3.mod": {
+          "bytes": 3648,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "8d0d0307d621cf66b37dfdc75916373df9c67fe47ca1c28da4027b19ecba6880"
+        },
+        "usr/lib/grub/i386-pc/minix3_be.mod": {
+          "bytes": 3812,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "b9ad14b715e372d8e1ea56757cd9fc9d3622af02fcc718b4fe144d84efc18042"
+        },
+        "usr/lib/grub/i386-pc/minix_be.mod": {
+          "bytes": 3744,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "2c86ea6b5e063e5567ac0b44db2b910b562d15149b3f29507f7695f91c629bd7"
+        },
+        "usr/lib/grub/i386-pc/mmap.mod": {
+          "bytes": 8520,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "bcf548192a38c0b74876d42785c8d8621382beb3ebd95fe5d585dc2708cc7b6c"
+        },
+        "usr/lib/grub/i386-pc/morse.mod": {
+          "bytes": 2348,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "4b164ad6adec86f4d73f15bbe9475901a0c87f2bfd69865fdc8b9bdf44c53405"
+        },
+        "usr/lib/grub/i386-pc/mpi.mod": {
+          "bytes": 27436,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "de9a2d01467ffdcac207f614d8569018d2d7b804180db06a59ec1bd672fa0484"
+        },
+        "usr/lib/grub/i386-pc/msdospart.mod": {
+          "bytes": 2396,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "8b94f4281e2172e5c313875ba712acf98aabbe19bb18179cb4f3484c1546f663"
+        },
+        "usr/lib/grub/i386-pc/mul_test.mod": {
+          "bytes": 1984,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "ee5397a2bf2797c6ba1a9ca5bc16d73eea9dc6579c03394a1a5b1710c79d1e56"
+        },
+        "usr/lib/grub/i386-pc/multiboot.mod": {
+          "bytes": 14904,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "73b863b64fa9600b87ab507a8e87733a45a2802e25161281e484a388e85ec515"
+        },
+        "usr/lib/grub/i386-pc/multiboot2.mod": {
+          "bytes": 15940,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "0964abe92a64e5b3dcf75687d89d580720d889d8d658ac19e0da3aec1d84b1e5"
+        },
+        "usr/lib/grub/i386-pc/nativedisk.mod": {
+          "bytes": 4148,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "a539277b86d7c79b0a9b2ee26af733ee494d1295ef74507e10d58d77ee695a69"
+        },
+        "usr/lib/grub/i386-pc/net.mod": {
+          "bytes": 59392,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "e4860a47e9f861c26edbc1e9f330d191796e56d4e59f81b2b316d7118b1460ef"
+        },
+        "usr/lib/grub/i386-pc/newc.mod": {
+          "bytes": 3176,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "aa235ce936aa7ea565e92e3232298cb6385a919a19d5d01a573de3c59d285f13"
+        },
+        "usr/lib/grub/i386-pc/nilfs2.mod": {
+          "bytes": 6756,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "49fd0ca48d4e6131caee062dd95e64e297d11c093761d8815464c3575a989b0f"
+        },
+        "usr/lib/grub/i386-pc/normal.mod": {
+          "bytes": 115044,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "21fb53dd25d4f5ecaa66d5ef4ad1bb0acea846d9f8a4044dd3d3526bfcb179b1"
+        },
+        "usr/lib/grub/i386-pc/ntfs.mod": {
+          "bytes": 10592,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "3ffb27bb34694abcfcb79d9484fd37d7c36b52260369076146ce41abc786fa55"
+        },
+        "usr/lib/grub/i386-pc/ntfscomp.mod": {
+          "bytes": 4320,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "f0ba32a03dcb92d40acb3a9f29c8b85d4e13a8ac2975e52978cc7e1628adbd3a"
+        },
+        "usr/lib/grub/i386-pc/ntldr.mod": {
+          "bytes": 2504,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "bbfe64faf40aa643c6e9ac6cb5a4bb693a5396abb8d7ac01f2eb0f580ad5b010"
+        },
+        "usr/lib/grub/i386-pc/odc.mod": {
+          "bytes": 2984,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "c1c0b46a64d029ce596214bb7048d1b5125d03961340f158cedb6161f3af5987"
+        },
+        "usr/lib/grub/i386-pc/offsetio.mod": {
+          "bytes": 1460,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "3e2f04b0173b4657ec7fb463b167de56e0602b1596cc16e3bc1741b60015f797"
+        },
+        "usr/lib/grub/i386-pc/ohci.mod": {
+          "bytes": 10324,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "671933195b78fea671f57d154a93472235d00bbf3fdea8655d9e54d8ec49c3cd"
+        },
+        "usr/lib/grub/i386-pc/part_acorn.mod": {
+          "bytes": 1588,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "b2c7891baad57f3c4ea758ba475f0a1fdae336cf888ca5e3f6f74a5402635530"
+        },
+        "usr/lib/grub/i386-pc/part_amiga.mod": {
+          "bytes": 1812,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "ae6346a94bb2846e2579710d14ad9a2c0626e13087858439bcfdc4d26e08ea06"
+        },
+        "usr/lib/grub/i386-pc/part_apple.mod": {
+          "bytes": 2052,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "3b16cf0225b92c188753c250d733d67a697852bb7611902b33513b9f35b81b8b"
+        },
+        "usr/lib/grub/i386-pc/part_bsd.mod": {
+          "bytes": 2680,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "f1a02b0385832aa8fca2f3cc5550573fb9ad2765e07ef74298819f732826ddaa"
+        },
+        "usr/lib/grub/i386-pc/part_dfly.mod": {
+          "bytes": 1712,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "eaa49e764da83124cb30ca9cb6722ff0d6c283b49ce214dc4a415eff7d37fe03"
+        },
+        "usr/lib/grub/i386-pc/part_dvh.mod": {
+          "bytes": 1424,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "a536052e4f0a946ad049bd29215240a4bd7188c86e89c2f05f398b88ca059ece"
+        },
+        "usr/lib/grub/i386-pc/part_gpt.mod": {
+          "bytes": 2300,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "3371e52b2b99f3efbf29c04d0c4669155c8b608ce830380689e3050320e093af"
+        },
+        "usr/lib/grub/i386-pc/part_msdos.mod": {
+          "bytes": 2264,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "3fca40ae2b8c2623e44eb11432947d4b5174600081149f2b09f15bea70e2330d"
+        },
+        "usr/lib/grub/i386-pc/part_plan.mod": {
+          "bytes": 1732,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "0ffe760cf2f94bf1f6124297fd06b86e3eaa1a8817c486b0b9ca307ee8128131"
+        },
+        "usr/lib/grub/i386-pc/part_sun.mod": {
+          "bytes": 1452,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "99313a9da44a9c888423a4a832d7abce87206db1abe371ec8519598e2b19cd8e"
+        },
+        "usr/lib/grub/i386-pc/part_sunpc.mod": {
+          "bytes": 1588,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "cb866a0b90e2ed151d7e7d5f9d91845cef4cf63b7994474d54db7bf84cee539f"
+        },
+        "usr/lib/grub/i386-pc/parttool.mod": {
+          "bytes": 4644,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "c7d77a57bc425e30f8d765953e968411eb83a2dbb44eea517e17441598a4f929"
+        },
+        "usr/lib/grub/i386-pc/password.mod": {
+          "bytes": 1820,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "ae5249904ab0ff9d959983f497eea90425b28aeca9df0d4848f15aeccb3ad5e7"
+        },
+        "usr/lib/grub/i386-pc/password_pbkdf2.mod": {
+          "bytes": 2720,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "9b3f6139fba1ebefcaca7ec84d8bf154282f7c6eccff5cb5464912627793bce3"
+        },
+        "usr/lib/grub/i386-pc/pata.mod": {
+          "bytes": 4812,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "9de5bd8838c79082a0d8c93106ee40ce09f1bed8871943ccb0a3164052c91a87"
+        },
+        "usr/lib/grub/i386-pc/pbkdf2.mod": {
+          "bytes": 1312,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "54bbead42a07c2155b71ecfdf1cb66a6ed6513330484523cbb2aaec85c462068"
+        },
+        "usr/lib/grub/i386-pc/pbkdf2_test.mod": {
+          "bytes": 2100,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "ffcb5803ad8760aa94f70e0e7b6544585bb4333f7e0334c72a3cbe1c35f52abd"
+        },
+        "usr/lib/grub/i386-pc/pci.mod": {
+          "bytes": 1316,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "7e97dd491f4295fd6c6abc23985b837b532517c6994ca9e005c5caf3b45efd9f"
+        },
+        "usr/lib/grub/i386-pc/pcidump.mod": {
+          "bytes": 2384,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "6652482a889cd90c0b815d0849ee21d8cb2bb89ab37a74b2368ce2e259de0f45"
+        },
+        "usr/lib/grub/i386-pc/pgp.mod": {
+          "bytes": 11404,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "0f9fb8faad0ee2be96bb70878a069e0bb6a8d4ff255280d9d9c4d34ede09dad2"
+        },
+        "usr/lib/grub/i386-pc/plainmount.mod": {
+          "bytes": 7264,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "4b180fe5975f756845958ee59015f4ac35b064167826bd8010e292561551878f"
+        },
+        "usr/lib/grub/i386-pc/plan9.mod": {
+          "bytes": 6292,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "57d9a498702d876efe4a7307c0d43deb1a0cfc4b9936963b61cad5b6b672a6c6"
+        },
+        "usr/lib/grub/i386-pc/play.mod": {
+          "bytes": 2448,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "4f8e82195cfaeead5914d27f477e197321a2cf1a83c6c99389ebd258ab59fb44"
+        },
+        "usr/lib/grub/i386-pc/png.mod": {
+          "bytes": 7988,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "e1489d7d4fcc8fdfa5ab3d7649cd86526fcd47c93ccb34f0d9c98b2b976e2c4f"
+        },
+        "usr/lib/grub/i386-pc/priority_queue.mod": {
+          "bytes": 1516,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "ccce25282fec66c944d661ce7e51e9e4dc1125ac32ef0c23763ca98ba939e3e8"
+        },
+        "usr/lib/grub/i386-pc/probe.mod": {
+          "bytes": 3528,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "23afb1edc1935cceb13c735818da9bf1b2fce1b32e890b53778e3800724d9899"
+        },
+        "usr/lib/grub/i386-pc/procfs.mod": {
+          "bytes": 2292,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "4d6e030283859e1fe852c462ce792990d2ed21c28c4ced779277b040107ceea1"
+        },
+        "usr/lib/grub/i386-pc/progress.mod": {
+          "bytes": 2136,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "bbc4c12163e9f4cf9b218bd0bfbaa142ca87153fda630b5eb3d3f7d8c5d5338b"
+        },
+        "usr/lib/grub/i386-pc/pxe.mod": {
+          "bytes": 3680,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "597267f5d0ddf04fb16878ff524a4d8ba943c62220c1d5cbd30afdf8cc11a091"
+        },
+        "usr/lib/grub/i386-pc/pxechain.mod": {
+          "bytes": 2616,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "2d7c48ef4587515df3a4763bfcfe47d23d072079a63a6d1f21901f3a0482f64f"
+        },
+        "usr/lib/grub/i386-pc/raid5rec.mod": {
+          "bytes": 1292,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "64d3dac31f25b680803037538dfa2e6e62e37de3bdfba5b19d1fdfcc1e05c7b3"
+        },
+        "usr/lib/grub/i386-pc/raid6rec.mod": {
+          "bytes": 2204,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "dd432557eabe607f3f32c01a020e366e872482408498f240db3bbb75c5fe5551"
+        },
+        "usr/lib/grub/i386-pc/random.mod": {
+          "bytes": 3696,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "7a6b930411b577c06fa68756cd6cc9d6bec82e769edeaee23595c10a3507211f"
+        },
+        "usr/lib/grub/i386-pc/rdmsr.mod": {
+          "bytes": 1848,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "477c444eb0fcc49dff93c8c6c390100b9970048f4898a8b37600a369ddee54f9"
+        },
+        "usr/lib/grub/i386-pc/read.mod": {
+          "bytes": 1784,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "e16eb0df83de064b1f43f9f180678413588176840feedefe3e7946092dbbcd02"
+        },
+        "usr/lib/grub/i386-pc/reboot.mod": {
+          "bytes": 1640,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "4acef31143b74ee6e5e3f5c4f628130c372b7921b3312911cb0ce66ac83b4b14"
+        },
+        "usr/lib/grub/i386-pc/regexp.mod": {
+          "bytes": 50756,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "48476ad4a80f947a4c990a7be00026c8631bec903c058bde80646db1c8006f6e"
+        },
+        "usr/lib/grub/i386-pc/reiserfs.mod": {
+          "bytes": 8704,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "8f1c0ab39b0b5896610b71ef8e79e652c84d15890e3880be92b72377a5e5fe15"
+        },
+        "usr/lib/grub/i386-pc/relocator.mod": {
+          "bytes": 15008,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "a693bfd089751fd255d8ab223227e167d551f0cbc0524163d5a2341a150f9bff"
+        },
+        "usr/lib/grub/i386-pc/romfs.mod": {
+          "bytes": 4096,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "3b6f99b0d37d5d3bf9e51c3dd97341cd5fe52be5bc5e7edbb4240decbe52e332"
+        },
+        "usr/lib/grub/i386-pc/scsi.mod": {
+          "bytes": 4612,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "bd70454339a6e27724f0cdffcdcaacc956c7ef7c61f365ebb33a4fc32e3e3cc7"
+        },
+        "usr/lib/grub/i386-pc/search.mod": {
+          "bytes": 3700,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "c0ce85f0f79355f6c63f5b8760caec90cec2c2683373dde13d7bfe349e6f1b18"
+        },
+        "usr/lib/grub/i386-pc/search_fs_file.mod": {
+          "bytes": 3124,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "f51188a335d18bf9d43a6d882481c5c0f204ac46b591c8fc54befe987b1f0def"
+        },
+        "usr/lib/grub/i386-pc/search_fs_uuid.mod": {
+          "bytes": 3188,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "09ec6067688a3b5301a1c0c1fe1cadd496bbeb009190eabf75cdd4dbbfab35d0"
+        },
+        "usr/lib/grub/i386-pc/search_label.mod": {
+          "bytes": 3120,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "8a8683963122b97616bd38655edcfd79da65be4e0daff371006217065bec96cb"
+        },
+        "usr/lib/grub/i386-pc/sendkey.mod": {
+          "bytes": 7012,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "3e72cd83e093d7fd46cbf369ab610b06ccabe604ab7f20dfbdddc88e82af3f3b"
+        },
+        "usr/lib/grub/i386-pc/serial.mod": {
+          "bytes": 9420,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "268c329b4372bc34107039674d682a4fb50d3d3ebabd9fb24cd68aff2d3b1a1c"
+        },
+        "usr/lib/grub/i386-pc/setjmp.mod": {
+          "bytes": 628,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "98fa60cd657fce787ad7294c94c0f175a0a0198f8d724846024bdd0ba27d9505"
+        },
+        "usr/lib/grub/i386-pc/setjmp_test.mod": {
+          "bytes": 1624,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "f59d6c55b19bee1a8cc4cb9b951c124354f4e4735c64264383af1c0f00f734f0"
+        },
+        "usr/lib/grub/i386-pc/setpci.mod": {
+          "bytes": 5232,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "a1438e8a427d768ab512af06fffb44ab84ba47bc3d2d8449934c37f9d31a0d33"
+        },
+        "usr/lib/grub/i386-pc/sfs.mod": {
+          "bytes": 5128,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "ddab1c5d52040eb9bf1b2a52e09f1323cd57a1c85f1e9f9d551b955954c18783"
+        },
+        "usr/lib/grub/i386-pc/shift_test.mod": {
+          "bytes": 2448,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "a3c5ccc1c223bf8b321f274053ef682bc3db7ab57516053bcdbd24da07bd17eb"
+        },
+        "usr/lib/grub/i386-pc/signature_test.mod": {
+          "bytes": 6380,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "80b84392e8e8b5194f1dbdff90d0d1ef39ca5a1b6e45d26210f706187297d99b"
+        },
+        "usr/lib/grub/i386-pc/sleep.mod": {
+          "bytes": 2144,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "29958582c1c660a76cef296545084e1c0bf562a18eab78c3f613bf74dd37f56b"
+        },
+        "usr/lib/grub/i386-pc/sleep_test.mod": {
+          "bytes": 2268,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "78e99cb2772bb17f14b057b8c52bfc3e4f7a18c7df34408921528d1d94a3e04f"
+        },
+        "usr/lib/grub/i386-pc/smbios.mod": {
+          "bytes": 5524,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "3a4a1e18e89f4918d34764438b74014b6af22eb8c987109e4adb600105c528ff"
+        },
+        "usr/lib/grub/i386-pc/spkmodem.mod": {
+          "bytes": 2024,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "cefc2b0ee0e922bd8bb8b04ef60f21e08af7fb97fc9120517ef846f9daec1b38"
+        },
+        "usr/lib/grub/i386-pc/squash4.mod": {
+          "bytes": 7108,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "0916e57a0218b5fb3635a501f1f5785d442c53c40a1586951709b58dc69643c6"
+        },
+        "usr/lib/grub/i386-pc/strtoull_test.mod": {
+          "bytes": 2112,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "8ba3c6a21f458195da393c9da8b587f30e2df5e98554172f22179bbd8d38be69"
+        },
+        "usr/lib/grub/i386-pc/syslinuxcfg.mod": {
+          "bytes": 17356,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "9820c3b21a8cc122874066b58220190c929ea4a1283c126b75d26efea03d1492"
+        },
+        "usr/lib/grub/i386-pc/tar.mod": {
+          "bytes": 3516,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "20b928e0f4fd272b9a26586685c47843993118c9ea2ef3cdaf956ea6ab41ca2f"
+        },
+        "usr/lib/grub/i386-pc/terminal.mod": {
+          "bytes": 4432,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "3b2bf8a070ede4c5e7f5109d695770bf85a8cdc9f647cc9e50587cfe6bbee722"
+        },
+        "usr/lib/grub/i386-pc/terminfo.mod": {
+          "bytes": 12196,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "02c4a3f66cea667d6ba66569675ea59bbf9e2959389cdff5f00b142d8a56cbcd"
+        },
+        "usr/lib/grub/i386-pc/test.mod": {
+          "bytes": 5120,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "7b47bcb0d58904cff8996d1455ea289ff151cd33521f0c74c30e22cbf4da7b5f"
+        },
+        "usr/lib/grub/i386-pc/test_blockarg.mod": {
+          "bytes": 1272,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "d092cc97e6bc3f5b2cc1d398d729e9e00d6347d0816aaf2b30ebb120e90c5575"
+        },
+        "usr/lib/grub/i386-pc/testload.mod": {
+          "bytes": 2740,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "278e60d5bea493cbf2dfe42662a812b57b100681c387b9131488b578275f62d1"
+        },
+        "usr/lib/grub/i386-pc/testspeed.mod": {
+          "bytes": 2264,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "c5ad99ef20515eee637cfc1a49dc09771b93d6bd0720cf3b76675db9271a98d8"
+        },
+        "usr/lib/grub/i386-pc/tftp.mod": {
+          "bytes": 5400,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "395502ac2ad05f050ba9b57feef0deaad069dfececb7c06de744575ae568ed28"
+        },
+        "usr/lib/grub/i386-pc/tga.mod": {
+          "bytes": 4592,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "518c1cc78088f6a395b554317bcd36ee97ded101e66166aa29d0afe46efc56b8"
+        },
+        "usr/lib/grub/i386-pc/time.mod": {
+          "bytes": 1456,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "9488b1214d5505fed311d1338e038bc35adc86415b9dbefc8b8057acd749eb97"
+        },
+        "usr/lib/grub/i386-pc/tr.mod": {
+          "bytes": 2336,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "5aa296ff08b97ca9d41cfe610ec0d2a654ee31bf7446a8b21b2063811df7287a"
+        },
+        "usr/lib/grub/i386-pc/trig.mod": {
+          "bytes": 1668,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "60c3a084fbf82afa205ba7556dd4d10b3b11809c9e87c88911270cd697274da6"
+        },
+        "usr/lib/grub/i386-pc/true.mod": {
+          "bytes": 1152,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "255588d0ea8afa5da1b3ad0d9c61f09ebb2a9d5ca1a2149616658d9bd2c4be96"
+        },
+        "usr/lib/grub/i386-pc/truecrypt.mod": {
+          "bytes": 3564,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "c930d6513a100ea652054629d01ac669304e26aeb7cf79cf14f27b4b2316214f"
+        },
+        "usr/lib/grub/i386-pc/udf.mod": {
+          "bytes": 8728,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "771e8510d4e5663b398df901c507a564f9a1d85348cc09bb3b4d3751c4cb6e2b"
+        },
+        "usr/lib/grub/i386-pc/ufs1.mod": {
+          "bytes": 5244,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "a31ed419161ab91d0682bd9a3920391452a07f964feaebf46df578009514e9c2"
+        },
+        "usr/lib/grub/i386-pc/ufs1_be.mod": {
+          "bytes": 5660,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "33b315de4fc1e9c7c70d9ebc6554a7a0f5eec1bdc8855a190afa53fb81fb5e44"
+        },
+        "usr/lib/grub/i386-pc/ufs2.mod": {
+          "bytes": 5372,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "e229133c38dac9e095866ac0fb5fd0e1955c6011992da7b217208c51a2815239"
+        },
+        "usr/lib/grub/i386-pc/uhci.mod": {
+          "bytes": 6524,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "768789ab194d391f6376bba94e248ce15f52a367db43b022474250e0e36c0238"
+        },
+        "usr/lib/grub/i386-pc/usb.mod": {
+          "bytes": 10392,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "8515a2f622554be89f978b5db53bd4753ce501764ca300643676d01160064a2c"
+        },
+        "usr/lib/grub/i386-pc/usb_keyboard.mod": {
+          "bytes": 3764,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "5d925c2ca45defdc3b037e7381c7d5c3dd5031614a844abb1d712887fc64b5ca"
+        },
+        "usr/lib/grub/i386-pc/usbms.mod": {
+          "bytes": 6912,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "1b7c21346adebaf148e138c30ee336b33573d40781dcc3b103e74d9b60105372"
+        },
+        "usr/lib/grub/i386-pc/usbserial_common.mod": {
+          "bytes": 1924,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "83afc3836c79518569ecf9aca04fb9f0a631280ab2fad02e9198c9f8655b2073"
+        },
+        "usr/lib/grub/i386-pc/usbserial_ftdi.mod": {
+          "bytes": 2296,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "80bfb3ed26dd1ee48f858fdbebe29f6cfdacd35edc52203e36079cc2cce741a8"
+        },
+        "usr/lib/grub/i386-pc/usbserial_pl2303.mod": {
+          "bytes": 2632,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "5aee3c6358164c3d99b1c5ed153de29563fc5358b56eacf7ce0ebac43f54be9c"
+        },
+        "usr/lib/grub/i386-pc/usbserial_usbdebug.mod": {
+          "bytes": 1460,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "e062b3a624242802d17a0409578486f7b76e8d1af955afd7d59cdcd2c7a3f5c4"
+        },
+        "usr/lib/grub/i386-pc/usbtest.mod": {
+          "bytes": 3568,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "e7dc01880d11dd9aa677334206f81c509ffbf38fa9445ef3e20c2617edd9678b"
+        },
+        "usr/lib/grub/i386-pc/vbe.mod": {
+          "bytes": 9724,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "51f4651f8d036f24c4278637c121d01dcb7d6c566accd233c40b3934193774de"
+        },
+        "usr/lib/grub/i386-pc/verifiers.mod": {
+          "bytes": 2624,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "3d7e28f2bde2b0171c823c38bde443d599160bac64aab01411e6a870e325b02f"
+        },
+        "usr/lib/grub/i386-pc/vga.mod": {
+          "bytes": 4932,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "66b3478e72042600497e8ea695e3ca8db48d3afde2ef414594b9cf47795ab362"
+        },
+        "usr/lib/grub/i386-pc/vga_text.mod": {
+          "bytes": 2140,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "984f36659a07e2dd5c56dbadd227f6c57645e6d188f75f6a0d8791680f3b3e01"
+        },
+        "usr/lib/grub/i386-pc/video.mod": {
+          "bytes": 5904,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "70e0639aa24ce5319a89c36f7db22b96c0996998b0ac18f9ede8eea2d95fb0e4"
+        },
+        "usr/lib/grub/i386-pc/video_bochs.mod": {
+          "bytes": 5588,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "dd8a0e4848b8d49867513b6c81fe7fe43d679c1beabc4957a30c9ad5b5989753"
+        },
+        "usr/lib/grub/i386-pc/video_cirrus.mod": {
+          "bytes": 6004,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "d15e54ef2770716f3a5ed7587f20dd4bf0fbea0610df0eb5f9b556ed418be9ce"
+        },
+        "usr/lib/grub/i386-pc/video_colors.mod": {
+          "bytes": 5568,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "7a0d39afca55a576369ed561face09e0d3389f56f92bdcc614a4ace4c115e564"
+        },
+        "usr/lib/grub/i386-pc/video_fb.mod": {
+          "bytes": 20856,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "9e769822cf7fe7f233088096a9e01fa063b01b315115dd86cbd46243fcbe80b1"
+        },
+        "usr/lib/grub/i386-pc/videoinfo.mod": {
+          "bytes": 3992,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "9802c23fc64d795466df9a91714f9fcbb7b76cd879fdc8d42715c225794f5f2f"
+        },
+        "usr/lib/grub/i386-pc/videotest.mod": {
+          "bytes": 4216,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "a75db9927781347e394646c7850307548e33edc128726ad15b8f851cc01fd6b7"
+        },
+        "usr/lib/grub/i386-pc/videotest_checksum.mod": {
+          "bytes": 2280,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "db2f32b1e5d29624f8ca4f26bfbab6741bd1d80b44be797d892db8c1376da546"
+        },
+        "usr/lib/grub/i386-pc/wrmsr.mod": {
+          "bytes": 1448,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "baf47e0a536152e81fc730a81d2531a2b297c6d779f278c12a6e30038f800085"
+        },
+        "usr/lib/grub/i386-pc/xfs.mod": {
+          "bytes": 8232,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "5f66f46ff334859910ef4e15f3418545a6c4da16fdd82867043a7e3036febfa9"
+        },
+        "usr/lib/grub/i386-pc/xnu.mod": {
+          "bytes": 27340,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "c71cb7f087c18ea0982f9d3df4168d23bec31f598fabe2b0c89029259aaa57eb"
+        },
+        "usr/lib/grub/i386-pc/xnu_uuid.mod": {
+          "bytes": 2084,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "20db8e9b2426fa75c06fcb2e6b715938698363fa6c08f42176be405ca95bd351"
+        },
+        "usr/lib/grub/i386-pc/xnu_uuid_test.mod": {
+          "bytes": 1924,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "5c2ee1034eed79acbef0085aa32dd58895849dbdf6f09afe1dbfa4d36e17c420"
+        },
+        "usr/lib/grub/i386-pc/xzio.mod": {
+          "bytes": 15012,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "b2e0a11c737af11ad1c8ddfc54de81bd44c6b8ca8a14dab3814e762749cf57f6"
+        },
+        "usr/lib/grub/i386-pc/zfs.mod": {
+          "bytes": 40472,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "63b99e69e13e98fc1079d73129526a9fe2f848232362ffc77921572b3db24f31"
+        },
+        "usr/lib/grub/i386-pc/zfscrypt.mod": {
+          "bytes": 5424,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "6cbf1f31eede76627cc64e47688ad6c31f8b6bcc4bca041e3d1ac71d3a0fb84c"
+        },
+        "usr/lib/grub/i386-pc/zfsinfo.mod": {
+          "bytes": 6484,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "b79c3cf043c47b43a25abeb94c4c7221ba702389ced117a82e2c3e62ee415f13"
+        },
+        "usr/lib/grub/i386-pc/zstd.mod": {
+          "bytes": 45756,
+          "elf_type": 1,
+          "mode": 420,
+          "sha256": "5b3b45d3a2e848f24b6e826a1df2cd6368118af667263be1816908eecb47821e"
+        }
+      },
+      "source_url": "https://archive.ubuntu.com/ubuntu/pool/main/g/grub2/grub-pc-bin_2.12-1ubuntu7.3_amd64.deb",
+      "version": "2.12-1ubuntu7.3"
+    }
+  },
+  "schema": "nib.mkosi-tools-members/v1",
+  "tools_lock_sha256": "0ad871ad797954c2a107a196aa31e8543931cfe947fa919b24fdbcd3737d9b90"
+}
