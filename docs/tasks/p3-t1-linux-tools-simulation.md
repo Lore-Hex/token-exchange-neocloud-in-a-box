@@ -1,7 +1,13 @@
 # P3.T1 pinned Linux APT simulation
 
-Status: **implemented preparation and fake-tested execution contract**. No
-packaged program, maintainer script or container has been executed by this task.
+Status: **implemented preparation and execution contract**. The original
+preparation did not run packaged programs or containers. The reviewed `03d52b4`
+CPU-only APT rehearsal subsequently **failed at
+resolve**, with cleanup reported confirmed. No installation occurred. The
+[bounded diagnostic follow-up](p3-t1-apt-diagnostics.md) preserves that v1 report
+and adds fixed failure categories without changing acceptance or execution
+bounds. Its new diagnostic has not yet been run against the actual tools image.
+
 This advances the [prepared guest inputs](p3-t1-offline-package-preparation.md)
 to a runnable, narrowly scoped installation-plan rehearsal. It does not install
 packages, build the guest with mkosi, compile LKCA, boot a guest, or change any

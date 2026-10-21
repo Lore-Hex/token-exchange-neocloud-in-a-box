@@ -1,0 +1,42 @@
+{
+  "bootable": false,
+  "cleanup": "confirmed",
+  "config_sha256": "50f49a4c9d057635183cac413fe709590d0624234ef9c8df953d189d621cd8f4",
+  "deployable": false,
+  "finished_at": "2026-10-20T20:27:51Z",
+  "git_sha": "a3d2657ead1a375d9fa57082dca7e5f23bf6e3d4",
+  "image_archive_sha256": "b79cf4852ee74fa6236e64f8a7a4d51c154ae63a2522dfa520c9b278fbfbcd38",
+  "installable_verified": false,
+  "layer_sha256": "169da5519e85f73a281dc4a00ae8a72ada76f6e20f45466bf0342daacf3f133f",
+  "result": "fail",
+  "schema": "nib.apt-container-run/v2",
+  "simulation": {
+    "bootable": false,
+    "deployable": false,
+    "diagnostic": {
+      "exit_code": 0,
+      "plan": null,
+      "reason": "stderr-missing-preferences-directory",
+      "stderr_bytes": 92,
+      "stderr_kinds": {
+        "error": 0,
+        "notice": 0,
+        "other": 0,
+        "warning": 1
+      },
+      "stdout_bytes": 19639
+    },
+    "git_sha": "a3d2657ead1a375d9fa57082dca7e5f23bf6e3d4",
+    "guest_lock_sha256": "ea8a93155131f15d460f6b3c147063e672e718d027366ab6c53c4264066a8883",
+    "installable_verified": false,
+    "maintainer_scripts_executed": false,
+    "package_installation_executed": false,
+    "plan": null,
+    "result": "fail",
+    "schema": "nib.apt-simulation/v2",
+    "stage": "resolve",
+    "target_packages": 145
+  },
+  "stage": "complete",
+  "started_at": "2026-10-20T20:27:45Z"
+}

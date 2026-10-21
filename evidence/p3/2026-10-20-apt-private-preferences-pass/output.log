@@ -1,0 +1,35 @@
+{
+  "bootable": false,
+  "cleanup": "confirmed",
+  "config_sha256": "15be8c8f7fbb75cf0090aa5324b24b5d911123802e6ecf92b9feb24f1266107b",
+  "deployable": false,
+  "finished_at": "2026-10-20T21:00:30Z",
+  "git_sha": "87f7d15c6d3a02f3faa83b0ac584315501e1fe9b",
+  "image_archive_sha256": "ee4a53bdb63e8858bebd80928c0690bb3a44772418c9b41ec6d6382b8a172979",
+  "installable_verified": false,
+  "layer_sha256": "b7abd64748eaa5cc08ea7e356935351ef69919904016bc25f9db86b0a57dd63c",
+  "result": "pass",
+  "schema": "nib.apt-container-run/v2",
+  "simulation": {
+    "bootable": false,
+    "deployable": false,
+    "diagnostic": null,
+    "git_sha": "87f7d15c6d3a02f3faa83b0ac584315501e1fe9b",
+    "guest_lock_sha256": "ea8a93155131f15d460f6b3c147063e672e718d027366ab6c53c4264066a8883",
+    "installable_verified": false,
+    "maintainer_scripts_executed": false,
+    "package_installation_executed": false,
+    "plan": {
+      "configured": 145,
+      "installed": 145,
+      "plan_sha256": "8bccb4aa2b6c004f7081f817a7244c931cc003280c166dc8c930ecbc915efe4c",
+      "removed": 0
+    },
+    "result": "pass",
+    "schema": "nib.apt-simulation/v2",
+    "stage": "complete",
+    "target_packages": 145
+  },
+  "stage": "complete",
+  "started_at": "2026-10-20T21:00:27Z"
+}
