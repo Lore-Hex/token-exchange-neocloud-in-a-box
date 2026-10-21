@@ -5,17 +5,24 @@
 archives (516,283,494 bytes) and seven metadata indexes. It does not resolve
 versions, execute packages, install drivers or change either lock.
 
-The default tools-only operation and its original limits remain unchanged.
+The default tools-only layout and its original limits remain unchanged.
 Guest mode permits only the pinned Ubuntu archive/security hosts and NVIDIA's
-exact Ubuntu 24.04 x86-64 CUDA repository. Ubuntu indexes use their existing
-by-hash URLs. NVIDIA's index has a mutable URL: changed bytes cause rejection,
+exact Ubuntu 24.04 x86-64 CUDA repository. Ubuntu indexes use by-hash URLs.
+An October 21 live fetch found the old `noble-security/main` by-hash URL
+returned HTTP 404 after all 269 archives verified. NVIDIA's current index
+also changed size. A live mirror is not a durable archive of reviewed indexes.
+`--metadata` accepts the previously authenticated index files, checking every
+size/hash before any network request. Wrong, missing or extra in-memory inputs
+fail closed. It does not re-resolve dependencies from a newer index.
+Without that argument, changed or missing upstream indexes cause rejection,
 not an automatic pin refresh or fallback. Every archive/index must match its
 locked size and SHA-256. Shared package records and index inputs must agree
 exactly before anything is fetched.
 
 ```sh
 python3 -I -S -B scripts/fetch_mkosi_tools.py \
-  --include-guest --output /absolute/private/inputs
+  --include-guest --metadata /absolute/private/archived-indexes \
+  --output /absolute/private/inputs
 python3 -I scripts/prepare_mkosi_inputs.py \
   --metadata /absolute/private/inputs/metadata \
   --archives /absolute/private/inputs/archives \
@@ -25,6 +32,9 @@ python3 -I scripts/prepare_mkosi_inputs.py \
 
 The caller must supply the separately verified, pinned mkosi source archive
 described in [build input preparation](p3-t1-mkosi-build-inputs.md).
+For the current lock, use the archived `metadata/` directory from the verified
+prepared bundle. Publishing an independently retrievable immutable input bundle
+is still required before calling this a self-contained clean-host build.
 The combined archive cache uses SHA-256 filenames consumed by that preparer;
 the default tools-only layout remains compatible with the existing native probe.
 

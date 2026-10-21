@@ -121,6 +121,20 @@ class FetchTests(unittest.TestCase):
             if name.startswith("metadata/"):
                 self.assertTrue(url.endswith("/by-hash/SHA256/" + sha))
 
+    def test_archived_metadata_is_verified_before_any_network_and_not_refetched(self):
+        execute = mock.Mock(return_value=subprocess.CompletedProcess([], 0, b"deb", b""))
+        metadata = {"metadata/noble-main.xz": b"idx"}
+        result = fetcher.fetch(base.encoded(lock()), execute, clock=lambda: 0, metadata=metadata)
+        self.assertEqual(result["metadata/noble-main.xz"], b"idx")
+        self.assertEqual(execute.call_count, 1)
+        self.assertTrue(execute.call_args.args[0][-1].endswith(".deb"))
+        for bad in ({}, {**metadata, "extra": b"x"}, {"metadata/noble-main.xz": b"new"},
+                    {"metadata/noble-main.xz": b"id"}, {"metadata/noble-main.xz": "idx"}):
+            execute.reset_mock()
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                fetcher.fetch(base.encoded(lock()), execute, clock=lambda: 0, metadata=bad)
+            execute.assert_not_called()
+
     def test_fetch_is_exact_content_bounded_and_scrubs_environment(self):
         raw = base.encoded(lock())
         responses = [b"idx", b"deb"]

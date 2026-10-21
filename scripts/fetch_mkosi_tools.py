@@ -109,14 +109,23 @@ def build_plan(lock, guest):
     return result
 
 
-def fetch(lock_raw, execute, *, clock=time.monotonic, guest_raw=None):
+def fetch(lock_raw, execute, *, clock=time.monotonic, guest_raw=None, metadata=None):
     lock = json.loads(lock_raw)
     items = plan(lock) if guest_raw is None else build_plan(lock, json.loads(guest_raw))
     files = {"mkosi-tools-inputs.json": lock_raw}
     if guest_raw is not None:
         files["guest-inputs.json"] = guest_raw
+    if metadata is not None:
+        expected = {name: item for name, item in items.items() if name.startswith("metadata/")}
+        require(type(metadata) is dict and set(metadata) == set(expected))
+        for name, (_, size, sha) in expected.items():
+            raw = metadata[name]
+            require(type(raw) is bytes and len(raw) == size and base.digest(raw) == sha)
+        files.update(metadata)
     deadline = clock() + 600
     for name, (url, size, sha) in sorted(items.items()):
+        if name in files:
+            continue
         seconds = min(60, deadline - clock())
         require(seconds > 0)
         # No curlrc, proxy, redirect, credentials, retry or unbounded diagnostics.
@@ -144,11 +153,21 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--include-guest", action="store_true",
                         help="fetch the fixed guest/tools union into archives/ for prepare_mkosi_inputs")
+    parser.add_argument("--metadata", type=Path,
+                        help="reuse exact archived indexes; every size and hash is reverified")
     args = parser.parse_args()
     require(not args.output.exists() and not args.output.is_symlink())
     _, sources = committed()
+    guest_raw = sources[tools.FILES[-1]] if args.include_guest else None
+    metadata = None
+    if args.metadata:
+        items = (build_plan(json.loads(sources[prep.LOCK]), json.loads(guest_raw))
+                 if guest_raw else plan(json.loads(sources[prep.LOCK])))
+        with base.directory(args.metadata) as fd:
+            metadata = {name: base.read_at(fd, name.removeprefix("metadata/"), 32 << 20)
+                        for name in items if name.startswith("metadata/")}
     files = fetch(sources[prep.LOCK], base.processes.execute_process_group,
-                  guest_raw=sources[tools.FILES[-1]] if args.include_guest else None)
+                  guest_raw=guest_raw, metadata=metadata)
     base.publish(args.output.absolute(), files)
     print("Pinned public build inputs fetched; no package execution.")
 
