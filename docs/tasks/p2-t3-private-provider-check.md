@@ -106,7 +106,10 @@ python3 -m unittest -v test_provider_conformance.RealCheckerClosedEndpointTest
 
 The test never starts a model or a fake endpoint. A negative-control PASS means
 the real checker ran, the strict wrapper rejected the closed endpoint, and its
-owned container was removed. It is not DeepSeek conformance.
+owned container was removed. It is not DeepSeek conformance. The
+[original committed-source Linux receipt](../../evidence/p2/2026-10-22-provider-check-closed-endpoint/README.md)
+records exactly this result: seven warnings, eleven skips, upstream gate true,
+strict gate false, worker exit 1, cleanup confirmed.
 
 ## Next Owned Runtime Route
 
