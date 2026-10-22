@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Bounded Docker-attach pipe driver with scripted replies only, never HTTP."""
+"""Bounded Docker-attach lifecycle; scripted by default, explicit admitted live mode."""
 
 import os
 import signal
@@ -58,21 +58,24 @@ class ScriptedSession(transport.ParentSession):
         return worker.scripted(self.bridge, category, request, bounds)
 
 
-def diagnostic(session, plan, manifest, *, upstream_executed=True):
+def diagnostic(session, plan, manifest, *, upstream_executed=True, live_local=False):
     result, bridge = session.result, session.bridge
     require(result is not None)
     row = {key: plan["selection"][key] for key in ("domain", "task_id", "trial", "seed")}
     row.update({key: result[key] for key in ("status", "reward", "elapsed_ms", "requests", "usage")})
     report = {"schema": "nib.tau-trials/v1", "manifest_sha256": plan["manifest_sha256"],
-              "role": plan["selection"]["role"], "kind": "synthetic-fixture", "producer": plan["producer"],
+              "role": plan["selection"]["role"],
+              "kind": "declared-unverified" if live_local else "synthetic-fixture", "producer": plan["producer"],
               "binding": aggregate.expected_binding(manifest, plan["selection"]["role"]), "trials": [row]}
     aggregate.validate_report(report, manifest, plan["manifest_sha256"], plan["selection"]["role"])
-    return {"schema": "nib.tau-scripted-trial/v1", "stage": "completed", "completed": True,
+    return {"schema": "nib.tau-live-trial/v1" if live_local else "nib.tau-scripted-trial/v1",
+            "stage": "completed", "completed": True,
             "report": report, "accounting": {"role_requests": dict(bridge.counts),
                 "reserved_tokens": bridge.budget.tokens, "reserved_cost_usd": format(bridge.budget.spent, "f"),
                 "usage_known": bridge.usage_known},
-            "quality_accepted": False, "confidential": False, "live_transport": False,
-            "token_usage": "synthetic-not-tokenized", "upstream_executed": upstream_executed}
+            "quality_accepted": False, "confidential": False, "live_transport": live_local,
+            "token_usage": "engine-reported" if live_local else "synthetic-not-tokenized",
+            "upstream_executed": upstream_executed}
 
 
 def failure_result(session, exc):
@@ -86,11 +89,15 @@ def failure_result(session, exc):
             "requests": bridge.budget.requests, "usage": bridge.usage()}
 
 
-def run_process(command, environment, payload, plan, manifest, deadline):
+def run_process(command, environment, payload, plan, manifest, deadline, *, deployment=None):
     """The caller supplies its verified, owned Docker attach command only."""
     require(time.monotonic() < deadline <= time.monotonic() + worker.SECONDS + 1
             and plan["transport"] == "scripted-parent-pipe")
-    frozen = scripted_manifest(manifest)
+    if deployment is not None:
+        import tau_live_identity as live
+        require(type(deployment) is live.Deployment)
+        deployment.check(deadline)
+    frozen = deployment.manifest if deployment is not None else scripted_manifest(manifest)
     assertions = selected_assertions(payload, plan["selection"])
     process, channel, session, result = None, None, None, None
     try:
@@ -99,20 +106,23 @@ def run_process(command, environment, payload, plan, manifest, deadline):
         channel = transport.Channel(os.dup(process.stdout.fileno()), os.dup(process.stdin.fileno()))
         process.stdout.close()
         process.stdin.close()
-        session = ScriptedSession(channel, frozen, tau.digest(tau.encoded(frozen)),
-                                  plan["selection"]["role"], [], assertions=assertions)
+        if deployment is None:
+            session = ScriptedSession(channel, frozen, tau.digest(tau.encoded(frozen)),
+                                      plan["selection"]["role"], [], assertions=assertions)
+        else:
+            session = deployment.session(channel, plan["selection"]["role"], assertions)
         session.bridge.budget.trial_deadline = min(session.bridge.budget.trial_deadline, deadline)
         while not session.serve_once():
             pass
         # Do not let a worker hang after its terminal acknowledgement. The
         # enclosing runner also inspects and removes the exact owned container.
         require(process.wait(timeout=max(0.001, min(10, deadline - time.monotonic()))) == 0)
-        result = diagnostic(session, plan, manifest)
+        result = diagnostic(session, plan, manifest, live_local=deployment is not None)
     except (worker.Abort, Exception, KeyboardInterrupt) as exc:
         if session is None:
             raise ValueError("tau pipe setup failed") from None
         session.result = failure_result(session, exc)
-        result = diagnostic(session, plan, manifest, upstream_executed=False)
+        result = diagnostic(session, plan, manifest, upstream_executed=False, live_local=deployment is not None)
     finally:
         if session is not None:
             session.close()
@@ -133,5 +143,5 @@ def run_process(command, environment, payload, plan, manifest, deadline):
                 if session is None:
                     raise ValueError("tau pipe cleanup failed") from None
                 session.result = failure_result(session, exc)
-                result = diagnostic(session, plan, manifest, upstream_executed=False)
+                result = diagnostic(session, plan, manifest, upstream_executed=False, live_local=deployment is not None)
     return result
