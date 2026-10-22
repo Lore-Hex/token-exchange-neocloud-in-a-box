@@ -1,0 +1,20 @@
+{
+  "command": "host/run-mkosi-build.py --downloads PRIVATE --archive PRIVATE --output PRIVATE --compile-driver",
+  "ended_utc": "2026-10-22T00:55:10Z",
+  "execution": "software",
+  "git_sha": "6bf7880b2c5fa59299c0324cc79107803a2c6b5f",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "ubuntu-22.04-x86_64",
+    "provider": "github-actions"
+  },
+  "notes": "Bounded offline installation and explicit DKMS build; no module loading, boot, LKCA, reproducibility or hardware qualification.",
+  "phase": "P3",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-22T00:51:40Z",
+  "task": "T1"
+}

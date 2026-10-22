@@ -31,6 +31,23 @@ inputs = load("scripts/guest_package_inputs.py")
 
 
 class BuildTests(unittest.TestCase):
+    def test_host_preserves_bounded_symbol_outputs_only(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            expected = {"dkms-symbols.stdout": b"crypto_alloc_aead U\n",
+                        "dkms-symbols.stderr": b"public failure\n"}
+            for name, raw in expected.items():
+                (root / name).write_bytes(raw)
+            (root / "unexpected-private-file").write_bytes(b"PRIVATE SENTINEL")
+            self.assertEqual(host.collect_diagnostics(root), expected)
+            (root / "dkms-symbols.stdout").write_bytes(b"x" * ((2 << 20) + 1))
+            with self.assertRaises(ValueError):
+                host.collect_diagnostics(root)
+            (root / "dkms-symbols.stdout").unlink()
+            (root / "dkms-symbols.stdout").symlink_to(root / "unexpected-private-file")
+            with self.assertRaises((ValueError, OSError)):
+                host.collect_diagnostics(root)
+
     def test_failure_diagnostics_never_exports_exception_content_or_unknown_paths(self):
         try:
             worker.require(False)
