@@ -282,6 +282,9 @@ class ExportTests(unittest.TestCase):
         for name in ("/absolute", "../escape", "a//b", "a/./b", "a/../b"):
             with self.assertRaises(ValueError):
                 export.source_identity({"git_sha": "ab" * 20, "sources": {name: base.digest(b"x")}})
+        report, source = proof({"root.raw": b"fixture disk", "nib.efi": b"fixture uki"})
+        report["worker"]["artifact_stage"]["published"] = 0
+        with self.assertRaises(ValueError): export.validate_proof(report, source)
 
     def test_deadline_clears_alarm_and_finalization_timeout_cleans_pending(self):
         with self.fixture() as (evidence, stage, _, report, source):

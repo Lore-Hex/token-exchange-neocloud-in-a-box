@@ -170,7 +170,7 @@ def validate_proof(report, source):
             and staged == {"schema": "nib.boot-artifact-stage/v1", "source": source,
                 "root_hash": verity["root_hash"], "files": {
                     "root.raw": verity["images"]["root.raw"], "nib.efi": boot["uki"]["image"]}, "published": False}
-            and boot["root_hash"] == verity["root_hash"])
+            and staged["published"] is False and boot["root_hash"] == verity["root_hash"])
     for name, row in staged["files"].items():
         file_identity(row, FILES[name])
     return staged
