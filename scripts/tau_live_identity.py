@@ -16,6 +16,8 @@ import sys
 import time
 
 import tau_local_vllm as local
+import tau_local_llama as llama
+import tau_llama_identity as cpu
 
 transport, tau, worker = local.transport, local.tau, local.worker
 require = transport.require
@@ -23,6 +25,8 @@ SERVING = frozenset(("image_sha256", "overlay_sha256", "arguments_sha256", "toke
                      "tokenizer_config_sha256", "chat_template_sha256", "precision_sha256"))
 PROCESS = frozenset(("pid", "start_ticks", "boot_id_sha256", "netns_inode", "exe_sha256",
                      "argv_sha256", "listener_inode"))
+CPU_SERVING = frozenset(("image_sha256", "helper_sha256", "arguments_sha256",
+                        "tokenizer_sha256", "framing_sha256"))
 
 
 def keys(value, expected):
@@ -88,6 +92,27 @@ def source_receipt(value, deadline):
     require(tau.digest(git("show", spec)) == value["source_sha256"])
 
 
+def measurements(row, expected):
+    keys(row, expected)
+    for name, digest in expected.items():
+        tau.sha(digest)
+        keys(row[name], ("expected_sha256", "observed_sha256"))
+        require(row[name] == {"expected_sha256": digest, "observed_sha256": digest})
+
+
+def process_receipt(row):
+    require(row["logging"] == {"stdout": "null", "stderr": "null",
+                               "request_logging": False, "access_logging": False}
+            and row["logging"]["request_logging"] is False and row["logging"]["access_logging"] is False)
+    process = row["process"]
+    keys(process, PROCESS)
+    for name in ("pid", "start_ticks", "netns_inode", "listener_inode"):
+        tau.integer(process[name], 1, 2**63 - 1)
+    for name in ("boot_id_sha256", "exe_sha256", "argv_sha256"):
+        tau.sha(process[name])
+    require(process["argv_sha256"] == row["serving"]["arguments_sha256"])
+
+
 def runtime_receipt(row, role, descriptor, manifest, deadline):
     keys(row, ("schema", "producer", "role", "model", "revision", "engine_revision", "endpoint",
                "process", "serving", "model_files_sha256", "measurements", "logging"))
@@ -110,38 +135,64 @@ def runtime_receipt(row, role, descriptor, manifest, deadline):
     tau.sha(row["model_files_sha256"])
     expected = {**row["serving"], "model_files_sha256": row["model_files_sha256"],
                 "framing_sha256": framing["framing_sha256"]}
-    keys(row["measurements"], expected)
-    for name, digest in expected.items():
-        keys(row["measurements"][name], ("expected_sha256", "observed_sha256"))
-        require(row["measurements"][name] == {"expected_sha256": digest, "observed_sha256": digest})
-    require(row["logging"] == {"stdout": "null", "stderr": "null",
-                               "request_logging": False, "access_logging": False}
-            and row["logging"]["request_logging"] is False and row["logging"]["access_logging"] is False)
-    process = row["process"]
-    keys(process, PROCESS)
-    for name in ("pid", "start_ticks", "netns_inode", "listener_inode"):
-        tau.integer(process[name], 1, 2**63 - 1)
-    for name in ("boot_id_sha256", "exe_sha256", "argv_sha256"):
-        tau.sha(process[name])
-    require(process["argv_sha256"] == row["serving"]["arguments_sha256"])
+    measurements(row["measurements"], expected)
+    process_receipt(row)
 
 
-def tokenizer_receipt(row, runtime_sha, runtime, framing, deadline):
+def cpu_runtime_receipt(row, role, descriptor, manifest, expires, deadline):
+    keys(row, ("schema", "producer", "role", "model", "revision", "engine_revision", "endpoint",
+               "process", "serving", "gguf", "model_files_sha256", "measurements", "logging", "observed_unix"))
+    require(role in ("simulator", "evaluator") and row["schema"] == "nib.tau-llama-runtime/v1"
+            and row["role"] == role and row["engine_revision"] == llama.REVISION)
+    source_receipt(row["producer"], deadline)
+    config, framing = manifest["settings"]["roles"][role], manifest["framing"][role]
+    pinned = cpu.identity(config["model"], deadline)
+    require(row["model"] == config["model"] == framing["served_model"]
+            and row["revision"] == config["revision"] == pinned["revision"]
+            and row["gguf"] == pinned["gguf"] and type(row["gguf"]["bytes"]) is int
+            and row["model_files_sha256"] == pinned["model_files_sha256"]
+            and row["endpoint"] == {"host": "127.0.0.1", "port": descriptor["port"]}
+            and type(row["observed_unix"]) is int and 0 <= time.time() - row["observed_unix"] < 3600
+            and expires <= row["observed_unix"] + 3600
+            and type(framing["context_tokens"]) is int and framing["context_tokens"] == 4096
+            and framing["parallel_tool_calls"] is False
+            and config["generation"]["max_tokens"] <= 256)
+    keys(row["serving"], CPU_SERVING)
+    for name in ("tokenizer_sha256", "framing_sha256"):
+        require(row["serving"][name] == framing[name] == pinned[name])
+    process_receipt(row)
+    measurements(row["measurements"], {**row["serving"], "gguf_sha256": pinned["gguf"]["sha256"],
+        "model_files_sha256": pinned["model_files_sha256"], "executable_sha256": row["process"]["exe_sha256"]})
+
+
+def tokenizer_receipt(row, runtime_sha, runtime, framing, deadline, *, cpu_kind=False):
     keys(row, ("schema", "producer", "runtime_receipt_sha256", "framing_sha256", "tokenizer_sha256",
-               "tokenizer_config_sha256", "context_tokens", "cases"))
-    require(row["schema"] == "nib.tau-local-tokenizer/v1" and row["runtime_receipt_sha256"] == runtime_sha)
+               "context_tokens", "cases") + (("gguf_sha256", "observed_unix") if cpu_kind else
+                                              ("tokenizer_config_sha256",)))
+    schema = "nib.tau-llama-tokenizer/v1" if cpu_kind else "nib.tau-local-tokenizer/v1"
+    require(row["schema"] == schema and row["runtime_receipt_sha256"] == runtime_sha)
     source_receipt(row["producer"], deadline)
     for name in ("framing_sha256", "tokenizer_sha256", "context_tokens"):
         require(row[name] == framing[name])
     require(type(row["context_tokens"]) is int)
-    require(row["tokenizer_config_sha256"] == runtime["serving"]["tokenizer_config_sha256"])
-    keys(row["cases"], ("text", "tool-history"))
-    for item in row["cases"].values():
+    if cpu_kind:
+        require(row["gguf_sha256"] == runtime["gguf"]["sha256"] and type(row["observed_unix"]) is int
+                and runtime["observed_unix"] <= row["observed_unix"] <= time.time())
+        expected_cases = cpu.case_hashes()
+    else:
+        require(row["tokenizer_config_sha256"] == runtime["serving"]["tokenizer_config_sha256"])
+        expected_cases = {name: None for name in ("text", "tool-history")}
+    keys(row["cases"], expected_cases)
+    for name, item in row["cases"].items():
         keys(item, ("case_sha256", "independent_tokens_sha256", "endpoint_tokens_sha256",
                     "independent_count", "endpoint_count"))
-        for name in ("case_sha256", "independent_tokens_sha256", "endpoint_tokens_sha256"):
-            tau.sha(item[name])
+        for key in ("case_sha256", "independent_tokens_sha256", "endpoint_tokens_sha256"):
+            tau.sha(item[key])
+        if cpu_kind:
+            require(item["case_sha256"] == expected_cases[name])
         tau.integer(item["independent_count"], 1, framing["context_tokens"])
+        if cpu_kind:
+            require(item["independent_count"] <= cpu.probes.MAX_TOKENS)
         require(type(item["endpoint_count"]) is int
                 and item["independent_count"] == item["endpoint_count"]
                 and item["independent_tokens_sha256"] == item["endpoint_tokens_sha256"])
@@ -253,17 +304,25 @@ class Endpoint:
             require(process_facts(expected["pid"]) == facts and time.monotonic() < deadline)
 
 
-class GuardedClient(local.LocalVllm):
-    def __init__(self, endpoint, deployment):
-        super().__init__(endpoint.port)
-        self.endpoint, self.deployment = endpoint, deployment
-
+class GuardedConnection:
     def connect(self, sock, deadline):
         self.deployment.fresh()
         self.endpoint.check(deadline)
         super().connect(sock, deadline)
         self.endpoint.check(deadline, sock)
         self.deployment.fresh()
+
+
+class GuardedClient(GuardedConnection, local.LocalVllm):
+    def __init__(self, endpoint, deployment):
+        super().__init__(endpoint.port)
+        self.endpoint, self.deployment = endpoint, deployment
+
+
+class GuardedLlamaClient(GuardedConnection, llama.LocalLlamaCPP):
+    def __init__(self, endpoint, deployment, model):
+        super().__init__(endpoint.port, model, 4096)
+        self.endpoint, self.deployment = endpoint, deployment
 
 
 class Deployment:
@@ -277,8 +336,9 @@ class Deployment:
         require(tau.digest(raw) == sha)
         row = tau.json_value(raw)
         require(type(row) is dict)
-        # V2 scopes liveness only; the full paired benchmark remains frozen below.
-        selected = row.get("schema") == "nib.tau-local-deployment/v2"
+        # V2 scopes liveness only. V3 explicitly selects mixed runtime kinds.
+        mixed = row.get("schema") == "nib.tau-local-deployment/v3"
+        selected = mixed or row.get("schema") == "nib.tau-local-deployment/v2"
         keys(row, ("schema", "expires_unix", "manifest", "roles") + (("selected_target",) if selected else ()))
         require(selected or row["schema"] == "nib.tau-local-deployment/v1")
         self.selected_target = row["selected_target"] if selected else None
@@ -291,22 +351,29 @@ class Deployment:
         roles = self.manifest["settings"]["roles"]
         require(roles["simulator"]["model"] != roles["evaluator"]["model"])
         keys(row["roles"], active)
-        self.endpoints, receipts, inventories = {}, {}, {}
+        self.endpoints, self.kinds, receipts, inventories = {}, {}, {}, {}
         pids, inodes, ports = set(), set(), set()
         for role, descriptor in row["roles"].items():
-            keys(descriptor, ("host", "port", "runtime_sha256", "tokenizer_sha256"))
+            keys(descriptor, ("host", "port", "runtime_sha256", "tokenizer_sha256") +
+                 (("engine_kind",) if mixed else ()))
+            kind = descriptor["engine_kind"] if mixed else "vllm"
+            require(kind == "vllm" or kind == "llama.cpp" and role in ("simulator", "evaluator"))
+            self.kinds[role] = kind
             require(descriptor["host"] == "127.0.0.1")
             tau.integer(descriptor["port"], 1024, 65535)
             values = {}
-            for kind in ("runtime", "tokenizer"):
-                digest = descriptor[kind + "_sha256"]
+            for receipt_kind in ("runtime", "tokenizer"):
+                digest = descriptor[receipt_kind + "_sha256"]
                 tau.sha(digest)
-                raw = private_read(Path(path).parent / (role + "-" + kind + ".json"), deadline)
+                raw = private_read(Path(path).parent / (role + "-" + receipt_kind + ".json"), deadline)
                 require(tau.digest(raw) == digest)
-                values[kind] = tau.json_value(raw)
-            runtime_receipt(values["runtime"], role, descriptor, self.manifest, deadline)
+                values[receipt_kind] = tau.json_value(raw)
+            if kind == "llama.cpp":
+                cpu_runtime_receipt(values["runtime"], role, descriptor, self.manifest, self.expires, deadline)
+            else:
+                runtime_receipt(values["runtime"], role, descriptor, self.manifest, deadline)
             tokenizer_receipt(values["tokenizer"], descriptor["runtime_sha256"], values["runtime"],
-                              self.manifest["framing"][role], deadline)
+                              self.manifest["framing"][role], deadline, cpu_kind=kind == "llama.cpp")
             process = values["runtime"]["process"]
             inventories[role] = values["runtime"]["model_files_sha256"]
             pids.add(process["pid"])
@@ -316,11 +383,14 @@ class Deployment:
             receipts[role] = {key: descriptor[key] for key in ("runtime_sha256", "tokenizer_sha256")}
         require(len(pids) == len(inodes) == len(ports) == len(active))
         require(len(set(inventories.values())) == 3)
-        self.binding = {"schema": "nib.tau-live-binding/v2" if selected else "nib.tau-live-binding/v1",
+        self.binding = {"schema": "nib.tau-live-binding/v3" if mixed else
+                                  "nib.tau-live-binding/v2" if selected else "nib.tau-live-binding/v1",
                         "deployment_sha256": sha,
                         "transport_manifest_sha256": tau.digest(tau.encoded(self.manifest)), "receipts": receipts}
         if selected:
             self.binding["selected_target"] = self.selected_target
+        if mixed:
+            self.binding["engine_kinds"] = dict(self.kinds)
 
     def require_target(self, role):
         local.trial_roles(role)
@@ -343,5 +413,7 @@ class Deployment:
             selected_target_only=self.selected_target is not None)
         session.bridge.budget.trial_deadline = min(session.bridge.budget.trial_deadline,
                                                   time.monotonic() + self.expires - time.time())
-        session.endpoints = {name: GuardedClient(endpoint, self) for name, endpoint in self.endpoints.items()}
+        session.endpoints = {name: GuardedLlamaClient(endpoint, self, self.manifest["framing"][name]["served_model"])
+                             if self.kinds[name] == "llama.cpp" else GuardedClient(endpoint, self)
+                             for name, endpoint in self.endpoints.items()}
         return session

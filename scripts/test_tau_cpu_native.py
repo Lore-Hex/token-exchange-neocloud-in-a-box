@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Native routing and fixed-input controls; no model execution or downloads."""
+import ast
 import hashlib
 import json
 import os
@@ -21,7 +22,7 @@ rec = native.rec
 
 
 class NativeCPUParityTests(unittest.TestCase):
-    def test_original_argv_failure_and_all_producer_sources_unchanged(self):
+    def test_original_argv_failure_sources_and_current_kernel_guards(self):
         root = ROOT / "evidence/p2/2026-10-22-cpu-parity-argv-failure"
         producer = "8ae250569bc73b6b79acef448584c6f129967911"
         for name, sha in (("run.json", "919e7f6d12a6a6624f36c2fec2a82a5f8be8cfa3b7c4ad705a092f2b1f9af929"),
@@ -38,8 +39,16 @@ class NativeCPUParityTests(unittest.TestCase):
         self.assertEqual([frame["line"] for frame in failure["frames"]], [329, 203, 34])
         self.assertEqual(row["runtime"]["models"][0]["cases"], [])
         self.assertTrue(all(row[key] is False for key in ("quality_eligible", "confidential", "live_admission")))
-        for name in ("scripts/tau_cpu_parity.py", "scripts/tau_live_identity.py", "scripts/pilot/run.py"):
+        for name in ("scripts/tau_cpu_parity.py", "scripts/pilot/run.py"):
             self.assertEqual((ROOT / name).read_bytes(), git(ROOT, "show", producer + ":" + name))
+        # Mixed-runtime admission changes this module, not the original receipt
+        # or the kernel/process/socket guards used by the CPU parity producer.
+        name = "scripts/tau_live_identity.py"
+        def guards(raw):
+            names = {"private_read", "source_receipt", "proc_read", "process_facts", "sockets", "tcp_rows", "Endpoint"}
+            return {node.name: ast.dump(node) for node in ast.parse(raw).body
+                    if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in names}
+        self.assertEqual(guards((ROOT / name).read_bytes()), guards(git(ROOT, "show", producer + ":" + name)))
 
     def test_exact_kernel_argv_stays_required_including_trailing_nul(self):
         argv, port = ["/fixed/server", "--offline"], 12345

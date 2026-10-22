@@ -14,6 +14,9 @@ The explicit [selected-target v2 contract](p2-t3-tau-selected-target.md) admits
 one target (`candidate` or `reference`) plus simulator and evaluator per trial.
 It preserves both target configurations in the frozen benchmark. Legacy v1
 still requires four live deployments; nothing silently converts its inputs.
+The explicit [mixed-runtime v3 contract](p2-t3-tau-cpu-admission.md) additionally
+allows measured pinned llama.cpp support roles, never a CPU target. V1/v2 remain
+vLLM-only; receipt production and the owned lifecycle are separate prerequisites.
 
 ## Execution boundary
 

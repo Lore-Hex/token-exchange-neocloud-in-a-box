@@ -2,8 +2,9 @@
 
 Status: implemented and tested with synthetic protocol/process fixtures. No model
 execution, tokenizer parity measurement, tau trial, quality result or confidential
-execution is claimed by this change. The existing live tau admission remains
-vLLM-only. This producer does not create admission receipts or start DeepSeek.
+execution is claimed by this change. Legacy live tau admission remains vLLM-only;
+the [explicit v3 CPU consumer](p2-t3-tau-cpu-admission.md) requires fresh original
+receipts. This producer does not create admission receipts or start DeepSeek.
 
 ## Exact Independent Path
 
