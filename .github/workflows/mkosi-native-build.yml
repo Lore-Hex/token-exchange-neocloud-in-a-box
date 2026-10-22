@@ -2,6 +2,11 @@ name: Bounded offline mkosi installation
 
 on:
   workflow_dispatch:
+    inputs:
+      compile_driver:
+        description: Compile the pinned NVIDIA driver after installation (no loading or boot)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -39,11 +44,15 @@ jobs:
             --metadata-archive "$PWD/build/native-install/metadata.tar.gz" \
             --output "$PWD/build/native-install/inputs" > build/native-install/input-fetch.log
       - name: Install only in the resource-bounded offline namespace
+        env:
+          COMPILE_DRIVER: ${{ inputs.compile_driver }}
         run: |
+          args=()
+          if [ "$COMPILE_DRIVER" = true ]; then args+=(--compile-driver); fi
           sudo -- /usr/bin/python3.10 -I -S -B host/run-mkosi-build.py \
             --downloads "$PWD/build/native-install/inputs" \
             --archive "$PWD/build/native-install/source.tar.gz" \
-            --output "$PWD/build/native-install/evidence"
+            --output "$PWD/build/native-install/evidence" "${args[@]}"
       - name: Preserve installation and independent cleanup evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4

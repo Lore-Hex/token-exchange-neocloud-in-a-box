@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+"""Explicit pinned-target compilation, never installation or module loading."""
+import hashlib
+import os
+from pathlib import Path
+import runpy
+import socket
+import stat
+import subprocess
+import sys
+import types
+
+ROOTFS = Path("/work/output/rootfs")
+KERNEL = "6.8.0-147-generic"
+DRIVER = "595.91.07"
+MODULES = ("nvidia", "nvidia-modeset", "nvidia-drm", "nvidia-uvm", "nvidia-peermem")
+CONTROL_NAMES = ("etc/dkms/no-autoinstall", "etc/dkms/framework.conf.d/99-nib-build.conf",
+                 "etc/dkms/nvidia-" + DRIVER + "-" + KERNEL + "-x86_64.conf")
+COMPILE_H = "usr/src/linux-headers-" + KERNEL + "/include/generated/compile.h"
+SOURCE_PINS = {
+    "usr/sbin/dkms": "a7a45df4e9f8a4fbea258a54b31d21760121560fe0b6187e34d5b39944e2767b",
+    COMPILE_H: "aeebd7e60ca6d32c1ea7b4823d42a33fd5fdb455d19c957e8075e6c3d4b0613b",
+}
+MODULE_DIRECTORY = "var/lib/dkms/nvidia/" + DRIVER + "/" + KERNEL + "/x86_64/module/"
+MAKE_LOGS = ("var/lib/dkms/nvidia/" + DRIVER + "/build/make.log",
+             "var/lib/dkms/nvidia/" + DRIVER + "/" + KERNEL + "/x86_64/log/make.log")
+
+
+def require(value):
+    if not value:
+        raise ValueError("driver-build-rejected")
+
+
+def regular(root, name, limit):
+    require(type(name) is str and name and name == Path(name).as_posix()
+            and not Path(name).is_absolute())
+    path = root
+    for part in Path(name).parts:
+        require(part not in (".", "..", "/"))
+        path = path / part
+        require(not path.is_symlink())
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        info = os.fstat(descriptor)
+        require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and 0 < info.st_size <= limit)
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            raw = stream.read(limit + 1)
+        require(len(raw) == info.st_size)
+        return raw
+    finally:
+        os.close(descriptor)
+
+
+def verify_inputs(root, controls):
+    require(root.is_dir() and not root.is_symlink() and type(controls) is dict
+            and set(controls) == set(CONTROL_NAMES))
+    for name, digest in SOURCE_PINS.items():
+        require(hashlib.sha256(regular(root, name, 256 << 10)).hexdigest() == digest)
+    for name, raw in controls.items():
+        require(name.startswith("etc/dkms/") and type(raw) is bytes)
+        require(regular(root, name, 16384) == raw)
+    require((root / "lib/modules" / KERNEL / "build").is_symlink())
+    require(os.readlink(root / "lib/modules" / KERNEL / "build") == "/usr/src/linux-headers-" + KERNEL)
+    require(not (root / "var/lib/dkms/nvidia").exists())
+
+
+def operation(name):
+    if name == "compiler":
+        return ["/usr/bin/x86_64-linux-gnu-gcc-13", "-dumpfullversion", "-dumpversion"]
+    require(name in ("add", "build"))
+    return ["/usr/sbin/dkms", name, "-m", "nvidia", "-v", DRIVER, "-k", KERNEL, "-a", "x86_64"]
+
+
+def command(name, prefix):
+    operation(name)
+    root = str(ROOTFS)
+    # Trusted namespace setup precedes the unchanged final capability/seccomp
+    # boundary. Only the private installation root is writable in this child.
+    return ["/usr/bin/python3.12", "-I", "-S", "-B", "/nib/mkosi-sandbox.py",
+            "--ro-bind", "/", "/", "--bind", root, root,
+            "--dev", root + "/dev", "--ro-bind", "/proc", root + "/proc",
+            "--tmpfs", "/tmp", "--chdir", "/", *prefix,
+            "/usr/bin/python3.12", "-I", "-S", "-B", "/nib/dkms-worker.py", name]
+
+
+def inspect_modules(root):
+    rows = []
+    for name in MODULES:
+        raw = regular(root, MODULE_DIRECTORY + name + ".ko", 256 << 20)
+        # ELF64 little-endian relocatable x86_64, not an executable or DSO.
+        require(len(raw) >= 64 and raw[:7] == b"\x7fELF\x02\x01\x01"
+                and raw[16:20] == b"\x01\x00\x3e\x00")
+        rows.append({"name": name, "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()})
+    return rows
+
+
+def preserve_diagnostics(output, name, result):
+    for stream in ("stdout", "stderr"):
+        raw = getattr(result, stream)
+        require(type(raw) is bytes and len(raw) <= 2 << 20)
+        if raw:
+            (output / ("dkms-" + name + "." + stream)).write_bytes(raw)
+
+
+def preserve_make_log(root, output):
+    for index, name in enumerate(MAKE_LOGS):
+        try:
+            raw = regular(root, name, 2 << 20)
+        except FileNotFoundError:
+            continue
+        (output / ("dkms-make-" + str(index) + ".log")).write_bytes(raw)
+
+
+def build(processes, output, environment, controls, prefix, root=ROOTFS):
+    require(root == ROOTFS)
+    verify_inputs(root, controls)
+    for name in ("compiler", "add", "build"):
+        try:
+            result = processes.execute_process_group(command(name, prefix), env=environment,
+                timeout=1500 if name == "build" else 30,
+                max_output_bytes=2 << 20, max_stderr_bytes=2 << 20, stdin=subprocess.DEVNULL)
+        except processes.OutputLimitExceeded as error:
+            preserve_diagnostics(output, name, error)
+            raise
+        finally:
+            if name == "build":
+                preserve_make_log(root, output)
+        preserve_diagnostics(output, name, result)
+        result.check_returncode()
+        if name == "compiler":
+            require(result.stdout == b"13.3.0\n" and not result.stderr)
+    return {"result": "pass", "kernel": KERNEL, "driver": DRIVER, "compiler": "13.3.0",
+            "modules": inspect_modules(root), "installed": False, "loaded": False,
+            "lkca_verified": False, "reproducibility_verified": False, "bootable": False}
+
+
+def main():
+    require(sys.platform == "linux" and sys.version_info[:2] == (3, 12)
+            and sys.flags.isolated and sys.flags.no_site and sys.flags.dont_write_bytecode
+            and len(sys.argv) == 2 and os.geteuid() == os.getegid() == 0
+            and socket.if_nameindex() == [(1, "lo")])
+    args = operation(sys.argv[1])
+    guard = types.SimpleNamespace(**runpy.run_path("/nib/confinement.py", run_name="driver_confinement"))
+    guard.check()
+    require(ROOTFS.is_dir() and not ROOTFS.is_symlink())
+    os.chroot(ROOTFS)
+    os.chdir("/")
+    os.execve(args[0], args, {"PATH": "/usr/bin:/usr/sbin:/bin:/sbin", "HOME": "/tmp",
+                            "TMPDIR": "/tmp", "LANG": "C", "LC_ALL": "C",
+                            "SOURCE_DATE_EPOCH": "1792454400"})
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, ValueError, KeyError, TypeError):
+        sys.exit("NIB_DRIVER_WORKER_REJECTED")

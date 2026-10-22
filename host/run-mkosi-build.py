@@ -113,6 +113,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("downloads", "archive", "output"):
         parser.add_argument("--" + name, required=True, type=Path)
+    parser.add_argument("--compile-driver", action="store_true")
     args = parser.parse_args()
     uid, gid = identity()
     require(all(path.is_absolute() and ".." not in path.parts
@@ -128,7 +129,8 @@ def main():
                     for signum in (signal.SIGINT, signal.SIGTERM)}
         try:
             state = execute(uid, gid, ["--downloads", str(args.downloads),
-                "--archive", str(args.archive), "--output", str(args.output)])
+                "--archive", str(args.archive), "--output", str(args.output),
+                *(["--compile-driver"] if args.compile_driver else [])])
         finally:
             for signum, handler in previous.items():
                 signal.signal(signum, handler)
