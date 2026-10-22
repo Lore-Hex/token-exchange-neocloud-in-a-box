@@ -1,7 +1,7 @@
 # Guest Image
 
 **Status, 2026-10-22:** the offline Ubuntu 24.04 package installation and
-NVIDIA driver compilation are proven on a native Linux build runner. There
+NVIDIA driver compilation and installation are proven on a native Linux build runner. There
 is no bootable or production-qualified confidential guest image yet.
 
 | Component | Verified state |
@@ -10,14 +10,14 @@ is no bootable or production-qualified confidential guest image yet.
 | Build boundary | Offline user/mount/PID/network namespaces, fixed capabilities, seccomp and cgroup limits, with independent cleanup evidence. |
 | Guest package installation | All 145 expected package versions configured successfully in the private root. |
 | NVIDIA R595.91.07 | Five modules compiled for kernel 6.8.0-147; strong references to the three required Linux crypto interfaces verified. |
-| Driver installation | Default-off implementation exists; native installation evidence is still pending. |
+| Driver installation | All five installed modules match the compiled objects; dependency indexes and independent cleanup verified in a native Linux build. No loading or boot. |
 | Release image | UKI, dm-verity root, full guest runtime closure, reproducibility and boot validation remain incomplete. |
 | Confidential service | Runtime LKCA, CPU/GPU attestation, measured workload/TLS binding and deployment qualification remain incomplete. |
 
 The [raw linkage proof](../docs/tasks/p3-t1-raw-linkage-evidence.md) retains the
 original symbol table and cleanup receipts. The
-[driver installation contract](../docs/tasks/p3-t1-driver-install.md) describes
-the next explicit step; installation alone is not module loading or boot.
+[driver installation proof](../docs/tasks/p3-t1-driver-install-pass.md) records
+the successful opt-in run; installation alone is not module loading or boot.
 The [prerequisite audit](../docs/tasks/p3-t1-guest-image-feasibility.md) records
 remaining full-image inputs and source references. Earlier task documents
 describe historical checkpoints, not the current aggregate status.

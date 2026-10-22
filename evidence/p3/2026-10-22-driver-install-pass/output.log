@@ -1,0 +1,6 @@
+Installing /lib/modules/6.8.0-147-generic/updates/dkms/nvidia.ko
+Installing /lib/modules/6.8.0-147-generic/updates/dkms/nvidia-modeset.ko
+Installing /lib/modules/6.8.0-147-generic/updates/dkms/nvidia-drm.ko
+Installing /lib/modules/6.8.0-147-generic/updates/dkms/nvidia-uvm.ko
+Installing /lib/modules/6.8.0-147-generic/updates/dkms/nvidia-peermem.ko
+Running depmod... done.

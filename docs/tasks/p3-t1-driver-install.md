@@ -41,3 +41,7 @@ must provide that evidence after all local and hosted gates pass.
 
 The [first native installation attempt](p3-t1-dkms-package-config.md) exposed
 the omitted package configuration. Its failed evidence is retained unchanged.
+
+The subsequent [native installation pass](p3-t1-driver-install-pass.md) verified
+all five installed modules and dependency indexes with independent cleanup.
+The loading, boot and confidentiality limits above remain unchanged.
