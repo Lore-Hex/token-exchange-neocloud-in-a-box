@@ -3,6 +3,8 @@
 import copy
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -43,6 +45,33 @@ class CompareNativeExportsTests(unittest.TestCase):
         self.assertEqual(result["result"], "fail")
         self.assertFalse(result["matches"]["nib.efi"])
         self.assertTrue(result["matches"]["root.raw"])
+
+    def test_ci_expected_source_is_exact_and_does_not_change_the_receipt(self):
+        right = encode(self.rows)
+        expected = self.rows["manifest.json"]["source"]["git_sha"]
+        self.assertEqual(compare.compare(self.left, right, expected_source=expected),
+                         compare.compare(self.left, right))
+        for invalid in ("ab" * 20, expected.upper(), expected[:7], "main", "", True, 1):
+            with self.subTest(source=invalid), self.assertRaises(ValueError):
+                compare.compare(self.left, right, expected_source=invalid)
+
+    def test_cli_enforces_expected_source_and_preserves_failure_exit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            for slot, raws in (("left", self.left), ("right", encode(self.rows))):
+                directory = root / slot
+                directory.mkdir()
+                for name, raw in raws.items():
+                    (directory / name).write_bytes(raw)
+            expected = self.rows["manifest.json"]["source"]["git_sha"]
+            command = [sys.executable, "-s", "-S", "-B", compare.__file__,
+                       str(root / "left"), str(root / "right"), "--expected-source"]
+            valid = subprocess.run(command + [expected], capture_output=True, check=True, timeout=5)
+            self.assertEqual(json.loads(valid.stdout), compare.compare(self.left, encode(self.rows)))
+            invalid = subprocess.run(command + ["ab" * 20], capture_output=True, timeout=5)
+            self.assertNotEqual(invalid.returncode, 0)
+            self.assertEqual(invalid.stdout, b"")
+            self.assertEqual(invalid.stderr, b"Native export comparison rejected; no qualification granted.\n")
 
     def test_copied_and_overlapping_runs_reject(self):
         with self.assertRaises(ValueError):

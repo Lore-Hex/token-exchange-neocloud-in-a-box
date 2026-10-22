@@ -437,7 +437,8 @@ class BuildTests(unittest.TestCase):
 
     def test_workflow_manual_main_only_without_credentials_in_build(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/mkosi-native-build.yml").read_text())
-        self.assertEqual(workflow[True], {"workflow_dispatch": {"inputs": {"compile_driver": {
+        self.assertEqual(set(workflow[True]), {"workflow_dispatch", "workflow_call"})
+        self.assertEqual(workflow[True]["workflow_dispatch"], {"inputs": {"compile_driver": {
             "description": "Compile the pinned NVIDIA driver after installation (no loading or boot)",
             "type": "boolean", "default": False}, "install_driver": {
             "description": "Install verified driver modules into the private guest root (requires compile_driver; never loads)",
@@ -449,31 +450,36 @@ class BuildTests(unittest.TestCase):
             "description": "Assemble and inspect private initrd/unsigned UKI (requires verity_root; no export, signing or boot)",
             "type": "boolean", "default": False}, "validate_export": {
             "description": "Verify then delete private GPT/UKI; upload JSON only (requires all five build flags; no boot)",
-            "type": "boolean", "default": False}}}})
+            "type": "boolean", "default": False}}})
+        self.assertEqual(workflow[True]["workflow_call"], {"inputs": {
+            **{name: {"type": "boolean", "default": False}
+               for name in workflow[True]["workflow_dispatch"]["inputs"]},
+            "artifact_slot": {"description": "Fixed first or second repeat-build metadata namespace",
+                              "type": "string", "required": True}}})
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         job = workflow["jobs"]["install"]
         self.assertEqual(job["if"], "github.ref == 'refs/heads/main'")
         self.assertEqual(job["runs-on"], "ubuntu-22.04")
         self.assertEqual(job["timeout-minutes"], 55)
         self.assertIs(job["steps"][0]["with"]["persist-credentials"], False)
-        fetch = job["steps"][1]["run"]
+        fetch = job["steps"][2]["run"]
         self.assertIn("54def86b7b37b3b5178782965e499f0242a98f36bc7828105f112005576663a7", fetch)
         self.assertIn("--metadata-archive", fetch)
         self.assertIn("--include-guest", fetch)
         self.assertIn('if [ "$GUEST_RUNTIME" = true ]; then target=--guest-runtime; fi', fetch)
-        self.assertEqual(job["steps"][1]["env"], {"GUEST_RUNTIME": "${{ inputs.guest_runtime }}"})
-        self.assertIn("host/run-mkosi-build.py", job["steps"][2]["run"])
-        self.assertEqual(job["steps"][2]["env"], {"COMPILE_DRIVER": "${{ inputs.compile_driver }}",
+        self.assertEqual(job["steps"][2]["env"], {"GUEST_RUNTIME": "${{ inputs.guest_runtime }}"})
+        self.assertIn("host/run-mkosi-build.py", job["steps"][3]["run"])
+        self.assertEqual(job["steps"][3]["env"], {"COMPILE_DRIVER": "${{ inputs.compile_driver }}",
                                                "INSTALL_DRIVER": "${{ inputs.install_driver }}",
                                                "GUEST_RUNTIME": "${{ inputs.guest_runtime }}",
                                                "VERITY_ROOT": "${{ inputs.verity_root }}",
                                                "BOOT_UKI": "${{ inputs.boot_uki }}",
                                                "VALIDATE_EXPORT": "${{ inputs.validate_export }}"})
         self.assertIn('if [ "$GUEST_RUNTIME" = true ]; then args+=(--guest-runtime); fi',
-                      job["steps"][2]["run"])
+                      job["steps"][3]["run"])
         self.assertIn('if [ "$COMPILE_DRIVER" = true ]; then args+=(--compile-driver); fi',
-                      job["steps"][2]["run"])
-        self.assertNotIn("${{", job["steps"][2]["run"])
+                      job["steps"][3]["run"])
+        self.assertNotIn("${{", job["steps"][3]["run"])
         self.assertEqual(job["steps"][-2]["if"], "${{ always() && !inputs.validate_export }}")
 
     def test_driver_build_is_explicit_and_does_not_change_default_namespace(self):

@@ -1,6 +1,30 @@
 name: Bounded offline mkosi installation
 
 on:
+  workflow_call:
+    inputs:
+      compile_driver:
+        type: boolean
+        default: false
+      install_driver:
+        type: boolean
+        default: false
+      guest_runtime:
+        type: boolean
+        default: false
+      verity_root:
+        type: boolean
+        default: false
+      boot_uki:
+        type: boolean
+        default: false
+      validate_export:
+        type: boolean
+        default: false
+      artifact_slot:
+        description: Fixed first or second repeat-build metadata namespace
+        type: string
+        required: true
   workflow_dispatch:
     inputs:
       compile_driver:
@@ -44,11 +68,18 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-22.04
     timeout-minutes: 55
+    env:
+      ARTIFACT_SUFFIX: ${{ inputs.artifact_slot && format('-{0}', inputs.artifact_slot) || '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Validate artifact namespace
+        env:
+          ARTIFACT_SLOT: ${{ inputs.artifact_slot }}
+        run: |
+          case "$ARTIFACT_SLOT" in ''|first|second) ;; *) exit 1 ;; esac
       - name: Fetch and authenticate fixed public inputs without installing
         env:
           GUEST_RUNTIME: ${{ inputs.guest_runtime }}
@@ -126,7 +157,7 @@ jobs:
         if: ${{ always() && !inputs.validate_export }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
-          name: native-mkosi-install-${{ github.run_id }}-${{ github.run_attempt }}
+          name: native-mkosi-install-${{ github.run_id }}-${{ github.run_attempt }}${{ env.ARTIFACT_SUFFIX }}
           path: |
             build/native-install/input-fetch.log
             build/native-install/evidence/
@@ -137,7 +168,7 @@ jobs:
         if: ${{ always() && inputs.validate_export && steps.export_validation.outputs.metadata_ready == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
-          name: native-mkosi-export-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          name: native-mkosi-export-validation-${{ github.run_id }}-${{ github.run_attempt }}${{ env.ARTIFACT_SUFFIX }}
           path: |
             build/native-install/export-validation/validation.json
             build/native-install/export-validation/manifest.json
