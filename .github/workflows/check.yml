@@ -33,6 +33,10 @@ jobs:
           cache-dependency-glob: tools/uv.lock
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install --no-install-recommends -y shellcheck
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
+        with:
+          terraform_version: 1.14.9
+          terraform_wrapper: false
       - name: Check repository
         run: make check
       - name: Build operator CLI

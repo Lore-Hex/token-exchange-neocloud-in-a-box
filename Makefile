@@ -1,8 +1,8 @@
 SHELL := /bin/bash
 .DELETE_ON_ERROR:
-.PHONY: check test test-e2e test-evidence lint fmt-check staticcheck shellcheck yamllint schema-lint docs-check secrets secrets-positive-control build
+.PHONY: check test test-e2e test-evidence lint fmt-check staticcheck shellcheck yamllint schema-lint docs-check terraform-check secrets secrets-positive-control build
 
-check: lint test test-evidence secrets secrets-positive-control
+check: lint terraform-check test test-evidence secrets secrets-positive-control
 
 test:
 	go test -race -count=1 ./...
@@ -37,6 +37,9 @@ schema-lint:
 docs-check:
 	uv run --project tools --frozen python scripts/check-doc-links.py
 	uv run --project tools --frozen python -m unittest discover -s scripts -p 'test_*.py'
+
+terraform-check:
+	uv run --project tools --frozen python scripts/check_gcp_terraform.py
 
 secrets:
 	@go -C tools build -o ../build/gitleaks github.com/zricethezav/gitleaks/v8
