@@ -8,15 +8,25 @@ import unittest
 
 class FunctionalPassEvidenceTests(unittest.TestCase):
     def test_original_functional_success_and_qualification_boundary(self):
-        root = Path(__file__).resolve().parents[1] / "evidence/p2/2026-10-22-b300-functional-pass"
-        for name, digest in (
+        self.check_original("2026-10-22-b300-functional-pass", "c73590ef9bba125f655fc09f53421ffadd35742e", (
             ("run.json", "aa811e84f03a017d54f43dd2ec956cca1f19dba3ffd0187c9ec74577eebae92f"),
             ("output.log", "c020d9032477280d38be01ec2e904cdcb04d8eb5f6d22bb5ee6380c1ce5ec522"),
-        ):
+        ))
+
+    def test_lower_memory_success_preserves_all_qualification_limits(self):
+        self.check_original("2026-10-22-b300-bounded-memory", "9e1eb42441427e07375f3347c822a58d150882e2", (
+            ("run.json", "6451a8316ac970d63021c67cd3d0d45bff1b0fbd4bec8aa7fbba1d7370b88113"),
+            ("output.log", "aeb69230607ac6b97ae68724a2699cc8bac242f66509c5b089d35cc16ec0adad"),
+        ))
+
+    def check_original(self, directory, producer, files):
+        root = Path(__file__).resolve().parents[1] / "evidence/p2" / directory
+        for name, digest in files:
             self.assertEqual(hashlib.sha256((root / name).read_bytes()).hexdigest(), digest)
         run = json.loads((root / "run.json").read_bytes())
         output = json.loads((root / "output.log").read_bytes())
-        self.assertEqual(run["git_sha"], "c73590ef9bba125f655fc09f53421ffadd35742e")
+        self.assertEqual(run["git_sha"], producer)
+        self.assertEqual(output["provenance"]["git_sha"], producer)
         self.assertEqual(run["result"], "fail")
         self.assertFalse(run["hardware_validated"])
         self.assertEqual(output["result"], "fail")

@@ -45,6 +45,8 @@ eight-GPU appraisal and readiness readback have passed. DeepSeek generated real
 responses in two earlier smoke runs, passing seven of eight cases. After a
 case-only mismatch was diagnosed, an explicit-format fixture passed all eight
 cases and ten requests ([evidence and limits](docs/tasks/p2-t3-functional-pass.md)).
+A second pass used the [512 GiB lab profile](docs/tasks/p2-t3-bounded-memory-pass.md)
+with the same eight cases and ten requests, without OOM and with confirmed cleanup.
 The overall qualification and quality gates remain blocked/unproven. The lab
 uses AMD SEV-SNP, not the plan's Intel TDX deployment.
 
