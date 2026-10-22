@@ -149,10 +149,18 @@ def tokenizer_receipt(row, runtime_sha, runtime, framing, deadline):
 
 def proc_read(path, limit=1 << 20):
     # Only fixed kernel procfs paths constructed below, never private input paths.
+    require(type(limit) is int and 0 < limit <= 4 << 20)
+    raw = bytearray()
     with open(path, "rb", buffering=0) as stream:
-        raw = stream.read(limit + 1)
-    require(0 < len(raw) <= limit)
-    return raw
+        while True:
+            chunk = stream.read(min(65536, limit + 1 - len(raw)))
+            require(type(chunk) is bytes)
+            if not chunk:
+                break
+            raw.extend(chunk)
+            require(len(raw) <= limit)
+    require(raw)
+    return bytes(raw)
 
 
 def process_facts(pid):

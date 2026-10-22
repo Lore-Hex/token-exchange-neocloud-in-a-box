@@ -66,6 +66,8 @@ wildcard and IPv6 listeners on the selected port are rejected. After connecting,
 the established reverse socket must belong to that same PID **before sending a
 request body**. Process identity is checked again. These checks run under the
 request deadline, and the full deployment is rechecked at trial boundaries.
+Procfs reads require EOF within their byte limits; a short read cannot hide
+later socket-table entries or bypass the size limit.
 No DNS, proxy, arbitrary URL, credential, redirect or remote Docker context is
 supported. Missing procfs visibility fails closed; there is no macOS bypass.
 

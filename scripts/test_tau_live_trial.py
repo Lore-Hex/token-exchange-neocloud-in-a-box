@@ -290,6 +290,33 @@ class AdmissionTests(unittest.TestCase):
 
 
 class KernelBindingTests(unittest.TestCase):
+    def test_proc_reader_requires_eof_not_one_short_read(self):
+        class ShortReads(io.BytesIO):
+            def read(self, size=-1):
+                return super().read(min(size, 3))
+        with mock.patch("builtins.open", return_value=ShortReads(b"abcdefgh")):
+            self.assertEqual(live.proc_read("/proc/synthetic", 8), b"abcdefgh")
+
+    def test_proc_reader_rejects_empty_or_over_limit_across_short_reads(self):
+        class ShortReads(io.BytesIO):
+            def read(self, size=-1):
+                return super().read(min(size, 3))
+        for raw in (b"", b"abcdefghi"):
+            with self.subTest(raw=raw), mock.patch("builtins.open", return_value=ShortReads(raw)):
+                with self.assertRaises(worker.Abort):
+                    live.proc_read("/proc/synthetic", 8)
+
+    def test_tcp_table_cannot_hide_later_listener_after_short_read(self):
+        first = (b"header\n"
+                 b"0: 0100007F:4E20 00000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 2000 1\n")
+        later = b"1: 00000000:4E20 00000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 3000 1\n"
+        class ShortReads(io.BytesIO):
+            def read(self, size=-1):
+                return super().read(min(size, len(first)))
+        with mock.patch("builtins.open", return_value=ShortReads(first + later)):
+            self.assertEqual(live.tcp_rows(), [("0100007F:4E20", "00000000:0000", "0A", 2000),
+                                               ("00000000:4E20", "00000000:0000", "0A", 3000)])
+
     def test_endpoint_rechecks_process_listener_and_connected_socket_before_http(self):
         _, docs = fixture_documents()
         receipt = docs["candidate-runtime.json"]
