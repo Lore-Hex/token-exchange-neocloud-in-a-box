@@ -1,0 +1,413 @@
+MOCK PLANS ONLY. No cloud plan, apply, credentials or resource allocation.
+
+$ terraform fmt -check -recursive -no-color
+
+$ terraform init -backend=false -input=false -lockfile=readonly -no-color
+Initializing provider plugins...
+- Reusing previous version of hashicorp/google from the dependency lock file
+- Installing hashicorp/google v8.7.0...
+- Installed hashicorp/google v8.7.0 (signed by HashiCorp)
+
+Terraform has been successfully initialized!
+
+$ terraform validate -no-color
+Success! The configuration is valid.
+
+
+$ terraform test -filter=tests/lab.tftest.hcl -no-color -verbose
+tests/lab.tftest.hcl... in progress
+  run "default_zero"... pass
+
+No changes. Your infrastructure matches the configuration.
+
+Terraform has compared your real infrastructure against your configuration
+and found no differences, so no changes are needed.
+
+  run "one_spot_lab"... pass
+
+Terraform used the selected providers to generate the following execution
+plan. Resource actions are indicated with the following symbols:
+  + create
+
+Terraform will perform the following actions:
+
+  # google_compute_firewall.ssh[0] will be created
+  + resource "google_compute_firewall" "ssh" {
+      + creation_timestamp      = (known after apply)
+      + deletion_policy         = (known after apply)
+      + destination_ranges      = (known after apply)
+      + direction               = "INGRESS"
+      + enable_logging          = (known after apply)
+      + id                      = (known after apply)
+      + name                    = "nib-a4-lab-operator-ssh"
+      + network                 = "projects/nib-synthetic-lab/global/networks/nib-a4-lab-vpc"
+      + priority                = 1000
+      + project                 = (known after apply)
+      + self_link               = (known after apply)
+      + source_ranges           = [
+          + "192.0.2.1/32",
+        ]
+      + target_service_accounts = [
+          + "nib-a4-lab-vm@nib-synthetic-lab.iam.gserviceaccount.com",
+        ]
+
+      + allow {
+          + ports    = [
+              + "22",
+            ]
+          + protocol = "tcp"
+        }
+    }
+
+  # google_compute_instance_from_template.lab[0] will be created
+  + resource "google_compute_instance_from_template" "lab" {
+      + allow_stopping_for_update  = (known after apply)
+      + can_ip_forward             = (known after apply)
+      + cpu_platform               = (known after apply)
+      + creation_timestamp         = (known after apply)
+      + current_status             = (known after apply)
+      + deletion_policy            = (known after apply)
+      + deletion_protection        = false
+      + description                = (known after apply)
+      + desired_status             = (known after apply)
+      + effective_labels           = (known after apply)
+      + enable_display             = (known after apply)
+      + hostname                   = (known after apply)
+      + id                         = (known after apply)
+      + instance_id                = (known after apply)
+      + key_revocation_action_type = (known after apply)
+      + label_fingerprint          = (known after apply)
+      + labels                     = (known after apply)
+      + machine_type               = (known after apply)
+      + metadata                   = (known after apply)
+      + metadata_fingerprint       = (known after apply)
+      + metadata_startup_script    = (known after apply)
+      + min_cpu_platform           = (known after apply)
+      + name                       = "nib-a4-lab"
+      + project                    = (known after apply)
+      + resource_policies          = (known after apply)
+      + self_link                  = (known after apply)
+      + source_instance_template   = "https://www.googleapis.com/compute/v1/projects/nib-synthetic-lab/global/instanceTemplates/synthetic-template?uniqueId=1"
+      + tags                       = (known after apply)
+      + tags_fingerprint           = (known after apply)
+      + terraform_labels           = (known after apply)
+      + zone                       = "us-central1-a"
+    }
+
+  # google_compute_instance_template.lab[0] will be created
+  + resource "google_compute_instance_template" "lab" {
+      + can_ip_forward       = false
+      + creation_timestamp   = "oao2g6kc"
+      + effective_labels     = {}
+      + id                   = "0erziye2"
+      + labels               = {
+          + "confidentiality" = "none"
+          + "purpose"         = "nib-p2-lab"
+        }
+      + machine_type         = "a4-highgpu-8g"
+      + metadata             = {
+          + "block-project-ssh-keys" = "TRUE"
+          + "enable-oslogin"         = "TRUE"
+          + "serial-port-enable"     = "FALSE"
+        }
+      + metadata_fingerprint = "2luqf81c"
+      + name                 = "j3szrz9t"
+      + name_prefix          = "nib-a4-lab-"
+      + numeric_id           = "9ypqd7gf"
+      + project              = "1gg7ri2d"
+      + region               = "us-central1"
+      + self_link            = "lf3tdq9u"
+      + self_link_unique     = "https://www.googleapis.com/compute/v1/projects/nib-synthetic-lab/global/instanceTemplates/synthetic-template?uniqueId=1"
+      + tags_fingerprint     = "ba9nosfi"
+      + terraform_labels     = {}
+
+      + disk {
+          + architecture           = "20k14cb8"
+          + auto_delete            = true
+          + boot                   = true
+          + device_name            = "kbj9mz0w"
+          + disk_size_gb           = 100
+          + disk_type              = "hyperdisk-balanced"
+          + interface              = "9v9og8jk"
+          + mode                   = "0iqqomvh"
+          + provisioned_iops       = 0
+          + provisioned_throughput = 0
+          + source_image           = "projects/nib-synthetic-images/global/images/fixture-not-a-real-image"
+          + type                   = "d4wdj547"
+        }
+
+      + network_interface {
+          + igmp_query                  = "mcnbnf75"
+          + internal_ipv6_prefix_length = 0
+          + ipv6_access_type            = "o5jqyn0o"
+          + ipv6_address                = "8x89vgje"
+          + name                        = "xlgkfabg"
+          + network                     = "z8wj0i85"
+          + network_attachment          = "26148vep"
+          + nic_type                    = "GVNIC"
+          + parent_nic_name             = "86qlzal1"
+          + stack_type                  = "IPV4_ONLY"
+          + subnetwork                  = "projects/nib-synthetic-lab/regions/us-central1/subnetworks/nib-a4-lab-subnet"
+          + subnetwork_project          = "m88ipkrs"
+
+          + access_config {
+              + nat_ip                 = "0aehxtf9"
+              + network_tier           = "PREMIUM"
+              + public_ptr_domain_name = "190m2qg1"
+            }
+        }
+
+      + scheduling {
+          + automatic_restart           = false
+          + instance_termination_action = "DELETE"
+          + on_host_maintenance         = "TERMINATE"
+          + preemptible                 = true
+          + provisioning_model          = "SPOT"
+
+          + max_run_duration {
+              + seconds = 3600
+            }
+        }
+
+      + service_account {
+          + email  = "nib-a4-lab-vm@nib-synthetic-lab.iam.gserviceaccount.com"
+          + scopes = []
+        }
+    }
+
+  # google_compute_network.lab[0] will be created
+  + resource "google_compute_network" "lab" {
+      + auto_create_subnetworks      = false
+      + bgp_always_compare_med       = false
+      + bgp_best_path_selection_mode = "x3oe6494"
+      + bgp_inter_region_cost        = "f4pv8iae"
+      + deletion_policy              = "6c45k66u"
+      + gateway_ipv4                 = "53ok2558"
+      + id                           = "projects/nib-synthetic-lab/global/networks/nib-a4-lab-vpc"
+      + internal_ipv6_range          = "1s96qag3"
+      + mtu                          = 0
+      + name                         = "nib-a4-lab-vpc"
+      + network_id                   = "3vlbkx7w"
+      + numeric_id                   = "m1d74t7u"
+      + project                      = "neo0id0o"
+      + routing_mode                 = "REGIONAL"
+      + self_link                    = "rbz4suiu"
+    }
+
+  # google_compute_subnetwork.lab[0] will be created
+  + resource "google_compute_subnetwork" "lab" {
+      + allow_subnet_cidr_routes_overlap = false
+      + creation_timestamp               = "won33mj9"
+      + deletion_policy                  = "n8nc7nyu"
+      + external_ipv6_prefix             = "76747g04"
+      + fingerprint                      = "krvm4cdd"
+      + gateway_address                  = "uwj4d5lm"
+      + id                               = "projects/nib-synthetic-lab/regions/us-central1/subnetworks/nib-a4-lab-subnet"
+      + internal_ipv6_prefix             = "tckz1muz"
+      + ip_cidr_range                    = "10.77.0.0/24"
+      + ipv6_cidr_range                  = "bym34kg3"
+      + ipv6_gce_endpoint                = "rvqzpged"
+      + name                             = "nib-a4-lab-subnet"
+      + network                          = "projects/nib-synthetic-lab/global/networks/nib-a4-lab-vpc"
+      + private_ip_google_access         = false
+      + private_ipv6_google_access       = "gagwh000"
+      + project                          = "8rw9p93k"
+      + purpose                          = "e25nwadr"
+      + region                           = "us-central1"
+      + self_link                        = "wiillh5k"
+      + stack_type                       = "IPV4_ONLY"
+      + state                            = "4hnvolon"
+      + subnetwork_id                    = 0
+    }
+
+  # google_service_account.lab[0] will be created
+  + resource "google_service_account" "lab" {
+      + account_id      = "nib-a4-lab-vm"
+      + deletion_policy = "nfogqef0"
+      + display_name    = "Isolated non-confidential A4 lab; no IAM roles granted"
+      + email           = "nib-a4-lab-vm@nib-synthetic-lab.iam.gserviceaccount.com"
+      + id              = "txnypkhl"
+      + member          = "4js08063"
+      + name            = "wqmzmztl"
+      + project         = "hl93h93l"
+      + unique_id       = "fzrktgff"
+    }
+
+Plan: 6 to add, 0 to change, 0 to destroy.
+
+Changes to Outputs:
+  + instance_name         = "nib-a4-lab"
+  + service_account_email = "nib-a4-lab-vm@nib-synthetic-lab.iam.gserviceaccount.com"
+
+  run "explicit_zero"... pass
+
+No changes. Your infrastructure matches the configuration.
+
+Terraform has compared your real infrastructure against your configuration
+and found no differences, so no changes are needed.
+
+  run "reject_two"... pass
+
+Planning failed. Terraform encountered an error while generating this plan.
+
+
+  run "reject_fraction"... pass
+
+Planning failed. Terraform encountered an error while generating this plan.
+
+
+  run "reject_public_ssh"... pass
+
+Planning failed. Terraform encountered an error while generating this plan.
+
+
+  run "reject_subnet_ssh"... pass
+
+Planning failed. Terraform encountered an error while generating this plan.
+
+
+  run "reject_ipv6"... pass
+
+Planning failed. Terraform encountered an error while generating this plan.
+
+
+  run "reject_family"... pass
+
+Planning failed. Terraform encountered an error while generating this plan.
+
+
+  run "reject_production"... pass
+
+Planning failed. Terraform encountered an error while generating this plan.
+
+
+  run "reject_unbounded_runtime"... pass
+
+Planning failed. Terraform encountered an error while generating this plan.
+
+
+tests/lab.tftest.hcl... tearing down
+tests/lab.tftest.hcl... pass
+
+Success! 11 passed, 0 failed.
+
+Error: Invalid value for variable
+
+  on tests/lab.tftest.hcl line 115, in run "reject_two":
+ 115:   variables { instance_count = 2 }
+    ├────────────────
+    │ var.instance_count is 2
+
+instance_count must be 0 or 1.
+
+This was checked by the validation rule at variables.tf:7,3-13.
+
+Error: Invalid value for variable
+
+  on tests/lab.tftest.hcl line 121, in run "reject_fraction":
+ 121:   variables { instance_count = 0.5 }
+    ├────────────────
+    │ var.instance_count is 0.5
+
+instance_count must be 0 or 1.
+
+This was checked by the validation rule at variables.tf:7,3-13.
+
+Error: Invalid value for variable
+
+  on tests/lab.tftest.hcl line 127, in run "reject_public_ssh":
+ 127:   variables { operator_cidr = "0.0.0.0/0" }
+    ├────────────────
+    │ var.operator_cidr is "0.0.0.0/0"
+
+operator_cidr must be one explicit IPv4 /32, not a wildcard, IPv6 address or
+larger network.
+
+This was checked by the validation rule at variables.tf:48,3-13.
+
+Error: Invalid value for variable
+
+  on tests/lab.tftest.hcl line 133, in run "reject_subnet_ssh":
+ 133:   variables { operator_cidr = "192.0.2.0/24" }
+    ├────────────────
+    │ var.operator_cidr is "192.0.2.0/24"
+
+operator_cidr must be one explicit IPv4 /32, not a wildcard, IPv6 address or
+larger network.
+
+This was checked by the validation rule at variables.tf:48,3-13.
+
+Error: Invalid value for variable
+
+  on tests/lab.tftest.hcl line 139, in run "reject_ipv6":
+ 139:   variables { operator_cidr = "2001:db8::1/128" }
+    ├────────────────
+    │ var.operator_cidr is "2001:db8::1/128"
+
+operator_cidr must be one explicit IPv4 /32, not a wildcard, IPv6 address or
+larger network.
+
+This was checked by the validation rule at variables.tf:48,3-13.
+
+Error: Invalid value for variable
+
+  on tests/lab.tftest.hcl line 145, in run "reject_family":
+ 145:   variables { boot_image = "projects/ubuntu-os-cloud/global/images/family/ubuntu-2404-lts-amd64" }
+    ├────────────────
+    │ var.boot_image is "projects/ubuntu-os-cloud/global/images/family/ubuntu-2404-lts-amd64"
+
+boot_image must name an exact approved image, not a family or latest alias.
+
+This was checked by the validation rule at variables.tf:58,3-13.
+
+Error: Invalid value for variable
+
+  on tests/lab.tftest.hcl line 151, in run "reject_production":
+ 151:   variables { project_id = "quill-cloud-proxy" }
+    ├────────────────
+    │ var.project_id is "quill-cloud-proxy"
+
+Use an explicit isolated lab project, never the production project.
+
+This was checked by the validation rule at variables.tf:17,3-13.
+
+Error: Invalid value for variable
+
+  on tests/lab.tftest.hcl line 157, in run "reject_unbounded_runtime":
+ 157:   variables { max_run_seconds = 0 }
+    ├────────────────
+    │ var.max_run_seconds is 0
+
+Choose an approved whole-second runtime between 60 seconds and eight hours.
+
+This was checked by the validation rule at variables.tf:68,3-13.
+
+$ terraform test -filter=tests/lab.tftest.hcl -json
+{"@level":"info","@message":"Terraform 1.14.9","@module":"terraform.ui","@timestamp":"2026-10-22T10:55:29.507830-07:00","terraform":"1.14.9","type":"version","ui":"1.2"}
+{"@level":"info","@message":"Found 1 file and 11 run blocks","@module":"terraform.ui","@timestamp":"2026-10-22T10:55:29.563553-07:00","test_abstract":{"tests/lab.tftest.hcl":["default_zero","one_spot_lab","explicit_zero","reject_two","reject_fraction","reject_public_ssh","reject_subnet_ssh","reject_ipv6","reject_family","reject_production","reject_unbounded_runtime"]},"type":"test_abstract"}
+{"@level":"info","@message":"tests/lab.tftest.hcl... in progress","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@timestamp":"2026-10-22T10:55:29.563600-07:00","test_file":{"path":"tests/lab.tftest.hcl","progress":"starting"},"type":"test_file"}
+{"@level":"info","@message":"  \"default_zero\"... in progress","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"default_zero","@timestamp":"2026-10-22T10:55:29.741506-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"default_zero","progress":"starting","elapsed":0},"type":"test_run"}
+{"@level":"info","@message":"  \"default_zero\"... pass","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"default_zero","@timestamp":"2026-10-22T10:55:29.747876-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"default_zero","progress":"complete","status":"pass"},"type":"test_run"}
+{"@level":"info","@message":"  \"one_spot_lab\"... in progress","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"one_spot_lab","@timestamp":"2026-10-22T10:55:29.747948-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"one_spot_lab","progress":"starting","elapsed":0},"type":"test_run"}
+{"@level":"info","@message":"  \"one_spot_lab\"... pass","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"one_spot_lab","@timestamp":"2026-10-22T10:55:29.759477-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"one_spot_lab","progress":"complete","status":"pass"},"type":"test_run"}
+{"@level":"info","@message":"  \"explicit_zero\"... in progress","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"explicit_zero","@timestamp":"2026-10-22T10:55:29.759514-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"explicit_zero","progress":"starting","elapsed":0},"type":"test_run"}
+{"@level":"info","@message":"  \"explicit_zero\"... pass","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"explicit_zero","@timestamp":"2026-10-22T10:55:29.764783-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"explicit_zero","progress":"complete","status":"pass"},"type":"test_run"}
+{"@level":"info","@message":"  \"reject_two\"... in progress","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"reject_two","@timestamp":"2026-10-22T10:55:29.764813-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"reject_two","progress":"starting","elapsed":0},"type":"test_run"}
+{"@level":"info","@message":"  \"reject_two\"... pass","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"reject_two","@timestamp":"2026-10-22T10:55:29.768188-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"reject_two","progress":"complete","status":"pass"},"type":"test_run"}
+{"@level":"info","@message":"  \"reject_fraction\"... in progress","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"reject_fraction","@timestamp":"2026-10-22T10:55:29.768220-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"reject_fraction","progress":"starting","elapsed":0},"type":"test_run"}
+{"@level":"info","@message":"  \"reject_fraction\"... pass","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"reject_fraction","@timestamp":"2026-10-22T10:55:29.771765-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"reject_fraction","progress":"complete","status":"pass"},"type":"test_run"}
+{"@level":"info","@message":"  \"reject_public_ssh\"... in progress","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"reject_public_ssh","@timestamp":"2026-10-22T10:55:29.771796-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"reject_public_ssh","progress":"starting","elapsed":0},"type":"test_run"}
+{"@level":"info","@message":"  \"reject_public_ssh\"... pass","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"reject_public_ssh","@timestamp":"2026-10-22T10:55:29.776985-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"reject_public_ssh","progress":"complete","status":"pass"},"type":"test_run"}
+{"@level":"info","@message":"  \"reject_subnet_ssh\"... in progress","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"reject_subnet_ssh","@timestamp":"2026-10-22T10:55:29.777018-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"reject_subnet_ssh","progress":"starting","elapsed":0},"type":"test_run"}
+{"@level":"info","@message":"  \"reject_subnet_ssh\"... pass","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"reject_subnet_ssh","@timestamp":"2026-10-22T10:55:29.780774-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"reject_subnet_ssh","progress":"complete","status":"pass"},"type":"test_run"}
+{"@level":"info","@message":"  \"reject_ipv6\"... in progress","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"reject_ipv6","@timestamp":"2026-10-22T10:55:29.780812-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"reject_ipv6","progress":"starting","elapsed":0},"type":"test_run"}
+{"@level":"info","@message":"  \"reject_ipv6\"... pass","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"reject_ipv6","@timestamp":"2026-10-22T10:55:29.784620-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"reject_ipv6","progress":"complete","status":"pass"},"type":"test_run"}
+{"@level":"info","@message":"  \"reject_family\"... in progress","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"reject_family","@timestamp":"2026-10-22T10:55:29.784652-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"reject_family","progress":"starting","elapsed":0},"type":"test_run"}
+{"@level":"info","@message":"  \"reject_family\"... pass","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"reject_family","@timestamp":"2026-10-22T10:55:29.789651-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"reject_family","progress":"complete","status":"pass"},"type":"test_run"}
+{"@level":"info","@message":"  \"reject_production\"... in progress","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"reject_production","@timestamp":"2026-10-22T10:55:29.789689-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"reject_production","progress":"starting","elapsed":0},"type":"test_run"}
+{"@level":"info","@message":"  \"reject_production\"... pass","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"reject_production","@timestamp":"2026-10-22T10:55:29.793668-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"reject_production","progress":"complete","status":"pass"},"type":"test_run"}
+{"@level":"info","@message":"  \"reject_unbounded_runtime\"... in progress","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"reject_unbounded_runtime","@timestamp":"2026-10-22T10:55:29.793701-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"reject_unbounded_runtime","progress":"starting","elapsed":0},"type":"test_run"}
+{"@level":"info","@message":"  \"reject_unbounded_runtime\"... pass","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@testrun":"reject_unbounded_runtime","@timestamp":"2026-10-22T10:55:29.797038-07:00","test_run":{"path":"tests/lab.tftest.hcl","run":"reject_unbounded_runtime","progress":"complete","status":"pass"},"type":"test_run"}
+{"@level":"info","@message":"tests/lab.tftest.hcl... tearing down","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@timestamp":"2026-10-22T10:55:29.797061-07:00","test_file":{"path":"tests/lab.tftest.hcl","progress":"teardown"},"type":"test_file"}
+{"@level":"info","@message":"tests/lab.tftest.hcl... pass","@module":"terraform.ui","@testfile":"tests/lab.tftest.hcl","@timestamp":"2026-10-22T10:55:29.804230-07:00","test_file":{"path":"tests/lab.tftest.hcl","progress":"complete","status":"pass"},"type":"test_file"}
+{"@level":"info","@message":"Success! 11 passed, 0 failed.","@module":"terraform.ui","@timestamp":"2026-10-22T10:55:29.804247-07:00","test_summary":{"status":"pass","passed":11,"failed":0,"errored":0,"skipped":0},"type":"test_summary"}

@@ -75,6 +75,10 @@ the private approval record. A runtime limit is not a spending cap.
 
 ## Software Verification
 
+The preserved [2026-10-22 mock-plan receipt](../../../evidence/p2/2026-10-22-gcp-a4-mock-plan/README.md)
+records 11 passing Terraform plan cases from the committed producer, with
+byte-bound raw output. It is not cloud evidence.
+
 Pins: Terraform **1.14.9**, `hashicorp/google` **8.7.0**, with signed-package
 checksums locked for Linux amd64 and macOS arm64. CI installs the exact CLI.
 The provider release source is commit
