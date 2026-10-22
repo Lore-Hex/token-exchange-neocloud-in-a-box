@@ -7,19 +7,26 @@ measurement receipts have been produced by this change.** The result is not a
 
 ## Immediate deployment gap
 
-The [live tau runner](p2-t3-tau-live-runner.md) requires four distinct live API
-processes, socket inodes and ports: candidate, reference, simulator and evaluator.
-The latter two must have distinct pinned model identities and file inventories,
-different from DeepSeek. Our existing lab has one API process in a private network
-namespace; its owner stops it and removes the container after the request phase.
-A stopped run, two DP ranks, aliases or repeated hashes are not four deployments.
+The legacy v1 [live tau runner](p2-t3-tau-live-runner.md) requires four distinct
+live API processes, socket inodes and ports. The current explicit
+[selected-target v2 path](p2-t3-tau-selected-target.md) instead requires candidate
+OR reference plus simulator and evaluator per trial. Both target configurations
+remain frozen; later reference execution needs its own actual measurements and
+confirmed cleanup before resource reuse, not relabeled candidate receipts.
+Simulator/evaluator still need distinct pinned model identities and file
+inventories, different from DeepSeek. Our existing lab has one API process in a
+private network namespace; its owner stops it and removes the container after
+the request phase. A stopped run, two DP ranks, aliases or repeated hashes cannot
+stand in for the three active v2 deployments (or four legacy v1 deployments).
 
-The practical same-host topology to investigate is two independent TP4/DP1
-DeepSeek deployments, one on each disjoint GPU quartet, plus two separately pinned
-simulator/evaluator deployments. This is a **proposal, not a capacity claim or run
-authorization**. No simulator/evaluator models or serving settings are selected
-here. Both require exact public revisions, complete weight/tokenizer inventories,
-source-backed engine support, context limits and independent tokenizer checks.
+Two independent TP4/DP1 DeepSeek deployments, one on each disjoint GPU quartet,
+were a proposed same-host topology for legacy v1, not a prerequisite for the
+current sequential-target path. This remains a **proposal, not a capacity claim
+or run authorization**. No simulator/evaluator serving configurations are
+admitted here. The small Qwen pins in the selected-target plan are proposals,
+not qualified support deployments. Both support roles still require complete
+weight/tokenizer inventories, source-backed engine support, context limits and
+independent tokenizer checks.
 
 Pinned [vLLM data-parallel documentation](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/docs/serving/data_parallel_deployment.md)
 describes the single API endpoint and MoE expert group spanning DP times TP.
@@ -126,9 +133,11 @@ and overflowing reads, identity/listener/executable drift, missing counters,
 deadlines, partial results and cleanup after either observation fails. They do
 not manufacture runtime evidence or establish native procfs compatibility.
 
-Remaining gates are actual observation on the selected runtime, measured GPU
-headroom, exact simulator/evaluator pins, four-role lifecycle/namespace integration,
+Remaining gates are actual observation on the selected runtime, measured resource
+headroom, exact simulator/evaluator pins, selected-target plus support-role
+lifecycle/namespace integration (four concurrent roles only for legacy v1),
 measured complete runtime/weight/logging provenance and independent full-framing
-tokenizer parity for every role. Even after these, the operational trial remains
-`quality_eligible=false`; it is not the full frozen quality benchmark, production
-readiness or confidential verification.
+tokenizer parity for every active role. Sequential reference execution still
+requires its own qualified configuration and measurements. Even after these,
+the operational trial remains `quality_eligible=false`; it is not the full frozen
+quality benchmark, production readiness or confidential verification.
