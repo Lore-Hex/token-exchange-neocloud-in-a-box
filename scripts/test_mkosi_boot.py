@@ -497,7 +497,7 @@ class BootTests(unittest.TestCase):
             self.assertEqual(host.command(*args, True, True, True, True), original + ["--boot-uki"])
             with self.assertRaises(ValueError): host.command(*args, True, True, False, True)
         good = ["--install-driver", "--verity-root", "--boot-uki"]
-        self.assertEqual(worker.options(good), (True, True, True, True))
+        self.assertEqual(worker.options(good), (True, True, True, True, False))
         for bad in (["--boot-uki"], ["--install-driver", "--boot-uki"], good[::-1], good + ["--boot-uki"]):
             with self.assertRaises(ValueError): worker.options(bad)
         args = ["host", "--downloads", "/downloads", "--archive", "/archive", "--output", "/output", "--boot-uki"]
@@ -517,7 +517,8 @@ class BootTests(unittest.TestCase):
             self.assertEqual(run.call_args.kwargs, {"verity_root": True, "boot_uki": True})
         source = (ROOT / host.WORKER).read_text()
         self.assertLess(source.index('module("appraisal-probe").probe('), source.index('stage = "verity-root"'))
-        self.assertLess(source.index('module("verity-root").build('), source.index('stage = "boot-uki"'))
+        default_path = source[source.index('elif verity_root:'):]
+        self.assertLess(default_path.index('module("verity-root").build('), default_path.index('stage = "boot-uki"'))
         for path in (host.BOOT, host.BOOT_PREP, host.SCRIPT, host.LAUNCHER):
             ast.parse((ROOT / path).read_bytes(), feature_version=(3, 10))
 
@@ -560,7 +561,7 @@ class BootTests(unittest.TestCase):
 
     def test_payload_preparation_executes_only_bound_source_and_is_opt_in(self):
         names = (host.WORKER, host.ENTRY, host.DKMS, host.RUNTIME_POLICY, host.APPRAISAL, host.VERITY,
-                 host.BOOT, host.tools.FILES[4], host.tools.FILES[3], host.probe.native.CHECKER,
+                 host.BOOT, host.EXPORT, host.tools.FILES[4], host.tools.FILES[3], host.probe.native.CHECKER,
                  host.probe.PID_CHECKER, host.probe.OWNERSHIP)
         sources = {name: (ROOT / name).read_bytes() for name in names}
         sources[host.BOOT_PREP] = b'def prepare(archives, lock, tools):\n    return b"bound inventory:" + lock\n'
@@ -574,8 +575,15 @@ class BootTests(unittest.TestCase):
                 mock.patch.object(host.base, "read", return_value=b"fixture archive"), \
                 mock.patch.object(host.mkosi, "prepare", side_effect=lambda *a, **k: (dict(prepared), {})), \
                 mock.patch.object(host.mkosi, "verify_source", side_effect=lambda *a: ({}, dict(upstream))):
-            for flag in (False, True):
-                payload = host.prepare(Path("/inputs"), Path("/archive"), "a" * 40, sources, True, True, flag)[2]
+            for flag, stage_boot in ((False, False), (True, False), (True, True)):
+                payload = host.prepare(Path("/inputs"), Path("/archive"), "a" * 40, sources,
+                                       True, True, flag, stage_boot)[2]
+                if stage_boot:
+                    self.assertEqual(payload["boot-export.py"], sources[host.EXPORT])
+                    self.assertEqual(json.loads(payload["artifact-inputs.json"]), host.source_identity("a" * 40, sources))
+                else:
+                    self.assertNotIn("boot-export.py", payload)
+                    self.assertNotIn("artifact-inputs.json", payload)
                 if flag:
                     self.assertEqual(payload["boot-uki.py"], sources[host.BOOT])
                     self.assertEqual(payload["boot-inputs.json"], b"bound inventory:bound lock")

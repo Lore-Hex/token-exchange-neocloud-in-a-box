@@ -109,6 +109,53 @@ def execute(uid, gid, arguments):
     return state
 
 
+def export_preflight(output, uid):
+    # The two names are reserved for this invocation; collisions are never
+    # adopted or deleted. Images are siblings, outside the evidence upload tree.
+    with base.directory(output.parent) as parent:
+        info = os.fstat(parent)
+        require(info.st_uid == uid and stat.S_IMODE(info.st_mode) == 0o700)
+        for name in ("." + output.name + "-boot-pending", output.name + "-boot"):
+            try:
+                os.stat(name, dir_fd=parent, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            raise ValueError("private-boot-export-collision")
+
+
+def finish_export(output, uid, gid):
+    # No root file copying/publication. All cgroup work and the durable
+    # independent resource receipt precede this irreversible privilege drop.
+    os.setgroups([])
+    os.setgid(gid)
+    os.setuid(uid)
+    require(os.getuid() == os.geteuid() == uid > 0 and os.getgid() == os.getegid() == gid > 0
+            and os.getgroups() == [])
+    with base.directory(output.parent) as parent:
+        name = "." + output.name + "-boot-pending"
+        original = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        require(stat.S_ISDIR(original.st_mode) and original.st_uid == uid
+                and stat.S_IMODE(original.st_mode) == 0o700)
+        try:
+            # Bound the fresh source audit as well as the final copy/hash phase.
+            def expired(signum, frame):
+                raise ValueError("private-boot-source-audit-timeout")
+            require(signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0))
+            previous = signal.signal(signal.SIGALRM, expired)
+            signal.setitimer(signal.ITIMER_REAL, 120)
+            try:
+                native, _ = base.helper("native_boot_export", "host/build-mkosi-native.py")
+                revision, sources = native.committed_sources(True, True, True, True)
+                export, publication = native.export_helpers(sources)
+            finally:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+                signal.signal(signal.SIGALRM, previous)
+        except BaseException:
+            base.inputs.remove_flat_directory(parent, name, original)
+            raise
+    return export.finish(output, base, publication, native.source_identity(revision, sources))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("downloads", "archive", "output"):
@@ -118,14 +165,19 @@ def main():
     parser.add_argument("--guest-runtime", action="store_true")
     parser.add_argument("--verity-root", action="store_true")
     parser.add_argument("--boot-uki", action="store_true")
+    parser.add_argument("--export-boot", action="store_true",
+                        help="publish a private OUTPUT-boot GPT/UKI bundle after all build/cleanup checks")
     args = parser.parse_args()
     require(not args.install_driver or args.compile_driver)
     require(not args.verity_root or (args.guest_runtime and args.install_driver))
     require(not args.boot_uki or args.verity_root)
+    require(not args.export_boot or args.boot_uki)
     uid, gid = identity()
     require(all(path.is_absolute() and ".." not in path.parts
                 for path in (args.downloads, args.archive, args.output)))
     require(not args.output.exists() and not args.output.is_symlink())
+    if args.export_boot:
+        export_preflight(args.output, uid)
     # The unprivileged child publishes its evidence. Root writes only this
     # separate fresh sibling receipt after the cgroup has been killed/removed.
     receipt = args.output.with_name(args.output.name + "-resources.json")
@@ -141,12 +193,17 @@ def main():
                 *(["--install-driver"] if args.install_driver else []),
                 *(["--guest-runtime"] if args.guest_runtime else []),
                 *(["--verity-root"] if args.verity_root else []),
-                *(["--boot-uki"] if args.boot_uki else [])])
+                *(["--boot-uki"] if args.boot_uki else []),
+                *(["--stage-boot"] if args.export_boot else [])])
         finally:
             for signum, handler in previous.items():
                 signal.signal(signum, handler)
         raw = (json.dumps(state, sort_keys=True, indent=2) + "\n").encode()
         require(os.write(descriptor, raw) == len(raw))
+    if args.export_boot:
+        # finish also rejects a failed resource receipt and removes pending
+        # artifacts. Its final no-replace rename is the only publication point.
+        finish_export(args.output, uid, gid)
     print("Bounded native installation: " + state["result"])
     return 0 if state["result"] == "pass" else 1
 
@@ -154,5 +211,5 @@ def main():
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
         sys.exit("Build resource launcher rejected; no qualification.")
