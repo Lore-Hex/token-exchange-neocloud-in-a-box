@@ -2,11 +2,21 @@
 
 ## Status
 
-Implemented with local unit/fake-process tests, not a boot receipt. The
-separately tagged guest probe, offline runtime preparer, debug UKI assembler,
-confined host launcher, resource/cleanup wrapper and opt-in workflow are present.
-Actual pinned runtime startup and QEMU boot remain unverified. Final-head
-independent review and green checks precede the one-shot execution below.
+The first authorized CPU-only run, [39843193309](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39843193309),
+at producer `c0900f178072a08b5cc8688638993ccfc3061ab7`, **failed root proof**.
+Native export, debug UKI assembly and all five pinned QEMU startup checks passed.
+The guest emitted INITRD, but no complete root PASS was verified. QEMU exited
+zero; the independent wrapper verified cleanup and zero OOM kills. The
+[four original JSON receipts](../../evidence/p3/2026-10-22-debug-boot-root-failure/README.md)
+are preserved byte-for-byte. No image or serial log was uploaded.
+
+The original receiver discarded generic FAIL frames. Its metadata cannot
+identify a failed guest check or establish whether the real-root probe ran.
+The diagnostic repair retains only fixed failure-stage codes and protocol
+error categories, without changing the acceptance checks, privileges or
+deadlines. It is locally tested, not a demonstrated fix for the unknown boot
+failure. Another attempt requires final-head review, green checks and separate
+run authorization; the first run's permission is consumed.
 
 This experiment is not a TDX, GPU CC, complete guest-service, release,
 reproducibility or post-mount-tamper qualification. The existing installed root
@@ -87,6 +97,21 @@ fixed, exclusive files there, never overwrites an existing unit or binary, and
 is required by `initrd-switch-root.service`. The real-root probe has no console
 or network listener, and emits only the fixed INITRD/PASS/FAIL protocol on
 `org.nib.boot-proof`.
+
+Success still requires exactly INITRD then PASS followed by EOF. The receiver
+also recognizes the legacy generic FAIL and 19 compile-time failure labels:
+`INITRD_STAGE`, `INITRD_MARKER`, `KERNEL`, `PID1`, `CMDLINE`, `PID1_MOUNT`,
+`SELF_MOUNT`, `MOUNT_MATCH`, `DM_NAME`, `DM_SUSPENDED`, `DM_READONLY`,
+`TABLE_QUERY`, `TABLE_FORMAT`, `ROOT_OPEN`, `ROOT_READ`, `TABLE_RECHECK`,
+`STATUS_QUERY`, `STATUS_FORMAT`, `DEADLINE`. Only `INITRD_STAGE` may precede
+INITRD; all real-root failures require the INITRD prefix. Every recognized
+failure remains a failed run, including with exit zero. No error strings,
+paths, query output or arbitrary channel bytes enter the receipt. The finite
+wire grammar is bounded by its longest fixed record, less than 128 bytes;
+the existing process-output caps remain unchanged. Unknown, out-of-order,
+extended, duplicated or truncated frames never pass. Early failure before
+opening the proof port can still produce no stage code; absence is not success
+and does not justify guessing a cause.
 
 The live table check follows Linux v6.8's
 [dm-verity table/status contract](https://github.com/torvalds/linux/blob/v6.8/Documentation/admin-guide/device-mapper/verity.rst).
@@ -192,8 +217,9 @@ assembler reuses the full existing PE inspection and GNU-cpio verification;
 the original root, salt, epoch and normal CLI/workflow behavior are unchanged.
 
 Unknown runtime/device-help results, source identities, image hashes or
-confinement facts block the boot. The next actual step is the reviewed one-shot
-workflow above, not an improvised command on the retained GPU host.
+confinement facts block the boot. After review and a new authorization, the
+next actual step is one diagnostic attempt using the workflow above, not an
+improvised command on the retained GPU host. No retry is included here.
 
 ## Local Checks
 
@@ -205,6 +231,7 @@ GOCACHE=/private/tmp/nib-go-cache GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go t
 GOCACHE=/private/tmp/nib-go-cache GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go vet ./guest/debugboot
 python3 -I -S -B -m unittest discover -s scripts -p test_debug_boot_runtime.py -v
 UV_CACHE_DIR=/private/tmp/nib-uv-cache uv run --project tools --frozen --offline python -B -m unittest discover -s scripts -p test_debug_boot.py -v
+UV_CACHE_DIR=/private/tmp/nib-uv-cache uv run --project tools --frozen --offline python -B -m unittest discover -s scripts -p test_debug_boot_evidence.py -v
 ```
 
 These are unit/process/fake-input checks and a static cross-build, not a live
@@ -213,3 +240,8 @@ drain, nonzero exit/timeout diagnostics, OOM and cleanup failures, directory
 replacement, source mutation, assembler failures, readonly namespace arguments
 and metadata-only workflow paths. Full-suite and independent-review results
 belong to the exact PR head, not an assumed boot-success claim.
+
+Failure-diagnostic regressions exercise every fixed failure frame at every
+fragment boundary, rejection of arbitrary/extra bytes, missing EOF, and clean
+QEMU exit with a guest failure. Original-receipt tests verify the four hashes,
+producer/source closure, independent cleanup and failed root-proof outcome.

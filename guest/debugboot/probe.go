@@ -24,6 +24,45 @@ const (
 
 var errRejected = errors.New("debug boot rejected")
 
+type failureStage uint8
+
+const (
+	failedInitrd failureStage = iota
+	failedInitrdMarker
+	failedKernel
+	failedPID1
+	failedCmdline
+	failedPID1Mount
+	failedSelfMount
+	failedMountMatch
+	failedDMName
+	failedDMSuspended
+	failedDMReadonly
+	failedTableQuery
+	failedTableFormat
+	failedRootOpen
+	failedRootRead
+	failedTableRecheck
+	failedStatusQuery
+	failedStatusFormat
+	failedDeadline
+)
+
+var failureNames = [...]string{
+	"INITRD_STAGE", "INITRD_MARKER", "KERNEL", "PID1", "CMDLINE",
+	"PID1_MOUNT", "SELF_MOUNT", "MOUNT_MATCH", "DM_NAME", "DM_SUSPENDED", "DM_READONLY",
+	"TABLE_QUERY", "TABLE_FORMAT", "ROOT_OPEN", "ROOT_READ", "TABLE_RECHECK",
+	"STATUS_QUERY", "STATUS_FORMAT", "DEADLINE",
+}
+
+// Only compile-time labels cross the proof channel, never an error or file value.
+func failureRecord(stage failureStage) string {
+	if int(stage) >= len(failureNames) {
+		return FailRecord
+	}
+	return "NIB_DEBUG_BOOT_V1 FAIL " + failureNames[stage] + "\n"
+}
+
 func lowerHex(s string) bool {
 	if len(s) != 64 {
 		return false

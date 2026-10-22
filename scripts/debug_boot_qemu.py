@@ -14,6 +14,18 @@ import types
 
 TIMEOUT = 180
 EXPECTED = b"NIB_DEBUG_BOOT_V1 INITRD\nNIB_DEBUG_BOOT_V1 PASS\n"
+INITRD = b"NIB_DEBUG_BOOT_V1 INITRD\n"
+FAILURE_STAGES = ("INITRD_STAGE", "INITRD_MARKER", "KERNEL", "PID1", "CMDLINE",
+    "PID1_MOUNT", "SELF_MOUNT", "MOUNT_MATCH", "DM_NAME", "DM_SUSPENDED", "DM_READONLY",
+    "TABLE_QUERY", "TABLE_FORMAT", "ROOT_OPEN", "ROOT_READ", "TABLE_RECHECK",
+    "STATUS_QUERY", "STATUS_FORMAT", "DEADLINE")
+FAILURES = {b"NIB_DEBUG_BOOT_V1 FAIL\n": "unspecified",
+            INITRD + b"NIB_DEBUG_BOOT_V1 FAIL\n": "unspecified"}
+FAILURES.update({(b"" if stage == "INITRD_STAGE" else INITRD)
+                 + b"NIB_DEBUG_BOOT_V1 FAIL " + stage.encode("ascii") + b"\n": stage
+                 for stage in FAILURE_STAGES})
+RECORDS = (EXPECTED, *FAILURES)
+MAX_PROOF_BYTES = max(map(len, RECORDS))
 SOCKET = Path("/work/proof.sock")
 QEMU = "/runtime/usr/bin/qemu-system-x86_64"
 LOADER = "/runtime/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
@@ -83,6 +95,7 @@ def receive(listener, stop, deadline, state):
     """Only fixed protocol prefixes are retained; never report arbitrary bytes."""
     connection = None
     raw = b""
+    eof = False
     try:
         # Drain an already queued connection even if QEMU exited before this
         # thread was scheduled. After one idle poll, a stopped child cannot send.
@@ -94,25 +107,36 @@ def receive(listener, stop, deadline, state):
                 if stop.is_set():
                     break
                 continue
+        if connection is None:
+            state["protocol_error"] = "no-connection"
         require(connection is not None)
         connection.settimeout(0.1)
         while time.monotonic() < deadline:
             try:
-                chunk = connection.recv(len(EXPECTED) + 1 - len(raw))
+                chunk = connection.recv(MAX_PROOF_BYTES + 1 - len(raw))
             except socket.timeout:
                 if stop.is_set():
                     break
                 continue
             if not chunk:
+                eof = True
                 state["complete"] = raw == EXPECTED
+                if raw not in RECORDS:
+                    state["protocol_error"] = "incomplete"
                 break
             raw += chunk
-            require(EXPECTED.startswith(raw))
-            state["initrd"] = raw.startswith(b"NIB_DEBUG_BOOT_V1 INITRD\n")
+            if not any(record.startswith(raw) for record in RECORDS):
+                state["protocol_error"] = "invalid-frame"
+                raise ValueError("debug-proof-rejected")
+            state["initrd"] = raw.startswith(INITRD)
             state["root"] = raw == EXPECTED
+            if raw in FAILURES:
+                state["guest_failure"] = FAILURES[raw]
     except (OSError, ValueError):
         state["complete"] = False
     finally:
+        if not eof and not state.get("protocol_error"):
+            state["protocol_error"] = "missing-eof"
         if connection is not None:
             connection.close()
 
@@ -148,7 +172,8 @@ def trial(execute, state, terminal):
 def main():
     report = {"schema": "nib.debug-qemu/v1", "result": "fail", "stage": "preflight",
               "tcg_only": True, "confidentiality_verified": False, "startup_checks": [], "boot_verified": False,
-              "proof": {"initrd": False, "root": False, "complete": False},
+              "proof": {"initrd": False, "root": False, "complete": False,
+                        "guest_failure": None, "protocol_error": None},
               "terminal": {"exit_code": None, "stdout_bytes": None, "stderr_bytes": None,
                            "process_group_cleaned": False, "failure_kind": None}}
     boot = module("boot-uki")
