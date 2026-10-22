@@ -65,9 +65,11 @@ def public_url(value, *, nvidia=False):
     return value
 
 
-def plan(lock, *, guest=False):
+def plan(lock, *, guest=False, guest_scope=GUEST_SCOPE):
+    require(guest_scope in (GUEST_SCOPE, tools.TARGETS["guest-runtime"][1])
+            and (guest or guest_scope == GUEST_SCOPE))
     require(type(guest) is bool and type(lock) is dict
-            and lock["scope"] == (GUEST_SCOPE if guest else "mkosi-build-tools-dependency-coverage")
+            and lock["scope"] == (guest_scope if guest else "mkosi-build-tools-dependency-coverage")
             and 0 < len(lock["indexes"]) <= (7 if guest else 6) and 0 < len(lock["packages"]) <= 256)
     items, indexes = {}, {}
     for row in lock["indexes"]:
@@ -113,13 +115,13 @@ def plan(lock, *, guest=False):
     return items
 
 
-def build_plan(lock, guest):
+def build_plan(lock, guest, *, guest_scope=GUEST_SCOPE):
     items = plan(lock)
     rows = {row["Package"]: row for row in lock["packages"]}
     require(len(rows) == len(lock["packages"]))
     for row in guest["packages"]:
         require(rows.setdefault(row["Package"], row) == row)
-    for name, item in plan(guest, guest=True).items():
+    for name, item in plan(guest, guest=True, guest_scope=guest_scope).items():
         require(items.setdefault(name, item) == item)
     require(len(rows) <= prep.mkosi.MAX_PACKAGES
             and sum(size for _, size, _ in items.values()) <= prep.mkosi.MAX_BYTES)
@@ -272,10 +274,11 @@ def fetch_parallel(items, execute, deadline, clock, sleep):
 
 
 def fetch(lock_raw, execute, *, clock=time.monotonic, sleep=time.sleep, guest_raw=None, metadata=None,
-          workers=1):
+          workers=1, guest_scope=GUEST_SCOPE):
     require(type(workers) is int and workers in (1, 4))
+    require(guest_raw is not None or guest_scope == GUEST_SCOPE)
     lock = json.loads(lock_raw)
-    items = plan(lock) if guest_raw is None else build_plan(lock, json.loads(guest_raw))
+    items = plan(lock) if guest_raw is None else build_plan(lock, json.loads(guest_raw), guest_scope=guest_scope)
     files = {"mkosi-tools-inputs.json": lock_raw}
     if guest_raw is not None:
         files["guest-inputs.json"] = guest_raw
@@ -304,8 +307,11 @@ def committed(extra=()):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--include-guest", action="store_true",
+    guest = parser.add_mutually_exclusive_group()
+    guest.add_argument("--include-guest", action="store_true",
                         help="fetch the fixed guest/tools union into archives/ for prepare_mkosi_inputs")
+    guest.add_argument("--guest-runtime", action="store_true",
+                       help="fetch the separate runtime candidate for offline APT rehearsal, not installation")
     archived = parser.add_mutually_exclusive_group()
     archived.add_argument("--metadata", type=Path,
                         help="reuse exact archived indexes; every size and hash is reverified")
@@ -315,9 +321,10 @@ def main():
                         help="export only authenticated metadata; requires --include-guest --metadata")
     args = parser.parse_args()
     require(not args.output.exists() and not args.output.is_symlink())
-    _, sources = committed()
-    guest_raw = sources[tools.FILES[-1]] if args.include_guest else None
-    items = (build_plan(json.loads(sources[prep.LOCK]), json.loads(guest_raw))
+    guest_path, guest_scope = tools.target_spec("guest-runtime" if args.guest_runtime else "guest")
+    _, sources = committed((guest_path,) if args.guest_runtime else ())
+    guest_raw = sources[guest_path] if args.include_guest or args.guest_runtime else None
+    items = (build_plan(json.loads(sources[prep.LOCK]), json.loads(guest_raw), guest_scope=guest_scope)
              if guest_raw else plan(json.loads(sources[prep.LOCK])))
     require(not args.export_metadata or (args.include_guest and args.metadata))
     metadata = None
@@ -336,7 +343,7 @@ def main():
         print("Authenticated input-index archive exported; no network or package execution.")
         return
     files = fetch(sources[prep.LOCK], base.processes.execute_process_group,
-                  guest_raw=guest_raw, metadata=metadata, workers=4)
+                  guest_raw=guest_raw, metadata=metadata, workers=4, guest_scope=guest_scope)
     base.publish(args.output.absolute(), files)
     print("Pinned public build inputs fetched; no package execution.")
 

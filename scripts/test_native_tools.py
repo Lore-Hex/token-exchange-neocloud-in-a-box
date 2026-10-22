@@ -84,6 +84,42 @@ class FetchTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             fetcher.fetch(base.encoded(lock()), execute, clock=lambda: 0, guest_raw=base.encoded(guest))
 
+    def test_runtime_scope_requires_explicit_opt_in_and_preserves_bounds(self):
+        guest = self.guest()
+        scope = fetcher.tools.TARGETS["guest-runtime"][1]
+        guest["scope"] = scope
+        with self.assertRaises(ValueError):
+            fetcher.build_plan(lock(), guest)
+        items = fetcher.build_plan(lock(), guest, guest_scope=scope)
+        self.assertEqual(items, fetcher.build_plan(lock(), self.guest()))
+        responses = {base.digest(raw): raw for raw in (b"idx", b"deb", b"gpu", b"drv")}
+        by_url = {url: responses[sha] for url, _, sha in items.values()}
+        execute = mock.Mock(side_effect=lambda argv, **kw:
+                            subprocess.CompletedProcess(argv, 0, by_url[argv[-1]], b""))
+        files = fetcher.fetch(base.encoded(lock()), execute, clock=lambda: 0,
+                              guest_raw=base.encoded(guest), guest_scope=scope)
+        self.assertEqual(files["guest-inputs.json"], base.encoded(guest))
+        self.assertEqual(execute.call_count, 4)
+        with self.assertRaises(ValueError):
+            fetcher.plan(lock(), guest_scope=scope)
+        for invalid in ("any", "", None):
+            with self.subTest(scope=invalid), self.assertRaises(ValueError):
+                fetcher.build_plan(lock(), guest, guest_scope=invalid)
+        guest["indexes"][-1]["base_url"] = "https://evil.test/"
+        with self.assertRaises(ValueError):
+            fetcher.build_plan(lock(), guest, guest_scope=scope)
+
+    def test_runtime_union_keeps_existing_packages_and_budget(self):
+        tools_lock = json.loads((ROOT / fetcher.prep.LOCK).read_bytes())
+        path, scope = fetcher.tools.TARGETS["guest-runtime"]
+        guest = json.loads((ROOT / path).read_bytes())
+        original = fetcher.build_plan(tools_lock,
+                                      json.loads((ROOT / fetcher.tools.FILES[-1]).read_bytes()))
+        runtime = fetcher.build_plan(tools_lock, guest, guest_scope=scope)
+        self.assertLess(len(original), len(runtime))
+        self.assertEqual({name: runtime[name] for name in original}, original)
+        self.assertLessEqual(sum(size for _, size, _ in runtime.values()), fetcher.prep.mkosi.MAX_BYTES)
+
     def test_guest_rejects_mirrors_traversal_conflicts_and_larger_inputs(self):
         mutations = (
             lambda g: g["indexes"][-1].update(base_url="https://evil.test/"),

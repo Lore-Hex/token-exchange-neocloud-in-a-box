@@ -22,6 +22,11 @@ The [prerequisite audit](../docs/tasks/p3-t1-guest-image-feasibility.md) records
 remaining full-image inputs and source references. Earlier task documents
 describe historical checkpoints, not the current aggregate status.
 
+The separate [runtime input candidate](../docs/tasks/p3-t1-runtime-inputs.md)
+extends the pinned package graph with systemd, Podman/CDI, firewall and verity
+tooling. It has its own offline APT rehearsal target and cannot silently replace
+the proven kernel/driver installation input. It is not yet a bootable image.
+
 The [measured-image decision](../docs/decisions/0004-measured-guest-image.md)
 remains authoritative: immutable release/debug outputs must differ, the UKI
 must authenticate the selected verity root, and two clean builds must reproduce

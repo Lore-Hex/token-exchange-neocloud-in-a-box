@@ -41,6 +41,7 @@ FILES = (
 TARGETS = {
     "guest": ("image/inputs/r595-ubuntu2404.json", "kernel-driver-build-dependency-coverage"),
     "mkosi-tools": ("image/inputs/mkosi-tools-ubuntu2404.json", "mkosi-build-tools-dependency-coverage"),
+    "guest-runtime": ("image/inputs/guest-runtime-ubuntu2404.json", "guest-runtime-dependency-coverage"),
 }
 
 
