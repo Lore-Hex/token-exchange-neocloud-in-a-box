@@ -358,7 +358,7 @@ class VerityTests(unittest.TestCase):
             with self.assertRaises(ValueError): host.command(*args, True, False, True)
         for args, expected in (([], (False, False, False)), (["--compile-driver"], (True, False, False)),
                 (["--install-driver"], (True, True, False)), (["--install-driver", "--verity-root"], (True, True, True))):
-            self.assertEqual(worker.options(args), (*expected, False))
+            self.assertEqual(worker.options(args), (*expected, False, False))
         for args in (["--verity-root"], ["--compile-driver", "--verity-root"],
                      ["--verity-root", "--install-driver"], ["--install-driver", "--verity-root", "bad"]):
             with self.assertRaises(ValueError): worker.options(args)

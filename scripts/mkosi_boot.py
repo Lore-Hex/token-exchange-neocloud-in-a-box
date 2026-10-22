@@ -466,7 +466,8 @@ def check_cpio(raw, expected):
         actual[name] = row
 
 
-def build(processes, prefix, root_hash, output=Path("/out")):
+def build(processes, prefix, root_hash, output=Path("/out"), *, consume=None):
+    require(consume is None or callable(consume))
     line = cmdline(root_hash)
     tools = verify_tools()
     members, inputs = inventory()
@@ -503,6 +504,9 @@ def build(processes, prefix, root_hash, output=Path("/out")):
                   "tools": tools, "initrd_members": len(after), "archive_checked": True,
                   "sections_checked": True, "signed": False, "images_exported": False,
                   "boot_verified": False, "reproducibility_verified": False, "confidentiality_verified": False}
+        if consume is not None:
+            consume(report)
+            require(sections["image"] == identity(read(WORK / "nib.efi", MAX_IMAGE)))
     finally:
         shutil.rmtree(WORK)
     require(not os.path.lexists(WORK))

@@ -131,9 +131,10 @@ def process_states(proc=Path("/proc")):
 def options(arguments):
     require(arguments in ([], ["--compile-driver"], ["--install-driver"],
                           ["--install-driver", "--verity-root"],
-                          ["--install-driver", "--verity-root", "--boot-uki"]))
+                          ["--install-driver", "--verity-root", "--boot-uki"],
+                          ["--install-driver", "--verity-root", "--boot-uki", "--stage-boot"]))
     return (bool(arguments), "--install-driver" in arguments, "--verity-root" in arguments,
-            "--boot-uki" in arguments)
+            "--boot-uki" in arguments, "--stage-boot" in arguments)
 
 
 def main():
@@ -143,10 +144,10 @@ def main():
               "package_installation_executed": False, "configured_state_verified": False,
               "dkms_built": False, "reproducibility_verified": False, "bootable": False, "deployable": False}
     try:
-        compile_driver, install_driver, verity_root, boot_uki = options(sys.argv[6:])
+        compile_driver, install_driver, verity_root, boot_uki, stage_boot = options(sys.argv[6:])
         require(sys.platform == "linux" and sys.version_info[:2] == (3, 12)
                 and sys.flags.isolated and sys.flags.no_site and sys.flags.dont_write_bytecode
-                and 6 <= len(sys.argv) <= 9 and os.geteuid() == os.getegid() == 0)
+                and 6 <= len(sys.argv) <= 10 and os.geteuid() == os.getegid() == 0)
         stage = "namespaces"
         module("namespace-check").check(sys.argv[1:5])
         stage = "pid"
@@ -188,12 +189,28 @@ def main():
             report["appraisal_cli"] = module("appraisal-probe").probe(
                 processes, module("confinement").PREFIX, module("dkms-worker").regular,
                 report=report["appraisal_cli_diagnostics"], output=Path("/out"))
-        if verity_root:
+        if stage_boot:
+            stage = "verity-root"
+            verity, boot, export = module("verity-root"), module("boot-uki"), module("boot-export")
+            source = export.parsed(inputs.regular(Path("/nib/artifact-inputs.json"), 65536))
+            # Keep both verified images alive in nested lifetimes; never rebuild
+            # a second GPT or assemble a UKI from a different root-hash receipt.
+            with export.owned(export.STAGE, verity.directory):
+                def consume_root(root):
+                    nonlocal stage
+                    stage = "boot-uki"
+                    def consume_boot(image):
+                        report["artifact_stage"] = export.stage(root, image, source, verity.directory)
+                    report["boot_uki"] = boot.build(processes, module("confinement").PREFIX,
+                                                   root["root_hash"], consume=consume_boot)
+                report["verity_root"] = verity.build(processes, module("confinement").PREFIX,
+                    module("dkms-worker").regular, require_boot_ids=True, consume=consume_root)
+        elif verity_root:
             stage = "verity-root"
             report["verity_root"] = module("verity-root").build(
                 processes, module("confinement").PREFIX, module("dkms-worker").regular,
                 **({"require_boot_ids": True} if boot_uki else {}))
-        if boot_uki:
+        if boot_uki and not stage_boot:
             stage = "boot-uki"
             report["boot_uki"] = module("boot-uki").build(
                 processes, module("confinement").PREFIX, report["verity_root"]["root_hash"])

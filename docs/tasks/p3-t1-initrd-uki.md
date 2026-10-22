@@ -5,6 +5,11 @@ This is a generation/inspection path using existing authenticated tools, not a
 completed P3.T1 image, release output or confidential proof. No workflow, GPU,
 firmware, signing service or cloud build was invoked for it.
 
+The separate [private artifact export](p3-t1-private-boot-export.md) adds an
+explicit local-only opt-in. It retains the verified GPT through UKI verification
+and copies both exact images before cleanup; the no-export behavior below is
+unchanged. Export does not establish a boot or signing result.
+
 ## Entry point and source binding
 
 The existing main-only manual

@@ -264,8 +264,8 @@ def execute(processes, prefix, name, output, root_hash=None):
     return result
 
 
-def build(processes, prefix, reader, output=Path("/out"), *, require_boot_ids=False):
-    require(type(require_boot_ids) is bool)
+def build(processes, prefix, reader, output=Path("/out"), *, require_boot_ids=False, consume=None):
+    require(type(require_boot_ids) is bool and (consume is None or (require_boot_ids and callable(consume))))
     identities = verify_tools(reader)
     with directory(ROOTFS):
         pass
@@ -281,8 +281,9 @@ def build(processes, prefix, reader, output=Path("/out"), *, require_boot_ids=Fa
         hashes, disk = inspect_file(HASH, MAX_HASH), inspect_file(DISK, MAX_DISK)
         root_hash = partition_report(result.stdout, data, hashes, disk, require_boot_ids=require_boot_ids)
         parameters = superblock(data["bytes"])
-        with directory(WORK) as fd:
-            os.unlink(DISK, dir_fd=fd)
+        if consume is None:
+            with directory(WORK) as fd:
+                os.unlink(DISK, dir_fd=fd)
         execute(processes, prefix, "fsck", output)
         execute(processes, prefix, "verify", output, root_hash)
         execute(processes, prefix, "reject-root", output, root_hash)
@@ -297,6 +298,11 @@ def build(processes, prefix, reader, output=Path("/out"), *, require_boot_ids=Fa
                   "reproducibility_verified": False, "confidentiality_verified": False}
         if require_boot_ids:
             report["boot_partuuids_checked"] = True
+        if consume is not None:
+            require(inspect_file(DISK, MAX_DISK) == disk)
+            consume(report)
+            require(inspect_file(DISK, MAX_DISK) == disk
+                    and inspect_file(DATA, MAX_DATA) == data and inspect_file(HASH, MAX_HASH) == hashes)
     finally:
         # No children survive execute_process_group; all paths are in our new
         # private workspace. Do not suppress cleanup errors or publish success.

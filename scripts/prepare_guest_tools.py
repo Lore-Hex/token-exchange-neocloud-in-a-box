@@ -71,7 +71,10 @@ require, digest, encoded = base.require, base.digest, base.encoded
 
 
 def committed(extra=()):
-    require(isinstance(extra, tuple) and len(extra) <= 32
+    # Only the explicit private boot export adds two named dependencies to the
+    # existing 32-entry closure; other callers retain the original bound.
+    require(isinstance(extra, tuple) and (len(extra) <= 32 or (len(extra) == 34
+            and extra[-2:] == ("scripts/mkosi_export.py", "scripts/pilot/export.py")))
             and all(isinstance(p, str) and re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_./-]*", p)
                     and not p.startswith("/") and ".." not in p.split("/") for p in extra))
     def git(*args):

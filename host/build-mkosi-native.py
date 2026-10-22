@@ -31,6 +31,8 @@ APPRAISAL = "scripts/mkosi_appraisal_probe.py"
 VERITY = "scripts/mkosi_verity.py"
 BOOT = "scripts/mkosi_boot.py"
 BOOT_PREP = "scripts/prepare_mkosi_boot.py"
+EXPORT = "scripts/mkosi_export.py"
+PUBLICATION = "scripts/pilot/export.py"
 HOOKS = "scripts/review_guest_hooks.py"
 RUNTIME_APT = "evidence/p3/2026-10-22-runtime-apt-plan/report.json"
 probe = types.SimpleNamespace(**runpy.run_path(str(ROOT / PROBE), run_name="build_probe"))
@@ -51,10 +53,11 @@ def preflight():
 
 
 def command(root, payload, output, mapped, compile_driver=False, install_driver=False, verity_root=False,
-            boot_uki=False):
+            boot_uki=False, stage_boot=False):
     require(not install_driver or compile_driver)
     require(type(verity_root) is bool and (not verity_root or install_driver))
     require(type(boot_uki) is bool and (not boot_uki or verity_root))
+    require(type(stage_boot) is bool and (not stage_boot or boot_uki))
     before = [os.readlink("/proc/self/ns/" + name) for name in ("user", "mnt", "net", "ipc", "pid")]
     return [*probe.ownership.prefix(root, mapped), probe.native.PYTHON, "-I", "-S", "-B",
         str(payload / "mkosi-sandbox.py"), "--ro-bind", str(root), "/",
@@ -64,7 +67,22 @@ def command(root, payload, output, mapped, compile_driver=False, install_driver=
         "/usr/bin/unshare", "--pid", "--fork", "--mount-proc=/proc", "--kill-child=KILL", "--",
         "/usr/bin/python3.12", "-I", "-S", "-B", "/nib/build-worker.py", *before,
         *(["--install-driver"] if install_driver else ["--compile-driver"] if compile_driver else []),
-        *(["--verity-root"] if verity_root else []), *(["--boot-uki"] if boot_uki else [])]
+        *(["--verity-root"] if verity_root else []), *(["--boot-uki"] if boot_uki else []),
+        *(["--stage-boot"] if stage_boot else [])]
+
+
+def export_helpers(sources):
+    result = []
+    for name in (EXPORT, PUBLICATION):
+        helper = types.ModuleType("bound_boot_export")
+        helper.__file__ = str(ROOT / name)
+        exec(compile(sources[name], helper.__file__, "exec", dont_inherit=True), helper.__dict__)
+        result.append(helper)
+    return result
+
+
+def source_identity(revision, sources):
+    return {"git_sha": revision, "sources": {name: base.digest(raw) for name, raw in sources.items()}}
 
 
 def runtime_preflight(sources, archives):
@@ -87,10 +105,12 @@ def runtime_preflight(sources, archives):
     return hooks.validate(json.loads(sources[hooks.RUNTIME_POLICY]), lock_raw, rows)
 
 
-def prepare(downloads, source_archive, revision, sources, guest_runtime=False, verity_root=False, boot_uki=False):
+def prepare(downloads, source_archive, revision, sources, guest_runtime=False, verity_root=False,
+            boot_uki=False, stage_boot=False):
     require(type(guest_runtime) is bool)
     require(type(verity_root) is bool and (not verity_root or guest_runtime))
     require(type(boot_uki) is bool and (not boot_uki or verity_root))
+    require(type(stage_boot) is bool and (not stage_boot or boot_uki))
     review = None
     if guest_runtime:
         review = runtime_preflight(sources, downloads / "archives")
@@ -128,6 +148,9 @@ def prepare(downloads, source_archive, revision, sources, guest_runtime=False, v
         payload["boot-uki.py"] = sources[BOOT]
         payload["boot-inputs.json"] = helper.prepare(
             downloads / "archives", sources[hooks.RUNTIME_LOCK], tools)
+    if stage_boot:
+        payload["boot-export.py"] = sources[EXPORT]
+        payload["artifact-inputs.json"] = base.encoded(source_identity(revision, sources))
     modes = {"upstream/" + name: 0o555 if row["mode"] == "100755" else 0o444
              for name, row in pin["source_files"].items() if row["mode"] != "120000"}
     return prepared, preparation, payload, modes, links
@@ -162,7 +185,20 @@ def collect_diagnostics(resultdir, verity_root=False, boot_uki=False):
 
 
 def run(downloads, archive, output, revision, sources, compile_driver=False, install_driver=False,
-        guest_runtime=False, verity_root=False, boot_uki=False):
+        guest_runtime=False, verity_root=False, boot_uki=False, stage_boot=False):
+    require(type(stage_boot) is bool and (not stage_boot or (boot_uki and verity_root and guest_runtime
+                                                          and install_driver and compile_driver)))
+    if stage_boot:
+        export, publication = export_helpers(sources)
+        with export.Pending(output, base, publication) as pending:
+            return run_build(downloads, archive, output, revision, sources, compile_driver, install_driver,
+                             guest_runtime, verity_root, boot_uki, pending)
+    return run_build(downloads, archive, output, revision, sources, compile_driver, install_driver,
+                     guest_runtime, verity_root, boot_uki)
+
+
+def run_build(downloads, archive, output, revision, sources, compile_driver=False, install_driver=False,
+              guest_runtime=False, verity_root=False, boot_uki=False, pending=None):
     require(type(guest_runtime) is bool)
     require(not install_driver or compile_driver)
     require(type(verity_root) is bool and (not verity_root or (guest_runtime and install_driver)))
@@ -178,7 +214,8 @@ def run(downloads, archive, output, revision, sources, compile_driver=False, ins
         temporary = Path(temporary).resolve()
         try:
             prepared, preparation, payload_files, modes, links = prepare(
-                downloads, archive, revision, sources, guest_runtime, verity_root, boot_uki)
+                downloads, archive, revision, sources, guest_runtime, verity_root, boot_uki,
+                **({"stage_boot": True} if pending is not None else {}))
             if guest_runtime:
                 artifacts["runtime-hook-review.json"] = prepared["runtime-hook-review.json"]
             inputs = temporary / "prepared"
@@ -206,7 +243,8 @@ def run(downloads, archive, output, revision, sources, compile_driver=False, ins
             report.update(stage="installation", prepared_receipt_sha256=base.digest(prepared["receipt.json"]),
                           tools_receipt_sha256=base.digest(files["receipt.json"]))
             result = base.processes.execute_process_group(command(
-                root, payload, resultdir, mapped, compile_driver, install_driver, verity_root, boot_uki),
+                root, payload, resultdir, mapped, compile_driver, install_driver, verity_root, boot_uki,
+                **({"stage_boot": True} if pending is not None else {})),
                 env={**probe.native.worker.ENV, "RUNNER_ENVIRONMENT": "github-hosted"},
                 timeout=1900, max_output_bytes=2 << 20, stdin=subprocess.DEVNULL)
             report["process_cleanup_confirmed"] = True
@@ -242,9 +280,20 @@ def run(downloads, archive, output, revision, sources, compile_driver=False, ins
                         and all(boot[k] is False for k in ("signed", "images_exported", "boot_verified",
                                                          "reproducibility_verified", "confidentiality_verified")))
             report.update(result="pass", stage="complete")
+            if pending is not None:
+                staged = report["worker"]["artifact_stage"]
+                require(staged["source"] == source_identity(revision, sources))
+                pending.capture(resultdir / "boot-stage", staged)
         except (OSError, ValueError, KeyError, TypeError, tarfile.TarError, subprocess.SubprocessError) as exc:
+            report["result"] = "fail"
             report["failure_kind"] = probe.failure_kind(exc)
     report["payload_removed"] = not temporary.exists()
+    if pending is not None and report["result"] == "pass":
+        try:
+            pending.validate(report)
+        except (ValueError, KeyError, TypeError) as exc:
+            report["result"] = "fail"
+            report["failure_kind"] = probe.failure_kind(exc)
     ended = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     evidence = probe.native.evidence(report, revision, started, ended)
     evidence.update(command="host/run-mkosi-build.py --downloads PRIVATE --archive PRIVATE --output PRIVATE",
@@ -263,9 +312,23 @@ def run(downloads, archive, output, revision, sources, compile_driver=False, ins
     if boot_uki:
         evidence["command"] += " --boot-uki"
         evidence["notes"] = "Private initrd and unsigned UKI assembly/inspection after userspace verity verification; images removed. No export, boot, signing, LKCA, reproducibility or confidentiality proof."
+    if pending is not None:
+        evidence["command"] += " --export-boot"
+        evidence["notes"] = "Verified GPT and unsigned UKI staged privately; final publication requires independent resource cleanup. No boot, signing, LKCA, reproducibility or confidentiality proof."
     artifacts.update({"run.json": base.encoded(evidence), "result.json": base.encoded(report)})
     base.publish(output, artifacts)
+    if pending is not None and report["result"] == "pass":
+        pending.accept(report, output)
     return 0 if report["result"] == "pass" else 1
+
+
+def committed_sources(guest_runtime=False, verity_root=False, boot_uki=False, stage_boot=False):
+    return tools.committed((*mkosi.EXTRA, prep.SCRIPT, prep.POLICY,
+        SCRIPT, PROBE, WORKER, ENTRY, RESOURCES, LAUNCHER, probe.NATIVE, probe.OWNERSHIP,
+        probe.PID_CHECKER, probe.native.CHECKER, probe.native.WORKER, DKMS,
+        *((HOOKS, hooks.RUNTIME_LOCK, hooks.RUNTIME_POLICY, RUNTIME_APT, RUNTIME_POLICY, APPRAISAL)
+          if guest_runtime else ()), *((VERITY,) if verity_root else ()),
+        *((BOOT, BOOT_PREP) if boot_uki else ()), *((EXPORT, PUBLICATION) if stage_boot else ())))
 
 
 def main():
@@ -277,20 +340,18 @@ def main():
     parser.add_argument("--guest-runtime", action="store_true")
     parser.add_argument("--verity-root", action="store_true")
     parser.add_argument("--boot-uki", action="store_true")
+    parser.add_argument("--stage-boot", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     require(not args.install_driver or args.compile_driver)
     require(not args.verity_root or (args.guest_runtime and args.install_driver))
     require(not args.boot_uki or args.verity_root)
+    require(not args.stage_boot or args.boot_uki)
     preflight()
     tools.separate_output(args.output, (args.downloads, args.archive))
-    revision, sources = tools.committed((*mkosi.EXTRA, prep.SCRIPT, prep.POLICY,
-        SCRIPT, PROBE, WORKER, ENTRY, RESOURCES, LAUNCHER, probe.NATIVE, probe.OWNERSHIP,
-        probe.PID_CHECKER, probe.native.CHECKER, probe.native.WORKER, DKMS,
-        *((HOOKS, hooks.RUNTIME_LOCK, hooks.RUNTIME_POLICY, RUNTIME_APT, RUNTIME_POLICY, APPRAISAL)
-          if args.guest_runtime else ()), *((VERITY,) if args.verity_root else ()),
-        *((BOOT, BOOT_PREP) if args.boot_uki else ())))
+    revision, sources = committed_sources(args.guest_runtime, args.verity_root, args.boot_uki, args.stage_boot)
     return run(args.downloads, args.archive, args.output, revision, sources, args.compile_driver,
-               args.install_driver, args.guest_runtime, verity_root=args.verity_root, boot_uki=args.boot_uki)
+               args.install_driver, args.guest_runtime, verity_root=args.verity_root, boot_uki=args.boot_uki,
+               **({"stage_boot": True} if args.stage_boot else {}))
 
 
 if __name__ == "__main__":

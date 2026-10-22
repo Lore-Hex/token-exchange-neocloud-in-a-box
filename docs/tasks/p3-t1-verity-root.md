@@ -4,6 +4,11 @@ Status: implemented, fixture-tested, **not natively executed**. This does not
 complete P3.T1. No image size, image hash, native tool execution, boot result or
 reproducibility result is claimed by the unit fixtures.
 
+The separate [private artifact export](p3-t1-private-boot-export.md) optionally
+retains the original verified GPT/data/hash files until nested UKI verification
+and copying finish. Without that explicit opt-in, the deletion behavior below
+is unchanged. Neither mode claims a boot or reproducibility result.
+
 ## Entry point and order
 
 The existing main-only, manually dispatched
