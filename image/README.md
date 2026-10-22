@@ -39,6 +39,11 @@ This is not a complete release image or a verified boot policy.
 The [appraiser CLI probe](../docs/tasks/p3-t1-appraisal-cli.md) tests loading the
 installed vendor executable offline; it cannot collect GPU evidence or grant
 a confidential verdict.
+The optional [private initrd/UKI stage](../docs/tasks/p3-t1-initrd-uki.md) follows
+the private EROFS/verity stage using existing authenticated tools and packages.
+It assembles and inspects an unsigned UKI, then deletes all private images;
+the implementation is fixture-tested, not natively executed or boot-qualified.
+It does not change the default build or export a deployable artifact.
 
 The [measured-image decision](../docs/decisions/0004-measured-guest-image.md)
 remains authoritative: immutable release/debug outputs must differ, the UKI

@@ -117,9 +117,11 @@ def main():
     parser.add_argument("--install-driver", action="store_true")
     parser.add_argument("--guest-runtime", action="store_true")
     parser.add_argument("--verity-root", action="store_true")
+    parser.add_argument("--boot-uki", action="store_true")
     args = parser.parse_args()
     require(not args.install_driver or args.compile_driver)
     require(not args.verity_root or (args.guest_runtime and args.install_driver))
+    require(not args.boot_uki or args.verity_root)
     uid, gid = identity()
     require(all(path.is_absolute() and ".." not in path.parts
                 for path in (args.downloads, args.archive, args.output)))
@@ -138,7 +140,8 @@ def main():
                 *(["--compile-driver"] if args.compile_driver else []),
                 *(["--install-driver"] if args.install_driver else []),
                 *(["--guest-runtime"] if args.guest_runtime else []),
-                *(["--verity-root"] if args.verity_root else [])])
+                *(["--verity-root"] if args.verity_root else []),
+                *(["--boot-uki"] if args.boot_uki else [])])
         finally:
             for signum, handler in previous.items():
                 signal.signal(signum, handler)
