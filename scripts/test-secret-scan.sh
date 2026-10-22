@@ -146,8 +146,15 @@ write_receipt_field() {
     printf '  "%s": "%s"%s\n' "$2" "$3" "$suffix" > "$1"
   fi
 }
+for receipt_set in cpu-session-native-pass tau-cpu-prompt-fit-pass; do
 while IFS='|' read -r relative format field known suffix; do
-  target="$tmp/held/evidence/p2/2026-10-22-cpu-session-native-pass/$relative"
+  if [[ "$receipt_set" == tau-cpu-prompt-fit-pass ]]; then
+    case "$field" in
+      simulator-tokenizer.json) known=a51a69f903338d9651a6853f3f452bcb63bfad0a279eb721c17d6557f20165b4 ;;
+      evaluator-tokenizer.json) known=dae972a868e9cd829062348c9bc4e51b1fc3d4b51dd18fc122818c2ae2e83b8c ;;
+    esac
+  fi
+  target="$tmp/held/evidence/p2/2026-10-22-$receipt_set/$relative"
   mkdir -p "$(dirname "$target")"
   write_receipt_field "$target" "$field" "$known"
   expect_receipt_scan "$target" 0
@@ -184,3 +191,4 @@ pair/evaluator-tokenizer.json|compact|endpoint_tokens_sha256|1b7419454da94e65624
 pair/simulator-tokenizer.json|compact|independent_tokens_sha256|1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|
 pair/evaluator-tokenizer.json|compact|independent_tokens_sha256|1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|
 CASES
+done
