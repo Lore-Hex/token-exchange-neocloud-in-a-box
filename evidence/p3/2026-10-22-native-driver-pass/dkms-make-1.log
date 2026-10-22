@@ -1,0 +1,482 @@
+DKMS (dkms-3.4.3) make.log for nvidia/595.91.07 for kernel 6.8.0-147-generic (x86_64)
+Thu Oct 22 00:11:49 UTC 2026
+
+Building module(s)
+# command: 'make' -j2 KERNEL_UNAME=6.8.0-147-generic SYSSRC=/lib/modules/6.8.0-147-generic/build CC=/usr/bin/x86_64-linux-gnu-gcc-13 LD=/usr/bin/ld.bfd CONFIG_X86_KERNEL_IBT= IGNORE_CC_MISMATCH= IGNORE_PREEMPT_RT_PRESENCE= IGNORE_XEN_PRESENCE= modules
+make[1]: Entering directory '/usr/src/linux-headers-6.8.0-147-generic'
+  SYMLINK /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-kernel.o
+  SYMLINK /var/lib/dkms/nvidia/595.91.07/build/nvidia-modeset/nv-modeset-kernel.o
+ CONFTEST: set_pages_uc
+ CONFTEST: set_memory_uc
+ CONFTEST: set_memory_array_uc
+ CONFTEST: set_pages_array_uc
+ CONFTEST: ioremap_cache
+ CONFTEST: ioremap_wc
+ CONFTEST: pde_data
+ CONFTEST: xen_ioemu_inject_msi
+ CONFTEST: phys_to_dma
+ CONFTEST: pci_rebar_get_possible_sizes
+ CONFTEST: get_backlight_device_by_name
+ CONFTEST: dma_direct_map_resource
+ CONFTEST: flush_cache_all
+ CONFTEST: vmf_insert_pfn
+ CONFTEST: jiffies_to_timespec
+ CONFTEST: ktime_get_raw_ts64
+ CONFTEST: pci_enable_atomic_ops_to_root
+ CONFTEST: vga_tryget
+ CONFTEST: cc_platform_has
+ CONFTEST: cc_attr_guest_sev_snp
+ CONFTEST: hv_get_isolation_type
+ CONFTEST: seq_read_iter
+ CONFTEST: follow_pfn
+ CONFTEST: ptep_get
+ CONFTEST: drm_gem_object_put_unlocked
+ CONFTEST: add_memory_driver_managed
+ CONFTEST: of_dma_configure
+ CONFTEST: i2c_new_client_device
+ CONFTEST: icc_get
+ CONFTEST: devm_of_icc_get
+ CONFTEST: icc_put
+ CONFTEST: icc_set_bw
+ CONFTEST: dma_map_ops_has_map_phys
+ CONFTEST: dma_buf_ops_has_map
+ CONFTEST: dma_buf_ops_has_map_atomic
+ CONFTEST: dma_buf_attachment_has_peer2peer
+ CONFTEST: devm_clk_bulk_get_all
+ CONFTEST: thermal_zone_for_each_trip
+ CONFTEST: thermal_bind_cdev_to_trip
+ CONFTEST: thermal_unbind_cdev_from_trip
+ CONFTEST: update_devfreq
+ CONFTEST: get_task_ioprio
+ CONFTEST: mdev_set_iommu_device
+ CONFTEST: offline_and_remove_memory
+ CONFTEST: stack_trace
+ CONFTEST: crypto_tfm_ctx_aligned
+ CONFTEST: assign_str
+ CONFTEST: ioasid_get
+ CONFTEST: mm_pasid_drop
+ CONFTEST: iommu_sva_bind_device_has_drvdata_arg
+ CONFTEST: shrinker_alloc
+ CONFTEST: vm_flags_set
+ CONFTEST: vma_flags_set_word
+ CONFTEST: get_dev_pagemap_has_pgmap_arg
+ CONFTEST: list_is_first
+ CONFTEST: iommu_is_dma_domain
+ CONFTEST: for_each_sgtable_dma_page
+ CONFTEST: folio_test_swapcache
+ CONFTEST: page_pgmap
+ CONFTEST: acpi_video_backlight_use_native
+ CONFTEST: acpi_video_register_backlight
+ CONFTEST: get_user_pages_remote
+ CONFTEST: get_user_pages
+ CONFTEST: pin_user_pages_remote
+ CONFTEST: pin_user_pages
+ CONFTEST: drm_driver_has_gem_prime_res_obj
+ CONFTEST: drm_connector_funcs_have_mode_in_name
+ CONFTEST: drm_connector_has_vrr_capable_property
+ CONFTEST: drm_connector_for_each_possible_encoder
+ CONFTEST: nvhost_dma_fence_unpack
+ CONFTEST: drm_aperture_remove_conflicting_framebuffers
+ CONFTEST: drm_aperture_remove_conflicting_pci_framebuffers
+ CONFTEST: aperture_remove_conflicting_devices
+ CONFTEST: aperture_remove_conflicting_pci_devices
+ CONFTEST: drm_fbdev_generic_setup
+ CONFTEST: drm_fbdev_ttm_setup
+ CONFTEST: drm_client_setup
+ CONFTEST: drm_connector_attach_hdr_output_metadata_property
+ CONFTEST: drm_plane_create_color_properties
+ CONFTEST: drm_atomic_helper_legacy_gamma_set
+ CONFTEST: vmf_insert_mixed
+ CONFTEST: drm_gem_prime_mmap
+ CONFTEST: drm_sysfs_connector_property_event
+ CONFTEST: drm_sysfs_connector_status_event
+ CONFTEST: is_export_symbol_gpl_sme_active
+ CONFTEST: is_export_symbol_present_swiotlb_map_sg_attrs
+ CONFTEST: is_export_symbol_present_swiotlb_dma_ops
+ CONFTEST: is_export_symbol_present___close_fd
+ CONFTEST: is_export_symbol_present_close_fd
+ CONFTEST: is_export_symbol_present_pxm_to_node
+ CONFTEST: is_export_symbol_present_screen_info
+ CONFTEST: is_export_symbol_gpl_screen_info
+ CONFTEST: is_export_symbol_present_sysfb_primary_display
+ CONFTEST: is_export_symbol_gpl_sysfb_primary_display
+ CONFTEST: is_export_symbol_present_i2c_bus_status
+ CONFTEST: is_export_symbol_present_tegra_fuse_control_read
+ CONFTEST: is_export_symbol_present_pci_find_host_bridge
+ CONFTEST: is_export_symbol_present_tsec_comms_send_cmd
+ CONFTEST: is_export_symbol_present_tsec_comms_set_init_cb
+ CONFTEST: is_export_symbol_present_tsec_comms_clear_init_cb
+ CONFTEST: is_export_symbol_present_tsec_comms_alloc_mem_from_gscco
+ CONFTEST: is_export_symbol_present_tsec_comms_free_gscco_mem
+ CONFTEST: is_export_symbol_present_memory_block_size_bytes
+ CONFTEST: crypto
+ CONFTEST: crypto_akcipher_verify
+ CONFTEST: is_export_symbol_present_follow_pte
+ CONFTEST: follow_pte_arg_vma
+ CONFTEST: dma_buf_ops_attach_has_arg_dev
+ CONFTEST: is_export_symbol_present_follow_pfnmap_start
+ CONFTEST: is_export_symbol_gpl_pci_ats_supported
+ CONFTEST: ecc_digits_from_bytes
+ CONFTEST: is_export_symbol_gpl_set_memory_encrypted
+ CONFTEST: is_export_symbol_gpl_set_memory_decrypted
+ CONFTEST: is_export_symbol_gpl___platform_driver_register
+ CONFTEST: is_export_symbol_present___platform_driver_register
+ CONFTEST: is_export_symbol_gpl_mutex_destroy
+ CONFTEST: is_export_symbol_present_hrtimer_setup
+ CONFTEST: is_export_symbol_present_timer_delete_sync
+ CONFTEST: is_export_symbol_gpl_iommu_dev_enable_feature
+ CONFTEST: is_export_symbol_gpl_iommu_dev_disable_feature
+ CONFTEST: is_export_symbol_gpl___vma_start_write
+ CONFTEST: is_export_symbol_present_lockdep_register_key
+ CONFTEST: is_export_symbol_present_int_active_memcg
+ CONFTEST: is_export_symbol_present_migrate_vma_setup
+ CONFTEST: is_export_symbol_present___iowrite64_lo_hi
+ CONFTEST: is_export_symbol_present_make_device_exclusive
+ CONFTEST: is_export_symbol_gpl_platform_device_put
+ CONFTEST: vmf_insert_pfn_prot
+ CONFTEST: sysfs_slab_unlink
+ CONFTEST: proc_ops
+ CONFTEST: vmalloc_has_pgprot_t_arg
+ CONFTEST: mm_has_mmap_lock
+ CONFTEST: pci_channel_state
+ CONFTEST: remove_memory_has_nid_arg
+ CONFTEST: add_memory_driver_managed_has_mhp_flags_arg
+ CONFTEST: num_registered_fb
+ CONFTEST: pci_driver_has_driver_managed_dma
+ CONFTEST: memory_failure_queue_has_trapno_arg
+ CONFTEST: foll_longterm_present
+ CONFTEST: bus_type_has_iommu_ops
+ CONFTEST: of_property_for_each_u32_has_internal_args
+ CONFTEST: platform_driver_struct_remove_returns_void
+ CONFTEST: class_create_has_no_owner_arg
+ CONFTEST: class_devnode_has_const_arg
+ CONFTEST: devfreq_dev_profile_has_is_cooling_device
+ CONFTEST: devfreq_has_freq_table
+ CONFTEST: devfreq_has_suspend_freq
+ CONFTEST: has_enum_pidtype_tgid
+ CONFTEST: bpmp_mrq_has_strap_set
+ CONFTEST: register_shrinker_has_format_arg
+ CONFTEST: nr_kernel_misc_reclaimable
+ CONFTEST: pci_resize_resource_has_exclude_bars_arg
+ CONFTEST: is_vma_write_locked_has_mm_lock_seq_arg
+ CONFTEST: mmu_notifier_ops_arch_invalidate_secondary_tlbs
+ CONFTEST: migrate_vma_added_flags
+ CONFTEST: migrate_device_range
+ CONFTEST: handle_mm_fault_has_pt_regs_arg
+ CONFTEST: dev_pagemap_ops_has_folio_free
+ CONFTEST: zone_device_page_init_has_pgmap_and_order_args
+ CONFTEST: mempolicy_has_unified_nodes
+ CONFTEST: mempolicy_has_home_node
+ CONFTEST: mpol_preferred_many_present
+ CONFTEST: mmu_interval_notifier
+ CONFTEST: sg_dma_page_iter
+ CONFTEST: struct_page_has_zone_device_data
+ CONFTEST: memory_device_coherent_present
+ CONFTEST: drm_driver_has_legacy_dev_list
+ CONFTEST: vm_ops_fault_removed_vma_arg
+ CONFTEST: drm_driver_prime_flag_present
+ CONFTEST: vm_fault_t
+ CONFTEST: drm_gem_object_has_resv
+ CONFTEST: drm_crtc_state_has_async_flip
+ CONFTEST: drm_crtc_state_has_pageflip_flags
+ CONFTEST: drm_crtc_state_has_vrr_enabled
+ CONFTEST: drm_vma_offset_node_has_readonly
+ CONFTEST: drm_display_mode_has_vrefresh
+ CONFTEST: drm_driver_master_set_has_int_return_type
+ CONFTEST: drm_driver_has_gem_free_object
+ CONFTEST: drm_prime_pages_to_sg_has_drm_device_arg
+ CONFTEST: drm_driver_has_gem_prime_callbacks
+ CONFTEST: drm_crtc_atomic_check_has_atomic_state_arg
+ CONFTEST: drm_gem_object_vmap_has_map_arg
+ CONFTEST: drm_plane_atomic_check_has_atomic_state_arg
+ CONFTEST: drm_device_has_pdev
+ CONFTEST: drm_crtc_state_has_no_vblank
+ CONFTEST: drm_mode_config_has_allow_fb_modifiers
+ CONFTEST: drm_has_hdr_output_metadata
+ CONFTEST: dma_resv_add_fence
+ CONFTEST: dma_resv_reserve_fences
+ CONFTEST: reservation_object_reserve_shared_has_num_fences_arg
+ CONFTEST: drm_connector_has_override_edid
+ CONFTEST: drm_file_get_master
+ CONFTEST: drm_modeset_lock_all_end
+ CONFTEST: drm_driver_has_dumb_destroy
+ CONFTEST: fence_ops_use_64bit_seqno
+ CONFTEST: drm_aperture_remove_conflicting_framebuffers_has_driver_arg
+ CONFTEST: drm_aperture_remove_conflicting_framebuffers_has_no_primary_arg
+ CONFTEST: drm_aperture_remove_conflicting_pci_framebuffers_has_driver_arg
+ CONFTEST: drm_mode_create_dp_colorspace_property_has_supported_colorspaces_arg
+ CONFTEST: drm_syncobj_features_present
+ CONFTEST: drm_unlocked_ioctl_flag_present
+ CONFTEST: drm_color_ctm_3x4_present
+ CONFTEST: drm_format_info_has_is_yuv
+ CONFTEST: drm_driver_has_gem_prime_mmap
+ CONFTEST: drm_output_poll_changed
+ CONFTEST: drm_driver_has_date
+ CONFTEST: drm_connector_helper_funcs_mode_valid_has_const_mode_arg
+ CONFTEST: drm_fb_create_takes_format_info
+ CONFTEST: drm_atomic_commit_struct_present
+ CONFTEST: dom0_kernel_present
+ CONFTEST: nvidia_vgpu_kvm_build
+ CONFTEST: nvidia_grid_build
+ CONFTEST: nvidia_grid_csp_build
+ CONFTEST: pm_runtime_available
+ CONFTEST: pm_domain_available
+ CONFTEST: pci_class_multimedia_hd_audio
+ CONFTEST: vfio_pci_core_available
+ CONFTEST: cmd_uphy_display_port_init
+ CONFTEST: cmd_uphy_display_port_off
+ CONFTEST: memory_failure_mf_sw_simulated_defined
+ CONFTEST: device_vm_build
+ CONFTEST: pcie_reset_flr
+ CONFTEST: module_import_ns_takes_constant
+ CONFTEST: is_export_symbol_gpl_refcount_inc
+ CONFTEST: is_export_symbol_gpl_refcount_dec_and_test
+ CONFTEST: drm_alpha_blending_available
+ CONFTEST: is_export_symbol_present_drm_gem_prime_fd_to_handle
+ CONFTEST: is_export_symbol_present_drm_gem_prime_handle_to_fd
+ CONFTEST: ib_peer_memory_symbols
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-platform.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-dsi-parse-panel-props.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-bpmp.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-gpio.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-backlight.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-imp.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-platform-pm.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-ipc-soc.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-pci.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-dmabuf.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-nano-timer.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-acpi.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-cray.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-dma.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-i2c.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-mmap.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-p2p.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-pat.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-procfs.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-usermap.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-vm.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-vtophys.o
+/var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-vm.c:601:1: warning: no previous prototype for 'nv_mem_pool_alloc_pages' [-Wmissing-prototypes]
+  601 | nv_mem_pool_alloc_pages
+      | ^~~~~~~~~~~~~~~~~~~~~~~
+/var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-vm.c:709:1: warning: no previous prototype for 'nv_mem_pool_destroy' [-Wmissing-prototypes]
+  709 | nv_mem_pool_destroy(nv_page_pool_t *mem_pool)
+      | ^~~~~~~~~~~~~~~~~~~
+/var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-vm.c:739:17: warning: no previous prototype for 'nv_mem_pool_init' [-Wmissing-prototypes]
+  739 | nv_page_pool_t* nv_mem_pool_init(int node_id, unsigned int order)
+      |                 ^~~~~~~~~~~~~~~~
+/var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-vm.c:793:1: warning: no previous prototype for 'nv_mem_pool_free_pages' [-Wmissing-prototypes]
+  793 | nv_mem_pool_free_pages
+      | ^~~~~~~~~~~~~~~~~~~~~~
+/var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-vm.c:873:11: warning: no previous prototype for 'nv_init_page_pools' [-Wmissing-prototypes]
+  873 | NV_STATUS nv_init_page_pools(void)
+      |           ^~~~~~~~~~~~~~~~~~
+/var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-vm.c:899:6: warning: no previous prototype for 'nv_destroy_page_pools' [-Wmissing-prototypes]
+  899 | void nv_destroy_page_pools(void)
+      |      ^~~~~~~~~~~~~~~~~~~~~
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/os-interface.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/os-mlock.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/os-pci.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/os-registry.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/os-usermap.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-modeset-interface.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-pci-table.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-kthread-q.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-memdbg.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-report-err.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-rsync.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-msi.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-caps.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-caps-imex.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-clk.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-host1x.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv_uvm_interface.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_aead.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_ecc.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_hkdf.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_rand.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_shash.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_rsa.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_aead_aes_gcm.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_sha.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_hmac_sha.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_internal_crypt_lib.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_hkdf_sha.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_ec.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_x509.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_rsa_ext.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nvlink_linux.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/nvlink_caps.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/linux_nvswitch.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/procfs_nvswitch.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia/i2c_nvswitch.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_common.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_linux.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/nvstatus.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/nvCpuUuid.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/nv-kthread-q.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/nv-kthread-q-selftest.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_tools.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_global.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_gpu.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_gpu_isr.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_procfs.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_va_space.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_va_space_mm.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_gpu_semaphore.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_mem.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_rm_mem.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_channel.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_lock.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_hal.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_fd_type.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_processors.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_range_tree.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_rb_tree.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_range_allocator.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_va_range.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_va_range_device_p2p.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_va_policy.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_va_block.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_range_group.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_gpu_replayable_faults.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_gpu_non_replayable_faults.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_gpu_access_counters.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_perf_events.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_perf_module.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_mmu.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_pte_batch.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_tlb_batch.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_push.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_pushbuffer.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_thread_context.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_tracker.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_turing.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_turing_ce.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_turing_access_counter_buffer.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_turing_fault_buffer.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_turing_mmu.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_turing_host.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_turing_sec2.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_ampere.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_ampere_ce.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_ampere_host.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_ampere_fault_buffer.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_ampere_mmu.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_hopper.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_hopper_fault_buffer.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_hopper_ce.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_hopper_host.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_hopper_sec2.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_hopper_mmu.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_ada.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_blackwell.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_blackwell_ce.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_blackwell_fault_buffer.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_blackwell_mmu.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_blackwell_host.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_policy.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_perf_utils.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_kvmalloc.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_pmm_sysmem.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_pmm_gpu.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_migrate.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_populate_pageable.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_migrate_pageable.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_map_external.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_user_channel.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_hmm.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_perf_heuristics.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_perf_thrashing.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_perf_prefetch.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_ats.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_ats_faults.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_ats_sva.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_conf_computing.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_test_rng.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_range_tree_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_range_allocator_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_gpu_semaphore_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_mem_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_rm_mem_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_page_tree_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_tracker_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_push_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_channel_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_ce_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_host_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_lock_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_perf_utils_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_kvmalloc_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_pmm_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_pmm_sysmem_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_perf_events_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_perf_module_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_get_rm_ptes_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_fault_buffer_flush_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_peer_identity_mappings_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_va_block_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_range_group_tree_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_thread_context_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_rb_tree_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_sec2_test.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm/uvm_test_file.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-modeset/nvidia-modeset-linux.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-modeset/nv-kthread-q.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm/nvidia-drm.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm/nvidia-drm-drv.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm/nvidia-drm-utils.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm/nvidia-drm-crtc.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm/nvidia-drm-encoder.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm/nvidia-drm-connector.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm/nvidia-drm-gem.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm/nvidia-drm-fb.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm/nvidia-drm-modeset.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm/nvidia-drm-fence.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm/nvidia-drm-helper.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm/nv-kthread-q.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm/nv-pci-table.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm/nvidia-drm-gem-nvkms-memory.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm/nvidia-drm-gem-user-memory.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm/nvidia-drm-gem-dma-buf.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm/nvidia-drm-format.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm/nvidia-drm-os-interface.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm/nvidia-drm-linux.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-peermem/nvidia-peermem.o
+  LD [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia.o
+  LD [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm.o
+  LD [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-modeset.o
+  LD [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm.o
+/usr/bin/ld.bfd -r -o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-interface.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-platform.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-dsi-parse-panel-props.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-bpmp.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-gpio.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-backlight.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-imp.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-platform-pm.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-ipc-soc.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-pci.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-dmabuf.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-nano-timer.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-acpi.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-cray.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-dma.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-i2c.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-mmap.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-p2p.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-pat.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-procfs.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-usermap.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-vm.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-vtophys.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/os-interface.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/os-mlock.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/os-pci.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/os-registry.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/os-usermap.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-modeset-interface.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-pci-table.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-kthread-q.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-memdbg.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-report-err.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-rsync.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-msi.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-caps.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-caps-imex.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-clk.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv-host1x.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nv_uvm_interface.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_aead.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_ecc.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_hkdf.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_rand.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_shash.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_rsa.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_aead_aes_gcm.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_sha.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_hmac_sha.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_internal_crypt_lib.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_hkdf_sha.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_ec.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_x509.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/libspdm_rsa_ext.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nvlink_linux.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/nvlink_caps.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/linux_nvswitch.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/procfs_nvswitch.o /var/lib/dkms/nvidia/595.91.07/build/nvidia/i2c_nvswitch.o
+/usr/bin/ld.bfd -r -o /var/lib/dkms/nvidia/595.91.07/build/nvidia-modeset/nv-modeset-interface.o /var/lib/dkms/nvidia/595.91.07/build/nvidia-modeset/nvidia-modeset-linux.o /var/lib/dkms/nvidia/595.91.07/build/nvidia-modeset/nv-kthread-q.o
+  LD [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-peermem.o
+  MODPOST /var/lib/dkms/nvidia/595.91.07/build/Module.symvers
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia.mod.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm.mod.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-modeset.mod.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm.mod.o
+  CC [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-peermem.mod.o
+  LD [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia.ko
+  BTF [M] /var/lib/dkms/nvidia/595.91.07/build/nvidia.ko
+Skipping BTF generation for /var/lib/dkms/nvidia/595.91.07/build/nvidia.ko due to unavailability of vmlinux
+  LD [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm.ko
+  LD [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-modeset.ko
+  BTF [M] /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm.ko
+Skipping BTF generation for /var/lib/dkms/nvidia/595.91.07/build/nvidia-uvm.ko due to unavailability of vmlinux
+  LD [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm.ko
+  BTF [M] /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm.ko
+Skipping BTF generation for /var/lib/dkms/nvidia/595.91.07/build/nvidia-drm.ko due to unavailability of vmlinux
+  LD [M]  /var/lib/dkms/nvidia/595.91.07/build/nvidia-peermem.ko
+  BTF [M] /var/lib/dkms/nvidia/595.91.07/build/nvidia-peermem.ko
+Skipping BTF generation for /var/lib/dkms/nvidia/595.91.07/build/nvidia-peermem.ko due to unavailability of vmlinux
+  BTF [M] /var/lib/dkms/nvidia/595.91.07/build/nvidia-modeset.ko
+Skipping BTF generation for /var/lib/dkms/nvidia/595.91.07/build/nvidia-modeset.ko due to unavailability of vmlinux
+make[1]: Leaving directory '/usr/src/linux-headers-6.8.0-147-generic'
+
+# exit code: 0
+# elapsed time: 00:01:49
+----------------------------------------------------------------
