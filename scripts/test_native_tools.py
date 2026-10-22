@@ -41,6 +41,20 @@ def files(tree=None):
 
 
 class FetchTests(unittest.TestCase):
+    def test_preserved_missing_package_failures_executed_nothing(self):
+        directory = ROOT / "evidence/p3/2026-10-22-removed-ubuntu-input"
+        for name, digest in (("attempt1.log", "e3225aaa9a902823734b3c701f9f5924156da730a8e06f6686d97310d2227a3b"),
+                             ("attempt2.log", "22665aae700899b0b2caead6ac2f87987023e0d29d030137817ff622733ae7f1")):
+            raw = (directory / name).read_bytes()
+            self.assertEqual(base.digest(raw), digest)
+            rows = [json.loads(line) for line in raw.splitlines()]
+            self.assertTrue(all(row["package_execution"] is False for row in rows))
+            self.assertEqual(rows[-1]["result"], "fail")
+            self.assertEqual(rows[-1]["returncode"], 22)
+            self.assertEqual(rows[-1]["expected_bytes"], 139430)
+            self.assertEqual(rows[-1]["expected_sha256"],
+                             "6bac2a01979e210d9eac1d4d56747ec709ea60654744d66705dc3c36e7629e50")
+
     def guest(self):
         value = lock()
         value["scope"] = fetcher.GUEST_SCOPE
@@ -155,9 +169,44 @@ class FetchTests(unittest.TestCase):
         self.assertEqual(len(items), 209)
         self.assertEqual(len([p for p in items if p.startswith("repo/pool/")]), 203)
         for name, (url, _, sha) in items.items():
-            self.assertTrue(url.startswith(("https://archive.ubuntu.com/", "https://security.ubuntu.com/")))
             if name.startswith("metadata/"):
+                self.assertTrue(url.startswith(("https://archive.ubuntu.com/", "https://security.ubuntu.com/")))
                 self.assertTrue(url.endswith("/by-hash/SHA256/" + sha))
+            else:
+                self.assertTrue(url.startswith(fetcher.UBUNTU_SNAPSHOT + "pool/"))
+
+    def test_snapshot_changes_only_ubuntu_download_location_not_lock_identity(self):
+        value = self.guest()
+        before = copy.deepcopy(value)
+        items = fetcher.plan(value, guest=True)
+        self.assertEqual(value, before)
+        for row in value["packages"]:
+            item = items["repo/pool/" + base.package_name(row)]
+            self.assertEqual(item[1:], (int(row["Size"]), row["SHA256"]))
+            prefix = fetcher.NVIDIA_BASE if row["index"] == "nvidia" else fetcher.UBUNTU_SNAPSHOT
+            self.assertEqual(item[0], prefix + row["Filename"].removeprefix("./"))
+        value["indexes"][0]["base_url"] = "https://archive.ubuntu.com/ubuntu/extra/"
+        with self.assertRaises(ValueError):
+            fetcher.plan(value, guest=True)
+
+    def test_snapshot_origin_date_and_package_paths_cannot_be_overridden(self):
+        good = fetcher.UBUNTU_SNAPSHOT + "pool/main/c/ca-certificates/ca-certificates_20260601~24.04.1_all.deb"
+        self.assertEqual(fetcher.public_url(good, snapshot=True), good)
+        bad = (good.replace("20261020T000000Z", "20261021T000000Z"),
+               good.replace("snapshot.ubuntu.com", "evil.test"),
+               good.replace("https://", "http://"), good.replace("https://", "https://user@"),
+               good + "?token=private", good + "#fragment",
+               good.replace("/pool/", "/pool/../"), good.replace("/pool/", "/pool/%2e%2e/"),
+               good.replace("/pool/", "/pool//"), good.replace("/pool/", "/pool/./"),
+               fetcher.UBUNTU_SNAPSHOT + "dists/noble/InRelease",
+               good.replace(".deb", ".deb/extra"))
+        for url in bad:
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                fetcher.public_url(url, snapshot=True)
+        with self.assertRaises(ValueError):
+            fetcher.public_url(good)
+        with self.assertRaises(ValueError):
+            fetcher.public_url(good, nvidia=True, snapshot=True)
 
     def test_archived_metadata_is_verified_before_any_network_and_not_refetched(self):
         execute = mock.Mock(return_value=subprocess.CompletedProcess([], 0, b"deb", b""))

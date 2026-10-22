@@ -28,6 +28,10 @@ prep = types.SimpleNamespace(**runpy.run_path(str(ROOT / PREPARER), run_name="to
 base, tools, require = prep.base, prep.tools, prep.require
 ENV = {"PATH": "/usr/bin:/bin", "HOME": "/nonexistent", "LANG": "C", "LC_ALL": "C"}
 HOSTS = {"archive.ubuntu.com", "security.ubuntu.com"}
+# Canonical's dated archive preserves packages removed from the live pool.
+# https://snapshot.ubuntu.com/ (Snapshot ID format / reproducible deployments).
+# Package size/SHA-256 still come from the existing signed-index locks.
+UBUNTU_SNAPSHOT = "https://snapshot.ubuntu.com/ubuntu/20261020T000000Z/"
 MAX_BYTES = 160 << 20
 NVIDIA_BASE = "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/"
 GUEST_SCOPE = "kernel-driver-build-dependency-coverage"
@@ -51,9 +55,17 @@ class FetchFailure(ValueError):
                        "package_execution": False}
 
 
-def public_url(value, *, nvidia=False):
+def public_url(value, *, nvidia=False, snapshot=False):
     require(type(value) is str)
+    require(not (nvidia and snapshot))
     url = urlsplit(value)
+    if snapshot:
+        require(value.startswith(UBUNTU_SNAPSHOT + "pool/")
+                and not url.query and not url.fragment
+                and re.fullmatch(r"[A-Za-z0-9_+.~/-]+\.deb", value[len(UBUNTU_SNAPSHOT):])
+                and all(part not in (".", "..", "")
+                        for part in value[len(UBUNTU_SNAPSHOT):].split("/")))
+        return value
     if nvidia:
         require(value.startswith(NVIDIA_BASE) and not url.query and not url.fragment
                 and value[len(NVIDIA_BASE):] not in (".", "..")
@@ -103,7 +115,9 @@ def plan(lock, *, guest=False, guest_scope=GUEST_SCOPE):
             url = public_url(NVIDIA_BASE + row["Filename"][2:], nvidia=True)
         else:
             require(row["Filename"].startswith("pool/"))
-            url = public_url(index["base_url"] + row["Filename"])
+            require(index["base_url"] in {"https://" + host + "/ubuntu/" for host in HOSTS})
+            public_url(index["base_url"] + row["Filename"])
+            url = public_url(UBUNTU_SNAPSHOT + row["Filename"], snapshot=True)
         name = "repo/pool/" + base.package_name(row)
         require(name not in items)
         items[name] = (url, int(row["Size"]), row["SHA256"])
