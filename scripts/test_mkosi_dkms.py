@@ -27,6 +27,10 @@ def elf():
     return bytes(raw)
 
 
+def symbols():
+    return b"".join(name.encode() + b" U \n" for name in driver.CRYPTO_REFERENCES)
+
+
 class DriverTests(unittest.TestCase):
     def test_regular_file_rejects_links_special_files_and_unbounded_data(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -100,6 +104,22 @@ class DriverTests(unittest.TestCase):
         for name in ("autoinstall", "install", "modprobe", "build; other", "--force"):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 driver.operation(name)
+        self.assertEqual(driver.operation("symbols"),
+                         ["/usr/bin/x86_64-linux-gnu-nm", "--undefined-only", "--format=posix",
+                          "--no-demangle", "/" + driver.MODULE_DIRECTORY + "nvidia.ko"])
+        self.assertIn("/usr/bin/setpriv", driver.command("symbols", guard.PREFIX))
+
+    def test_crypto_references_reject_missing_weak_duplicate_or_malformed_symbols(self):
+        self.assertEqual(driver.crypto_references(symbols()), list(driver.CRYPTO_REFERENCES))
+        self.assertEqual(driver.crypto_references(symbols() + b"unrelated w \n"), list(driver.CRYPTO_REFERENCES))
+        invalid = (b"", b"x" * ((1 << 20) + 1), symbols().replace(b" U ", b" w ", 1),
+                   symbols().replace(b" U ", b" T ", 1), symbols() + symbols(),
+                   b"\n".join(symbols().splitlines()[1:]), symbols() + b"unexpected header\n",
+                   symbols() + b"/private/path U\n", symbols() + b"bad U 123\n",
+                   symbols() + b"\xff U\n", symbols() + b"x U\n" * 4096)
+        for raw in invalid:
+            with self.subTest(raw=raw[:100]), self.assertRaises(ValueError):
+                driver.crypto_references(raw)
 
     def test_module_identity_is_exact_bounded_and_not_a_boot_claim(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -124,7 +144,8 @@ class DriverTests(unittest.TestCase):
         processes = host.base.processes
         results = [subprocess.CompletedProcess([], 0, b"13.3.0\n", b""),
                    subprocess.CompletedProcess([], 0, b"added\n", b""),
-                   subprocess.CompletedProcess([], 0, b"built\n", b"")]
+                   subprocess.CompletedProcess([], 0, b"built\n", b""),
+                   subprocess.CompletedProcess([], 0, symbols(), b"")]
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)
             with mock.patch.object(driver, "verify_inputs") as verify, \
@@ -137,12 +158,34 @@ class DriverTests(unittest.TestCase):
             self.assertEqual(result["result"], "pass")
             for flag in ("installed", "loaded", "lkca_verified", "reproducibility_verified", "bootable"):
                 self.assertIs(result[flag], False)
-            self.assertEqual([call.kwargs["timeout"] for call in execute.call_args_list], [30, 30, 1500])
+            self.assertEqual(result["crypto_references"], list(driver.CRYPTO_REFERENCES))
+            self.assertIs(result["crypto_linkage_verified"], True)
+            self.assertEqual([call.kwargs["timeout"] for call in execute.call_args_list], [30, 30, 1500, 30])
             for call in execute.call_args_list:
                 self.assertEqual(call.kwargs["max_output_bytes"], 2 << 20)
                 self.assertEqual(call.kwargs["max_stderr_bytes"], 2 << 20)
                 self.assertEqual(call.kwargs["stdin"], subprocess.DEVNULL)
             self.assertEqual((output / "dkms-build.stdout").read_bytes(), b"built\n")
+
+    def test_symbol_stage_rejects_tool_failure_diagnostics_and_module_changes(self):
+        processes = host.base.processes
+        prefix = [subprocess.CompletedProcess([], 0, b"13.3.0\n", b""),
+                  subprocess.CompletedProcess([], 0, b"", b""),
+                  subprocess.CompletedProcess([], 0, b"", b"")]
+        cases = ((subprocess.CompletedProcess([], 1, b"", b"failed"), False),
+                 (subprocess.CompletedProcess([], 0, symbols(), b"warning"), False),
+                 (subprocess.CompletedProcess([], 0, b"not_crypto U\n", b""), False),
+                 (subprocess.CompletedProcess([], 0, symbols(), b""), True))
+        for result, changed in cases:
+            with self.subTest(result=result.returncode, changed=changed), \
+                    tempfile.TemporaryDirectory() as temporary, \
+                    mock.patch.object(driver, "verify_inputs"), \
+                    mock.patch.object(driver, "preserve_make_log"), \
+                    mock.patch.object(driver, "inspect_modules", side_effect=[
+                        [{"sha256": "original"}], [{"sha256": "changed" if changed else "original"}]]), \
+                    mock.patch.object(processes, "execute_process_group", side_effect=[*prefix, result]):
+                with self.assertRaises((ValueError, subprocess.CalledProcessError)):
+                    driver.build(processes, Path(temporary), {}, {}, guard.PREFIX)
 
     def test_compiler_mismatch_stops_before_dkms(self):
         processes = host.base.processes

@@ -4,6 +4,7 @@
 import hashlib
 import os
 from pathlib import Path
+import re
 import runpy
 import socket
 import stat
@@ -21,8 +22,14 @@ COMPILE_H = "usr/src/linux-headers-" + KERNEL + "/include/generated/compile.h"
 SOURCE_PINS = {
     "usr/sbin/dkms": "a7a45df4e9f8a4fbea258a54b31d21760121560fe0b6187e34d5b39944e2767b",
     COMPILE_H: "aeebd7e60ca6d32c1ea7b4823d42a33fd5fdb455d19c957e8075e6c3d4b0613b",
+    "usr/bin/x86_64-linux-gnu-nm": "3708df3d7ce16e2c1dcdcd722784ae382d4d582276a71ab7bbe2d542f5621202",
+    "usr/src/nvidia-595.91.07/nvidia/internal_crypt_lib.h": "f877669b7ffa91518beca9c9bd666f331c5e1ab406818ec2bb173dddd6680e0f",
+    "usr/src/nvidia-595.91.07/nvidia/libspdm_aead.c": "25dc00713ba1eaae12f3d6eb8433c87413b9d40c058e8a262ddbb6d35af34bb4",
+    "usr/src/nvidia-595.91.07/nvidia/libspdm_ecc.c": "9dc820124a9f568d38d35c324bac8e845ddbc7158959ac94ed0000248749fb61",
+    "usr/src/nvidia-595.91.07/nvidia/libspdm_shash.c": "5f396f9eb94ebaaf1a6636b5d9df82ccf94e988633bbd9757a0f4e42e506680b",
 }
 MODULE_DIRECTORY = "var/lib/dkms/nvidia/" + DRIVER + "/" + KERNEL + "/x86_64/module/"
+CRYPTO_REFERENCES = ("crypto_alloc_aead", "crypto_alloc_akcipher", "crypto_alloc_shash")
 MAKE_LOGS = ("var/lib/dkms/nvidia/" + DRIVER + "/build/make.log",
              "var/lib/dkms/nvidia/" + DRIVER + "/" + KERNEL + "/x86_64/log/make.log")
 
@@ -68,6 +75,9 @@ def verify_inputs(root, controls):
 def operation(name):
     if name == "compiler":
         return ["/usr/bin/x86_64-linux-gnu-gcc-13", "-dumpfullversion", "-dumpversion"]
+    if name == "symbols":
+        return ["/usr/bin/x86_64-linux-gnu-nm", "--undefined-only", "--format=posix",
+                "--no-demangle", "/" + MODULE_DIRECTORY + "nvidia.ko"]
     require(name in ("add", "build"))
     return ["/usr/sbin/dkms", name, "-m", "nvidia", "-v", DRIVER, "-k", KERNEL, "-a", "x86_64"]
 
@@ -95,6 +105,21 @@ def inspect_modules(root):
     return rows
 
 
+def crypto_references(raw):
+    """Require real strong undefined references, not text strings or weak stubs."""
+    require(type(raw) is bytes and 0 < len(raw) <= 1 << 20)
+    lines = raw.decode("ascii").splitlines()
+    require(0 < len(lines) <= 4096)
+    symbols = {}
+    for line in lines:
+        parts = line.split()
+        require(len(parts) == 2 and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.$]*", parts[0])
+                and parts[1] in ("U", "w", "v") and parts[0] not in symbols)
+        symbols[parts[0]] = parts[1]
+    require(all(symbols.get(name) == "U" for name in CRYPTO_REFERENCES))
+    return list(CRYPTO_REFERENCES)
+
+
 def preserve_diagnostics(output, name, result):
     for stream in ("stdout", "stderr"):
         raw = getattr(result, stream)
@@ -115,7 +140,9 @@ def preserve_make_log(root, output):
 def build(processes, output, environment, controls, prefix, root=ROOTFS):
     require(root == ROOTFS)
     verify_inputs(root, controls)
-    for name in ("compiler", "add", "build"):
+    modules = None
+    references = None
+    for name in ("compiler", "add", "build", "symbols"):
         try:
             result = processes.execute_process_group(command(name, prefix), env=environment,
                 timeout=1500 if name == "build" else 30,
@@ -130,8 +157,15 @@ def build(processes, output, environment, controls, prefix, root=ROOTFS):
         result.check_returncode()
         if name == "compiler":
             require(result.stdout == b"13.3.0\n" and not result.stderr)
+        if name == "build":
+            modules = inspect_modules(root)
+        if name == "symbols":
+            require(not result.stderr)
+            references = crypto_references(result.stdout)
+            require(inspect_modules(root) == modules)
     return {"result": "pass", "kernel": KERNEL, "driver": DRIVER, "compiler": "13.3.0",
-            "modules": inspect_modules(root), "installed": False, "loaded": False,
+            "modules": modules, "crypto_references": references, "crypto_linkage_verified": True,
+            "installed": False, "loaded": False,
             "lkca_verified": False, "reproducibility_verified": False, "bootable": False}
 
 
