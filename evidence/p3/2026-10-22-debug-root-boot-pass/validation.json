@@ -1,0 +1,11 @@
+{
+  "boot_verified": true,
+  "confidentiality_verified": false,
+  "metadata_only": true,
+  "private_images_removed": true,
+  "production_service_verified": false,
+  "reproducibility_verified": false,
+  "result": "pass",
+  "schema": "nib.debug-boot-validation/v1",
+  "signed": false
+}
