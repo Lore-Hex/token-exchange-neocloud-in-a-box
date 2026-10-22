@@ -2,6 +2,7 @@
 """Synthetic fetch/materialization/lifecycle checks; no network or namespaces."""
 import ast
 import copy
+import contextlib
 import gzip
 import io
 import json
@@ -227,15 +228,90 @@ class FetchTests(unittest.TestCase):
         for error, category in cases:
             with self.subTest(category=category):
                 execute = mock.Mock(side_effect=error)
-                with self.assertRaises(fetcher.FetchFailure) as caught:
+                output, sleep = io.StringIO(), mock.Mock()
+                with contextlib.redirect_stdout(output), self.assertRaises(fetcher.FetchFailure) as caught:
                     fetcher.fetch(base.encoded(lock()), execute, clock=lambda: 0,
-                                  metadata={"metadata/noble-main.xz": b"idx"})
+                                  sleep=sleep, metadata={"metadata/noble-main.xz": b"idx"})
                 report = caught.exception.report
                 self.assertEqual(report["failure"], category)
                 self.assertEqual(report["input_kind"], "archive")
                 self.assertEqual(report["expected_sha256"], base.digest(b"deb"))
-                self.assertNotIn("private", json.dumps(report) + str(caught.exception))
-                execute.assert_called_once()
+                self.assertNotIn("private", json.dumps(report) + str(caught.exception) + output.getvalue())
+                self.assertEqual(execute.call_count, 3 if category == "timeout" else 1)
+                self.assertEqual(sleep.call_count, 2 if category == "timeout" else 0)
+
+    def test_transient_fetch_retries_only_exact_input_and_revalidates_bytes(self):
+        for code in fetcher.TRANSIENT_CODES:
+            with self.subTest(code=code):
+                execute = mock.Mock(side_effect=[
+                    subprocess.CompletedProcess([], code, b"private partial bytes", b"private host"),
+                    subprocess.CompletedProcess([], 0, b"idx", b""),
+                    subprocess.CompletedProcess([], 0, b"deb", b""),
+                ])
+                output, sleep = io.StringIO(), mock.Mock()
+                with contextlib.redirect_stdout(output):
+                    result = fetcher.fetch(base.encoded(lock()), execute, clock=lambda: 0, sleep=sleep)
+                self.assertEqual(result["metadata/noble-main.xz"], b"idx")
+                self.assertEqual(execute.call_count, 3)
+                self.assertEqual(execute.call_args_list[0], execute.call_args_list[1])
+                sleep.assert_called_once_with(1)
+                event = json.loads(output.getvalue())
+                self.assertEqual(event, {"schema": "nib.input-fetch-retry/v1", "result": "retry",
+                    "input_kind": "metadata", "expected_sha256": base.digest(b"idx"), "expected_bytes": 3,
+                    "failure": "process-exit", "returncode": code, "package_execution": False,
+                    "failed_attempt": 1, "delay_seconds": 1})
+                self.assertNotIn("private", output.getvalue())
+
+    def test_transient_fetch_has_three_attempts_and_exponential_backoff(self):
+        execute = mock.Mock(return_value=subprocess.CompletedProcess([], 28, b"private", b"private"))
+        output, sleep = io.StringIO(), mock.Mock()
+        with contextlib.redirect_stdout(output), self.assertRaises(fetcher.FetchFailure) as caught:
+            fetcher.fetch(base.encoded(lock()), execute, clock=lambda: 0, sleep=sleep)
+        self.assertEqual(execute.call_count, 3)
+        self.assertEqual(sleep.call_args_list, [mock.call(1), mock.call(2)])
+        events = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual([row["failed_attempt"] for row in events], [1, 2])
+        self.assertEqual(caught.exception.report["returncode"], 28)
+        self.assertNotIn("private", output.getvalue())
+
+    def test_retry_does_not_hide_integrity_failure_or_tls_rejection(self):
+        for code, data, category in ((0, b"bad", "digest"), (0, b"id", "size"),
+                                     (60, b"", "process-exit"), (63, b"", "process-exit"),
+                                     (22, b"", "process-exit"), (35, b"", "process-exit")):
+            with self.subTest(code=code, category=category):
+                execute = mock.Mock(side_effect=[subprocess.CompletedProcess([], 28, b"", b""),
+                                                subprocess.CompletedProcess([], code, data, b"")])
+                sleep = mock.Mock()
+                with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(fetcher.FetchFailure) as caught:
+                    fetcher.fetch(base.encoded(lock()), execute, clock=lambda: 0, sleep=sleep)
+                self.assertEqual(execute.call_count, 2)
+                sleep.assert_called_once_with(1)
+                self.assertEqual(caught.exception.report["failure"], category)
+
+    def test_retry_cannot_extend_global_deadline_or_sleep_past_it(self):
+        for times, calls, sleeps in (([0, 599, 599], 1, 0),
+                                     ([0, 590, 598, 601], 1, 1),
+                                     ([0, 590, 591, 592, 601], 2, 1)):
+            with self.subTest(times=times):
+                execute = mock.Mock(return_value=subprocess.CompletedProcess([], 28, b"", b""))
+                sleep = mock.Mock()
+                with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(fetcher.FetchFailure) as caught:
+                    fetcher.fetch(base.encoded(lock()), execute, clock=mock.Mock(side_effect=times), sleep=sleep)
+                self.assertEqual(caught.exception.report["failure"], "deadline")
+                self.assertEqual(execute.call_count, calls)
+                self.assertEqual(sleep.call_count, sleeps)
+                self.assertEqual(execute.call_args_list[0].kwargs["timeout"], min(60, 600 - times[1]))
+
+    def test_timeout_recovery_still_hash_checks_full_response(self):
+        execute = mock.Mock(side_effect=[subprocess.TimeoutExpired("private", 60, b"private"),
+                                        subprocess.CompletedProcess([], 0, b"deb", b"")])
+        sleep = mock.Mock()
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = fetcher.fetch(base.encoded(lock()), execute, clock=lambda: 0, sleep=sleep,
+                                   metadata={"metadata/noble-main.xz": b"idx"})
+        self.assertIn(b"deb", result.values())
+        self.assertEqual(execute.call_count, 2)
+        sleep.assert_called_once_with(1)
 
     def test_expired_fetch_budget_never_starts_network(self):
         execute = mock.Mock()
