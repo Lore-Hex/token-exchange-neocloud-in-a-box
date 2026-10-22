@@ -21,6 +21,12 @@ on:
           (requires runtime and driver installation; no export or boot)
         type: boolean
         default: false
+      boot_uki:
+        description: >-
+          Assemble and inspect private initrd/unsigned UKI
+          (requires verity_root; no export, signing or boot)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -67,6 +73,7 @@ jobs:
           INSTALL_DRIVER: ${{ inputs.install_driver }}
           GUEST_RUNTIME: ${{ inputs.guest_runtime }}
           VERITY_ROOT: ${{ inputs.verity_root }}
+          BOOT_UKI: ${{ inputs.boot_uki }}
         run: |
           args=()
           if [ "$GUEST_RUNTIME" = true ]; then args+=(--guest-runtime); fi
@@ -80,6 +87,10 @@ jobs:
             test "$INSTALL_DRIVER" = true
             test "$COMPILE_DRIVER" = true
             args+=(--verity-root)
+          fi
+          if [ "$BOOT_UKI" = true ]; then
+            test "$VERITY_ROOT" = true
+            args+=(--boot-uki)
           fi
           sudo -- /usr/bin/python3.10 -I -S -B host/run-mkosi-build.py \
             --downloads "$PWD/build/native-install/inputs" \

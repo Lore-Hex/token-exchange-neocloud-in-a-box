@@ -146,12 +146,18 @@ def unique_object(pairs):
     return result
 
 
-def partition_report(raw, data, hashes, disk):
+def partition_report(raw, data, hashes, disk, *, require_boot_ids=False):
     require(type(raw) is bytes and 0 < len(raw) <= 65536)
     rows = json.loads(raw, object_pairs_hook=unique_object)
     require(type(rows) is list and len(rows) == 2 and all(type(row) is dict for row in rows))
     root_hash = rows[0].get("roothash")
     require(type(root_hash) is str and re.fullmatch(r"[0-9a-f]{64}", root_hash))
+    require(type(require_boot_ids) is bool)
+    if require_boot_ids:
+        # systemd v255.4 repart assigns these DPS UUIDs after verity generation;
+        # its initrd veritysetup-generator uses exactly this discovery scheme.
+        require([row.get("uuid") for row in rows]
+                == [str(uuid.UUID(hex=root_hash[:32])), str(uuid.UUID(hex=root_hash[32:]))])
     end = BLOCK
     for index, (row, label, kind, identity) in enumerate(zip(rows, ("nib-root", "nib-verity"),
             ("root-x86-64", "root-x86-64-verity"), (data, hashes))):
@@ -258,7 +264,8 @@ def execute(processes, prefix, name, output, root_hash=None):
     return result
 
 
-def build(processes, prefix, reader, output=Path("/out")):
+def build(processes, prefix, reader, output=Path("/out"), *, require_boot_ids=False):
+    require(type(require_boot_ids) is bool)
     identities = verify_tools(reader)
     with directory(ROOTFS):
         pass
@@ -272,7 +279,7 @@ def build(processes, prefix, reader, output=Path("/out")):
         require(set(path.name for path in WORK.iterdir()) == {DATA, DISK, HASH, "definitions"})
         require(inspect_file(DATA, MAX_DATA) == data)
         hashes, disk = inspect_file(HASH, MAX_HASH), inspect_file(DISK, MAX_DISK)
-        root_hash = partition_report(result.stdout, data, hashes, disk)
+        root_hash = partition_report(result.stdout, data, hashes, disk, require_boot_ids=require_boot_ids)
         parameters = superblock(data["bytes"])
         with directory(WORK) as fd:
             os.unlink(DISK, dir_fd=fd)
@@ -288,6 +295,8 @@ def build(processes, prefix, reader, output=Path("/out")):
                   "erofs_checked": True, "userspace_verity_verified": True, "wrong_root_rejected": True,
                   "images_exported": False, "boot_verified": False, "kernel_verity_verified": False,
                   "reproducibility_verified": False, "confidentiality_verified": False}
+        if require_boot_ids:
+            report["boot_partuuids_checked"] = True
     finally:
         # No children survive execute_process_group; all paths are in our new
         # private workspace. Do not suppress cleanup errors or publish success.
