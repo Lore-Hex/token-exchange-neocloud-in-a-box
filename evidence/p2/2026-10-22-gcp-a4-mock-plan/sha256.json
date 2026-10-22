@@ -1,0 +1,12 @@
+{
+  "platforms/gcp/terraform/versions.tf": "c1430585828444f72f89388c2d6400f75b42cd0391e007c296265fc179127fe7",
+  "platforms/gcp/terraform/variables.tf": "1912d267ef59862d4225059723f76e6ec128b8e8b81cafa2eaeeebd60503c65d",
+  "platforms/gcp/terraform/main.tf": "bd9524946b1bc123708b837a6a73ab9a462198e5063d60e17293915175440fcb",
+  "platforms/gcp/terraform/outputs.tf": "d0d6ec4433805aaa1b87bd366039ca3d38b82b12b2becd9aaa59df11edfcf895",
+  "platforms/gcp/terraform/.terraform.lock.hcl": "39a9ac51693938382991f6074d28d3476097847164b2aa8668573f023716ba11",
+  "platforms/gcp/terraform/tests/lab.tftest.hcl": "f048ebf02b440e44d2312a2165e40b9a7685cf0eddf886941aea802bfcb2d048",
+  "scripts/check_gcp_terraform.py": "6b003a1fbb5edfe34954bc08d85dcb8dfa0e4b3075df7ed6c47c27c6d3ba345f",
+  "scripts/e2e/snapshot.py": "e73a5a1e3ddb7a6e7b20afce39f7c080a0317d78340f224b2bd95f705bccb59c",
+  "output.log": "1ef967ea8596fca7aaf64245bbf225e48707a80f3b480030ef8b48e874199412",
+  "tests.jsonl": "2105d8710f58f156de76c48d3724796751e809e3f1c8301f7ae791aa5cbe0983"
+}

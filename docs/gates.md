@@ -54,3 +54,8 @@ an example configuration, a successful local test or a source-code merge.
 The full confidential-node hardware qualification and run gates remain pending.
 TrustedRouter owns customer billing/payments; operators still need approval and
 a budget for their own hardware and infrastructure costs.
+
+The [P2.T1 Terraform skeleton](../platforms/gcp/terraform/README.md) is software
+only, tested with a mock provider. G-GCP-PROJECT, G-GCP-QUOTA and per-run G-RUN
+remain required before any real deployment. No billing link, IAM grant, quota
+request, resource allocation or cloud plan is authorized by its mock receipts.

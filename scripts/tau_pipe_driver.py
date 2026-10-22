@@ -96,6 +96,7 @@ def run_process(command, environment, payload, plan, manifest, deadline, *, depl
     if deployment is not None:
         import tau_live_identity as live
         require(type(deployment) is live.Deployment)
+        deployment.require_target(plan["selection"]["role"])
         deployment.check(deadline)
     frozen = deployment.manifest if deployment is not None else scripted_manifest(manifest)
     assertions = selected_assertions(payload, plan["selection"])

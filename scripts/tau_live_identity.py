@@ -276,8 +276,13 @@ class Deployment:
         raw = private_read(path, deadline)
         require(tau.digest(raw) == sha)
         row = tau.json_value(raw)
-        keys(row, ("schema", "expires_unix", "manifest", "roles"))
-        require(row["schema"] == "nib.tau-local-deployment/v1")
+        require(type(row) is dict)
+        # V2 scopes liveness only; the full paired benchmark remains frozen below.
+        selected = row.get("schema") == "nib.tau-local-deployment/v2"
+        keys(row, ("schema", "expires_unix", "manifest", "roles") + (("selected_target",) if selected else ()))
+        require(selected or row["schema"] == "nib.tau-local-deployment/v1")
+        self.selected_target = row["selected_target"] if selected else None
+        active = local.trial_roles(self.selected_target) if selected else tau.ROLES
         self.expires = row["expires_unix"]
         self.fresh()
         self.manifest = transport.smoke_manifest(row["manifest"], tau.digest(tau.encoded(row["manifest"])))
@@ -285,7 +290,7 @@ class Deployment:
                 and self.manifest["settings"] == benchmark["settings"])
         roles = self.manifest["settings"]["roles"]
         require(roles["simulator"]["model"] != roles["evaluator"]["model"])
-        keys(row["roles"], tau.ROLES)
+        keys(row["roles"], active)
         self.endpoints, receipts, inventories = {}, {}, {}
         pids, inodes, ports = set(), set(), set()
         for role, descriptor in row["roles"].items():
@@ -309,10 +314,17 @@ class Deployment:
             ports.add(descriptor["port"])
             self.endpoints[role] = Endpoint(descriptor["port"], values["runtime"])
             receipts[role] = {key: descriptor[key] for key in ("runtime_sha256", "tokenizer_sha256")}
-        require(len(pids) == len(inodes) == len(ports) == len(tau.ROLES))
-        require(len({inventories[role] for role in ("candidate", "simulator", "evaluator")}) == 3)
-        self.binding = {"schema": "nib.tau-live-binding/v1", "deployment_sha256": sha,
+        require(len(pids) == len(inodes) == len(ports) == len(active))
+        require(len(set(inventories.values())) == 3)
+        self.binding = {"schema": "nib.tau-live-binding/v2" if selected else "nib.tau-live-binding/v1",
+                        "deployment_sha256": sha,
                         "transport_manifest_sha256": tau.digest(tau.encoded(self.manifest)), "receipts": receipts}
+        if selected:
+            self.binding["selected_target"] = self.selected_target
+
+    def require_target(self, role):
+        local.trial_roles(role)
+        require(self.selected_target is None or role == self.selected_target)
 
     def fresh(self):
         require(type(self.expires) is int and 0 < self.expires - time.time() <= 3600)
@@ -324,9 +336,11 @@ class Deployment:
         self.fresh()
 
     def session(self, channel, role, assertions):
+        self.require_target(role)
         self.fresh()
         session = local.LocalVllmSession(channel, self.manifest, self.binding["transport_manifest_sha256"], role,
-            {name: endpoint.port for name, endpoint in self.endpoints.items()}, assertions=assertions)
+            {name: endpoint.port for name, endpoint in self.endpoints.items()}, assertions=assertions,
+            selected_target_only=self.selected_target is not None)
         session.bridge.budget.trial_deadline = min(session.bridge.budget.trial_deadline,
                                                   time.monotonic() + self.expires - time.time())
         session.endpoints = {name: GuardedClient(endpoint, self) for name, endpoint in self.endpoints.items()}

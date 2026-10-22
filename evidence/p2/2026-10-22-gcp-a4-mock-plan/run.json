@@ -1,0 +1,20 @@
+{
+  "schema": "nib.evidence/v1",
+  "phase": "P2",
+  "task": "T1",
+  "git_sha": "538f97c54f6e649f9d8af29e270713f838f1794f",
+  "command": "python3 scripts/check_gcp_terraform.py --evidence <new-directory>",
+  "started_utc": "2026-10-22T17:55:24Z",
+  "ended_utc": "2026-10-22T17:55:29Z",
+  "host": {
+    "provider": "local",
+    "machine": "Darwin arm64",
+    "gpus": "none used",
+    "driver": null,
+    "cuda": null
+  },
+  "result": "pass",
+  "execution": "fake",
+  "hardware_validated": false,
+  "notes": "Actual pinned Terraform mock-provider plans and schema validation, NOT a GCP/cloud plan. Synthetic inputs only; no apply, credentials, cloud API call or allocation. sha256.json binds the executed source bytes (including any local edits) and logs. The git SHA identifies the checkout, not a claim that it is clean. No quota, capacity, billing, permissions, image, API acceptance or boot validation."
+}
