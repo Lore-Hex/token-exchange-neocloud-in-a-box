@@ -154,6 +154,44 @@ class BootTests(unittest.TestCase):
                     source.symlink_to("/etc/passwd")
                 with self.assertRaises((ValueError, OSError)): boot.assemble(members)
 
+    def test_rejected_member_diagnostics_are_bounded_metadata_not_contents(self):
+        for kind in ("oversize", "changed", "hardlink", "directory", "symlink", "missing"):
+            with self.subTest(kind=kind), self.fixture() as (root, members):
+                source = boot.ROOTFS / "usr/lib/os-release"
+                if kind == "oversize": source.write_bytes(b"PRIVATE-CONTENT")
+                elif kind == "changed": source.write_bytes(b"PRIVATE!!\n")
+                elif kind == "hardlink": os.link(source, root / "alias")
+                else:
+                    source.unlink()
+                    if kind == "directory": source.mkdir()
+                    elif kind == "symlink": source.symlink_to("/etc/passwd")
+                diagnostics = {}
+                with mock.patch.object(boot, "verify_tools", return_value={}):
+                    with self.assertRaises((OSError, ValueError)):
+                        boot.build(self.supervisor(), guard.PREFIX, "ab" * 32,
+                                   root / "out", diagnostics=diagnostics)
+                self.assertFalse(boot.WORK.exists())
+                self.assertEqual(set(diagnostics), {"member", "expected_bytes", "expected_sha256", "observed"})
+                self.assertEqual(diagnostics["member"], "usr/lib/os-release")
+                self.assertEqual(diagnostics["expected_bytes"], members["usr/lib/os-release"]["bytes"])
+                if kind in ("symlink", "missing", "directory"):
+                    self.assertEqual(diagnostics["observed"], {})
+                else:
+                    self.assertEqual(diagnostics["observed"], {
+                        "regular": True, "links": 2 if kind == "hardlink" else 1,
+                        "bytes": source.stat().st_size})
+                encoded = json.dumps(diagnostics)
+                self.assertNotIn("PRIVATE", encoded)
+                self.assertNotIn(str(root), encoded)
+                self.assertLess(len(encoded), 2048)
+
+    def test_successful_assembly_clears_last_member_diagnostic(self):
+        with self.fixture() as (_, members):
+            boot.WORK.mkdir()
+            diagnostics = {"old": "must be cleared"}
+            boot.assemble(members, diagnostics)
+            self.assertEqual(diagnostics, {})
+
     def test_command_line_is_fixed_and_has_no_verity_bypass(self):
         self.assertEqual(boot.cmdline("ab" * 32),
                          b"root=/dev/mapper/root rootfstype=erofs ro roothash=" + b"ab" * 32)
@@ -361,8 +399,8 @@ class BootTests(unittest.TestCase):
 
     def module_fixture(self):
         original = boot.assemble
-        def assemble(members):
-            original(members)
+        def assemble(members, diagnostics=None):
+            original(members, diagnostics)
             (boot.WORK / "tree/usr/lib/modules" / boot.KERNEL).mkdir(parents=True)
         return assemble
 
