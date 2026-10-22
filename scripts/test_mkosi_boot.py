@@ -67,12 +67,47 @@ class BootTests(unittest.TestCase):
         runtime = json.loads((ROOT / prep.LOCK).read_bytes())
         self.assertEqual(len(runtime["packages"]), 212)
         self.assertLessEqual(prep.PACKAGES, {r["Package"] for r in runtime["packages"]})
-        self.assertEqual(prep.INVENTORY_SHA256, "9e58a03558396b6cf3370b44405fad56acc18c7962e6b80661eb8942ce46d540")
+        self.assertEqual(prep.INVENTORY_SHA256, "b10eb64d60d8cfeba7de15b8533e2f7f8b38f56594bfa4abe90b4ff55ba6971b")
         self.assertEqual(boot.GUEST["boot/vmlinuz-" + boot.KERNEL],
                          (15083912, "41ba36d860aa0b0cd995f4ca8856d80249b244577e704929b55be13fbd1ebd2f"))
         self.assertEqual(len(boot.TOOLS), 7)
         self.assertTrue(all(len(h) == 64 and n > 0 for n, h in boot.TOOLS.values()))
         self.assertFalse(any("nvidia" in p or "nvattest" in p for p in prep.PACKAGES))
+
+    def test_installed_release_matches_the_single_recipe_image_id(self):
+        base = host.base
+        lock = json.loads((ROOT / prep.LOCK).read_bytes())
+        recipe = base.recipe(lock)
+        image_lines = [line for line in recipe.splitlines() if line.startswith(b"ImageId=")]
+        self.assertEqual(image_lines, [b"ImageId=" + base.IMAGE_ID.encode()])
+        raw = b"ID=ubuntu\nNAME=Ubuntu\n"
+        expected = raw + b'IMAGE_ID="nib-r595-installability-candidate"\n'
+        self.assertEqual(prep.installed_release(raw, base.IMAGE_ID, base.require), expected)
+        self.assertEqual(raw, b"ID=ubuntu\nNAME=Ubuntu\n")
+        for value in (b"", "ID=ubuntu\n", b"ID=ubuntu", b"a" * 4097 + b"\n",
+                      b"ID=ubuntu\nIMAGE_ID=other\n"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                prep.installed_release(value, base.IMAGE_ID, base.require)
+        for value in (None, "", "x" * 129, 'bad"', "bad\n", "bad ID"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                prep.installed_release(raw, value, base.require)
+
+    def test_assembly_requires_transformed_os_release_exactly(self):
+        with self.fixture() as (_, members):
+            source = boot.ROOTFS / "usr/lib/os-release"
+            installed = prep.installed_release(source.read_bytes(), host.base.IMAGE_ID, host.base.require)
+            members["usr/lib/os-release"].update(boot.identity(installed))
+            boot.WORK.mkdir()
+            # Untransformed or otherwise altered bytes do not pass a larger cap.
+            with self.assertRaises(ValueError): boot.assemble(members)
+        with self.fixture() as (_, members):
+            source = boot.ROOTFS / "usr/lib/os-release"
+            installed = prep.installed_release(source.read_bytes(), host.base.IMAGE_ID, host.base.require)
+            members["usr/lib/os-release"].update(boot.identity(installed))
+            source.write_bytes(installed)
+            boot.WORK.mkdir()
+            boot.assemble(members)
+            self.assertEqual((boot.WORK / "tree/usr/lib/os-release").read_bytes(), installed)
 
     def test_fixed_selection_excludes_host_configuration_hooks_docs_and_extra_kernel(self):
         self.assertTrue(prep.selected("systemd", "usr/lib/systemd/systemd", "file"))
