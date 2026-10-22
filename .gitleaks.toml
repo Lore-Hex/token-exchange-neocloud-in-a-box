@@ -21,8 +21,8 @@ paths = ['''(^|/)evidence/p2/2026-10-22-tokenizer-parity-runtime-pass/input-cont
 regexes = ['''^\s*"tokenizer-adapter\.py": "060220d1bc62f13278e5a03a3a85c39ef84f528ada2a9e39ab0c62a4a7c09960",\s*$''', '''^\s*"tokenizer-parity\.py": "09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a"\s*$''']
 
 [[rules.allowlists]]
-description = "Exact public probe source hash in the original CPU readiness failure"
+description = "Exact public probe source hash in the two original CPU failures"
 condition = "AND"
 regexTarget = "line"
-paths = ['''(^|/)evidence/p2/2026-10-22-cpu-parity-readiness-failure/output\.log$''']
+paths = ['''(^|/)evidence/p2/2026-10-22-cpu-parity-(readiness|argv)-failure/output\.log$''']
 regexes = ['''^\s*"scripts/engine_tokenizer_parity\.py": "09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a",\s*$''']

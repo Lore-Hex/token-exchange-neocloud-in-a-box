@@ -1,0 +1,67 @@
+name: Native CPU support tokenizer parity
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-tau-cpu-parity
+  cancel-in-progress: false
+
+jobs:
+  diagnostic:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Require native ephemeral runner
+        run: |
+          test "$(uname -m)" = x86_64
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          umask 077
+          mkdir -m 700 -p build/tau-cpu-native
+          python3 - <<'PY'
+          import shutil
+          from pathlib import Path
+          rows = dict(line.split(":", 1) for line in Path("/proc/meminfo").read_text().splitlines())
+          assert int(rows["MemTotal"].split()[0]) >= 10 * 2**20
+          assert shutil.disk_usage("/var/lib/docker").free >= 12 * 2**30
+          PY
+      - name: Prepare existing immutable public inputs
+        timeout-minutes: 17
+        run: |
+          python3 -I -S -B scripts/prepare-tau-cpu-parity-native.py \
+            --output "$PWD/build/tau-cpu-native/inputs"
+      - name: Record unchanged offline CPU parity checks
+        id: record
+        continue-on-error: true
+        timeout-minutes: 40
+        run: |
+          inputs="$PWD/build/tau-cpu-native/inputs"
+          python3 -I -S -B scripts/record-tau-cpu-parity.py \
+            --archive "$inputs/llama.tar.gz" \
+            --model-06 "$inputs/0.gguf" \
+            --model-17 "$inputs/1.gguf" \
+            --cmake-wheel "$inputs/cmake-3.31.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl" \
+            --output "$PWD/build/tau-cpu-native/proof" --host-kind github-actions
+      - name: Preserve only original content-free receipts, including failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: tau-cpu-native-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/tau-cpu-native/proof/run.json
+            build/tau-cpu-native/proof/output.log
+          if-no-files-found: error
+          retention-days: 7
+      - name: Require terminal producer success
+        if: always()
+        env:
+          OUTCOME: ${{ steps.record.outcome }}
+        run: test "$OUTCOME" = success
