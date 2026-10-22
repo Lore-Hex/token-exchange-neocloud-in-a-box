@@ -3,6 +3,7 @@
 
 from pathlib import Path
 import shlex
+import subprocess
 import unittest
 
 import yaml
@@ -37,7 +38,21 @@ class NativeIndexWorkflowTests(unittest.TestCase):
                 args = shlex.split(command)
                 self.assertEqual(args[args.index("--metadata-archive") + 1],
                                  "$PWD/build/" + directory + "/metadata.tar.gz")
-                self.assertEqual("--include-guest" in args, job == "install")
+                if job == "install":
+                    self.assertEqual(args[5], "$target")
+                    selection = fetch[fetch.index("target=--include-guest"):fetch.index("/usr/bin/python3.10")]
+                    self.assertEqual(selection, 'target=--include-guest\n'
+                                     'if [ "$GUEST_RUNTIME" = true ]; then target=--guest-runtime; fi\n')
+                    for value, expected in (("false", "--include-guest"), ("true", "--guest-runtime"),
+                                            ("", "--include-guest")):
+                        result = subprocess.run(["/bin/bash", "-c", selection + 'printf "%s" "$target"'],
+                                                env={"GUEST_RUNTIME": value}, capture_output=True,
+                                                check=True, timeout=5, text=True)
+                        self.assertEqual(result.stdout, expected)
+                else:
+                    self.assertNotIn("--include-guest", args)
+                    self.assertNotIn("--guest-runtime", args)
+                    self.assertNotIn("$target", args)
                 self.assertNotIn("secrets.", fetch)
 
 
