@@ -353,9 +353,10 @@ class CPUParityTests(unittest.TestCase):
                 snapshot.local_docker_endpoint.return_value = "unix:///fixture"
                 def call(args, **kwargs):
                     if args[1:3] == ["image", "inspect"]:
-                        self.assertEqual(args[args.index("--platform") + 1], "linux/amd64")
+                        self.assertNotIn("--platform", args)
                         return subprocess.CompletedProcess(args, 0, b"sha256:" + b"a" * 64 + b" linux/amd64\n", b"")
                     if args[1] == "build":
+                        self.assertEqual(args[args.index("--platform") + 1], "linux/amd64")
                         if failure == "build":
                             raise subprocess.TimeoutExpired(args, 240)
                         (work / "image-id").write_text("sha256:" + "a" * 64)
