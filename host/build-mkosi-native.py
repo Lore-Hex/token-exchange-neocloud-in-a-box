@@ -26,6 +26,7 @@ ENTRY = "scripts/mkosi_build_entry.py"
 RESOURCES = "host/probe-build-resources.py"
 LAUNCHER = "host/run-mkosi-build.py"
 DKMS = "scripts/mkosi_dkms.py"
+RUNTIME_POLICY = "scripts/mkosi_runtime_policy.py"
 HOOKS = "scripts/review_guest_hooks.py"
 RUNTIME_APT = "evidence/p3/2026-10-22-runtime-apt-plan/report.json"
 probe = types.SimpleNamespace(**runpy.run_path(str(ROOT / PROBE), run_name="build_probe"))
@@ -106,6 +107,8 @@ def prepare(downloads, source_archive, revision, sources, guest_runtime=False):
         "package-worker.py": prepared["nib/package-worker.py"],
         "confinement.py": prepared["nib/confinement.py"]})
     payload["dkms-worker.py"] = sources[DKMS]
+    if guest_runtime:
+        payload["runtime-policy.py"] = sources[RUNTIME_POLICY]
     modes = {"upstream/" + name: 0o555 if row["mode"] == "100755" else 0o444
              for name, row in pin["source_files"].items() if row["mode"] != "120000"}
     return prepared, preparation, payload, modes, links
@@ -218,7 +221,8 @@ def main():
     revision, sources = tools.committed((*mkosi.EXTRA, prep.SCRIPT, prep.POLICY,
         SCRIPT, PROBE, WORKER, ENTRY, RESOURCES, LAUNCHER, probe.NATIVE, probe.OWNERSHIP,
         probe.PID_CHECKER, probe.native.CHECKER, probe.native.WORKER, DKMS,
-        *((HOOKS, hooks.RUNTIME_LOCK, hooks.RUNTIME_POLICY, RUNTIME_APT) if args.guest_runtime else ())))
+        *((HOOKS, hooks.RUNTIME_LOCK, hooks.RUNTIME_POLICY, RUNTIME_APT, RUNTIME_POLICY)
+          if args.guest_runtime else ())))
     return run(args.downloads, args.archive, args.output, revision, sources, args.compile_driver,
                args.install_driver, args.guest_runtime)
 
