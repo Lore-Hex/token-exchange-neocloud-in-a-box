@@ -41,8 +41,9 @@ onboarding steps; running the toolkit does not automatically list a provider.
 
 Pre-alpha. **No fully verified confidential inference service yet.** Real
 8xB200 and 8xB300 lab checks and complete DeepSeek weight downloads have run. Fresh
-eight-GPU appraisal and readiness readback have passed; DeepSeek inference and
-quality remain unproven. The lab uses AMD SEV-SNP, not the plan's Intel TDX
+eight-GPU appraisal and readiness readback have passed. DeepSeek generated real
+responses in a smoke run, passing seven of eight cases; the overall smoke and
+quality gates remain failed/unproven. The lab uses AMD SEV-SNP, not the plan's Intel TDX
 deployment.
 
 | Component | State |
@@ -72,11 +73,11 @@ deployment.
 | GPU-free end-to-end node | tested against fakes locally and in CI; independently reviewed and merged in [PR #10](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/pull/10) ([evidence](evidence/p1/2026-10-19-combined-node-v4/run.json), [results](evidence/p1/2026-10-19-combined-node-v4/result.json)) |
 | Local real-model provider pilot | Qwen3-0.6B CPU inference through standard TLS: 17 conformance checks, auth, usage, upstream failure and cleanup pass on native macOS and an offline Linux/amd64 container; not public or confidential ([native](evidence/p3/2026-10-19-qwen-native-regression-1/run.json), [Linux](evidence/p3/2026-10-19-qwen-linux-4/run.json), [runbook](docs/operators/qwen-pilot.md)) |
 | Provider-configurable Qwen service | Real Linux model: operator metadata, all 18 provider checks, Catalog v2 and declared retirement pass; active streaming response finishes through shutdown; no public cloud or billing claim ([evidence](evidence/p3/2026-10-19-provider-neutral-linux/run.json), [results](evidence/p3/2026-10-19-provider-neutral-linux/output.log), [runbook](docs/operators/qwen-service.md)) |
-| Model bring-up and benchmarks | compatibility bring-up in progress; model inference, throughput and quality/tau benchmarks not yet run (P2) |
+| Model bring-up and benchmarks | real DeepSeek generations and two-turn tool continuations observed; seven of eight fixed cases passed, overall smoke failed. Throughput and quality/tau benchmarks not yet run ([evidence and limits](docs/tasks/p2-t3-first-generations.md)) |
 | Tau evaluation preparation | actual scripted upstream trial passed with confirmed cleanup. [Original evidence and limits](docs/tasks/p2-t3-tau-integration-evidence.md); synthetic replies and usage, not live-model quality or tau acceptance |
 | CPU-only startup diagnosis | exact-image application passes all five stages; serving imports now reach checkpoint 13 with clean guard state, then device autodetection rejects the GPU-free environment. Overall pre-serve run remains FAIL; cleanup confirmed; no inference/GPU/confidentiality acceptance ([latest run](evidence/p2/2026-10-20-cpu-opencv-runtime-9115b95/run.json), [root cause and limits](docs/tasks/p2-t3-opencv-native-loader.md#exact-image-result), [earlier Botocore observation](evidence/p2/2026-10-20-cpu-native-39467970211-1/README.md)) |
 | GPU appraisal and gated readiness | fresh eight-device appraisal PASS; nonce, measurements, certificates/revocation, secure boot, debug-disabled and local identity checks passed; readiness 0 to 1 readback and NVML shutdown verified. Not full hardware/runtime/confidential qualification ([success](evidence/p2/2026-10-20-gpu-appraisal-121447763215/run.json), [prior failure](evidence/p2/2026-10-20-gpu-appraisal-120201396352/run.json), [checkpoint](docs/tasks/p2-t3-appraisal-checkpoint.md)) |
-| Bounded DeepSeek CC functional lab | latest B300 attempt completed weight validation and five application stages, then ModelConfig startup exited 1 after 25 seconds; cleanup confirmed. No inference or quality success ([latest failure](evidence/p2/2026-10-21-b300-model-config-rejected/run.json), [complete checkpoint and limits](docs/tasks/p2-t3-b300-complete-checkpoint.md), [scope](docs/tasks/p2-t3-deepseek-lab.md)) |
+| Bounded DeepSeek CC functional lab | four selected B300 GPUs reached a healthy engine and ten requests; seven cases passed, logic exact-answer comparison failed; cleanup confirmed. No confidential-service or quality qualification ([latest evidence](evidence/p2/2026-10-21-b300-first-generations/run.json), [limits and diagnosis](docs/tasks/p2-t3-first-generations.md), [scope](docs/tasks/p2-t3-deepseek-lab.md)) |
 | Confidential pipeline on a 1-GPU TDX VM | not started (P3) |
 | TrustedRouter generic verifier | not started (P4) |
 | Bare-metal 8×B200 confidential node | not started (P5) |
