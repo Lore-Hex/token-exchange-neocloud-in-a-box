@@ -14,13 +14,17 @@ REVISION = "5df63a7203cdb9328d824a27b682e77c7b9928be"
 MAX_HTTP_RESPONSE = 2 << 20
 
 
-def tokenize_body(body):
-    # At REVISION, ChatCompletionRequest.build_chat_params and TokenizeChatRequest
-    # both use OnlineRenderer.preprocess_chat. Only the reviewed text/auto path is
-    # supported here; required/named/none-with-tools need separate parser review.
+def require_nonthinking_auto(body):
+    # Only the reviewed text/auto path is supported. Required/named/none-with-tools
+    # need separate parser review, even when an engine accepts those values.
     require(body["reasoning_effort"] == "none"
             and (body.get("tool_choice") == "auto" if body.get("tools")
                  else body.get("tool_choice") in (None, "none")))
+
+
+def tokenize_body(body):
+    # At REVISION both chat and tokenize use OnlineRenderer.preprocess_chat.
+    require_nonthinking_auto(body)
     result = {"model": body["model"], "messages": body["messages"],
               "add_special_tokens": False, "add_generation_prompt": True,
               "continue_final_message": False, "return_token_strs": False,
@@ -30,13 +34,15 @@ def tokenize_body(body):
     return result
 
 
-class LocalVllm:
-    """One explicitly selected IPv4 loopback engine; no DNS, proxy or redirects.
+class LocalChatHTTP:
+    """Shared bounded chat HTTP; subclasses declare their fixed endpoint paths.
 
     This does not identify or attest the listening process. The operator must
     verify the local runtime and its framing separately before any real run.
     No credentials, arbitrary hostnames, paths, retries or remote APIs accepted.
     """
+    PATHS = ()
+
     def __init__(self, port, *, clock=time.monotonic):
         require(type(port) is int and 1024 <= port <= 65535)
         self.port, self.clock = port, clock
@@ -54,7 +60,7 @@ class LocalVllm:
         sock.connect(("127.0.0.1", self.port))
 
     def post(self, path, body, deadline):
-        require(path in ("/tokenize", "/v1/chat/completions"))
+        require(path in self.PATHS)
         require(threading.current_thread() is threading.main_thread())
         require(self.busy.acquire(blocking=False))
         connection, response, sock = None, None, None
@@ -107,17 +113,6 @@ class LocalVllm:
                 sock.close()
             self.busy.release()
 
-    def count(self, body, context_tokens, deadline):
-        row = self.post("/tokenize", tokenize_body(body), deadline)
-        require(type(row) is dict and {"count", "max_model_len", "tokens"} <= set(row)
-                <= {"count", "max_model_len", "tokens", "token_strs"}
-                and type(row["count"]) is int and 0 < row["count"] <= context_tokens
-                and type(row["max_model_len"]) is int and row["max_model_len"] == context_tokens
-                and type(row["tokens"]) is list and len(row["tokens"]) == row["count"]
-                and all(type(token) is int and 0 <= token < 2**63 for token in row["tokens"])
-                and row.get("token_strs") is None)
-        return row["count"]
-
     def complete(self, body, prompt_tokens, deadline):
         row = self.post("/v1/chat/completions", body, deadline)
         require(type(row) is dict and "error" not in row and row.get("object") == "chat.completion"
@@ -144,6 +139,22 @@ class LocalVllm:
         normalized = {"choices": [{"message": selected, "finish_reason": choice.get("finish_reason")}],
                       "usage": {key: usage.get(key) for key in ("prompt_tokens", "completion_tokens", "total_tokens")}}
         return transport.snapshot(normalized, worker.MAX_RESPONSE)
+
+
+class LocalVllm(LocalChatHTTP):
+    """Pinned vLLM chat tokenization, retaining its original response contract."""
+    PATHS = ("/tokenize", "/v1/chat/completions")
+
+    def count(self, body, context_tokens, deadline):
+        row = self.post("/tokenize", tokenize_body(body), deadline)
+        require(type(row) is dict and {"count", "max_model_len", "tokens"} <= set(row)
+                <= {"count", "max_model_len", "tokens", "token_strs"}
+                and type(row["count"]) is int and 0 < row["count"] <= context_tokens
+                and type(row["max_model_len"]) is int and row["max_model_len"] == context_tokens
+                and type(row["tokens"]) is list and len(row["tokens"]) == row["count"]
+                and all(type(token) is int and 0 <= token < 2**63 for token in row["tokens"])
+                and row.get("token_strs") is None)
+        return row["count"]
 
 
 def trial_roles(role):
