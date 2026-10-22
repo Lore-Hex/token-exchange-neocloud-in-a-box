@@ -16,6 +16,10 @@ numbers. These helpers already belong to the rehashed source closure. No
 exception text, traceback rendering, locals, native stderr or dynamic paths are
 captured. A successful receipt cannot contain a failure diagnostic.
 
+The [subsequent actual run](../../evidence/p2/2026-10-22-cpu-parity-argv-failure/README.md)
+localized rejection to the exact argv hash comparison. Its cause remains
+unproven; the next route preserves strict checks on a native Linux/amd64 host.
+
 All source/model hashes, unchanged four probes, process/socket checks, deadlines,
 container bounds, no-content logging and cleanup rules remain in force. No
 emulation fallback or live admission is added. A real diagnostic rerun still

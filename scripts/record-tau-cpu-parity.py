@@ -33,7 +33,8 @@ SOURCES = (SCRIPT, SNAPSHOT, "scripts/e2e/exercise.py", "scripts/pilot/run.py",
            "scripts/tau_cpu_parity.Dockerfile", "scripts/tau_cpu_support_models.json",
            "scripts/engine_tokenizer_parity.py", "scripts/tau_live_identity.py",
            "scripts/tau_local_llama.py", "scripts/tau_local_vllm.py", "scripts/tau_transport.py",
-           "scripts/tau_preflight.py", "scripts/tau_trial_worker.py")
+           "scripts/tau_preflight.py", "scripts/tau_trial_worker.py",
+           "scripts/prepare-tau-cpu-parity-native.py", ".github/workflows/tau-cpu-parity-native.yml")
 BOOTSTRAP = Path(__file__).read_bytes()
 
 
@@ -64,6 +65,16 @@ def toolkit(root):
 
 def now():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def host(kind):
+    require(kind in ("local", "github-actions"))
+    if kind == "github-actions":
+        require(sys.platform == "linux" and os.uname().machine == "x86_64"
+                and os.environ.get("GITHUB_ACTIONS") == "true"
+                and os.environ.get("RUNNER_ENVIRONMENT") == "github-hosted")
+    return {"provider": kind, "machine": "owned-linux-amd64-container", "gpus": "none",
+            "driver": None, "cuda": None}
 
 
 def runtime_command(image, name):
@@ -197,7 +208,9 @@ def main():
     parser = Parser(description=__doc__)
     for name in ("archive", "model-06", "model-17", "cmake-wheel", "output"):
         parser.add_argument("--" + name, type=Path, required=True)
+    parser.add_argument("--host-kind", choices=("local", "github-actions"), default="local")
     args = parser.parse_args()
+    facts = host(args.host_kind)
     os.umask(0o077)
     raw = (ROOT / SNAPSHOT).read_bytes()
     require(digest(raw) == SNAPSHOT_SHA)
@@ -228,8 +241,10 @@ def main():
                       "command": "python3 -I -S -B scripts/record-tau-cpu-parity.py --archive PRIVATE --model-06 PRIVATE --model-17 PRIVATE --cmake-wheel PRIVATE --output PRIVATE",
                       "started_utc": now(), "ended_utc": now(), "result": "fail", "execution": "software",
                       "hardware_validated": False,
-                      "host": {"provider": "local", "machine": "owned-linux-amd64-container", "gpus": "none", "driver": None, "cuda": None},
+                      "host": facts,
                       "notes": "Offline CPU tokenizer prerequisite only. No tau trial, quality, live admission, public service or confidential claim. Pending until output.log and final receipt are present."}
+            if args.host_kind != "local":
+                record["command"] += " --host-kind " + args.host_kind
             write(fd, "run.json", record)
             execute(source, work, env, snapshot, [args.archive, args.model_06, args.model_17, args.cmake_wheel],
                     report, Path(pwd.getpwuid(os.getuid()).pw_dir))
