@@ -166,6 +166,13 @@ engine metadata. Transfer the prepared bundle privately without changing bytes.
 The retained engine image, exact verified model cache and pinned CPU image must
 already be present. Runtime uses `--pull never`; CPU image inspection precedes
 engine creation, and failure does not trigger a pull, installation or fallback.
+Docker may report the pinned repository in tagless `python@sha256:...` form
+after a digest pull ([digest-reference semantics](https://docs.docker.com/reference/cli/docker/image/pull/#pull-an-image-by-digest-immutable-identifier)).
+Inspection accepts only the existing repository aliases with the exact pinned
+digest, with or without its fixed display tag; it still requires the same
+Linux/amd64 OCI manifest descriptor, matching image ID and no declared volumes.
+An actual retained-host preflight exposed this spelling difference before any
+container was created. It is not an engine run or conformance measurement.
 The ordinary `--run` invocation consumes the receipt digest and an explicit UTC
 deadline. No runtime flag can enable or override the prepared checker profile.
 
