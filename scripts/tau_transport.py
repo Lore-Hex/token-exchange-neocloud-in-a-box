@@ -254,11 +254,13 @@ class WorkerProxy:
     """Completion-shaped proxy only: no Budget, model destination or credentials."""
     def __init__(self, channel, deadline):
         self.channel, self.deadline, self.sequence, self.failed = channel, deadline, 0, None
+        self.finished = False
+        self.assertions = []
         self.busy = threading.Lock()
 
     def complete(self, *, model, messages, tools=None, **kwargs):
-        if self.failed:
-            raise worker.Abort(self.failed)
+        if self.failed or self.finished:
+            raise worker.Abort(self.failed or "protocol_error")
         if not self.busy.acquire(blocking=False):
             self.failed = "protocol_error"
             self.channel.close()
@@ -281,6 +283,42 @@ class WorkerProxy:
         finally:
             self.busy.release()
 
+    def finish(self, outcome, reward):
+        """Send only a terminal outcome; the worker never supplies accounting."""
+        if self.failed or self.finished:
+            raise worker.Abort(self.failed or "protocol_error")
+        if not self.busy.acquire(blocking=False):
+            self.failed = "protocol_error"
+            self.channel.close()
+            raise worker.Abort(self.failed)
+        try:
+            terminal(outcome, reward)
+            require(type(self.assertions) is list and all(type(item) is str for item in self.assertions))
+            assertion_hash = tau.digest(worker.bounded_json(self.assertions, worker.MAX_RESPONSE))
+            sequence = self.sequence + 1
+            self.channel.send({"schema": SCHEMA, "kind": "finished", "sequence": sequence,
+                               "status": outcome, "reward": reward,
+                               "assertions_sha256": assertion_hash}, self.deadline)
+            reply = self.channel.receive(self.deadline)
+            require(type(reply) is dict and set(reply) == {"schema", "kind", "sequence"}
+                    and reply["schema"] == SCHEMA and reply["kind"] == "accepted"
+                    and type(reply["sequence"]) is int and reply["sequence"] == sequence)
+            self.sequence, self.finished = sequence, True
+        except BaseException as exc:
+            self.failed = status(exc)
+            self.channel.close()
+            raise worker.Abort(self.failed) from None
+        finally:
+            self.busy.release()
+
+
+def terminal(outcome, reward):
+    require(type(outcome) is str and outcome in worker.STATUSES)
+    if outcome == "evaluated":
+        require(type(reward) is float and math.isfinite(reward) and -1000 <= reward <= 1000)
+    else:
+        require(reward is None)
+
 
 class ParentSession:
     """One existing Bridge/Budget; scripted replies are the ONLY dispatch source.
@@ -296,6 +334,7 @@ class ParentSession:
             require(type(record) is dict and set(record) == {"bounds", "response"})
         self.channel, self.manifest_sha, self.role, self.sequence = channel, manifest_sha, role, 0
         self.bridge = worker.Bridge(tau, self.manifest["settings"], role, self.dispatch, clock=clock)
+        self.started, self.result = clock(), None
         require(type(assertions) in (list, tuple) and all(type(item) is str for item in assertions))
         self.bridge.assertions = snapshot(list(assertions), worker.MAX_RESPONSE)
         self.current, self.response_deadline = None, None
@@ -317,8 +356,8 @@ class ParentSession:
         return self.records[self.sequence]
 
     def serve_once(self):
-        if self.bridge.failed:
-            raise worker.Abort(self.bridge.failed)
+        if self.bridge.failed or self.result is not None:
+            raise worker.Abort(self.bridge.failed or "protocol_error")
         if not self.busy.acquire(blocking=False):
             self.channel.close()
             self.bridge.stop("protocol_error")
@@ -327,6 +366,9 @@ class ParentSession:
             # Includes framing, validation, dispatch, response validation and delivery.
             with worker.alarm(deadline, self.bridge.clock):
                 packet = self.channel.receive(deadline)
+                if type(packet) is dict and packet.get("kind") == "finished":
+                    self.accept_result(packet, deadline)
+                    return True
                 require(type(packet) is dict and set(packet) == {"schema", "kind", "sequence", "role", "arguments"}
                         and packet["schema"] == SCHEMA and packet["kind"] == "completion"
                         and type(packet["sequence"]) is int and packet["sequence"] == self.sequence + 1
@@ -340,6 +382,7 @@ class ParentSession:
                 self.channel.send({"schema": SCHEMA, "kind": "response", "sequence": packet["sequence"],
                                    "response": response}, self.response_deadline)
                 self.sequence += 1
+                return False
         except BaseException as exc:
             self.channel.close()
             try:
@@ -349,6 +392,30 @@ class ParentSession:
         finally:
             self.current, self.response_deadline = None, None
             self.busy.release()
+
+    def accept_result(self, packet, deadline):
+        require(set(packet) == {"schema", "kind", "sequence", "status", "reward", "assertions_sha256"}
+                and packet["schema"] == SCHEMA and packet["kind"] == "finished"
+                and type(packet["sequence"]) is int and packet["sequence"] == self.sequence + 1
+                and self.bridge.budget.pending is None and self.bridge.usage_known)
+        terminal(packet["status"], packet["reward"])
+        if packet["status"] == "evaluated":
+            require(packet["assertions_sha256"] == tau.digest(worker.bounded_json(
+                        self.bridge.assertions, worker.MAX_RESPONSE))
+                    and self.bridge.counts["agent"] > 0 and self.bridge.counts["simulator"] > 0
+                    and (not self.bridge.assertions or self.bridge.counts["evaluator"] > 0))
+        else:
+            tau.sha(packet["assertions_sha256"])
+        self.bridge.budget.end_trial()
+        result = {"schema": "nib.tau-transport-trial/v1", "manifest_sha256": self.manifest_sha,
+                  "role": self.role, "quality_eligible": False, "confidential": False,
+                  "status": packet["status"], "reward": None if packet["reward"] is None else
+                  format(Decimal(str(packet["reward"])), "f"),
+                  "elapsed_ms": min(86400000, max(0, int((self.bridge.clock() - self.started) * 1000))),
+                  "requests": self.bridge.budget.requests, "usage": self.bridge.usage(),
+                  "role_requests": dict(self.bridge.counts)}
+        self.channel.send({"schema": SCHEMA, "kind": "accepted", "sequence": packet["sequence"]}, deadline)
+        self.sequence, self.result = packet["sequence"], result
 
     def close(self):
         self.channel.close()
