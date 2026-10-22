@@ -198,6 +198,34 @@ class FixedControlTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.exercise(request_type=factory)
 
+    def test_negative_control_uses_json_array_not_python_generator(self):
+        invalid_seen = []
+        def factory(**probe):
+            for msg in probe["messages"]:
+                if "tool_calls" in msg:
+                    self.assertIs(type(msg["tool_calls"]), list)
+                    if len(msg["tool_calls"]) == 2 and "function" not in msg["tool_calls"][1]:
+                        invalid_seen.append(True)
+            return self.request(**probe)
+        self.exercise(request_type=factory)
+        self.assertEqual(invalid_seen, [True])
+
+    def test_silent_second_item_drop_and_invalid_array_acceptance_reject(self):
+        def drop(**probe):
+            request = self.request(**probe)
+            for msg in request.messages:
+                if "tool_calls" in msg:
+                    msg["tool_calls"] = msg["tool_calls"][:1]
+            return request
+        def accept(**probe):
+            for msg in probe["messages"]:
+                if "tool_calls" in msg:
+                    msg["tool_calls"] = [call for call in msg["tool_calls"] if "function" in call]
+            return self.request(**probe)
+        for factory in (drop, accept):
+            with self.assertRaises(ValueError):
+                self.exercise(request_type=factory)
+
 
 class LoaderTests(unittest.TestCase):
     setUp = lab_fixture.BootstrapTests.setUp
@@ -283,6 +311,20 @@ class BindingTests(unittest.TestCase):
         self.assertEqual(report["cleanup"], "confirmed")
         self.assertEqual(report["experiment"]["entry"]["checkpoints"], {"status": "eof", "last_id": 15})
         self.assertEqual(report["experiment"]["entry"]["exception_diagnostic"]["type"], "type")
+
+    def test_first_fixed_control_failure_is_preserved(self):
+        import json
+        directory = lab_fixture.ROOT / "evidence/p2/2026-10-22-tokenizer-materialization-local-34f7968"
+        expected = {"run.json": "e0e9c4cc7a784ca12e4fb773d6df6d61e98d77d6db9603173e35136d3c1ee8e4",
+                    "output.log": "2d5f3ed48a562fe072a87d79fef636a387d7d79745fc29e017c41f4b733bf75e"}
+        for name, sha in expected.items():
+            self.assertEqual(hashlib.sha256((directory / name).read_bytes()).hexdigest(), sha)
+        report = json.loads((directory / "output.log").read_bytes())
+        self.assertFalse(report["entry_pass"])
+        self.assertFalse(report["experiment"]["adapter_verified"])
+        self.assertEqual(report["cleanup"], "confirmed")
+        self.assertEqual(report["experiment"]["entry"]["checkpoints"], {"status": "eof", "last_id": 12})
+        self.assertEqual(report["experiment"]["entry"]["exception_diagnostic"]["type"], "value")
 
     def test_cpu_fixed_contract_preserves_application_probe_and_bounds(self):
         tool, f = self.fixture.tool, self.fixture.fixture

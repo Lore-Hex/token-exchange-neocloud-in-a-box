@@ -22,6 +22,17 @@ The separate native CPU run `39795135328` did **not** reach entry: its
 application ceiling. It is an application-timeout failure, not a tokenizer
 failure or independent confirmation of the local TypeError. No bounds change.
 
+The first fixed control at producer `34f7968c5239354e2f2fba58ef1294874e9b2783`
+is also preserved in [run.json](../../evidence/p2/2026-10-22-tokenizer-materialization-local-34f7968/run.json)
+and [output.log](../../evidence/p2/2026-10-22-tokenizer-materialization-local-34f7968/output.log).
+It constructed all four requests and passed list/idempotence checks, but failed
+at checkpoint 12: the diagnostic's negative **Python generator** input was
+accepted. This is not an HTTP JSON input or a parity pass. The corrected negative
+control supplies a JSON array with an invalid second item, allowing Pydantic to
+create its own validator iterator, as on the actual endpoint. A two-valid-item
+control additionally checks that no later tool call disappears. The server
+adapter and the four original parity inputs are unchanged by this control fix.
+
 All upstream sources below are pinned to
 `5df63a7203cdb9328d824a27b682e77c7b9928be`:
 
@@ -89,7 +100,7 @@ all safety bounds remain unchanged. A CPU pass leaves overall `result=fail`,
 The fixed CPU path uses all four unchanged probes, compares raw and validated
 encoding before and after both generic parser routes, retains assistant null
 content and the tool call, checks idempotence, and rejects a later invalid
-iterator element through the real Pydantic ValidationError. No body, message,
+JSON-array item through the real Pydantic ValidationError. No body, message,
 token ID, rendered prompt, exception text or private path is logged.
 
 For a separately approved GPU parity rerun, add `--tokenizer-materialization`

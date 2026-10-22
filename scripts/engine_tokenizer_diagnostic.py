@@ -131,20 +131,21 @@ def exercise_fixed(probes, request_type, normalize, encode, parse, parse_async, 
     for _ in range(2):
         require(requests[3]._materialize_tool_calls_after() is requests[3]
                 and requests[3].messages[1]["tool_calls"] is calls)
-    # A later invalid iterator element must raise the real validation error,
-    # not be skipped, deferred until parse, or hidden by a guard ValueError.
-    visited = []
-    def invalid_calls():
-        visited.append(1)
-        yield copy.deepcopy(probes[3]["messages"][1]["tool_calls"][0])
-        visited.append(2)
-        yield {"type": "function", "id": "invalid_missing_function"}
+    # HTTP JSON supplies a list. Pydantic creates the lazy validator iterator;
+    # supplying a Python generator instead can be consumed by other union
+    # branches and does not model the endpoint input.
+    multiple = copy.deepcopy(probes[3])
+    second = copy.deepcopy(multiple["messages"][1]["tool_calls"][0])
+    second["id"] = "valid_second_call"
+    multiple["messages"][1]["tool_calls"].append(second)
+    expected_calls = copy.deepcopy(multiple["messages"][1]["tool_calls"])
+    require(request_type(**multiple).messages[1]["tool_calls"] == expected_calls)
     invalid = copy.deepcopy(probes[3])
-    invalid["messages"][1]["tool_calls"] = invalid_calls()
+    invalid["messages"][1]["tool_calls"].append({"type": "function", "id": "invalid_missing_function"})
     try:
         request_type(**invalid)
     except validation_error:
-        require(visited == [1, 2])
+        pass
     else:
         require(False)
     checkpoints.emit(13)
