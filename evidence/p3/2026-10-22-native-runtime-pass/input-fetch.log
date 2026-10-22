@@ -1,0 +1,2 @@
+{"delay_seconds": 1, "expected_bytes": 169284, "expected_sha256": "f240266ebe34ec2562c277c4257b032a8546b479337fdba1536a8d19804d0eb2", "failed_attempt": 1, "failure": "process-exit", "input_kind": "archive", "package_execution": false, "result": "retry", "returncode": 28, "schema": "nib.input-fetch-retry/v1"}
+Pinned public build inputs fetched; no package execution.

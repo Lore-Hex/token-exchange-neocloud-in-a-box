@@ -1,0 +1,17 @@
+{
+  "control_members": 257,
+  "data_hooks": 17,
+  "deployable": false,
+  "guest_lock_sha256": "f3162aeab969aba9a99d3dc96ddeb80b7ee808b55b126762710a08269e182de8",
+  "hardware_validated": false,
+  "image_built": false,
+  "installation_authorized": false,
+  "inventory_sha256": "9d06062127bb1d74cb88b014586fad4d90b138f7b4fe0946f5228899ab8558dc",
+  "package_count": 212,
+  "packages_executed": false,
+  "policy_sha256": "574ad932b280276abf3e686496a13bba7c6ad39d745251bccb9db40de565567d",
+  "result": "pass",
+  "schema": "nib.guest-hook-review/v1",
+  "scope": "fresh-directory-installation-source-review",
+  "source_review_matches": true
+}
