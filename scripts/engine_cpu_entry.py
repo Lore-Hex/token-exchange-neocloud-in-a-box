@@ -393,6 +393,9 @@ def apply_and_observe(contract, sources, modules, application, measured, lab):
     if "diagnostic" in contract:
         require(contract["diagnostic"] == "tokenizer-continuation")
         result["diagnostic"] = contract["diagnostic"]
+    if "tokenizer_materialization" in contract:
+        lab.tokenizer_adapter_options(contract, require)
+        result.update(tokenizer_materialization=contract["tokenizer_materialization"], adapter_verified=False)
     phase = "application-preflight"
     started = time.monotonic()
     deadline = started + APPLICATION_SECONDS
@@ -416,6 +419,10 @@ def apply_and_observe(contract, sources, modules, application, measured, lab):
             os.mkdir("/cache/" + name, mode=0o700)
         result["entry"] = observe_entry(lab)
         result["entry_pass"] = diagnostic_pass(result["entry"])
+        if "tokenizer_materialization" in contract:
+            # The fixed child emits checkpoint 16 only after active loader,
+            # delegate and Pydantic identities plus all fixed controls pass.
+            result["adapter_verified"] = result["entry_pass"]
         result["stage"] = "complete"
     except Exception:
         result["failure"] = "bounded-cpu-entry-rejected"
@@ -424,12 +431,15 @@ def apply_and_observe(contract, sources, modules, application, measured, lab):
     return result
 
 
-def validate(overlay, report, application, measured, receipt_validator):
+def validate(overlay, report, application, measured, receipt_validator, adapter=None):
     fixed = {"schema": SCHEMA, "status": "BLOCKED", "execution": "software",
              "deployable": False, "confidential": False, "hardware_validated": False,
              "abi_validated": False, "inference_started": False}
     if type(report) is dict and "diagnostic" in report:
         fixed["diagnostic"] = "tokenizer-continuation"
+    if adapter is not None:
+        require(report.get("diagnostic") == "tokenizer-continuation")
+        fixed.update(tokenizer_materialization=adapter, adapter_verified=report["entry_pass"])
     require(type(report) is dict
             and set(report) in (set(fixed) | {"entry_pass", "stage", "application", "entry", "phase_elapsed_ms"},
                                 set(fixed) | {"entry_pass", "stage", "application", "entry", "phase_elapsed_ms", "failure"})

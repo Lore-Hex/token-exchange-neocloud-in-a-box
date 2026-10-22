@@ -933,9 +933,10 @@ class ContractTests(unittest.TestCase):
                              Loader=yaml.BaseLoader)
         self.assertEqual(set(workflow["on"]), {"workflow_dispatch"})
         inputs = workflow["on"]["workflow_dispatch"]["inputs"]
-        self.assertEqual(set(inputs), {"tokenizer_continuation"})
-        self.assertEqual(inputs["tokenizer_continuation"]["type"], "boolean")
-        self.assertEqual(inputs["tokenizer_continuation"]["default"], "false")
+        self.assertEqual(set(inputs), {"tokenizer_continuation", "tokenizer_materialization"})
+        for item in inputs.values():
+            self.assertEqual(item["type"], "boolean")
+            self.assertEqual(item["default"], "false")
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         self.assertEqual(workflow["concurrency"]["cancel-in-progress"], "false")
         self.assertEqual(set(workflow["jobs"]), {"diagnostic"})

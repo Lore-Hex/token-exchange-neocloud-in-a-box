@@ -108,7 +108,7 @@ def parallel_size(contract):
 
 
 def make_payload(builder, revision, bundle, extra, binary, operation="functional", family="B200", security="confidential", replicas=1,
-                 *, tokenizer_parity=False):
+                 *, tokenizer_parity=False, tokenizer_materialization=False):
     require(operation in ("functional", "hardware-diagnostic", "local-correctness", "pre-serve"))
     require(family in ("B200", "B300") and (family == "B200" or operation in ("local-correctness", "pre-serve")))
     require(security in ("confidential", "nonconfidential") and (security == "confidential"
@@ -117,6 +117,7 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
                    "data_parallel_size": replicas})
     require(type(tokenizer_parity) is bool and (not tokenizer_parity or
             (operation == "local-correctness" and family == "B300" and security == "confidential")))
+    require(type(tokenizer_materialization) is bool and (not tokenizer_materialization or tokenizer_parity))
     files, _ = builder.prepare_files(revision, bundle, extra)
     app = builder.overlay.load_json(files["payload/contract.json"])
     measured = builder.application.measurement(builder.overlay, extra[builder.application.EVIDENCE])
@@ -135,6 +136,8 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
         payload["correctness.py"] = extra[CORRECTNESS]
     if tokenizer_parity:
         payload["tokenizer-parity.py"] = extra[PARITY]
+    if tokenizer_materialization:
+        payload["tokenizer-adapter.py"] = extra[LAB_BOOTSTRAP]
     contract = {"schema": "nib.deepseek-lab-input/v1", "status": "BLOCKED", "deployable": False, "confidential": False,
                 "operation": operation,
                 "git_sha": revision, "base_image": builder.overlay.BASE_IMAGE, "official_config": app["official_config"],
@@ -155,12 +158,17 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
         contract["data_parallel_size"] = replicas
     if tokenizer_parity:
         contract["tokenizer_parity"] = True
+    if tokenizer_materialization:
+        adapter = types.ModuleType("lab_adapter_constants")
+        exec(compile(extra[LAB_BOOTSTRAP], LAB_BOOTSTRAP, "exec", dont_inherit=True), adapter.__dict__)
+        contract["tokenizer_materialization"] = adapter.tokenizer_adapter_identity()
     payload["lab.json"] = builder.overlay.json_bytes(contract)
     payload["python"] = runtime.wrapper_bytes(contract["interpreter"]["resolved"], contract["environment"], digest(payload["lab.json"]))
     return payload, contract
 
 
-def prepare(destination, operation="functional", family="B200", security="confidential", replicas=1, *, tokenizer_parity=False):
+def prepare(destination, operation="functional", family="B200", security="confidential", replicas=1, *,
+            tokenizer_parity=False, tokenizer_materialization=False):
     builder = load("lab_application_builder", ROOT / BUILDER, BUILDER_SHA)
     revision, bundle, extra = builder.inputs(ROOT)
     for name in (SCRIPT, HELPER, RUNTIME, LAB_BOOTSTRAP, EXCEPTIONS, PROBE, SMOKE, TEST, SIX_TEST,
@@ -172,6 +180,9 @@ def prepare(destination, operation="functional", family="B200", security="confid
     if tokenizer_parity:
         for name in (PARITY, "scripts/test_engine_tokenizer_parity.py"):
             extra[name] = committed(builder, revision, name)
+    if tokenizer_materialization:
+        name = "scripts/test_tokenizer_materialization.py"
+        extra[name] = committed(builder, revision, name)
     require(extra[SCRIPT] == read(Path(__file__).absolute()))
     recorder = builder.recorder
     with tempfile.TemporaryDirectory(prefix="nib-lab-build-") as temporary:
@@ -179,7 +190,7 @@ def prepare(destination, operation="functional", family="B200", security="confid
         env = recorder.offline_environment(work / "control")
         binary, source_sha = recorder.build_validator(ROOT, revision, work, {**env, "GOOS": "linux", "GOARCH": "amd64"})
         payload, contract = make_payload(builder, revision, bundle, extra, read(binary, MAX_BYTES), operation, family, security, replicas,
-                                         tokenizer_parity=tokenizer_parity)
+                                         tokenizer_parity=tokenizer_parity, tokenizer_materialization=tokenizer_materialization)
         config = recorder.raw_metadata(ROOT / "build/engine-image-metadata", contract)
         runtime = load("lab_environment_constants", ROOT / RUNTIME, digest(extra[RUNTIME]))
         image_env = dict(item.split("=", 1) for item in config["config"]["Env"])
@@ -249,6 +260,9 @@ def bundle_inputs(path, expected):
     if "tokenizer_parity" in contract:
         checker = load("lab_parity_profile", path / "payload/tokenizer-parity.py", contract["sources"]["tokenizer-parity.py"])
         require(checker.enabled(contract))
+    if "tokenizer_materialization" in contract:
+        adapter = load("lab_adapter_profile", path / "payload/tokenizer-adapter.py", contract["sources"]["tokenizer-adapter.py"])
+        require(adapter.tokenizer_adapter_options(contract, require))
     config = recorder.raw_metadata(path / "metadata", contract)
     return receipt, contract, config, recorder
 
@@ -476,6 +490,9 @@ def validate_result(row, bundle, contract, recorder):
     fields = {"schema", "status", "deployable", "confidential", "functional_pass",
               "stage", "application", "hardware", "completion", "startup", "engine_stopped"}
     expected_schema = "nib.deepseek-lab-result/v2"
+    if "tokenizer_materialization" in contract:
+        fields.add("tokenizer_materialization")
+        require(parity and row.get("tokenizer_materialization") == contract["tokenizer_materialization"])
     if correctness:
         fields.add("tokenizer_parity" if parity else "correctness")
         expected_schema = "nib.deepseek-lab-tokenizer-parity/v1" if parity else "nib.deepseek-lab-correctness-result/v2"
@@ -636,22 +653,26 @@ def main():
     action.add_argument("--run", metavar="PRIVATE_BUNDLE")
     parser.add_argument("--tokenizer-parity", action="store_true",
                         help="Prepare the fixed B300 CC tokenizer prerequisite instead of correctness cases.")
+    parser.add_argument("--tokenizer-materialization", action="store_true",
+                        help="Prepare the pinned server validator adapter; requires --tokenizer-parity.")
     parser.add_argument("--receipt-sha256")
     parser.add_argument("--weights")
     parser.add_argument("--output")
     parser.add_argument("--deadline", help="Required UTC hard cutoff, YYYY-MM-DDTHH:MM:SSZ, at most 80 minutes away.")
     args = parser.parse_args()
+    require(not args.tokenizer_materialization or args.tokenizer_parity)
     for option, profile in preparations.items():
         destination = getattr(args, option.replace("-", "_"))
         if destination:
             require(not any((args.receipt_sha256, args.weights, args.output, args.deadline)))
             if args.tokenizer_parity:
                 require(profile[:3] == ("local-correctness", "B300", "confidential"))
-                prepare(destination, *profile, tokenizer_parity=True)
+                optional = {"tokenizer_materialization": True} if args.tokenizer_materialization else {}
+                prepare(destination, *profile, tokenizer_parity=True, **optional)
             else:
                 prepare(destination, *profile)
             return 0
-    require(not args.tokenizer_parity)
+    require(not args.tokenizer_parity and not args.tokenizer_materialization)
     require(sys.platform == "linux" and all((args.receipt_sha256, args.output, args.deadline)))
     deadline = dt.datetime.strptime(args.deadline, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp()
     require(0 < deadline - time.time() <= MAX_SECONDS)

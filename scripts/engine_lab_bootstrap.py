@@ -74,6 +74,162 @@ TILELANG_CALLBACKS = ("_nib_tilelang_libs", "_nib_tilelang_tvm")
 TVM_SCRIPT_SHA = "dcf67eed9023c21aab21c3db4459b5f1e3adb715e5ad4d834e85700575ee2014"
 TVM_DIALECTS = {"tirx": "tvm.tirx.script", "relax": "tvm.relax.script"}
 
+# vLLM 5df63a7203cdb9328d824a27b682e77c7b9928be. This is an opt-in
+# executed-code adapter, not a sixth mutation of the five-stage disk candidate.
+TOKENIZER_TARGET = "vllm.entrypoints.serve.tokenize.protocol"
+TOKENIZER_DONOR = "vllm.entrypoints.openai.chat_completion.protocol"
+TOKENIZER_METHOD = "_materialize_tool_calls_after"
+TOKENIZER_PINS = {
+    TOKENIZER_TARGET: (6484, "e887a771afbc7ae3c709691d31e34da8f3d63a627eab55cc3d97d05625901c07"),
+    TOKENIZER_DONOR: (50714, "8744d5e2004b2d376e34cf17de51c919bca6d81b0cc8392da138db1ef05a7c61"),
+}
+TOKENIZER_WRAPPER = (
+    '@model_validator(mode="after")\n'
+    'def _materialize_tool_calls_after(self):\n'
+    '    _nib_tokenizer_check()\n'
+    '    try:\n'
+    '        return _NibChatCompletionRequest._materialize_tool_calls_after(self)\n'
+    '    finally:\n'
+    '        _nib_tokenizer_check()\n'
+)
+
+
+def tokenizer_adapter_identity():
+    return {"schema": "nib.tokenizer-materialization-adapter/v1",
+            "target_sha256": TOKENIZER_PINS[TOKENIZER_TARGET][1],
+            "delegate_sha256": TOKENIZER_PINS[TOKENIZER_DONOR][1],
+            "wrapper_sha256": hashlib.sha256(TOKENIZER_WRAPPER.encode("ascii")).hexdigest(),
+            "method": TOKENIZER_METHOD, "disk_candidate_changed": False}
+
+
+def tokenizer_adapter_options(contract, require):
+    if "tokenizer_materialization" not in contract:
+        return {}
+    value, expected = contract["tokenizer_materialization"], tokenizer_adapter_identity()
+    require(type(value) is dict and value == expected
+            and all(type(value[k]) is type(v) for k, v in expected.items())
+            and (contract.get("diagnostic") == "tokenizer-continuation"
+                 or contract.get("tokenizer_parity") is True))
+    return {"tokenizer_materialization": tokenizer_adapter_identity()}
+
+
+def tokenizer_code(raw, path, require):
+    size, digest = TOKENIZER_PINS[TOKENIZER_TARGET]
+    require(len(raw) == size and hashlib.sha256(raw).hexdigest() == digest)
+    tree = ast.parse(raw, filename=path)
+    require(not any(isinstance(node, ast.Name) and node.id in
+                    ("_NibChatCompletionRequest", "_nib_tokenizer_check") for node in ast.walk(tree)))
+    imports = [n for n in tree.body if isinstance(n, ast.ImportFrom) and n.module == TOKENIZER_DONOR]
+    classes = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "TokenizeChatRequest"]
+    require(len(imports) == len(classes) == 1
+            and [(n.name, n.asname) for n in imports[0].names] == [("ChatCompletionToolsParam", None)]
+            and not any(isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == TOKENIZER_METHOD
+                        for n in classes[0].body))
+    imports[0].names.append(ast.alias(name="ChatCompletionRequest", asname="_NibChatCompletionRequest"))
+    method = ast.parse(TOKENIZER_WRAPPER).body[0]
+    # Keep adapter frames beyond the original file; source receipts explicitly
+    # identify this wrapper instead of presenting it as unchanged vendor code.
+    ast.increment_lineno(method, len(raw.splitlines()))
+    classes[0].body.append(method)
+    return compile(ast.fix_missing_locations(tree), path, "exec", flags=0, dont_inherit=True, optimize=0)
+
+
+def tokenizer_method_code(code, qualname, require):
+    pending, matches, count = [code], [], 0
+    while pending:
+        current = pending.pop()
+        count += 1
+        require(count <= 4096)
+        if current.co_qualname == qualname:
+            matches.append(current)
+        pending.extend(c for c in current.co_consts if type(c) is types.CodeType)
+    require(len(matches) == 1)
+    return matches[0]
+
+
+class TokenizerAdapter:
+    """Identity guard for one pre-class-construction adapter; no content receipt."""
+    def __init__(self, selected, helpers):
+        self.selected, self.helpers = selected, helpers
+        self.status, self.module, self.loader = "not-loaded", None, None
+        self.bound = None
+
+    def path(self, name):
+        return self.selected + "/" + name.replace(".", "/") + ".py"
+
+    def check(self):
+        require = self.helpers.require
+        try:
+            require(self.status != "failed")
+            require((TOKENIZER_TARGET not in sys.modules) if self.module is None
+                    else sys.modules.get(TOKENIZER_TARGET) is self.module)
+            if self.module is not None:
+                require(self.module.__spec__.loader is self.loader and self.module.__loader__ is self.loader
+                        and self.module.__spec__.origin == self.path(TOKENIZER_TARGET)
+                        and self.module.__file__ == self.path(TOKENIZER_TARGET))
+            if self.status == "active":
+                donor, cls, delegate, delegate_code, target, wrapper, wrapper_code, validator, decorators, row = self.bound
+                require(sys.modules.get(TOKENIZER_DONOR) is donor
+                        and donor.__spec__.origin == self.path(TOKENIZER_DONOR)
+                        and donor.__file__ == self.path(TOKENIZER_DONOR)
+                        and donor.__loader__ is donor.__spec__.loader
+                        and vars(donor).get("ChatCompletionRequest") is cls
+                        and vars(cls).get(TOKENIZER_METHOD) is delegate and delegate.__code__ is delegate_code
+                        and delegate.__globals__ is vars(donor) and delegate.__closure__ is None
+                        and delegate.__builtins__ is vars(donor).get("__builtins__")
+                        and vars(self.module).get("TokenizeChatRequest") is target
+                        and vars(self.module).get("_NibChatCompletionRequest") is cls
+                        and vars(self.module).get("_nib_tokenizer_check") is self.callback
+                        and vars(target).get(TOKENIZER_METHOD) is wrapper and wrapper.__code__ is wrapper_code
+                        and wrapper.__globals__ is vars(self.module) and wrapper.__closure__ is None
+                        and target.__pydantic_validator__ is validator and target.__pydantic_decorators__ is decorators
+                        and decorators.model_validators.get(TOKENIZER_METHOD) is row
+                        and row.func is wrapper and row.info.mode == "after")
+                require(donor.__loader__ is self.donor_loader)
+                for name, value in self.builtins.items():
+                    require(name not in vars(donor) and vars(donor)["__builtins__"].get(name) is value)
+        except BaseException:
+            self.status = "failed"
+            raise
+
+    def begin(self, module, loader):
+        require = self.helpers.require
+        require(self.status == "not-loaded" and sys.modules.get(TOKENIZER_TARGET) is module)
+        self.module, self.loader, self.status = module, loader, "loading"
+        self.callback = self.check
+        module.__dict__["_nib_tokenizer_check"] = self.callback
+        self.check()
+
+    def bind(self, code, source_loader):
+        require = self.helpers.require
+        donor = sys.modules[TOKENIZER_DONOR]
+        raw = self.helpers.read_source(self.path(TOKENIZER_DONOR), 128 << 10)
+        size, digest = TOKENIZER_PINS[TOKENIZER_DONOR]
+        require(len(raw) == size and hashlib.sha256(raw).hexdigest() == digest
+                and type(donor.__loader__) is source_loader)
+        reference = tokenizer_method_code(compile(raw, self.path(TOKENIZER_DONOR), "exec", flags=0,
+                                                   dont_inherit=True, optimize=0),
+                                          "ChatCompletionRequest." + TOKENIZER_METHOD, require)
+        target, cls = self.module.TokenizeChatRequest, donor.ChatCompletionRequest
+        wrapper, delegate = vars(target)[TOKENIZER_METHOD], vars(cls)[TOKENIZER_METHOD]
+        expected = tokenizer_method_code(code, "TokenizeChatRequest." + TOKENIZER_METHOD, require)
+        require(type(wrapper) is types.FunctionType and type(delegate) is types.FunctionType
+                and self.helpers.same_code(delegate.__code__, reference)
+                and self.helpers.same_code(wrapper.__code__, expected))
+        decorators = target.__pydantic_decorators__
+        row = decorators.model_validators[TOKENIZER_METHOD]
+        self.bound = (donor, cls, delegate, delegate.__code__, target, wrapper, wrapper.__code__,
+                      target.__pydantic_validator__, decorators, row)
+        self.donor_loader = donor.__loader__
+        self.builtins = {"dict": dict, "list": list, "isinstance": isinstance}
+        self.status = "active"
+        self.check()
+
+    def verified(self):
+        self.check()
+        self.helpers.require(self.status == "active")
+        return tokenizer_adapter_identity()
+
 
 def tvm_script_code(raw, path, require):
     """Keep pinned TVM exports, but resolve its aliases in the sealed finder."""
@@ -255,6 +411,10 @@ def install_lab(layout, helpers, checkpoint=None):
             and sys.pycache_prefix is None and os.getcwd() == "/")
     require("selected_root" not in layout)
     selected = layout["paths"][-1]
+    adapter = None
+    if "tokenizer_materialization" in layout:
+        require(layout["tokenizer_materialization"] == tokenizer_adapter_identity())
+        adapter = TokenizerAdapter(selected, helpers)
     vendor = selected + "/setuptools/_vendor"
     # Keep package identity separate from the additional active vendor path.
     # Callers handing this state to VecISA must not reinterpret its last path.
@@ -325,6 +485,8 @@ def install_lab(layout, helpers, checkpoint=None):
         raise ValueError("lab Python boundary rejected")
 
     def check():
+        if adapter is not None:
+            adapter.check()
         if state["tvm_script_status"] == "failed":
             reject()
         if state["tvm_script"] is not None:
@@ -484,7 +646,27 @@ def install_lab(layout, helpers, checkpoint=None):
             # -B prevents writes, not reads. Ignore caches for all ordinary source
             # modules; the application separately rejects stale candidate caches.
             raw = helpers.read_source(self.path, 16 << 20)
+            if adapter is not None and fullname == TOKENIZER_DONOR:
+                size, digest = TOKENIZER_PINS[TOKENIZER_DONOR]
+                require(self.path == adapter.path(fullname) and len(raw) == size
+                        and hashlib.sha256(raw).hexdigest() == digest)
             return compile(raw, self.path, "exec", flags=0, dont_inherit=True, optimize=0)
+
+    class TokenizerSource(SourceOnly):
+        def get_code(self, fullname):
+            require(fullname == TOKENIZER_TARGET and self.path == adapter.path(fullname))
+            return tokenizer_code(helpers.read_source(self.path, 128 << 10), self.path, require)
+
+        def exec_module(self, module):
+            try:
+                adapter.begin(module, self)
+                code = self.get_code(module.__name__)
+                exec(code, module.__dict__)
+                adapter.bind(code, SourceOnly)
+                check()
+            except BaseException:
+                adapter.status = "failed"
+                raise
 
     class CutlassSource(SourceOnly):
         def get_code(self, fullname):
@@ -978,6 +1160,16 @@ def install_lab(layout, helpers, checkpoint=None):
                 return spec
             try:
                 spec = importlib.machinery.PathFinder.find_spec(fullname, path, target)
+                if adapter is not None and fullname == TOKENIZER_TARGET:
+                    require(adapter.status == "not-loaded" and target is None and spec is not None
+                            and type(spec.loader) is importlib.machinery.SourceFileLoader
+                            and spec.origin == adapter.path(fullname))
+                    spec.loader = TokenizerSource(fullname, spec.origin)
+                    return spec
+                if adapter is not None and fullname == TOKENIZER_DONOR:
+                    require(target is None and spec is not None
+                            and type(spec.loader) is importlib.machinery.SourceFileLoader
+                            and spec.origin == adapter.path(fullname))
                 if fullname == "tilelang.env":
                     require(state["tilelang_status"] == "not-loaded" and target is None
                             and spec is not None and type(spec.loader) is importlib.machinery.SourceFileLoader
@@ -1008,6 +1200,8 @@ def install_lab(layout, helpers, checkpoint=None):
                     spec.loader = PatternSource(fullname, spec.origin)
                     return spec
             except BaseException:
+                if adapter is not None and fullname in (TOKENIZER_TARGET, TOKENIZER_DONOR):
+                    adapter.status = "failed"
                 if fullname == "cv2":
                     state["opencv_status"] = "failed"
                 if fullname in SIX_SOURCES:
@@ -1059,6 +1253,8 @@ def install_lab(layout, helpers, checkpoint=None):
     # Ordinary engine/JIT child processes are container-supervised, not granted
     # exceptions to the unchanged P0 guard. Python reentry uses only route().
     state["check"] = check
+    if adapter is not None:
+        state["tokenizer_adapter_verified"] = adapter.verified
     sys._nib_lab_bootstrap = state
     check()
     if checkpoint is not None:
