@@ -15,6 +15,7 @@ import stat
 import struct
 import subprocess
 import sys
+import time
 import types
 import uuid
 
@@ -44,6 +45,12 @@ GUEST_FILES = {
 VERIFY = ("verify", "reject-root", "verify-final")
 OPERATIONS = {"mkfs": 240, "repart": 120, "fsck": 120, "verify": 120, "reject-root": 120, "verify-final": 120}
 LOGS = tuple("verity-" + op + "." + stream for op in OPERATIONS for stream in ("stdout", "stderr"))
+TREE_BUCKETS = ("etc", "usr", "boot", "var/log", "var/lib/dkms", "var/lib/dpkg", "var", "other")
+TREE_FILES = ("etc/machine-id", "etc/shadow", "etc/gshadow", "etc/ld.so.cache",
+              "var/log/dpkg.log", "var/log/apt/history.log", "var/log/apt/term.log",
+              "var/lib/dkms/nvidia/595.91.07/6.8.0-147-generic/x86_64/log/make.log")
+TREE_MAX_ENTRIES = 150000
+TREE_MAX_BYTES = 8 << 30
 
 
 def require(value):
@@ -86,6 +93,83 @@ def directory(path):
         yield fd
     finally:
         os.close(fd)
+
+
+def tree_diagnostics(root, *, clock=time.monotonic):
+    """Hash fixed directory buckets, never expose file contents or dynamic paths.
+
+    This is a localization aid, not another filesystem integrity verifier:
+    timestamps, xattrs and hard-link topology remain outside this fingerprint.
+    """
+    deadline, count, total = clock() + 120, 0, 0
+    hashes = {name: hashlib.sha256() for name in TREE_BUCKETS}
+    stats = {name: {"entries": 0, "bytes": 0} for name in TREE_BUCKETS}
+    selected = {name: None for name in TREE_FILES}
+
+    def stamp(info):
+        return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid,
+                info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+    def visit(parent, prefix, depth):
+        nonlocal count, total
+        require(depth <= 64 and clock() < deadline)
+        names = sorted(os.listdir(parent))
+        require(len(names) <= TREE_MAX_ENTRIES - count)
+        for name in names:
+            require(clock() < deadline)
+            count += 1
+            require(count <= TREE_MAX_ENTRIES)
+            path = prefix + name
+            require(len(os.fsencode(path)) <= 4096)
+            before = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            mode, size, digest = stat.S_IFMT(before.st_mode), 0, None
+            if stat.S_ISREG(before.st_mode):
+                fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+                with os.fdopen(fd, "rb") as stream:
+                    require(stamp(before) == stamp(os.fstat(stream.fileno())))
+                    require(before.st_size <= TREE_MAX_BYTES - total)
+                    hashed = hashlib.sha256()
+                    while True:
+                        require(clock() < deadline)
+                        chunk = stream.read(min(1 << 20, before.st_size + 1 - size))
+                        if not chunk:
+                            break
+                        size += len(chunk)
+                        require(size <= before.st_size)
+                        hashed.update(chunk)
+                    require(size == before.st_size and stamp(before) == stamp(os.fstat(stream.fileno())))
+                    digest = hashed.hexdigest()
+                total += size
+            elif stat.S_ISLNK(before.st_mode):
+                digest = hashlib.sha256(os.fsencode(os.readlink(name, dir_fd=parent))).hexdigest()
+            else:
+                require(stat.S_ISDIR(before.st_mode))
+            bucket = next((key for key in TREE_BUCKETS[:-1]
+                           if path == key or path.startswith(key + "/")), "other")
+            row = [path, mode, stat.S_IMODE(before.st_mode), before.st_uid, before.st_gid, size, digest]
+            hashes[bucket].update((json.dumps(row, ensure_ascii=True, separators=(",", ":")) + "\n").encode())
+            stats[bucket]["entries"] += 1
+            stats[bucket]["bytes"] += size
+            if path in selected:
+                require(stat.S_ISREG(before.st_mode))
+                selected[path] = {"bytes": size, "sha256": digest}
+            if stat.S_ISDIR(before.st_mode):
+                child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                try:
+                    require(stamp(before) == stamp(os.fstat(child)))
+                    visit(child, path + "/", depth + 1)
+                    require(stamp(before) == stamp(os.fstat(child)))
+                finally:
+                    os.close(child)
+            require(stamp(before) == stamp(os.stat(name, dir_fd=parent, follow_symlinks=False)))
+
+    with directory(root) as fd:
+        before = os.fstat(fd)
+        visit(fd, "", 0)
+        require(stamp(before) == stamp(os.fstat(fd)))
+    return {"schema": "nib.root-tree-diagnostics/v1", "entries": count, "bytes": total,
+            "buckets": {key: {**stats[key], "sha256": hashes[key].hexdigest()} for key in TREE_BUCKETS},
+            "selected_files": selected, "image_integrity_verified": False}
 
 
 def definitions(size):
@@ -274,6 +358,7 @@ def build(processes, prefix, reader, output=Path("/out"), *, require_boot_ids=Fa
     with directory(WORK.parent) as fd:
         os.mkdir(WORK.name, 0o700, dir_fd=fd)  # Collision rejects; never reuse/delete a prior workspace.
     try:
+        diagnostics = tree_diagnostics(ROOTFS)
         execute(processes, prefix, "mkfs", output)
         data = inspect_file(DATA, MAX_DATA)
         write_definitions(data["bytes"])
@@ -293,6 +378,7 @@ def build(processes, prefix, reader, output=Path("/out"), *, require_boot_ids=Fa
         require(inspect_file(DATA, MAX_DATA) == data and inspect_file(HASH, MAX_HASH) == hashes
                 and verify_tools(reader) == identities)
         report = {"schema": "nib.private-verity-root/v1", "result": "pass", "seed": SEED,
+                  "source_tree_diagnostics": diagnostics,
                   "erofs_uuid": SEED, "erofs_timestamp": int(EPOCH), "parameters": parameters,
                   "root_hash": root_hash, "images": {DATA: data, HASH: hashes, DISK: disk}, "tools": identities,
                   "erofs_checked": True, "userspace_verity_verified": True, "wrong_root_rejected": True,

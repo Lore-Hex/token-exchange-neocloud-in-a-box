@@ -93,6 +93,8 @@ tau-latency measurement. A distinct evaluator candidate is the official
 identified by [publisher metadata](https://huggingface.co/api/models/Qwen/Qwen3-1.7B-GGUF)
 on 2026-10-22. It is a proposed pin, not an admitted or downloaded model here.
 
+The [explicit CPU transport](p2-t3-tau-cpu-framing.md) now implements and tests the
+pinned render/tokenize/chat protocol without enabling live admission.
 Next bounded implementation: verify that second model's complete selected-file
 inventory, reuse the pilot's CPU-only launcher, and add an explicitly pinned
 llama.cpp transport/receipt kind with independent full-template token parity.
