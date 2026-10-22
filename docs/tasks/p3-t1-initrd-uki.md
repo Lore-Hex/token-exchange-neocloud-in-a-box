@@ -1,9 +1,9 @@
 # P3.T1 private initrd and unsigned UKI increment
 
-Status: implemented and fixture-tested, **not natively executed or booted**.
-This is a generation/inspection path using existing authenticated tools, not a
-completed P3.T1 image, release output or confidential proof. No workflow, GPU,
-firmware, signing service or cloud build was invoked for it.
+Status: implemented, fixture-tested and **natively assembled/inspected** in the
+[October 22 native run](../../evidence/p3/2026-10-22-native-boot-assembly-pass/README.md).
+The private images were removed after verification. No boot, signing,
+reproducibility or confidential proof is claimed; P3.T1 is not complete.
 
 The separate [private artifact export](p3-t1-private-boot-export.md) adds an
 explicit local-only opt-in. It retains the verified GPT through UKI verification
@@ -55,8 +55,8 @@ bytes and the same 471,091-byte JSON size. Its SHA-256 is
 The only changed member is `usr/lib/os-release`: 400 to 445 bytes, with installed
 SHA-256 `27294876c0c569b1f50960119e09e149bc2436aaff672528931a81d4ffc79b8b`.
 The [original failed native run](../../evidence/p3/2026-10-22-boot-member-rejected/README.md)
-did not identify the failing file. This source-backed correction still requires
-a native retry; it does not retroactively prove that run's precise failure.
+did not identify the failing file. The native retry passed the corrected inventory
+and exact 445-byte UKI `.osrel`; it does not retroactively prove that run's precise failure.
 These are input inventory measurements, **not generated image sizes**. Native
 assembly copies installed regular files only when their bytes match this
 inventory; vendor links are inert inventory data, never followed for copying.
