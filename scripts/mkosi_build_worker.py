@@ -10,7 +10,7 @@ import sys
 import types
 
 STAGES = ("preflight", "namespaces", "pid", "ownership", "configuration", "installation", "inventory", "driver-build",
-          "runtime-policy", "appraisal-cli", "verity-root")
+          "runtime-policy", "appraisal-cli", "verity-root", "boot-uki")
 COMMAND = ["/usr/bin/python3.12", "-I", "-S", "-B", "/nib/mkosi-entry.py",
            "--directory=/work/config", "--tools-tree=/", "--output=rootfs",
            "--output-directory=/work/output", "--workspace-directory=/work/workspaces",
@@ -92,7 +92,8 @@ def failure_diagnostics(error):
     """Identify our failing operation, never exception text, locals or paths."""
     names = {__file__: "build-worker", "/nib/snapshot.py": "process-supervisor",
              "/nib/dkms-worker.py": "driver-worker", "/nib/runtime-policy.py": "runtime-policy",
-             "/nib/appraisal-probe.py": "appraisal-probe", "/nib/verity-root.py": "verity-root"}
+             "/nib/appraisal-probe.py": "appraisal-probe", "/nib/verity-root.py": "verity-root",
+             "/nib/boot-uki.py": "boot-uki"}
     frames = []
     traceback = error.__traceback__
     while traceback is not None:
@@ -129,8 +130,10 @@ def process_states(proc=Path("/proc")):
 
 def options(arguments):
     require(arguments in ([], ["--compile-driver"], ["--install-driver"],
-                          ["--install-driver", "--verity-root"]))
-    return bool(arguments), "--install-driver" in arguments, "--verity-root" in arguments
+                          ["--install-driver", "--verity-root"],
+                          ["--install-driver", "--verity-root", "--boot-uki"]))
+    return (bool(arguments), "--install-driver" in arguments, "--verity-root" in arguments,
+            "--boot-uki" in arguments)
 
 
 def main():
@@ -140,10 +143,10 @@ def main():
               "package_installation_executed": False, "configured_state_verified": False,
               "dkms_built": False, "reproducibility_verified": False, "bootable": False, "deployable": False}
     try:
-        compile_driver, install_driver, verity_root = options(sys.argv[6:])
+        compile_driver, install_driver, verity_root, boot_uki = options(sys.argv[6:])
         require(sys.platform == "linux" and sys.version_info[:2] == (3, 12)
                 and sys.flags.isolated and sys.flags.no_site and sys.flags.dont_write_bytecode
-                and 6 <= len(sys.argv) <= 8 and os.geteuid() == os.getegid() == 0)
+                and 6 <= len(sys.argv) <= 9 and os.geteuid() == os.getegid() == 0)
         stage = "namespaces"
         module("namespace-check").check(sys.argv[1:5])
         stage = "pid"
@@ -188,7 +191,12 @@ def main():
         if verity_root:
             stage = "verity-root"
             report["verity_root"] = module("verity-root").build(
-                processes, module("confinement").PREFIX, module("dkms-worker").regular)
+                processes, module("confinement").PREFIX, module("dkms-worker").regular,
+                **({"require_boot_ids": True} if boot_uki else {}))
+        if boot_uki:
+            stage = "boot-uki"
+            report["boot_uki"] = module("boot-uki").build(
+                processes, module("confinement").PREFIX, report["verity_root"]["root_hash"])
         report["result"] = "pass"
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         report["failure_frames"] = failure_diagnostics(exc)

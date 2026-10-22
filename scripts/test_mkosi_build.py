@@ -445,6 +445,8 @@ class BuildTests(unittest.TestCase):
             "description": "Install the reviewed 212-package runtime candidate instead of the kernel-only candidate",
             "type": "boolean", "default": False}, "verity_root": {
             "description": "Generate and verify private EROFS/verity files (requires runtime and driver installation; no export or boot)",
+            "type": "boolean", "default": False}, "boot_uki": {
+            "description": "Assemble and inspect private initrd/unsigned UKI (requires verity_root; no export, signing or boot)",
             "type": "boolean", "default": False}}}})
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         job = workflow["jobs"]["install"]
@@ -462,7 +464,8 @@ class BuildTests(unittest.TestCase):
         self.assertEqual(job["steps"][2]["env"], {"COMPILE_DRIVER": "${{ inputs.compile_driver }}",
                                                "INSTALL_DRIVER": "${{ inputs.install_driver }}",
                                                "GUEST_RUNTIME": "${{ inputs.guest_runtime }}",
-                                               "VERITY_ROOT": "${{ inputs.verity_root }}"})
+                                               "VERITY_ROOT": "${{ inputs.verity_root }}",
+                                               "BOOT_UKI": "${{ inputs.boot_uki }}"})
         self.assertIn('if [ "$GUEST_RUNTIME" = true ]; then args+=(--guest-runtime); fi',
                       job["steps"][2]["run"])
         self.assertIn('if [ "$COMPILE_DRIVER" = true ]; then args+=(--compile-driver); fi',

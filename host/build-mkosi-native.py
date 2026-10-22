@@ -29,6 +29,8 @@ DKMS = "scripts/mkosi_dkms.py"
 RUNTIME_POLICY = "scripts/mkosi_runtime_policy.py"
 APPRAISAL = "scripts/mkosi_appraisal_probe.py"
 VERITY = "scripts/mkosi_verity.py"
+BOOT = "scripts/mkosi_boot.py"
+BOOT_PREP = "scripts/prepare_mkosi_boot.py"
 HOOKS = "scripts/review_guest_hooks.py"
 RUNTIME_APT = "evidence/p3/2026-10-22-runtime-apt-plan/report.json"
 probe = types.SimpleNamespace(**runpy.run_path(str(ROOT / PROBE), run_name="build_probe"))
@@ -48,9 +50,11 @@ def preflight():
     require({name: (group / name).read_text().strip() for name in resources.LIMITS} == resources.LIMITS)
 
 
-def command(root, payload, output, mapped, compile_driver=False, install_driver=False, verity_root=False):
+def command(root, payload, output, mapped, compile_driver=False, install_driver=False, verity_root=False,
+            boot_uki=False):
     require(not install_driver or compile_driver)
     require(type(verity_root) is bool and (not verity_root or install_driver))
+    require(type(boot_uki) is bool and (not boot_uki or verity_root))
     before = [os.readlink("/proc/self/ns/" + name) for name in ("user", "mnt", "net", "ipc", "pid")]
     return [*probe.ownership.prefix(root, mapped), probe.native.PYTHON, "-I", "-S", "-B",
         str(payload / "mkosi-sandbox.py"), "--ro-bind", str(root), "/",
@@ -60,7 +64,7 @@ def command(root, payload, output, mapped, compile_driver=False, install_driver=
         "/usr/bin/unshare", "--pid", "--fork", "--mount-proc=/proc", "--kill-child=KILL", "--",
         "/usr/bin/python3.12", "-I", "-S", "-B", "/nib/build-worker.py", *before,
         *(["--install-driver"] if install_driver else ["--compile-driver"] if compile_driver else []),
-        *(["--verity-root"] if verity_root else [])]
+        *(["--verity-root"] if verity_root else []), *(["--boot-uki"] if boot_uki else [])]
 
 
 def runtime_preflight(sources, archives):
@@ -83,9 +87,10 @@ def runtime_preflight(sources, archives):
     return hooks.validate(json.loads(sources[hooks.RUNTIME_POLICY]), lock_raw, rows)
 
 
-def prepare(downloads, source_archive, revision, sources, guest_runtime=False, verity_root=False):
+def prepare(downloads, source_archive, revision, sources, guest_runtime=False, verity_root=False, boot_uki=False):
     require(type(guest_runtime) is bool)
     require(type(verity_root) is bool and (not verity_root or guest_runtime))
+    require(type(boot_uki) is bool and (not boot_uki or verity_root))
     review = None
     if guest_runtime:
         review = runtime_preflight(sources, downloads / "archives")
@@ -117,12 +122,18 @@ def prepare(downloads, source_archive, revision, sources, guest_runtime=False, v
         payload["appraisal-probe.py"] = sources[APPRAISAL]
     if verity_root:
         payload["verity-root.py"] = sources[VERITY]
+    if boot_uki:
+        helper = types.ModuleType("boot_preparation")
+        exec(compile(sources[BOOT_PREP], BOOT_PREP, "exec", dont_inherit=True), helper.__dict__)
+        payload["boot-uki.py"] = sources[BOOT]
+        payload["boot-inputs.json"] = helper.prepare(
+            downloads / "archives", sources[hooks.RUNTIME_LOCK], tools)
     modes = {"upstream/" + name: 0o555 if row["mode"] == "100755" else 0o444
              for name, row in pin["source_files"].items() if row["mode"] != "120000"}
     return prepared, preparation, payload, modes, links
 
 
-def collect_diagnostics(resultdir, verity_root=False):
+def collect_diagnostics(resultdir, verity_root=False, boot_uki=False):
     artifacts = {}
     for name in ("installer.stdout", "installer.stderr", "dkms-compiler.stdout", "dkms-compiler.stderr",
                  "dkms-add.stdout", "dkms-add.stderr", "dkms-build.stdout", "dkms-build.stderr",
@@ -141,14 +152,21 @@ def collect_diagnostics(resultdir, verity_root=False):
                 name = "verity-" + operation + "." + stream
                 if (resultdir / name).exists():
                     artifacts[name] = base.read(resultdir / name, 65536)
+    if boot_uki:
+        for operation in ("depmod", "cpio", "ukify", "inspect"):
+            for stream in ("stdout", "stderr"):
+                name = "boot-" + operation + "." + stream
+                if (resultdir / name).exists():
+                    artifacts[name] = base.read(resultdir / name, 65536)
     return artifacts
 
 
 def run(downloads, archive, output, revision, sources, compile_driver=False, install_driver=False,
-        guest_runtime=False, verity_root=False):
+        guest_runtime=False, verity_root=False, boot_uki=False):
     require(type(guest_runtime) is bool)
     require(not install_driver or compile_driver)
     require(type(verity_root) is bool and (not verity_root or (guest_runtime and install_driver)))
+    require(type(boot_uki) is bool and (not boot_uki or verity_root))
     require(not output.exists() and not output.is_symlink())
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     report = {"schema": "nib.mkosi-installation/v1", "git_sha": revision, "result": "fail",
@@ -160,7 +178,7 @@ def run(downloads, archive, output, revision, sources, compile_driver=False, ins
         temporary = Path(temporary).resolve()
         try:
             prepared, preparation, payload_files, modes, links = prepare(
-                downloads, archive, revision, sources, guest_runtime, verity_root)
+                downloads, archive, revision, sources, guest_runtime, verity_root, boot_uki)
             if guest_runtime:
                 artifacts["runtime-hook-review.json"] = prepared["runtime-hook-review.json"]
             inputs = temporary / "prepared"
@@ -188,7 +206,7 @@ def run(downloads, archive, output, revision, sources, compile_driver=False, ins
             report.update(stage="installation", prepared_receipt_sha256=base.digest(prepared["receipt.json"]),
                           tools_receipt_sha256=base.digest(files["receipt.json"]))
             result = base.processes.execute_process_group(command(
-                root, payload, resultdir, mapped, compile_driver, install_driver, verity_root),
+                root, payload, resultdir, mapped, compile_driver, install_driver, verity_root, boot_uki),
                 env={**probe.native.worker.ENV, "RUNNER_ENVIRONMENT": "github-hosted"},
                 timeout=1900, max_output_bytes=2 << 20, stdin=subprocess.DEVNULL)
             report["process_cleanup_confirmed"] = True
@@ -199,7 +217,7 @@ def run(downloads, archive, output, revision, sources, compile_driver=False, ins
                 require(worker["schema"] == "nib.mkosi-install-worker/v1"
                         and worker["bootable"] is False and worker["deployable"] is False)
                 report["worker"] = worker
-            artifacts.update(collect_diagnostics(resultdir, verity_root))
+            artifacts.update(collect_diagnostics(resultdir, verity_root, boot_uki))
             result.check_returncode()
             require(report["worker"] and report["worker"]["result"] == "pass"
                     and report["worker"]["configured_state_verified"] is True
@@ -215,6 +233,14 @@ def run(downloads, archive, output, revision, sources, compile_driver=False, ins
                                                           "wrong_root_rejected", "private_images_removed"))
                         and all(verity[k] is False for k in ("images_exported", "boot_verified", "kernel_verity_verified",
                                                            "reproducibility_verified", "confidentiality_verified")))
+            if boot_uki:
+                boot = report["worker"]["boot_uki"]
+                require(boot["schema"] == "nib.private-boot-uki/v1" and boot["result"] == "pass"
+                        and boot["root_hash"] == verity["root_hash"]
+                        and verity["boot_partuuids_checked"] is True
+                        and all(boot[k] is True for k in ("archive_checked", "sections_checked", "private_images_removed"))
+                        and all(boot[k] is False for k in ("signed", "images_exported", "boot_verified",
+                                                         "reproducibility_verified", "confidentiality_verified")))
             report.update(result="pass", stage="complete")
         except (OSError, ValueError, KeyError, TypeError, tarfile.TarError, subprocess.SubprocessError) as exc:
             report["failure_kind"] = probe.failure_kind(exc)
@@ -234,6 +260,9 @@ def run(downloads, archive, output, revision, sources, compile_driver=False, ins
     if verity_root:
         evidence["command"] += " --verity-root"
         evidence["notes"] = "Bounded private EROFS/verity generation and userspace verification; images removed, no export, UKI, boot, LKCA, reproducibility or confidentiality proof."
+    if boot_uki:
+        evidence["command"] += " --boot-uki"
+        evidence["notes"] = "Private initrd and unsigned UKI assembly/inspection after userspace verity verification; images removed. No export, boot, signing, LKCA, reproducibility or confidentiality proof."
     artifacts.update({"run.json": base.encoded(evidence), "result.json": base.encoded(report)})
     base.publish(output, artifacts)
     return 0 if report["result"] == "pass" else 1
@@ -247,18 +276,21 @@ def main():
     parser.add_argument("--install-driver", action="store_true")
     parser.add_argument("--guest-runtime", action="store_true")
     parser.add_argument("--verity-root", action="store_true")
+    parser.add_argument("--boot-uki", action="store_true")
     args = parser.parse_args()
     require(not args.install_driver or args.compile_driver)
     require(not args.verity_root or (args.guest_runtime and args.install_driver))
+    require(not args.boot_uki or args.verity_root)
     preflight()
     tools.separate_output(args.output, (args.downloads, args.archive))
     revision, sources = tools.committed((*mkosi.EXTRA, prep.SCRIPT, prep.POLICY,
         SCRIPT, PROBE, WORKER, ENTRY, RESOURCES, LAUNCHER, probe.NATIVE, probe.OWNERSHIP,
         probe.PID_CHECKER, probe.native.CHECKER, probe.native.WORKER, DKMS,
         *((HOOKS, hooks.RUNTIME_LOCK, hooks.RUNTIME_POLICY, RUNTIME_APT, RUNTIME_POLICY, APPRAISAL)
-          if args.guest_runtime else ()), *((VERITY,) if args.verity_root else ())))
+          if args.guest_runtime else ()), *((VERITY,) if args.verity_root else ()),
+        *((BOOT, BOOT_PREP) if args.boot_uki else ())))
     return run(args.downloads, args.archive, args.output, revision, sources, args.compile_driver,
-               args.install_driver, args.guest_runtime, verity_root=args.verity_root)
+               args.install_driver, args.guest_runtime, verity_root=args.verity_root, boot_uki=args.boot_uki)
 
 
 if __name__ == "__main__":
