@@ -1,11 +1,12 @@
 # Private provider checker
 
 The preparation increment exercises the **unchanged upstream provider checker**,
-not replacement HTTP checks. The subsequent opt-in owned-runtime integration is
-implemented and software-tested, but has not run against DeepSeek. Neither
-increment grants P2 conformance or changes engine imports/logging. A live run
-requires final-head independent review and parent coordination; no run is
-implied by these tests or the historical closed-endpoint receipt.
+not replacement HTTP checks. The reviewed opt-in owned-runtime integration now
+has one [actual DeepSeek private API pass](../../evidence/p2/2026-10-22-provider-conformance-pass/README.md):
+17 mandatory checks across tiers 1-4 passed, with declared Catalog v2 deliberately
+skipped and owned-container cleanup confirmed. This is API conformance only,
+not full P2, quality/tau, public-service or confidential qualification. Engine
+imports/logging are unchanged; another live run still requires separate approval.
 
 ## Audited Source
 
