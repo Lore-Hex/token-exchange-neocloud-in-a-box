@@ -23,11 +23,47 @@ BUILD_SECONDS = 900
 MODEL_SECONDS = 300
 TOTAL_SECONDS = 1800
 STAGES = ("inputs", "build", "local-tokenizer", "readiness", "comparison", "complete")
+FAILURE_SOURCES = ("scripts/tau_cpu_parity.py", "scripts/tau_live_identity.py",
+                   "scripts/tau_local_llama.py", "scripts/tau_local_vllm.py",
+                   "scripts/pilot/run.py", "scripts/e2e/snapshot.py")
+FAILURE_KINDS = ("timeout", "os-error", "rejected", "cancelled", "other")
 
 
 def require(value):
     if not value:
         raise ValueError("CPU parity rejected")
+
+
+def failure_diagnostics(error, server_exit):
+    """Only fixed source IDs/line numbers and numeric status, never error text."""
+    names = {str(ROOT / name): name for name in FAILURE_SOURCES}
+    frames, trace = [], error.__traceback__
+    while trace is not None:
+        source = names.get(trace.tb_frame.f_code.co_filename)
+        if source is not None:
+            frames.append({"source": source, "line": trace.tb_lineno})
+            frames = frames[-8:]
+        trace = trace.tb_next
+    kind = ("timeout" if isinstance(error, (TimeoutError, subprocess.TimeoutExpired)) else
+            "os-error" if isinstance(error, OSError) else
+            "rejected" if isinstance(error, (ValueError, llama.worker.Abort)) else
+            "cancelled" if isinstance(error, KeyboardInterrupt) else "other")
+    number = error.errno if isinstance(error, OSError) else None
+    return {"kind": kind, "errno": number if type(number) is int and 0 < number < 4096 else None,
+            "server_exit": server_exit, "frames": frames}
+
+
+def validate_failure(value):
+    identity.keys(value, ("kind", "errno", "server_exit", "frames"))
+    require(value["kind"] in FAILURE_KINDS
+            and (value["errno"] is None or type(value["errno"]) is int and 0 < value["errno"] < 4096)
+            and (value["server_exit"] is None or type(value["server_exit"]) is int
+                 and -127 <= value["server_exit"] <= 255)
+            and type(value["frames"]) is list and len(value["frames"]) <= 8)
+    for frame in value["frames"]:
+        identity.keys(frame, ("source", "line"))
+        require(frame["source"] in FAILURE_SOURCES and type(frame["line"]) is int
+                and 0 < frame["line"] <= (ROOT / frame["source"]).read_bytes().count(b"\n") + 1)
 
 
 def module(path, name):
@@ -198,10 +234,13 @@ def validate(report):
     """Closed metadata schema: no child strings, content or exception fields."""
     pins = settings()
     identity.keys(report, ("schema", "result", "stage", "engine_revision", "models", "binaries",
-                           "quality_eligible", "confidential", "live_admission"))
+                           "quality_eligible", "confidential", "live_admission", "failure"))
     require(report["schema"] == "nib.tau-cpu-parity/v1" and report["result"] in ("pass", "fail")
             and report["stage"] in STAGES and report["engine_revision"] == llama.REVISION
             and all(report[key] is False for key in ("quality_eligible", "confidential", "live_admission")))
+    if report["failure"] is not None:
+        require(report["result"] == "fail")
+        validate_failure(report["failure"])
     require(type(report["binaries"]) is dict and set(report["binaries"]) in (set(), {"server", "helper"}))
     for digest in report["binaries"].values():
         require(type(digest) is str and re.fullmatch("[0-9a-f]{64}", digest))
@@ -248,7 +287,8 @@ def run(archive, models, work):
     pins = settings()
     report = {"schema": "nib.tau-cpu-parity/v1", "result": "fail", "stage": "inputs",
               "engine_revision": llama.REVISION, "models": [], "binaries": {},
-              "quality_eligible": False, "confidential": False, "live_admission": False}
+              "quality_eligible": False, "confidential": False, "live_admission": False, "failure": None}
+    server_exit = None
     try:
         confinement()
         pilot, snapshot = tools()
@@ -298,6 +338,9 @@ def run(archive, models, work):
                 require(pilot.file_digest(weight) == pins["models"][model]["sha256"])
                 if len(item["cases"]) == 4 and all(row["result"] == "pass" for row in item["cases"]):
                     item["result"] = "pass"
+            except BaseException:
+                server_exit = process.poll()  # Before our cleanup signals; None means still running.
+                raise
             finally:
                 require(pilot.stop(process))
             require(time.monotonic() < deadline)
@@ -305,7 +348,8 @@ def run(archive, models, work):
                 break
         if len(report["models"]) == 2 and all(item["result"] == "pass" for item in report["models"]):
             report.update(result="pass", stage="complete")
-    except BaseException:
-        # No dependency text, paths, prompts, completions or traceback escapes.
+    except BaseException as error:
+        # No dependency text, dynamic paths, prompts, completions or locals escape.
         report["result"] = "fail"
+        report["failure"] = failure_diagnostics(error, server_exit)
     return report
