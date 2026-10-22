@@ -27,6 +27,7 @@ IMAGE_LD_PATH = "/usr/local/nvidia/lib64:/usr/local/cuda/lib64:/usr/local/cuda/l
 PROCESSES = None
 GPU_PROBE = None
 CORRECTNESS = None
+PARITY = None
 ENTRY_CHECKPOINTS = 17
 EXCEPTION_PACKET_BYTES = 3 + 8 * 36
 WORKER_EXCEPTION_PATH = "/cache/worker-exception.bin"
@@ -211,7 +212,7 @@ def load(name, raw, path):
 
 
 def lab_context(expected):
-    global PROCESSES, GPU_PROBE, CORRECTNESS
+    global PROCESSES, GPU_PROBE, CORRECTNESS, PARITY
     import platform
     import re
     require(re.fullmatch(r"[0-9a-f]{64}", expected) and __file__ == ROOT + "/launch.py")
@@ -247,6 +248,9 @@ def lab_context(expected):
     replicas = GPU_PROBE.parallel_size(contract)
     if contract["operation"] == "local-correctness":
         CORRECTNESS = load("lab_correctness", sources["correctness.py"], ROOT + "/correctness.py")
+    if "tokenizer_parity" in contract:
+        PARITY = load("lab_tokenizer_parity", sources["tokenizer-parity.py"], ROOT + "/tokenizer-parity.py")
+        require(PARITY.enabled(contract))
     modules = [load(name, sources["application/" + name], ROOT + "/application/" + name)
                for name in ("engine_overlay.py", "engine_image_diagnostic.py", "engine_python_descriptor.py", "application.py")]
     overlay, _, _, app = modules
@@ -338,7 +342,12 @@ def http_request(path, *, data=None, timeout=2):
 
 
 def correctness_request(payload, deadline):
+    return bounded_request("/v1/chat/completions", payload, deadline)
+
+
+def bounded_request(path, payload, deadline):
     """A whole-request deadline, including slow headers or trickling bodies."""
+    require(path in ("/tokenize", "/v1/chat/completions"))
     before = time.monotonic()
     remaining = deadline - before
     if remaining <= 0:
@@ -351,7 +360,7 @@ def correctness_request(payload, deadline):
     signal.signal(signal.SIGALRM, expired)
     signal.setitimer(signal.ITIMER_REAL, min(previous_timer[0], remaining))
     try:
-        return http_request("/v1/chat/completions", data=payload, timeout=remaining)
+        return http_request(path, data=payload, timeout=remaining)
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, previous_handler)
@@ -380,6 +389,35 @@ def completion_result(raw):
             "final_content_present": final_content_present,
             "synthetic_answer_match": final_content_present and content.strip() == "2",
             "prompt_tokens": usage["prompt_tokens"], "completion_tokens": usage["completion_tokens"]}
+
+
+def local_tokenizer(contract, modules, application):
+    """Private child emits only hashes/counts, never tokenizer or library output."""
+    require(PARITY.enabled(contract))
+    report_fd = os.dup(1)
+    os.set_inheritable(report_fd, False)
+    try:
+        with open(os.devnull, "r+b", buffering=0) as sink:
+            for fd in (0, 1, 2):
+                os.dup2(sink.fileno(), fd)
+        signal.signal(signal.SIGALRM, lambda *_: os._exit(124))
+        signal.alarm(PARITY.LOCAL_SECONDS)
+        recheck_sources(modules[0], application, contract["paths"])
+        PARITY.verify_sources(read_source, contract["paths"][-1], CORRECTNESS)
+        PARITY.verify_model(read_source)
+        state = install_lab({"paths": contract["paths"], "stdlib_roots": contract["paths"][:2],
+                             "wrapper": ROOT + "/python", "launcher": ROOT + "/launch.py"}, sys.modules[__name__])
+        from vllm.tokenizers.deepseek_v41 import DeepseekV41Tokenizer
+        from vllm.entrypoints.openai.chat_completion.protocol import ChatCompletionToolsParam
+        tokenizer = DeepseekV41Tokenizer.from_pretrained("/model", local_files_only=True, trust_remote_code=False)
+        row = PARITY.local_measure(tokenizer, ChatCompletionToolsParam, CORRECTNESS)
+        state["check"]()
+        PARITY.verify_model(read_source)
+        PARITY.validate_local(row, CORRECTNESS)
+        raw = PARITY.encoded(row)
+        require(len(raw) <= 8192 and os.write(report_fd, raw) == len(raw))
+    finally:
+        os.close(report_fd)
 
 
 def prepare_engine(contract, checkpoints):
@@ -523,9 +561,13 @@ def application_and_request(contract, sources, modules, application, measured):
               "application": None, "hardware": None, "completion": None,
               "startup": None, "engine_stopped": False}
     correctness = contract["operation"] == "local-correctness"
+    parity = contract.get("tokenizer_parity") is True
     pre_serve = contract["operation"] == "pre-serve"
     if correctness:
-        result.update(schema="nib.deepseek-lab-correctness-result/v2", correctness=None)
+        if parity:
+            result.update(schema="nib.deepseek-lab-tokenizer-parity/v1", tokenizer_parity=None)
+        else:
+            result.update(schema="nib.deepseek-lab-correctness-result/v2", correctness=None)
     if pre_serve:
         result.update(schema="nib.deepseek-lab-pre-serve/v1", entry_pass=False)
     engine = checkpoints = errors = None
@@ -550,7 +592,9 @@ def application_and_request(contract, sources, modules, application, measured):
             # exact source, all preserved native bytes and all five receipts.
         result["stage"] = "prelaunch"
         require(hardware(contract.get("gpu_family", "B200"), security, count) == result["hardware"])
-        if correctness:
+        if parity:
+            PARITY.verify_sources(read_source, contract["paths"][-1], CORRECTNESS)
+        elif correctness:
             CORRECTNESS.verify_sources(read_source, contract["paths"][-1])
         require(time.monotonic() - started < WEIGHTS_SECONDS + APPLICATION_SECONDS + 60)
         result["stage"] = "startup"
@@ -588,7 +632,14 @@ def application_and_request(contract, sources, modules, application, measured):
             result.update(stage="complete", entry_pass=True)
             return result
         result["stage"] = "request"
-        if correctness:
+        if parity:
+            remaining = started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE - time.monotonic()
+            require(remaining > 0)
+            local = CORRECTNESS.strict_json(quiet_command([ROOT + "/python", "tokenizer-parity"],
+                                                         min(PARITY.LOCAL_SECONDS, remaining), output=True))
+            result["tokenizer_parity"] = PARITY.run(bounded_request, local, MODEL, CORRECTNESS,
+                deadline=started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE)
+        elif correctness:
             result["correctness"] = CORRECTNESS.run(
                 correctness_request, MODEL, deadline=started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE)
         else:
@@ -597,7 +648,7 @@ def application_and_request(contract, sources, modules, application, measured):
                 "max_tokens": 128, "temperature": 0, "stream": False})
             result["completion"] = completion_result(raw)
         require(hardware(contract.get("gpu_family", "B200"), security, count) == result["hardware"])
-        result["functional_pass"] = (result["correctness"]["all_cases_pass"] if correctness else
+        result["functional_pass"] = (result["tokenizer_parity" if parity else "correctness"]["all_cases_pass"] if correctness else
                                     (result["completion"]["final_content_present"]
                                      and result["completion"]["synthetic_answer_match"]
                                      and result["completion"]["finish"] == "stop"))
@@ -670,6 +721,10 @@ def lab_entry():
         return
     contract, sources, modules, application, measured = lab_context(sys.argv[1])
     mode, rest = sys.argv[2], sys.argv[2:]
+    if mode == "tokenizer-parity":
+        require(len(rest) == 1 and contract.get("tokenizer_parity") is True)
+        local_tokenizer(contract, modules, application)
+        return
     if contract["operation"] == "hardware-diagnostic":
         require(mode == "diagnose-hardware" and len(rest) == 1)
         signal.signal(signal.SIGALRM, lambda *_: os._exit(124))

@@ -33,6 +33,7 @@ LAB_BOOTSTRAP = "scripts/engine_lab_bootstrap.py"
 EXCEPTIONS = "scripts/engine_exception.py"
 PROBE = "scripts/engine_lab_probe.py"
 CORRECTNESS = "scripts/engine_local_correctness.py"
+PARITY = "scripts/engine_tokenizer_parity.py"
 SMOKE = "scripts/engine_import_smoke.py"
 TEST = "scripts/test_deepseek_lab.py"
 SIX_TEST = "scripts/test_botocore_six.py"
@@ -106,13 +107,16 @@ def parallel_size(contract):
     return size
 
 
-def make_payload(builder, revision, bundle, extra, binary, operation="functional", family="B200", security="confidential", replicas=1):
+def make_payload(builder, revision, bundle, extra, binary, operation="functional", family="B200", security="confidential", replicas=1,
+                 *, tokenizer_parity=False):
     require(operation in ("functional", "hardware-diagnostic", "local-correctness", "pre-serve"))
     require(family in ("B200", "B300") and (family == "B200" or operation in ("local-correctness", "pre-serve")))
     require(security in ("confidential", "nonconfidential") and (security == "confidential"
             or operation == "local-correctness"))
     parallel_size({"operation": operation, "gpu_family": family, "gpu_security": security,
                    "data_parallel_size": replicas})
+    require(type(tokenizer_parity) is bool and (not tokenizer_parity or
+            (operation == "local-correctness" and family == "B300" and security == "confidential")))
     files, _ = builder.prepare_files(revision, bundle, extra)
     app = builder.overlay.load_json(files["payload/contract.json"])
     measured = builder.application.measurement(builder.overlay, extra[builder.application.EVIDENCE])
@@ -129,6 +133,8 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
                     "pack/files.sha256": extra[PACK + "/files.sha256"]})
     if operation == "local-correctness":
         payload["correctness.py"] = extra[CORRECTNESS]
+    if tokenizer_parity:
+        payload["tokenizer-parity.py"] = extra[PARITY]
     contract = {"schema": "nib.deepseek-lab-input/v1", "status": "BLOCKED", "deployable": False, "confidential": False,
                 "operation": operation,
                 "git_sha": revision, "base_image": builder.overlay.BASE_IMAGE, "official_config": app["official_config"],
@@ -147,12 +153,14 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
         contract["gpu_security"] = security
     if replicas == 2:
         contract["data_parallel_size"] = replicas
+    if tokenizer_parity:
+        contract["tokenizer_parity"] = True
     payload["lab.json"] = builder.overlay.json_bytes(contract)
     payload["python"] = runtime.wrapper_bytes(contract["interpreter"]["resolved"], contract["environment"], digest(payload["lab.json"]))
     return payload, contract
 
 
-def prepare(destination, operation="functional", family="B200", security="confidential", replicas=1):
+def prepare(destination, operation="functional", family="B200", security="confidential", replicas=1, *, tokenizer_parity=False):
     builder = load("lab_application_builder", ROOT / BUILDER, BUILDER_SHA)
     revision, bundle, extra = builder.inputs(ROOT)
     for name in (SCRIPT, HELPER, RUNTIME, LAB_BOOTSTRAP, EXCEPTIONS, PROBE, SMOKE, TEST, SIX_TEST,
@@ -161,13 +169,17 @@ def prepare(destination, operation="functional", family="B200", security="confid
     if operation == "local-correctness":
         for name in (CORRECTNESS, "scripts/test_engine_local_correctness.py"):
             extra[name] = committed(builder, revision, name)
+    if tokenizer_parity:
+        for name in (PARITY, "scripts/test_engine_tokenizer_parity.py"):
+            extra[name] = committed(builder, revision, name)
     require(extra[SCRIPT] == read(Path(__file__).absolute()))
     recorder = builder.recorder
     with tempfile.TemporaryDirectory(prefix="nib-lab-build-") as temporary:
         work = Path(temporary).resolve()
         env = recorder.offline_environment(work / "control")
         binary, source_sha = recorder.build_validator(ROOT, revision, work, {**env, "GOOS": "linux", "GOARCH": "amd64"})
-        payload, contract = make_payload(builder, revision, bundle, extra, read(binary, MAX_BYTES), operation, family, security, replicas)
+        payload, contract = make_payload(builder, revision, bundle, extra, read(binary, MAX_BYTES), operation, family, security, replicas,
+                                         tokenizer_parity=tokenizer_parity)
         config = recorder.raw_metadata(ROOT / "build/engine-image-metadata", contract)
         runtime = load("lab_environment_constants", ROOT / RUNTIME, digest(extra[RUNTIME]))
         image_env = dict(item.split("=", 1) for item in config["config"]["Env"])
@@ -234,6 +246,9 @@ def bundle_inputs(path, expected):
     probe = load("lab_profile_validation", path / "payload/probe.py", contract["sources"]["probe.py"])
     probe.security_profile(contract)
     require(probe.parallel_size(contract) == parallel_size(contract))
+    if "tokenizer_parity" in contract:
+        checker = load("lab_parity_profile", path / "payload/tokenizer-parity.py", contract["sources"]["tokenizer-parity.py"])
+        require(checker.enabled(contract))
     config = recorder.raw_metadata(path / "metadata", contract)
     return receipt, contract, config, recorder
 
@@ -456,13 +471,14 @@ def validate_result(row, bundle, contract, recorder):
         probe.validate_diagnostic(row)
         return
     correctness = contract.get("operation") == "local-correctness"
+    parity = contract.get("tokenizer_parity") is True
     pre_serve = contract.get("operation") == "pre-serve"
     fields = {"schema", "status", "deployable", "confidential", "functional_pass",
               "stage", "application", "hardware", "completion", "startup", "engine_stopped"}
     expected_schema = "nib.deepseek-lab-result/v2"
     if correctness:
-        fields.add("correctness")
-        expected_schema = "nib.deepseek-lab-correctness-result/v2"
+        fields.add("tokenizer_parity" if parity else "correctness")
+        expected_schema = "nib.deepseek-lab-tokenizer-parity/v1" if parity else "nib.deepseek-lab-correctness-result/v2"
     if pre_serve:
         fields.add("entry_pass")
         expected_schema = "nib.deepseek-lab-pre-serve/v1"
@@ -563,13 +579,20 @@ def validate_result(row, bundle, contract, recorder):
                     and row["completion"]["synthetic_answer_match"] is True)
     if correctness:
         require(row["completion"] is None)
-        if row["correctness"] is not None:
+        field = "tokenizer_parity" if parity else "correctness"
+        if row[field] is not None:
             checker = load("lab_correctness_validation", Path(bundle) / "payload/correctness.py",
                            contract["sources"]["correctness.py"])
-            checker.validate(row["correctness"])
+            if parity:
+                parity_checker = load("lab_parity_validation", Path(bundle) / "payload/tokenizer-parity.py",
+                                      contract["sources"]["tokenizer-parity.py"])
+                require(parity_checker.enabled(contract))
+                parity_checker.validate(row[field], checker)
+            else:
+                checker.validate(row[field])
             require(row["hardware"] is not None and row["application"] is not None)
         if row["functional_pass"]:
-            require(row["correctness"] is not None and row["correctness"]["all_cases_pass"])
+            require(row[field] is not None and row[field]["all_cases_pass"])
     require(row["hardware"] is not None or (row["application"] is None and row["completion"] is None))
     require(row["application"] is not None or row["completion"] is None)
     if pre_serve:
@@ -611,6 +634,8 @@ def main():
     for option in preparations:
         action.add_argument("--" + option)
     action.add_argument("--run", metavar="PRIVATE_BUNDLE")
+    parser.add_argument("--tokenizer-parity", action="store_true",
+                        help="Prepare the fixed B300 CC tokenizer prerequisite instead of correctness cases.")
     parser.add_argument("--receipt-sha256")
     parser.add_argument("--weights")
     parser.add_argument("--output")
@@ -620,8 +645,13 @@ def main():
         destination = getattr(args, option.replace("-", "_"))
         if destination:
             require(not any((args.receipt_sha256, args.weights, args.output, args.deadline)))
-            prepare(destination, *profile)
+            if args.tokenizer_parity:
+                require(profile[:3] == ("local-correctness", "B300", "confidential"))
+                prepare(destination, *profile, tokenizer_parity=True)
+            else:
+                prepare(destination, *profile)
             return 0
+    require(not args.tokenizer_parity)
     require(sys.platform == "linux" and all((args.receipt_sha256, args.output, args.deadline)))
     deadline = dt.datetime.strptime(args.deadline, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp()
     require(0 < deadline - time.time() <= MAX_SECONDS)
