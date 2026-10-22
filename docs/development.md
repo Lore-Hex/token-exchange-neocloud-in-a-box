@@ -35,6 +35,37 @@ and requires the cleaned directory to pass. A separate temporary Git repository
 proves a token removed in a later commit is still detected in history. Neither
 test prints the token.
 
+## Historical producer sources
+
+Use a full-history clone for `make check`; a normal `--single-branch` clone is
+supported. Shallow clones and source archives do not contain the complete
+producer history. Tests never fetch missing commits or depend on retained
+feature branches, tags, local alternates or replacement refs.
+
+Every committed `evidence/**/run.json` names this repository's exact original
+producer in `git_sha`. The offline history regression requires every such
+commit to be an ancestor of `HEAD`, not merely present through another ref.
+Existing evidence-specific tests continue checking original source hashes and
+artifact bytes. Nested vendor revisions, such as mkosi's `source.git_sha`, are
+separate upstream pins, not this repository's producer commits.
+
+The initial repair preserves 13 historical producers with an append-only
+provenance merge. Its tree is byte-identical to its first parent, reviewed main
+`8e7704c6279a779382c018b574c226cede8dcc0b`; the other parents are the exact
+original producers. This is **provenance preservation, not code integration or
+hardware validation**. No existing commit IDs, parent links, source files or
+evidence bytes were rewritten, and no tags or repository settings changed.
+Git documents the tree-preserving
+[`ours` merge strategy](https://git-scm.com/docs/git-merge#_merge_strategies)
+and [ancestor checks](https://git-scm.com/docs/git-merge-base#_operation_modes).
+Do not confuse `-s ours` with conflict-resolution option `-X ours`.
+
+Future evidence PRs must retain their actual producer ancestry. Cherry-picking
+equivalent source bytes does not preserve the original commit named in a receipt.
+Preservation merges must retain their parent links when integrated: squashing or
+rebasing them would lose the repair. Keep the original source and receipt; do not
+rewrite their hashes, bypass the regression or fetch from the network in tests.
+
 Go code running in the confidential guest belongs under `guest/`. The dependency
 test enumerates its complete import graph for Linux, including tests and the
 `nibfake` build tag and both cgo modes, and rejects third-party packages even through an internal
