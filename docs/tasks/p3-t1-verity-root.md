@@ -10,6 +10,9 @@ retains the original verified GPT/data/hash files until nested UKI verification
 and copying finish. Without that explicit opt-in, the deletion behavior below
 is unchanged. Neither mode claims a boot or reproducibility result.
 
+[Content-free root diagnostics](p3-t1-root-tree-diagnostics.md) localize
+repeat-build differences before image creation without changing the image.
+
 ## Entry point and order
 
 The existing main-only, manually dispatched
