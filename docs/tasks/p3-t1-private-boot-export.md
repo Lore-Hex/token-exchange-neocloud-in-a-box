@@ -1,7 +1,8 @@
 # P3.T1 private boot artifact export
 
-Status: implemented and tested with synthetic subprocess outputs and local file
-fixtures. **No native export, boot, Secure Boot or reproducibility result.**
+Status: implemented with synthetic tests and a subsequent
+[native export verification and deletion pass](../../evidence/p3/2026-10-22-native-private-export-pass/README.md).
+**No boot, Secure Boot or reproducibility result.**
 This increment preserves the root GPT and unsigned UKI for a later separately
 authorized firmware test; it does not complete P3.T1.
 
@@ -23,9 +24,10 @@ These are placeholders for already authenticated local inputs, not a fetch or
 execution authorization. The root launcher retains its existing runner identity
 gate. Missing any prerequisite flag is rejected. The internal `--stage-boot`
 switch is not a standalone export command: only the root resource launcher
-finalizes a bundle after independent cleanup. The current manual workflow is
-unchanged and has **no export input or binary upload step**. Do not point its
-evidence upload at the private parent directory.
+finalizes a bundle after independent cleanup. The manual workflow now has an
+explicit [metadata-only export-validation mode](p3-t1-native-private-export-test.md),
+which deletes the images before upload. It has **no binary upload step**. Do not
+point an evidence upload at the private parent directory.
 
 For the example evidence name, the only successful bundle is the fixed sibling
 `/PRIVATE/run/evidence-boot/`, containing exactly:
