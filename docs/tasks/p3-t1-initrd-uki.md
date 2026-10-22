@@ -72,10 +72,15 @@ ordlookup source bytes, never ambient site packages or cached vendor bytecode.
    the verified 64-lowercase-hex root hash. No corruption-ignore option exists.
 5. Parse the generated outer PE with pinned pefile, require AMD64/PE32+/EFI
    application, no parser warnings, no certificate directory, no duplicate or
-   extra sections, and valid raw section bounds. Require the five embedded
+   extra sections, and aligned, non-overlapping raw and virtual section ranges
+   outside headers and within the image. Bind unchanged DOS/COFF/optional-header
+   fields, all data directories, entry point, stub section metadata and bytes to
+   the pinned stub. Permit only ukify's explicit header growth, alignment and
+   exact stub/kernel SBAT merge. Require the five embedded
    payload sections (`.linux`, `.initrd`, `.cmdline`, `.osrel`, `.uname`) to match
    the exact inputs. The other six sections are the pinned stub's section names,
-   including ukify's vendor SBAT handling. This is not signature verification.
+   including ukify's vendor SBAT handling. Payload permissions are fixed. This is
+   not signature verification.
 6. Recheck archive, tree, image and tool identities. Delete the entire private
    workspace before success; return only bounded diagnostics and content-free
    identities. Initial collisions are errors, never overwritten or removed.
@@ -160,3 +165,11 @@ Tests explicitly use synthetic CPIO/PE data and supervisors. A later separately
 authorized main-only native run must retain the original receipts and independent
 resource-cleanup evidence before claiming real initrd/UKI generation. Export,
 boot and reproducibility each require their own evidence and review.
+
+Independent source-level review found missing executable-stub and PE-layout
+checks in the first draft. Regression tests now reject stub-code mutations,
+entry-point redirection, altered data directories/SBAT/permissions, overlapping
+raw or virtual ranges, misalignment and header/image-bound violations. Review
+also checked the actual authenticated ukify, parser, stub and kernel bytes in
+memory: the baseline passed and all 29 mutation controls were rejected. That
+was a parsing/inspection check, not native image generation or boot evidence.

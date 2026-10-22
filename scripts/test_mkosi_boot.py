@@ -223,28 +223,65 @@ class BootTests(unittest.TestCase):
         self.assertIsNotNone(finder.find_spec("ordlookup").submodule_search_locations)
 
     def pe_fixture(self):
+        def header(**values):
+            return types.SimpleNamespace(__keys__=tuple((key,) for key in values), **values)
+        def section(name, raw, index, characteristics):
+            padded = raw + bytes(512 - len(raw))
+            value = header(Name=name.encode(), Misc_VirtualSize=len(raw), SizeOfRawData=512,
+                PointerToRawData=4096 + index * 512, VirtualAddress=(index + 1) * 4096,
+                Characteristics=characteristics)
+            value.get_data = lambda: padded
+            value.get_file_offset = lambda: 256 + index * 40
+            value.sizeof = lambda: 40
+            return value
         payloads = {".linux": b"pinned-kernel", ".initrd": b"fixture-archive", ".cmdline": b"fixed cmdline",
                     ".osrel": b"ID=ubuntu\n", ".uname": boot.KERNEL.encode()}
-        sections = [types.SimpleNamespace(Name=name.encode(), Misc_VirtualSize=len(raw),
-                    SizeOfRawData=len(raw), PointerToRawData=0, get_data=lambda raw=raw: raw)
-                    for name, raw in payloads.items()]
-        sections += [types.SimpleNamespace(Name=name.encode(), Misc_VirtualSize=1,
-                     SizeOfRawData=1, PointerToRawData=0, get_data=lambda: b"x")
-                     for name in (".text", ".rodata", ".data", ".sbat", ".sdmagic", ".reloc")]
-        pe = types.SimpleNamespace(FILE_HEADER=types.SimpleNamespace(Machine=0x8664),
-            OPTIONAL_HEADER=types.SimpleNamespace(Magic=0x20b, Subsystem=10,
-                DATA_DIRECTORY=[None] * 4 + [types.SimpleNamespace(VirtualAddress=0, Size=0)]),
-            sections=sections, get_warnings=lambda: [])
-        files = {boot.WORK / "nib.efi": b"fixture PE, not an actual image" * 8,
+        stub = types.SimpleNamespace(
+            DOS_HEADER=header(e_magic=0x5a4d, e_lfanew=128), NT_HEADERS=header(Signature=0x4550),
+            FILE_HEADER=header(Machine=0x8664, NumberOfSections=6, PointerToSymbolTable=0, NumberOfSymbols=0),
+            OPTIONAL_HEADER=header(Magic=0x20b, Subsystem=10, AddressOfEntryPoint=4096,
+                ImageBase=0x400000, FileAlignment=512, SectionAlignment=4096,
+                SizeOfHeaders=4096, SizeOfImage=7 * 4096, SizeOfInitializedData=100, CheckSum=0),
+            sections=[], get_warnings=lambda: [])
+        stub.OPTIONAL_HEADER.DATA_DIRECTORY = [header(VirtualAddress=0, Size=0) for _ in range(16)]
+        for index, name in enumerate((".text", ".rodata", ".data", ".sbat", ".sdmagic", ".reloc")):
+            raw = b"sbat,1,fixture\nstub,1,fixture\n" if name == ".sbat" else b"pinned-stub-code"
+            stub.sections.append(section(name, raw, index, 0x60000020 if name == ".text" else 0x40000040))
+        kernel = types.SimpleNamespace(sections=[], get_warnings=lambda: [])
+        pe = copy.deepcopy(stub)
+        sbat = boot.merged_sbat(stub, kernel)
+        pe.sections[3].Misc_VirtualSize = len(sbat)
+        pe.sections[3].get_data = lambda: sbat + bytes(512 - len(sbat))
+        for index, (name, raw) in enumerate(payloads.items(), 6):
+            pe.sections.append(section(name, raw, index, 0x40000020 if name == ".linux" else 0x40000040))
+        pe.FILE_HEADER.NumberOfSections = 11
+        pe.OPTIONAL_HEADER.SizeOfImage = 12 * 4096
+        pe.OPTIONAL_HEADER.SizeOfInitializedData += sum(map(len, payloads.values()))
+        pe.stub, pe.kernel = stub, kernel
+        files = {boot.WORK / "nib.efi": b"synthetic-image" + bytes(10000),
+                 boot.ROOTFS / "usr/lib/systemd/boot/efi/linuxx64.efi.stub": b"synthetic-stub",
                  boot.ROOTFS / ("boot/vmlinuz-" + boot.KERNEL): payloads[".linux"],
                  boot.WORK / "initrd.cpio": payloads[".initrd"], boot.WORK / "cmdline": payloads[".cmdline"],
                  boot.WORK / "tree/usr/lib/os-release": payloads[".osrel"]}
         return pe, files
 
+    def inspect_fixture(self, pe, files):
+        name = "usr/lib/systemd/boot/efi/linuxx64.efi.stub"
+        raw = files[boot.ROOTFS / name]
+        def parse(data, fast_load):
+            self.assertTrue(fast_load)
+            if data == raw:
+                return pe.stub
+            if data == files[boot.ROOTFS / ("boot/vmlinuz-" + boot.KERNEL)]:
+                return pe.kernel
+            return pe
+        with mock.patch.object(boot, "read", side_effect=lambda p,n: files[p]), \
+                mock.patch.dict(boot.GUEST, {name: (len(raw), hashlib.sha256(raw).hexdigest())}):
+            return boot.inspect_uki(types.SimpleNamespace(PE=parse))
+
     def test_pe_inspection_requires_exact_sections_machine_unsigned_and_no_warnings(self):
         pe, files = self.pe_fixture()
-        with mock.patch.object(boot, "read", side_effect=lambda p,n: files[p]):
-            value = boot.inspect_uki(types.SimpleNamespace(PE=lambda **kwargs: pe))
+        value = self.inspect_fixture(pe, files)
         self.assertIs(value["signed"], False)
         self.assertEqual(set(value["sections"]), {".linux", ".initrd", ".cmdline", ".osrel", ".uname"})
         for bad in ("machine", "subsystem", "warning", "signed", "duplicate", "missing", "hash", "size", "offset", "extra"):
@@ -256,15 +293,46 @@ class BootTests(unittest.TestCase):
                 elif bad == "signed": pe.OPTIONAL_HEADER.DATA_DIRECTORY[4].Size = 1
                 elif bad == "duplicate": pe.sections.append(pe.sections[0])
                 elif bad == "missing": pe.sections.pop()
-                elif bad == "hash": pe.sections[0].get_data = lambda: b"changed-kernel"
+                elif bad == "hash": pe.sections[6].get_data = lambda: b"changed-kernel"
                 elif bad == "size": pe.sections[0].SizeOfRawData = 0
                 elif bad == "extra":
                     section = copy.copy(pe.sections[-1])
                     section.Name = b".profile"
                     pe.sections.append(section)
                 else: pe.sections[0].PointerToRawData = 1 << 30
-                with mock.patch.object(boot, "read", side_effect=lambda p,n: files[p]), self.assertRaises(ValueError):
-                    boot.inspect_uki(types.SimpleNamespace(PE=lambda **kwargs: pe))
+                with self.assertRaises(ValueError):
+                    self.inspect_fixture(pe, files)
+
+    def test_pe_rejects_modified_stub_entry_point_directories_and_sbat(self):
+        for change in ("text", "entry", "base", "directory", "sbat", "stub-header", "permissions"):
+            with self.subTest(change=change):
+                pe, files = self.pe_fixture()
+                if change == "text": pe.sections[0].get_data = lambda: b"altered" + bytes(505)
+                elif change == "entry": pe.OPTIONAL_HEADER.AddressOfEntryPoint = pe.sections[7].VirtualAddress
+                elif change == "base": pe.OPTIONAL_HEADER.ImageBase += 4096
+                elif change == "directory": pe.OPTIONAL_HEADER.DATA_DIRECTORY[9].VirtualAddress = 4096
+                elif change == "sbat": pe.sections[3].get_data = lambda: b"altered" + bytes(505)
+                elif change == "stub-header": pe.sections[0].VirtualAddress += 4096
+                else: pe.sections[7].Characteristics |= 0x20000000
+                with self.assertRaises(ValueError): self.inspect_fixture(pe, files)
+
+    def test_pe_rejects_overlapping_unaligned_header_and_out_of_image_sections(self):
+        for change in ("raw-overlap", "virtual-overlap", "raw-align", "virtual-align", "raw-header",
+                       "virtual-header", "image-bound", "section-header", "file-alignment", "image-alignment"):
+            with self.subTest(change=change):
+                pe, files = self.pe_fixture()
+                section = pe.sections[7]
+                if change == "raw-overlap": section.PointerToRawData = pe.sections[0].PointerToRawData
+                elif change == "virtual-overlap": section.VirtualAddress = pe.sections[0].VirtualAddress
+                elif change == "raw-align": section.PointerToRawData += 1
+                elif change == "virtual-align": section.VirtualAddress += 1
+                elif change == "raw-header": section.PointerToRawData = 512
+                elif change == "virtual-header": section.VirtualAddress = 0
+                elif change == "image-bound": section.VirtualAddress = pe.OPTIONAL_HEADER.SizeOfImage
+                elif change == "section-header": section.get_file_offset = lambda: 4090
+                elif change == "file-alignment": pe.OPTIONAL_HEADER.FileAlignment = 513
+                else: pe.OPTIONAL_HEADER.SizeOfImage += 1
+                with self.assertRaises(ValueError): self.inspect_fixture(pe, files)
 
     def supervisor(self, failure=None):
         def execute(argv, **kwargs):

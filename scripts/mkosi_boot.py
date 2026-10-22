@@ -306,6 +306,63 @@ class VendorSources(importlib.abc.MetaPathFinder, importlib.abc.Loader):
         exec(compile(raw, value.__file__, "exec", dont_inherit=True), value.__dict__)
 
 
+def fields(structure):
+    return {name: getattr(structure, name) for aliases in structure.__keys__ for name in aliases}
+
+
+def unchanged(actual, expected, mutable=()):
+    left, right = fields(actual), fields(expected)
+    require(left.keys() == right.keys()
+            and all(left[name] == right[name] for name in left if name not in mutable))
+
+
+def aligned(value, alignment):
+    return (value + alignment - 1) // alignment * alignment
+
+
+def layout(pe, raw):
+    header = pe.OPTIONAL_HEADER
+    file_align, section_align = header.FileAlignment, header.SectionAlignment
+    require(512 <= file_align <= 65536 and file_align & (file_align - 1) == 0
+            and section_align >= file_align and section_align & (section_align - 1) == 0
+            and (section_align >= 4096 or section_align == file_align)
+            and 0 < header.SizeOfHeaders <= len(raw) and header.SizeOfHeaders % file_align == 0
+            and header.SizeOfImage % section_align == 0
+            and pe.FILE_HEADER.NumberOfSections == len(pe.sections))
+    files, virtual, sections = [], [], {}
+    for section in pe.sections:
+        name = section.Name.rstrip(b"\0").decode("ascii")
+        start, size = section.PointerToRawData, section.SizeOfRawData
+        address, length = section.VirtualAddress, section.Misc_VirtualSize
+        require(name not in sections and 0 < length <= size and start % file_align == size % file_align == 0
+                and start >= header.SizeOfHeaders and start + size <= len(raw)
+                and address % section_align == 0
+                and address >= aligned(header.SizeOfHeaders, section_align)
+                and address + aligned(max(size, length), section_align) <= header.SizeOfImage
+                and section.get_file_offset() + section.sizeof() <= header.SizeOfHeaders)
+        files.append((start, start + size))
+        virtual.append((address, address + aligned(max(size, length), section_align)))
+        sections[name] = section
+    for ranges in (files, virtual):
+        ordered = sorted(ranges)
+        require(all(first[1] <= second[0] for first, second in zip(ordered, ordered[1:])))
+    require(virtual and header.SizeOfImage == max(end for _, end in virtual))
+    return sections
+
+
+def merged_sbat(stub, kernel):
+    # Pinned ukify merge_sbat: one fixed header, then stub and kernel records.
+    rows = []
+    for pe in (stub, kernel):
+        for section in pe.sections:
+            if section.Name.rstrip(b"\0") == b".sbat":
+                lines = section.get_data().rstrip(b"\0").decode("utf-8").splitlines()
+                require(lines and lines[0].startswith("sbat,"))
+                rows.extend(lines[1:])
+    return ("sbat,1,SBAT Version,sbat,1,https://github.com/rhboot/shim/blob/main/SBAT.md\n"
+            + "\n".join(rows) + "\n\0").encode()
+
+
 def inspect_uki(pefile):
     raw = read(WORK / "nib.efi", MAX_IMAGE)
     pe = pefile.PE(data=raw, fast_load=True)
@@ -313,19 +370,61 @@ def inspect_uki(pefile):
             and pe.OPTIONAL_HEADER.Subsystem == 10 and not pe.get_warnings())
     security = pe.OPTIONAL_HEADER.DATA_DIRECTORY[4]
     require(security.VirtualAddress == security.Size == 0)
-    sections = {}
-    for section in pe.sections:
-        name = section.Name.rstrip(b"\0").decode("ascii")
-        require(name not in sections and section.Misc_VirtualSize <= section.SizeOfRawData
-                and section.PointerToRawData + section.SizeOfRawData <= len(raw))
-        sections[name] = identity(section.get_data()[:section.Misc_VirtualSize])
-    wanted = {".linux": identity(read(ROOTFS / ("boot/vmlinuz-" + KERNEL), 16 << 20)),
+    sections = layout(pe, raw)
+    stub_path = "usr/lib/systemd/boot/efi/linuxx64.efi.stub"
+    stub_raw = read(ROOTFS / stub_path, GUEST[stub_path][0])
+    require(identity(stub_raw) == dict(zip(("bytes", "sha256"), GUEST[stub_path])))
+    stub = pefile.PE(data=stub_raw, fast_load=True)
+    kernel_raw = read(ROOTFS / ("boot/vmlinuz-" + KERNEL), 16 << 20)
+    kernel = pefile.PE(data=kernel_raw, fast_load=True)
+    require(not stub.get_warnings() and not kernel.get_warnings()
+            and stub.FILE_HEADER.PointerToSymbolTable == stub.FILE_HEADER.NumberOfSymbols == 0)
+    for name in ("DOS_HEADER", "NT_HEADERS"):
+        unchanged(getattr(pe, name), getattr(stub, name))
+    unchanged(pe.FILE_HEADER, stub.FILE_HEADER, ("NumberOfSections",))
+    unchanged(pe.OPTIONAL_HEADER, stub.OPTIONAL_HEADER,
+              ("SizeOfInitializedData", "SizeOfImage", "CheckSum", "SizeOfHeaders"))
+    require(pe.OPTIONAL_HEADER.SizeOfHeaders == aligned(stub.OPTIONAL_HEADER.SizeOfHeaders,
+                                                       stub.OPTIONAL_HEADER.FileAlignment)
+            and pe.OPTIONAL_HEADER.CheckSum == 0
+            and len(pe.OPTIONAL_HEADER.DATA_DIRECTORY) == len(stub.OPTIONAL_HEADER.DATA_DIRECTORY))
+    for actual, original in zip(pe.OPTIONAL_HEADER.DATA_DIRECTORY, stub.OPTIONAL_HEADER.DATA_DIRECTORY):
+        unchanged(actual, original)
+    originals = {s.Name.rstrip(b"\0").decode("ascii"): s for s in stub.sections}
+    require(set(originals) == {".text", ".rodata", ".data", ".sbat", ".sdmagic", ".reloc"}
+            and len(originals) == len(stub.sections) and originals.keys() <= sections.keys())
+    shift = 0
+    for original in stub.sections:
+        name = original.Name.rstrip(b"\0").decode("ascii")
+        actual = sections[name]
+        mutable = ("PointerToRawData", "SizeOfRawData")
+        if name == ".sbat":
+            mutable += ("Misc", "Misc_PhysicalAddress", "Misc_VirtualSize")
+        unchanged(actual, original, mutable)
+        alignment = pe.OPTIONAL_HEADER.FileAlignment
+        pointer = aligned(original.PointerToRawData + shift, alignment)
+        size = aligned(original.SizeOfRawData, alignment)
+        require(actual.PointerToRawData == pointer and actual.SizeOfRawData == size)
+        shift += pointer - (original.PointerToRawData + shift) + size - original.SizeOfRawData
+        data = merged_sbat(stub, kernel) if name == ".sbat" else original.get_data()
+        require(actual.Misc_VirtualSize == (len(data) if name == ".sbat" else original.Misc_VirtualSize)
+                and len(data) <= size and actual.get_data() == data + bytes(size - len(data)))
+    entry = pe.OPTIONAL_HEADER.AddressOfEntryPoint
+    text = sections[".text"]
+    require(text.VirtualAddress <= entry < text.VirtualAddress + text.Misc_VirtualSize
+            and text.Characteristics & 0x20000000)
+    wanted = {".linux": identity(kernel_raw),
               ".initrd": identity(read(WORK / "initrd.cpio", MAX_IMAGE)),
               ".cmdline": identity(read(WORK / "cmdline", 1024)),
               ".osrel": identity(read(WORK / "tree/usr/lib/os-release", 4096)),
               ".uname": identity(KERNEL.encode())}
-    require(all(sections.get(k) == v for k, v in wanted.items())
-            and set(sections) == set(wanted) | {".text", ".rodata", ".data", ".sbat", ".sdmagic", ".reloc"})
+    require(set(sections) == set(wanted) | set(originals))
+    for name, expected in wanted.items():
+        section = sections[name]
+        require(identity(section.get_data()[:section.Misc_VirtualSize]) == expected
+                and section.Characteristics == (0x40000020 if name == ".linux" else 0x40000040))
+    require(pe.OPTIONAL_HEADER.SizeOfInitializedData == stub.OPTIONAL_HEADER.SizeOfInitializedData
+            + sum(sections[name].Misc_VirtualSize for name in wanted))
     return {"schema": "nib.uki-sections/v1", "image": identity(raw), "sections": wanted,
             "signed": False}
 
