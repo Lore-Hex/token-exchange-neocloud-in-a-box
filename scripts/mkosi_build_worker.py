@@ -181,8 +181,10 @@ def main():
             stage = "runtime-policy"
             report["runtime_policy"] = module("runtime-policy").apply()
             stage = "appraisal-cli"
+            report["appraisal_cli_diagnostics"] = {}
             report["appraisal_cli"] = module("appraisal-probe").probe(
-                processes, module("confinement").PREFIX, module("dkms-worker").regular)
+                processes, module("confinement").PREFIX, module("dkms-worker").regular,
+                report=report["appraisal_cli_diagnostics"], output=Path("/out"))
         if verity_root:
             stage = "verity-root"
             report["verity_root"] = module("verity-root").build(

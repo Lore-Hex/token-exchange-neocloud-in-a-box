@@ -130,6 +130,11 @@ def collect_diagnostics(resultdir, verity_root=False):
                  "dkms-symbols.stdout", "dkms-symbols.stderr", "dkms-make-0.log", "dkms-make-1.log"):
         if (resultdir / name).exists():
             artifacts[name] = base.read(resultdir / name, 2 << 20)
+    for operation in ("help", "attest-help", "token-help"):
+        for stream in ("stdout", "stderr"):
+            name = "appraisal-cli-" + operation + "." + stream
+            if (resultdir / name).exists():
+                artifacts[name] = base.read(resultdir / name, 65536)
     if verity_root:
         for operation in ("mkfs", "repart", "fsck", "verify", "reject-root", "verify-final"):
             for stream in ("stdout", "stderr"):
