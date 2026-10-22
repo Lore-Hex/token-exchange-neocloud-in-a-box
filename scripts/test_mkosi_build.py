@@ -351,10 +351,18 @@ class BuildTests(unittest.TestCase):
                                                     "--output", "/output", "--guest-runtime"]):
             self.assertEqual(host.main(), 1)
         paths = committed.call_args.args[0]
-        self.assertLessEqual(len(paths), 28)
-        for name in (host.HOOKS, host.hooks.RUNTIME_LOCK, host.hooks.RUNTIME_POLICY, host.RUNTIME_APT):
+        self.assertLessEqual(len(paths), 29)
+        for name in (host.HOOKS, host.hooks.RUNTIME_LOCK, host.hooks.RUNTIME_POLICY, host.RUNTIME_APT,
+                     host.RUNTIME_POLICY):
             self.assertIn(name, paths)
         self.assertIs(run.call_args.args[-1], True)
+
+    def test_runtime_policy_is_after_driver_work_and_before_success(self):
+        source = (ROOT / host.WORKER).read_text()
+        self.assertLess(source.index('report["dkms_built"] = True'), source.index('stage = "runtime-policy"'))
+        self.assertLess(source.index('module("runtime-policy").apply()'), source.index('report["result"] = "pass"'))
+        self.assertIn('if guest["scope"] == "guest-runtime-dependency-coverage":', source)
+        self.assertIn("runtime-policy", worker.STAGES)
 
     def test_worker_accepts_only_the_two_fixed_source_bound_closures(self):
         for path in (host.hooks.LOCK, host.hooks.RUNTIME_LOCK):
