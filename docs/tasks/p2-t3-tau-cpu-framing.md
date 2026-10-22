@@ -88,3 +88,6 @@ independently render and tokenize full histories, start/observe/stop both actual
 engines, measure resource limits and test structured evaluator output. Only then
 add an explicit reviewed runtime kind to live admission and integrate with the
 owned DeepSeek namespace. No score or complete tau run is claimed here.
+
+The [CPU parity producer](p2-t3-tau-cpu-parity.md) implements the next bounded
+measurement path; actual two-model results and live admission remain separate.
