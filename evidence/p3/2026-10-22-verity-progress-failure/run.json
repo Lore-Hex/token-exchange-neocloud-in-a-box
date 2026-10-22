@@ -1,0 +1,20 @@
+{
+  "command": "host/run-mkosi-build.py --downloads PRIVATE --archive PRIVATE --output PRIVATE --compile-driver --install-driver --guest-runtime --verity-root",
+  "ended_utc": "2026-10-22T13:14:36Z",
+  "execution": "software",
+  "git_sha": "84152f74b436e12626f03450013a2690b96e03ac",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "ubuntu-22.04-x86_64",
+    "provider": "github-actions"
+  },
+  "notes": "Bounded private EROFS/verity generation and userspace verification; images removed, no export, UKI, boot, LKCA, reproducibility or confidentiality proof.",
+  "phase": "P3",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-22T13:10:36Z",
+  "task": "T1"
+}

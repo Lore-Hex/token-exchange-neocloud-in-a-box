@@ -201,7 +201,9 @@ def operation(name, root_hash=None):
         return ["/usr/sbin/veritysetup", "verify", "/tmp/" + DATA, "/tmp/" + HASH, root_hash]
     require(root_hash is None)
     if name == "mkfs":
-        return ["/usr/bin/mkfs.erofs", "-d", "0", "-b", "4096", "-z", "lz4", "-T", EPOCH,
+        # v1.7.1 mkfs/main.c:mkfs_parse_options_cfg: -d 0 keeps per-file progress;
+        # --quiet disables it while retaining errors. See p3-t1-verity-root.md.
+        return ["/usr/bin/mkfs.erofs", "--quiet", "-b", "4096", "-z", "lz4", "-T", EPOCH,
                 "-U", SEED, "-L", "nib-root", str(WORK / DATA), str(ROOTFS)]
     if name == "fsck":
         # Bare --extract checks every compressed file; no extraction directory.
