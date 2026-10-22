@@ -72,12 +72,56 @@ def mount_cache(export, target):
         with os.scandir(fd) as entries:
             require(next(entries, None) is None)
     command(["mount", "-t", "nfs", "-o", OPTIONS, export, str(target)])
+    verify_mount(export, target)
+
+
+def verify_mount(export, target):
     row = json.loads(command(["findmnt", "--json", "--mountpoint", str(target),
                               "--output", "SOURCE,TARGET,FSTYPE,OPTIONS"]))
     require(type(row) is dict and len(row["filesystems"]) == 1)
     fs = row["filesystems"][0]
     require(fs["source"] == export and fs["target"] == str(target) and fs["fstype"] in ("nfs", "nfs4")
             and {"nodev", "nosuid", "noexec"} <= set(fs["options"].split(",")))
+
+
+def unmount_cache(export, target):
+    require(re.fullmatch(r"[a-z0-9.-]+:/[A-Za-z0-9_-]+", export) is not None)
+    require(target != Path("/"))
+    with directory(target):
+        verify_mount(export, target)
+    # Close our directory handle first. Never force or lazily detach a busy mount.
+    command(["umount", "--", str(target)])
+    try:
+        command(["findmnt", "--json", "--mountpoint", str(target),
+                 "--output", "SOURCE,TARGET,FSTYPE,OPTIONS"])
+    except subprocess.CalledProcessError as error:
+        require(error.returncode == 1 and error.stdout == b"")
+    else:
+        raise ValueError("public-cache-still-mounted")
+
+
+def unmount_report(export, target, output, producer):
+    require(not output.is_relative_to(target))
+    report = {"schema": "nib.public-weight-cache-unmount/v1", "result": "fail",
+              "producer": producer, "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+              "started_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              "unmounted": False, "volume_deleted": False, "files_removed": False}
+    # Reserve the receipt before mutation; an existing path must not lose evidence.
+    with directory(output.parent) as parent:
+        fd = os.open(output.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+    with os.fdopen(fd, "w") as stream:
+        try:
+            unmount_cache(export, target)
+            report.update(result="pass", unmounted=True)
+        except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+            pass
+        finally:
+            report["ended_utc"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            json.dump(report, stream, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+    return 0 if report["result"] == "pass" else 1
 
 
 def inventory(root, rows):
@@ -165,13 +209,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--export", required=True)
     parser.add_argument("--mount", required=True, type=Path)
-    parser.add_argument("--source", required=True, type=Path)
-    parser.add_argument("--manifest", required=True, type=Path)
+    parser.add_argument("--source", type=Path)
+    parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--unmount-only", action="store_true")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--producer", required=True)
-    parser.add_argument("--timeout", required=True, type=int)
+    parser.add_argument("--timeout", type=int)
     args = parser.parse_args()
-    require(re.fullmatch(r"[0-9a-f]{40}", args.producer) and 60 < args.timeout <= 7200)
+    require(re.fullmatch(r"[0-9a-f]{40}", args.producer))
+    if args.unmount_only:
+        require(args.source is None and args.manifest is None and args.timeout is None)
+        return unmount_report(args.export, args.mount, args.output, args.producer)
+    require(args.source is not None and args.manifest is not None
+            and type(args.timeout) is int and 60 < args.timeout <= 7200)
     with args.manifest.open("rb") as stream:
         rows = manifest(stream.read(65537))
     started = datetime.datetime.now(datetime.timezone.utc).isoformat()
