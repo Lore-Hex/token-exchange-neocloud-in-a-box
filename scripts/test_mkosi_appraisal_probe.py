@@ -137,6 +137,33 @@ class AppraisalProbeTests(unittest.TestCase):
             self.assertEqual(execute.call_count, 1)
             self.assertEqual(verify.call_count, 1)
 
+    def test_failed_fixed_help_retains_bounded_build_diagnostics(self):
+        result = subprocess.CompletedProcess([], 7, b"public help", b"public package failure")
+        processes = types.SimpleNamespace(execute_process_group=mock.Mock(return_value=result))
+        diagnostics = {}
+        with mock.patch.object(probe, "verify_files", return_value={}), \
+                mock.patch.object(Path, "write_bytes") as write:
+            with self.assertRaises(subprocess.CalledProcessError):
+                probe.probe(processes, guard.PREFIX, dkms.regular,
+                            report=diagnostics, output=Path("/out"))
+        self.assertEqual(diagnostics, {
+            "operation": "help", "exit_code": 7,
+            "stdout_bytes": len(result.stdout), "stderr_bytes": len(result.stderr),
+            "stdout_sha256": hashlib.sha256(result.stdout).hexdigest(),
+            "stderr_sha256": hashlib.sha256(result.stderr).hexdigest(),
+        })
+        self.assertEqual(write.call_args_list, [mock.call(result.stdout), mock.call(result.stderr)])
+        processes.execute_process_group.assert_called_once()
+
+    def test_diagnostics_reject_other_output_directory(self):
+        processes = types.SimpleNamespace(execute_process_group=mock.Mock(
+            return_value=subprocess.CompletedProcess([], 7, b"", b"failure")))
+        with mock.patch.object(probe, "verify_files", return_value={}), \
+                mock.patch.object(Path, "write_bytes") as write:
+            with self.assertRaises(ValueError):
+                probe.probe(processes, guard.PREFIX, dkms.regular, output=Path("/tmp"))
+        write.assert_not_called()
+
     def test_child_drops_all_capabilities_and_uses_clean_environment(self):
         fakeguard = types.SimpleNamespace(check=mock.Mock(), CAP_MASK=guard.CAP_MASK)
         fakefiles = types.SimpleNamespace(regular=mock.Mock())

@@ -79,7 +79,7 @@ def validate_help(name, raw):
     return {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
 
 
-def probe(processes, prefix, reader):
+def probe(processes, prefix, reader, *, report=None, output=None):
     identities = verify_files(reader)
     results = {}
     for name in OPERATIONS:
@@ -87,6 +87,19 @@ def probe(processes, prefix, reader):
             env={"PATH": "/usr/bin:/usr/sbin:/bin:/sbin", "HOME": "/tmp", "TMPDIR": "/tmp",
                  "LANG": "C", "LC_ALL": "C"},
             timeout=10, max_output_bytes=65536, max_stderr_bytes=65536, stdin=subprocess.DEVNULL)
+        if report is not None:
+            report.update(operation=name, exit_code=result.returncode,
+                          stdout_bytes=len(result.stdout), stderr_bytes=len(result.stderr),
+                          stdout_sha256=hashlib.sha256(result.stdout).hexdigest(),
+                          stderr_sha256=hashlib.sha256(result.stderr).hexdigest())
+        # These fixed --help commands see only public, authenticated packages,
+        # never credentials, devices, network inputs or inference requests.
+        if output is not None and (result.returncode != 0 or result.stderr):
+            require(output == Path("/out"))
+            for suffix, raw in (("stdout", result.stdout), ("stderr", result.stderr)):
+                require(type(raw) is bytes and len(raw) <= 65536)
+                if raw:
+                    (output / ("appraisal-cli-" + name + "." + suffix)).write_bytes(raw)
         result.check_returncode()
         require(not result.stderr)
         results[name] = validate_help(name, result.stdout)

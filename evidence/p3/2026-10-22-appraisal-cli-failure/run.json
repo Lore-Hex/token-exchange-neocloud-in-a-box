@@ -1,0 +1,20 @@
+{
+  "command": "host/run-mkosi-build.py --downloads PRIVATE --archive PRIVATE --output PRIVATE --compile-driver --install-driver --guest-runtime",
+  "ended_utc": "2026-10-22T07:14:32Z",
+  "execution": "software",
+  "git_sha": "cb81f70224c54f6aa1ddb86d305e23a850c6fb30",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "ubuntu-22.04-x86_64",
+    "provider": "github-actions"
+  },
+  "notes": "Bounded offline driver build and guest-root installation; no module loading, boot, LKCA, reproducibility or hardware qualification.",
+  "phase": "P3",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-22T07:10:45Z",
+  "task": "T1"
+}
