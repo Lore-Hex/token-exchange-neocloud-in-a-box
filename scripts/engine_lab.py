@@ -153,9 +153,18 @@ class EntryCheckpointReader:
             os.close(fd)
 
 
-def lab_args(plan):
+def lab_args(plan, replicas=1):
+    if type(replicas) is not int or replicas not in (1, 2):
+        raise ValueError("lab parallel profile rejected")
+    arguments = list(plan["fixed_engine_arguments"])
+    if arguments.count("--data-parallel-size") != 1:
+        raise ValueError("lab parallel profile rejected")
+    index = arguments.index("--data-parallel-size") + 1
+    if index == len(arguments) or arguments[index] != "1":
+        raise ValueError("lab parallel profile rejected")
+    arguments[index] = str(replicas)
     # Existing reviewed all-off controls, followed only by fixed lab limits.
-    return list(plan["fixed_engine_arguments"]) + [
+    return arguments + [
         "--model", "/model", "--tokenizer", "/model", "--served-model-name", MODEL,
         "--port", "8000", "--api-server-count", "1", "--pipeline-parallel-size", "1",
         "--distributed-executor-backend", "mp", "--no-numa-bind",
@@ -232,6 +241,7 @@ def lab_context(expected):
     PROCESSES = load("lab_processes", sources["processes.py"], ROOT + "/processes.py")
     GPU_PROBE = load("lab_gpu", sources["probe.py"], ROOT + "/probe.py")
     GPU_PROBE.security_profile(contract)
+    replicas = GPU_PROBE.parallel_size(contract)
     if contract["operation"] == "local-correctness":
         CORRECTNESS = load("lab_correctness", sources["correctness.py"], ROOT + "/correctness.py")
     modules = [load(name, sources["application/" + name], ROOT + "/application/" + name)
@@ -245,7 +255,7 @@ def lab_context(expected):
             and contract["base_image"] == application["base_image"]
             and contract["official_config"] == application["official_config"])
     plan = overlay.load_json(sources["launch-plan.json"])
-    require(contract["arguments"] == lab_args(plan) and contract["environment"] == lab_environment(plan)
+    require(contract["arguments"] == lab_args(plan, replicas) and contract["environment"] == lab_environment(plan)
             and contract["pack_revision"] == MODEL_REVISION and contract["pack_bytes"] == TOTAL_BYTES)
     return contract, sources, modules, application, measured
 
@@ -257,12 +267,13 @@ def quiet_command(argv, timeout, *, output=False):
     return result.stdout if output else b""
 
 
-def hardware(family="B200", security="confidential"):
+def hardware(family="B200", security="confidential", expected=4):
     raw = quiet_command([ROOT + "/python", "probe"], 15, output=True)
     if security == "nonconfidential":
+        require(expected == 4)
         return GPU_PROBE.validate_nonconfidential_report(json.loads(raw), family=family)
     require(security == "confidential")
-    return GPU_PROBE.validate_report(json.loads(raw), family=family)
+    return GPU_PROBE.validate_report(json.loads(raw), family=family, expected=expected)
 
 
 def diagnostic_child(expected):
@@ -519,7 +530,8 @@ def application_and_request(contract, sources, modules, application, measured):
     try:
         check_scratch_mounts()
         security = GPU_PROBE.security_profile(contract)
-        result["hardware"] = hardware(contract.get("gpu_family", "B200"), security)
+        count = 4 * GPU_PROBE.parallel_size(contract)
+        result["hardware"] = hardware(contract.get("gpu_family", "B200"), security, count)
         if not pre_serve:
             result["stage"] = "weights"
             quiet_command([ROOT + "/nib", "model", "check-local", "--workers", "8", ROOT + "/pack", "/model"], WEIGHTS_SECONDS)
@@ -534,7 +546,7 @@ def application_and_request(contract, sources, modules, application, measured):
             # apply_verified_stages ends with the final full inventory, checking
             # exact source, all preserved native bytes and all five receipts.
         result["stage"] = "prelaunch"
-        require(hardware(contract.get("gpu_family", "B200"), security) == result["hardware"])
+        require(hardware(contract.get("gpu_family", "B200"), security, count) == result["hardware"])
         if correctness:
             CORRECTNESS.verify_sources(read_source, contract["paths"][-1])
         require(time.monotonic() - started < WEIGHTS_SECONDS + APPLICATION_SECONDS + 60)
@@ -569,7 +581,7 @@ def application_and_request(contract, sources, modules, application, measured):
                 result["startup"]["worker_exception_diagnostic"] = read_worker_exception()
         if pre_serve:
             require(result["startup"]["exception_diagnostic"] is None
-                    and hardware(contract.get("gpu_family", "B200"), security) == result["hardware"])
+                    and hardware(contract.get("gpu_family", "B200"), security, count) == result["hardware"])
             result.update(stage="complete", entry_pass=True)
             return result
         result["stage"] = "request"
@@ -581,7 +593,7 @@ def application_and_request(contract, sources, modules, application, measured):
                 "model": MODEL, "messages": [{"role": "user", "content": "Compute 1 + 1. Reply with the single digit only."}],
                 "max_tokens": 128, "temperature": 0, "stream": False})
             result["completion"] = completion_result(raw)
-        require(hardware(contract.get("gpu_family", "B200"), security) == result["hardware"])
+        require(hardware(contract.get("gpu_family", "B200"), security, count) == result["hardware"])
         result["functional_pass"] = (result["correctness"]["all_cases_pass"] if correctness else
                                     (result["completion"]["final_content_present"]
                                      and result["completion"]["synthetic_answer_match"]
@@ -675,11 +687,12 @@ def lab_entry():
         install_lab({"paths": contract["paths"], "stdlib_roots": contract["paths"][:2],
                      "wrapper": ROOT + "/python", "launcher": ROOT + "/launch.py"}, sys.modules[__name__])
         family = contract.get("gpu_family", "B200")
+        count = 4 * GPU_PROBE.parallel_size(contract)
         if GPU_PROBE.security_profile(contract) == "nonconfidential":
             observation = GPU_PROBE.validate_nonconfidential(
                 GPU_PROBE.NVML().observe(family, nonconfidential=True), family=family)
         else:
-            observation = GPU_PROBE.validate(GPU_PROBE.NVML().observe(family), family=family)
+            observation = GPU_PROBE.validate(GPU_PROBE.NVML().observe(family, expected=count), family=family, expected=count)
         print(json.dumps(observation, sort_keys=True))
     else:
         recheck_sources(modules[0], application, contract["paths"])

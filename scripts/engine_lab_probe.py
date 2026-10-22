@@ -58,6 +58,18 @@ def require(value):
         raise ValueError("lab hardware observation rejected")
 
 
+def parallel_size(contract):
+    size = contract.get("data_parallel_size", 1)
+    require(type(size) is int and size in (1, 2))
+    require(size == 1 or (contract.get("operation") == "local-correctness"
+            and contract.get("gpu_family") == "B300" and security_profile(contract) == "confidential"))
+    return size
+
+
+def expected_count(count):
+    require(type(count) is int and count in (4, 8))
+
+
 def family_key(family):
     require(type(family) is str and family in MEMORY_FLOORS)
     return family.lower()
@@ -95,15 +107,17 @@ class NVML:
                 trace.failed()
             raise
 
-    def observe(self, family="B200", *, nonconfidential=False):
+    def observe(self, family="B200", *, nonconfidential=False, expected=4):
         key = family_key(family)
+        expected_count(expected)
+        require(not nonconfidential or expected == 4)
         require(type(nonconfidential) is bool)
         self.call("nvmlInit_v2")
         try:
             count = c.c_uint()
             self.call("nvmlDeviceGetCount_v2", c.byref(count))
             self.checkpoint("required-count")
-            require(count.value == 4)
+            require(count.value == expected)
             settings = Settings(version=0x01000014)
             self.call("nvmlSystemGetConfComputeSettings", c.byref(settings))
             driver, cuda = c.create_string_buffer(80), c.c_int()
@@ -141,8 +155,9 @@ class NVML:
             self.call("nvmlShutdown")
 
 
-def validate(raw, checkpoint=None, *, family="B200"):
+def validate(raw, checkpoint=None, *, family="B200", expected=4):
     key = family_key(family)
+    expected_count(expected)
     require(type(raw) is dict and set(raw) == {"feature", "environment", "devtools", "multigpu", "ready", "devices",
                                              "driver", "cuda_driver"})
     if checkpoint is not None:
@@ -161,12 +176,12 @@ def validate(raw, checkpoint=None, *, family="B200"):
     require(raw["ready"] == ACCEPTING_WORK)
     if checkpoint is not None:
         checkpoint("memory-policy")
-    require(type(raw["devices"]) is list and len(raw["devices"]) == 4)
+    require(type(raw["devices"]) is list and len(raw["devices"]) == expected)
     for row in raw["devices"]:
         require(type(row) is dict and set(row) == {key, "protected_kib"}
                 and row[key] is True and type(row["protected_kib"]) is int
                 and MEMORY_FLOORS[family] <= row["protected_kib"] <= 1 << 30)
-    return {"status": "observed", "selected_gpus": 4, "family": family,
+    return {"status": "observed", "selected_gpus": expected, "family": family,
             "cc_feature": "enabled", "environment": "production", "devtools": "off",
             "multigpu": MULTIGPU[raw["multigpu"]], "system_ready": True,
             "driver": raw["driver"], "cuda_driver": f"{raw['cuda_driver'] // 1000}.{(raw['cuda_driver'] % 1000) // 10}",
@@ -174,18 +189,19 @@ def validate(raw, checkpoint=None, *, family="B200"):
             "attestation_verified": False}
 
 
-def validate_report(row, *, family="B200"):
+def validate_report(row, *, family="B200", expected=4):
     family_key(family)
+    expected_count(expected)
     require(type(row) is dict and set(row) == {"status", "selected_gpus", "family", "cc_feature", "environment",
                                              "devtools", "multigpu", "system_ready", "driver", "cuda_driver",
                                              "protected_kib", "attestation_verified"})
-    require(row["status"] == "observed" and type(row["selected_gpus"]) is int and row["selected_gpus"] == 4
+    require(row["status"] == "observed" and type(row["selected_gpus"]) is int and row["selected_gpus"] == expected
             and row["family"] == family and row["cc_feature"] == "enabled" and row["environment"] == "production"
             and row["devtools"] == "off" and row["multigpu"] in MULTIGPU.values()
             and row["system_ready"] is True and row["attestation_verified"] is False
             and type(row["driver"]) is str and re.fullmatch(r"[0-9]{3}\.[0-9]{1,3}(?:\.[0-9]{1,3})?", row["driver"])
             and type(row["cuda_driver"]) is str and re.fullmatch(r"[0-9]{2}\.[0-9]", row["cuda_driver"])
-            and type(row["protected_kib"]) is list and len(row["protected_kib"]) == 4
+            and type(row["protected_kib"]) is list and len(row["protected_kib"]) == expected
             and all(type(n) is int and MEMORY_FLOORS[family] <= n <= 1 << 30 for n in row["protected_kib"]))
     return row
 
