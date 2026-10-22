@@ -41,6 +41,77 @@ PRODUCER = {"schema": "nib.debug-producer/v1", "source": {"git_sha": "a" * 40, "
 
 
 class QemuTests(unittest.TestCase):
+    def test_root_read_counters_fit_unchanged_cap_and_never_pass(self):
+        self.assertEqual(qemu.MAX_PROOF_BYTES, 62)
+        self.assertEqual(qemu.MAX_ROOT_BYTES, 1536 << 20)
+        self.assertEqual(qemu.ROOT_READ_REASONS, {1: "size", 2: "deadline", 3: "short-read", 4: "io",
+            5: "extra-data", 6: "eof", 7: "late-eof", 8: "close"})
+        for code, reason in qemu.ROOT_READ_REASONS.items():
+            for count, seconds in ((0, 0), (3, 1), (qemu.MAX_ROOT_BYTES, 25)):
+                raw = qemu.ROOT_READ_PREFIX + f"{code} {count} {seconds}\n".encode("ascii")
+                self.assertLessEqual(len(raw), 62)
+                for split in range(1, len(raw)):
+                    connection = mock.Mock()
+                    connection.recv.side_effect = [raw[:split], raw[split:], b""]
+                    listener = mock.Mock()
+                    listener.accept.return_value = (connection, None)
+                    state = {"initrd": False, "root": False, "complete": False}
+                    qemu.receive(listener, threading.Event(), time.monotonic() + 1, state)
+                    self.assertEqual(state["root_read"], {"reason": reason, "bytes_read": count, "elapsed_seconds": seconds})
+                    self.assertEqual(state["guest_failure"], "ROOT_READ")
+                    self.assertTrue(state["initrd"])
+                    self.assertFalse(state["root"] or state["complete"])
+                    self.assertNotIn("protocol_error", state)
+
+    def test_root_read_rejects_unknown_noncanonical_and_excess_fields(self):
+        for body in (b"0 0 0\n", b"9 0 0\n", b"01 0 0\n", b"1 00 0\n", b"1 0 00\n",
+                     b"1 -1 0\n", b"1 +1 0\n", b"1 1610612737 0\n", b"1 0 26\n",
+                     b"1 0 0 extra\n", b"1 0 0\nprivate-canary", b"1  0 0\n", b"1 0 0\r\n",
+                     b"1 99999999999 0\n", b"1 0 private-canary\n", b"1 0 0\n\n"):
+            raw = qemu.ROOT_READ_PREFIX + body
+            self.assertEqual(qemu.root_read_frame(raw), (False, None))
+            connection = mock.Mock()
+            connection.recv.side_effect = [raw, b""]
+            listener = mock.Mock()
+            listener.accept.return_value = (connection, None)
+            state = {"initrd": False, "root": False, "complete": False}
+            qemu.receive(listener, threading.Event(), time.monotonic() + 1, state)
+            self.assertFalse(state["complete"])
+            self.assertNotIn("root_read", state)
+            self.assertNotIn("private-canary", json.dumps(state))
+        self.assertEqual(qemu.root_read_frame(b"NIB_DEBUG_BOOT_V1 R 1 0 0\n"), (False, None))
+
+    def test_root_read_still_requires_newline_and_eof(self):
+        raw = qemu.ROOT_READ_PREFIX + b"2 65536 23\n"
+        for chunks, expected in (([raw[:-1], b""], "incomplete"), ([raw, socket.timeout()], "missing-eof")):
+            connection = mock.Mock()
+            connection.recv.side_effect = chunks
+            listener = mock.Mock()
+            listener.accept.return_value = (connection, None)
+            stop = threading.Event(); stop.set()
+            state = {"initrd": False, "root": False, "complete": False}
+            qemu.receive(listener, stop, time.monotonic() + 1, state)
+            self.assertFalse(state["complete"])
+            self.assertEqual(state["protocol_error"], expected)
+
+    def test_numeric_root_failure_survives_clean_process_exit(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary).resolve() / "proof.sock"
+            def execute(args, **kwargs):
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                    client.connect(str(path))
+                    client.sendall(qemu.ROOT_READ_PREFIX + b"4 65543 2\n")
+                return subprocess.CompletedProcess(args, 0, b"", b"")
+            with mock.patch.object(qemu, "SOCKET", path), mock.patch.object(qemu, "TIMEOUT", 1):
+                state, terminal = {"initrd": False, "root": False, "complete": False}, {}
+                with self.assertRaises(ValueError):
+                    qemu.trial(execute, state, terminal)
+            self.assertEqual(state["root_read"], {"reason": "io", "bytes_read": 65543, "elapsed_seconds": 2})
+            self.assertFalse(state["complete"])
+            self.assertEqual(terminal["exit_code"], 0)
+            self.assertTrue(terminal["process_group_cleaned"])
+            self.assertFalse(path.exists())
+
     def test_failure_stage_contract_is_finite_and_separate_from_success(self):
         self.assertEqual(qemu.FAILURE_STAGES, tuple("INITRD_STAGE INITRD_MARKER KERNEL PID1 CMDLINE "
             "PID1_MOUNT SELF_MOUNT MOUNT_MATCH DM_NAME DM_SUSPENDED DM_READONLY TABLE_QUERY TABLE_FORMAT "

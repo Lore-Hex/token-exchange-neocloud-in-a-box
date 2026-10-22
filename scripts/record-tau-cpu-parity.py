@@ -133,11 +133,15 @@ def execute(source, work, env, snapshot, inputs, report, home):
         report["context_sha256"], report["sources"] = context(source, target, inputs, pilot)
         bases = json.loads((source / "scripts/e2e/pins.json").read_bytes())
         report["base_images"] = {key: bases[key] for key in ("go_image", "python_image")}
+        # Docker 28.0.4 inspect has no --platform flag; verify returned platform.
         # Fail before building if either immutable base is not already local.
+        report["stage"] = "base-images"
         for base in report["base_images"].values():
-            result = snapshot.execute_process_group(["docker", "image", "inspect", "--platform", "linux/amd64", "--format",
-                "{{.Id}} {{.Os}}/{{.Architecture}}", base], env=env, timeout=15, max_output_bytes=1024)
-            require(result.returncode == 0 and re.fullmatch(rb"sha256:[0-9a-f]{64} linux/amd64\s*", result.stdout))
+            result = snapshot.execute_process_group(["docker", "image", "inspect", "--format",
+                "{{.Id}} {{.Os}}/{{.Architecture}}", base], env=env, timeout=15,
+                max_output_bytes=1024, max_stderr_bytes=1024)
+            require(result.returncode == 0 and not result.stderr
+                    and re.fullmatch(rb"sha256:[0-9a-f]{64} linux/amd64\s*", result.stdout))
         report["stage"] = "toolchain"
         build_started = True
         iid = work / "image-id"

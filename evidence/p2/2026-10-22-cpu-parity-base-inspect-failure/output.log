@@ -1,0 +1,45 @@
+{
+  "base_images": {
+    "go_image": "docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61",
+    "python_image": "docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2"
+  },
+  "cleanup": {
+    "build_completion": "confirmed",
+    "container": "confirmed",
+    "image": "confirmed"
+  },
+  "confidential": false,
+  "context_sha256": "8689a6dc0cfeb46acab8d235bfb7aa2d0f18830843fd8dfdfd0f5cd1bd4e8c64",
+  "git_sha": "099396af3218e718ab1ba763f178af02f6efce9e",
+  "image_id": null,
+  "live_admission": false,
+  "quality_eligible": false,
+  "result": "fail",
+  "runtime": null,
+  "schema": "nib.tau-cpu-parity-run/v1",
+  "source_archive_sha256": "552425b5dbaadba63f6393904f69df71139ba0d8834c71c0acf27b82fc1e4655",
+  "sources": {
+    ".github/workflows/tau-cpu-parity-native.yml": "897e0693526feb48ccde724ecdcfb1cfca1ec18948555456fc302d8a507b558d",
+    "scripts/e2e/exercise.py": "876c4e0e4c4b2e25ffa9089c062e5109623b2445a7d88b5eab253c81d3050763",
+    "scripts/e2e/pins.json": "10d5e7c6b6ad09522c2fd6f595ca9591a51d5fc916e105561aca564bd940e6cc",
+    "scripts/e2e/snapshot.py": "e73a5a1e3ddb7a6e7b20afce39f7c080a0317d78340f224b2bd95f705bccb59c",
+    "scripts/engine_tokenizer_parity.py": "09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a",
+    "scripts/pilot/build-requirements.lock": "26d6931e5c9a9df9ecf0673e9d697c2b9aed3d5739954225d80ff96e0a91a513",
+    "scripts/pilot/pins.json": "dbe453145b5ef21cb13d713f8635ea4e6b234ce3b75ffb9e33ffdaa1c102fbed",
+    "scripts/pilot/run.py": "dc4d1ebd958af0dfac10c7e0eb5d2eab21d22dd1663fd61b91ef61010a2a0022",
+    "scripts/prepare-tau-cpu-parity-native.py": "df5548127be58372efbce1ee417506d9f24f451dddf78a10503ff6c51a967150",
+    "scripts/record-tau-cpu-parity.py": "ff40ce5bd2946c74612b1521be2b165790484b34f186b52fda2e91d0674ab935",
+    "scripts/tau_cpu_parity.Dockerfile": "c9ee111331a910014537b1cd2eb9b5d1bd67f5d5195195510e8974753c6c6525",
+    "scripts/tau_cpu_parity.cmake": "c148d18d01836aee6cfd4f821f0e82506791cd074da8a4a00991500b02183ff2",
+    "scripts/tau_cpu_parity.cpp": "04bdddfc1bbdf559b8a90532b4b9c5dd00b52deab5fb19f03eac8fd3420e5eef",
+    "scripts/tau_cpu_parity.py": "b4473e18e2886aecea97fbe3a96a8fe5adb230cf2a0724b3fef6637ba05ee0f9",
+    "scripts/tau_cpu_support_models.json": "35ba507ae8669e7f08f73232d312555a2cc2d49023d48414fefe0b7ece5952d3",
+    "scripts/tau_live_identity.py": "c1353be4daa4450fdbbe066630119551e3ff6569aae27df1e883b0846c650ff0",
+    "scripts/tau_local_llama.py": "02d8023a72010821eb84f8b9f482569a0d8419d8a2baa70ffd78f4aabdb6f911",
+    "scripts/tau_local_vllm.py": "87681bef9698d261ec5209697d4dc05281d62e24739f8c6c687693270a706794",
+    "scripts/tau_preflight.py": "37a6c53c31f78f952ca8abf47ee96f166feaaf1a83cf8171c76caa72637caeec",
+    "scripts/tau_transport.py": "1535ec9109b939476e574fcab83726367d648540a0bdfd950337f9b5af2093e1",
+    "scripts/tau_trial_worker.py": "5626bd91151737a26c9b1633284a5deb5b6f447e8fa50dd8426fbf5698ba233c"
+  },
+  "stage": "inputs"
+}

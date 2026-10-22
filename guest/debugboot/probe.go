@@ -215,26 +215,73 @@ func validStatus(raw []byte, m mapping) bool {
 	return string(raw) == "0 "+strconv.FormatInt(m.bytes/512, 10)+" verity V\n"
 }
 
-func readAllRoot(reader io.Reader, size int64, deadline time.Time) error {
+type rootReadReason uint8
+
+const (
+	readOK rootReadReason = iota
+	readSize
+	readDeadline
+	readShort
+	readIO
+	readExtra
+	readEOF
+	readLate
+	readClose
+)
+
+type rootReadObservation struct {
+	reason  rootReadReason
+	bytes   int64
+	seconds int64
+}
+
+func (r rootReadObservation) record() string {
+	if r.reason < readSize || r.reason > readClose || r.bytes < 0 || r.bytes > MaxRootBytes || r.seconds < 0 || r.seconds > 25 {
+		return failureRecord(failedRootRead)
+	}
+	// Compact fixed fields keep INITRD plus this record within the existing
+	// 62-byte host proof cap. No error string, errno text or device data escapes.
+	return "NIB_DEBUG_BOOT_V1 R " + strconv.Itoa(int(r.reason)) + " " + strconv.FormatInt(r.bytes, 10) + " " + strconv.FormatInt(r.seconds, 10) + "\n"
+}
+
+func readAllRoot(reader io.Reader, size int64, deadline time.Time) (observed rootReadObservation, result error) {
+	started := time.Now()
+	defer func() { observed.seconds = int64(time.Since(started) / time.Second) }()
 	if size < 4096 || size > MaxRootBytes || size%4096 != 0 {
-		return errRejected
+		observed.reason = readSize
+		return observed, errRejected
 	}
 	buffer := make([]byte, 65536)
 	remaining := size
 	for remaining > 0 {
 		if !time.Now().Before(deadline) {
-			return errRejected
+			observed.reason = readDeadline
+			return observed, errRejected
 		}
 		n, err := io.ReadFull(reader, buffer[:min(int64(len(buffer)), remaining)])
+		observed.bytes += int64(n)
 		if err != nil {
-			return errRejected
+			observed.reason = readIO
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				observed.reason = readShort
+			}
+			return observed, errRejected
 		}
 		remaining -= int64(n)
 	}
 	var extra [1]byte
 	n, err := reader.Read(extra[:])
-	if n != 0 || err != io.EOF || !time.Now().Before(deadline) {
-		return errRejected
+	if n != 0 {
+		observed.reason = readExtra
+		return observed, errRejected
 	}
-	return nil
+	if err != io.EOF {
+		observed.reason = readEOF
+		return observed, errRejected
+	}
+	if !time.Now().Before(deadline) {
+		observed.reason = readLate
+		return observed, errRejected
+	}
+	return observed, nil
 }

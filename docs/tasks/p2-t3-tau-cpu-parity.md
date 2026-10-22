@@ -83,9 +83,11 @@ missing final output, a pending receipt or failure cannot be interpreted as pass
 
 Use a committed, independently reviewed head and coordinate CPU/memory availability
 with the GPU run owner. Both base images and the exact CMake wheel must already
-exist locally. Cache inspection explicitly selects `linux/amd64` using Docker
-API 1.49+ [image inspection](https://docs.docker.com/reference/cli/docker/image/inspect/);
-a cached arm64 variant cannot satisfy the prerequisite. No launch was performed
+exist locally. Cache inspection queries the exact pinned digest reference and
+requires the returned image ID and actual platform to match the SHA-256 ID
+format and `linux/amd64`, respectively; a cached arm64 variant cannot satisfy
+the prerequisite. See the [Docker 28 compatibility correction](p2-t3-tau-cpu-native.md#native-base-inspection-failure).
+No launch was performed
 while implementing this producer.
 
 ```sh

@@ -16,10 +16,18 @@ HASHES = {
     "validation.json": "afa21d099f290f5aeef626cf1993efe47ee34602f24ada4ff7dd3d5d07442426",
     "worker.json": "201eb046a2cc4a9c9899552ad318cd2935d268251f3659d4936dee3dece0d1f4",
 }
+READ_EVIDENCE = ROOT / "evidence/p3/2026-10-22-debug-boot-root-read-failure"
+READ_PRODUCER = "28f9fc01d59bc316ffdb206c8c0434cd5ad191e7"
+READ_HASHES = {
+    "resources.json": "0311b338b6e36cc82b8dc73a4890b329cfc23a5972e518c9da303b7254e67828",
+    "run.json": "48749e6fe0decca20152c40858e545c0f541fb856adaca2932d4eed406d09a69",
+    "validation.json": "afa21d099f290f5aeef626cf1993efe47ee34602f24ada4ff7dd3d5d07442426",
+    "worker.json": "316631a11cde36f13e0aa64b9b49fd4903d3012c2792ac0856e66652a6a11513",
+}
 
 
-def receipt(name):
-    return json.loads((EVIDENCE / name).read_bytes())
+def receipt(name, directory=EVIDENCE):
+    return json.loads((directory / name).read_bytes())
 
 
 class DebugBootEvidenceTests(unittest.TestCase):
@@ -61,6 +69,46 @@ class DebugBootEvidenceTests(unittest.TestCase):
             for name, digest in worker[label]["sources"].items():
                 raw = git(ROOT, "show", PRODUCER + ":" + name)
                 self.assertEqual(hashlib.sha256(raw).hexdigest(), digest)
+
+
+class RootReadFailureEvidenceTests(unittest.TestCase):
+    def test_second_failure_originals_are_byte_preserved(self):
+        self.assertEqual({p.name for p in READ_EVIDENCE.iterdir()}, set(READ_HASHES) | {"README.md", "output.log"})
+        for name, digest in READ_HASHES.items():
+            self.assertEqual(hashlib.sha256((READ_EVIDENCE / name).read_bytes()).hexdigest(), digest)
+        self.assertEqual((READ_EVIDENCE / "output.log").read_bytes(), (READ_EVIDENCE / "validation.json").read_bytes())
+        self.assertEqual(producer((READ_EVIDENCE / "run.json").read_bytes()), READ_PRODUCER)
+        run = receipt("run.json", READ_EVIDENCE)
+        self.assertEqual((run["result"], run["started_utc"], run["ended_utc"]),
+                         ("fail", "2026-10-22T20:47:45Z", "2026-10-22T20:49:17Z"))
+
+    def test_root_read_class_does_not_invent_a_deadline_or_boot_pass(self):
+        worker = receipt("worker.json", READ_EVIDENCE)
+        self.assertEqual(worker["assembly"]["result"], "pass")
+        self.assertEqual(len(worker["qemu"]["startup_checks"]), 5)
+        self.assertTrue(all(item["result"] == "pass" for item in worker["qemu"]["startup_checks"]))
+        self.assertEqual(worker["qemu"]["proof"], {"initrd": True, "root": False, "complete": False,
+                         "guest_failure": "ROOT_READ", "protocol_error": None})
+        self.assertEqual(worker["qemu"]["terminal"], {"exit_code": 0, "failure_kind": None,
+                         "process_group_cleaned": True, "stderr_bytes": 0, "stdout_bytes": 0})
+        for value in (worker, worker["qemu"], receipt("validation.json", READ_EVIDENCE)):
+            self.assertEqual(value["result"], "fail")
+            self.assertFalse(value["boot_verified"] or value["confidentiality_verified"])
+        self.assertNotIn("root_read", worker["qemu"]["proof"])
+
+    def test_second_failure_cleanup_and_exact_producer_closure(self):
+        state = receipt("resources.json", READ_EVIDENCE)
+        worker = receipt("worker.json", READ_EVIDENCE)
+        for key in ("empty_verified", "group_removed", "limits_read_back"):
+            self.assertTrue(state[key])
+        self.assertEqual((state["child_exit_code"], state["oom_kill"], state["memory_peak_bytes"]), (1, 0, 2147483648))
+        self.assertTrue(receipt("validation.json", READ_EVIDENCE)["private_images_removed"])
+        self.assertFalse(worker["private_work_removed"])
+        for label in ("source", "debug_source"):
+            self.assertEqual(state["producer"][label], worker[label])
+            self.assertEqual(worker[label]["git_sha"], READ_PRODUCER)
+            for name, digest in worker[label]["sources"].items():
+                self.assertEqual(hashlib.sha256(git(ROOT, "show", READ_PRODUCER + ":" + name)).hexdigest(), digest)
 
 
 if __name__ == "__main__":

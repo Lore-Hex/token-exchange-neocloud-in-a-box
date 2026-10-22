@@ -46,3 +46,37 @@ No dispatch occurred while implementing this route. Exact-head independent
 review, full checks and CI must pass before the one separately authorized native
 CPU trial. No changes to Spheron, current GPU jobs, live CPU admission, tau
 acceptance, quality or confidential qualification are included.
+
+## Native Base Inspection Failure
+
+The one approved [native run 39853952934](../../evidence/p2/2026-10-22-cpu-parity-base-inspect-failure/README.md)
+failed before image assembly or any model execution. Input preparation passed;
+the original record retains stage `inputs`, context/source/base-image pins,
+`image_id: null`, `runtime: null`, and confirmed owned cleanup. It does not
+retain inspect stderr, so no runtime exception text is claimed.
+
+The job identifies runner image `ubuntu24/20261012.334`; its
+[immutable inventory](https://github.com/actions/runner-images/blob/7e7dc1bcc0ef464e5e315a2b4c33609590c6cffe/images/ubuntu/Ubuntu2404-Readme.md#tools)
+lists Docker client/server **28.0.4**. That version's
+[inspect command registration](https://github.com/docker/cli/blob/b8034c0ed70494a90c133461d145cd072d920d7c/cli/command/image/inspect.go#L37-L39)
+defines `--format`, not `--platform`. The producer used the unsupported flag
+at precisely this pre-build boundary. This establishes a source-backed CLI
+compatibility defect, not an observed native tokenizer failure.
+
+The correction follows the existing `scripts/pilot/export.py` inspection
+pattern: query the exact immutable base reference with `--format`, then require
+a SHA-256 image ID and the returned exact `linux/amd64` platform. Docker's
+[28.0.4 image inspection](https://github.com/moby/moby/blob/6430e49a55babd9b8f4d08e70ecb2b68900770fe/daemon/images/image_inspect.go#L51-L66)
+returns that actual image metadata. No tag or repository normalization is
+involved: this path does not read `RepoDigests`. The digest pins, explicit
+pull/build/run platforms, worker, confinement, process/socket/argv identity
+and all runtime budgets are unchanged. Inspection remains 15 seconds per
+base; stdout and stderr are each capped at 1024 bytes, stderr must be empty,
+and future inspection failures retain fixed stage `base-images`.
+
+Tests reject nonzero exit, wrong OS/architecture, malformed/multiple output,
+stderr, timeout and output-limit failure for either base before building or
+running anything. They also bind every original source hash and receipt byte.
+No corrected native execution is claimed. Another bounded run requires the
+fix's final-head independent review, full checks, CI, and a new explicit run
+approval; it must not be a blind retry.
