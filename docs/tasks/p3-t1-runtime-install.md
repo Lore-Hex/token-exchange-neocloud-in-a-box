@@ -14,6 +14,36 @@ checks, resource bounds, service-denial overlay and independent cleanup apply.
 Optional driver compilation and installation still require their explicit flags.
 No mode loads a module into the builder kernel or boots the resulting root.
 
+### Driver Module Compression
+
+The runtime closure adds `zstd`. Unlike the earlier kernel-only experiment,
+DKMS can now compress its five modules successfully. The runtime driver build
+therefore requires all five `.ko.zst` files and normalizes them to uncompressed
+ELF modules before the existing symbol and installation checks. Missing
+compressed files, mixed pre-existing `.ko` files, changed input bytes, decoder
+failure, stderr, wrong ELF type or output beyond 256 MiB reject the build.
+The reviewed decoder runs under the same chroot/capability/seccomp boundary,
+with a 30-second deadline per module and a 256 MiB decoder memory limit.
+Only exclusive new `.ko` files are written. Compressed source hashes are kept
+in the result; compressed files are removed only after all decoded modules
+have passed the ELF check. The installed files must still match the verified
+uncompressed modules exactly, including the dependency indexes. No module is
+loaded, and this is not an attestation or boot claim.
+
+Source review on October 22, 2026 used the authenticated runtime archives:
+
+- DKMS `3.4.3`, `usr/sbin/dkms`, SHA-256
+  `a7a45df4e9f8a4fbea258a54b31d21760121560fe0b6187e34d5b39944e2767b`:
+  lines 346-354 select `.ko.zst`; 1672-1680 compress or fall back when the
+  compressor fails; 317-329 accept uncompressed modules first; 1899-1908 install
+  the selected filename without recompression. The old experiment's missing
+  compressor warnings are not a valid runtime success path.
+- `zstd` `1.5.5+dfsg2-2build1.1`, binary `usr/bin/zstd`, SHA-256
+  `7c5468b370f7c47eda07281e3437fafc568f95d10420051e3aa522709f9342c5`.
+  Its packaged `zstd(1)` manual documents `--decompress`, `--stdout` and
+  `--memory`; the binary is re-hashed before decoding. The pinned archive,
+  rather than a host executable, supplies it.
+
 Before runtime preparation, the host requires the committed APT pass to match
 the exact lock hash, all 212 planned installs/configures, zero removals and
 confirmed cleanup. It re-hashes every package and every reviewed control/data

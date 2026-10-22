@@ -166,7 +166,8 @@ def main():
             controls = {name: inputs.regular(Path("/nib/prepared/mkosi-skeleton") / name, 16384)
                         for name in driver.CONTROL_NAMES}
             report["driver_build"] = driver.build(processes, Path("/out"), installation_environment(), controls,
-                                                 guard.PREFIX, install_driver=install_driver)
+                                                 guard.PREFIX, install_driver=install_driver,
+                                                 compressed_driver="zstd" in expected)
             report["dkms_built"] = True
         report["result"] = "pass"
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
