@@ -11,6 +11,24 @@ import (
 
 var testHash = strings.Repeat("1", 64)
 
+func TestFailureRecordsAreFixedAndCannotBecomePass(t *testing.T) {
+	names := strings.Fields("INITRD_STAGE INITRD_MARKER KERNEL PID1 CMDLINE PID1_MOUNT SELF_MOUNT MOUNT_MATCH DM_NAME DM_SUSPENDED DM_READONLY TABLE_QUERY TABLE_FORMAT ROOT_OPEN ROOT_READ TABLE_RECHECK STATUS_QUERY STATUS_FORMAT DEADLINE")
+	if len(names) != len(failureNames) {
+		t.Fatal("failure stage contract changed")
+	}
+	for i, name := range names {
+		want := "NIB_DEBUG_BOOT_V1 FAIL " + name + "\n"
+		if failureNames[i] != name || failureRecord(failureStage(i)) != want || len(want) > 64 {
+			t.Fatal("unexpected diagnostic record")
+		}
+	}
+	for i := len(names); i < 256; i++ {
+		if failureRecord(failureStage(i)) != FailRecord {
+			t.Fatal("unknown stage exposed data or accepted success")
+		}
+	}
+}
+
 func testTable() string {
 	return "0 16 verity 1 254:1 254:2 4096 4096 2 1 sha256 " + testHash + " " + RootSalt + "\n"
 }

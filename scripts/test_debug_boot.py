@@ -41,6 +41,82 @@ PRODUCER = {"schema": "nib.debug-producer/v1", "source": {"git_sha": "a" * 40, "
 
 
 class QemuTests(unittest.TestCase):
+    def test_failure_stage_contract_is_finite_and_separate_from_success(self):
+        self.assertEqual(qemu.FAILURE_STAGES, tuple("INITRD_STAGE INITRD_MARKER KERNEL PID1 CMDLINE "
+            "PID1_MOUNT SELF_MOUNT MOUNT_MATCH DM_NAME DM_SUSPENDED DM_READONLY TABLE_QUERY TABLE_FORMAT "
+            "ROOT_OPEN ROOT_READ TABLE_RECHECK STATUS_QUERY STATUS_FORMAT DEADLINE".split()))
+        self.assertEqual(len(qemu.FAILURES), 21)
+        self.assertNotIn(qemu.EXPECTED, qemu.FAILURES)
+        self.assertLessEqual(qemu.MAX_PROOF_BYTES, 128)
+        self.assertEqual(qemu.TIMEOUT, 180)
+        service = (ROOT / "guest/debugboot/nib-debug-boot.service").read_text()
+        for directive in ("CapabilityBoundingSet=CAP_SYS_ADMIN\n", "TimeoutStartSec=30\n",
+                          "MemoryMax=64M\n", "StandardOutput=null\n", "StandardError=null\n"):
+            self.assertIn(directive, service)
+
+    def test_recognized_failures_survive_every_fragment_boundary_but_never_pass(self):
+        for raw, stage in qemu.FAILURES.items():
+            for split in range(1, len(raw)):
+                with self.subTest(stage=stage, split=split):
+                    connection = mock.Mock()
+                    connection.recv.side_effect = [raw[:split], raw[split:], b""]
+                    listener = mock.Mock()
+                    listener.accept.return_value = (connection, None)
+                    state = {"initrd": False, "root": False, "complete": False}
+                    qemu.receive(listener, threading.Event(), time.monotonic() + 1, state)
+                    self.assertEqual(state["guest_failure"], stage)
+                    self.assertEqual(state["initrd"], raw.startswith(qemu.INITRD))
+                    self.assertFalse(state["root"] or state["complete"])
+                    self.assertNotIn("protocol_error", state)
+                    connection.close.assert_called_once()
+
+    def test_unknown_out_of_order_truncated_and_extended_failures_are_rejected(self):
+        known = qemu.INITRD + b"NIB_DEBUG_BOOT_V1 FAIL ROOT_READ\n"
+        for raw in (known[:-1], known + b"private-canary", known + known,
+                    b"NIB_DEBUG_BOOT_V1 FAIL ROOT_READ\n", qemu.INITRD * 2,
+                    qemu.INITRD + b"NIB_DEBUG_BOOT_V1 FAIL private-canary\n",
+                    qemu.INITRD + b"NIB_DEBUG_BOOT_V1 FAIL INITRD_STAGE\n"):
+            connection = mock.Mock()
+            connection.recv.side_effect = [raw, b""]
+            listener = mock.Mock()
+            listener.accept.return_value = (connection, None)
+            state = {"initrd": False, "root": False, "complete": False}
+            qemu.receive(listener, threading.Event(), time.monotonic() + 1, state)
+            self.assertFalse(state["complete"])
+            self.assertIn(state["protocol_error"], ("invalid-frame", "incomplete"))
+            self.assertNotIn("guest_failure", state)
+            self.assertNotIn("private-canary", json.dumps(state))
+
+    def test_clean_qemu_exit_does_not_hide_a_guest_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary).resolve() / "proof.sock"
+            def execute(args, **kwargs):
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                    client.connect(str(path))
+                    client.sendall(qemu.INITRD + b"NIB_DEBUG_BOOT_V1 FAIL ROOT_READ\n")
+                return subprocess.CompletedProcess(args, 0, b"", b"")
+            with mock.patch.object(qemu, "SOCKET", path), mock.patch.object(qemu, "TIMEOUT", 1):
+                state, terminal = {"initrd": False, "root": False, "complete": False}, {}
+                with self.assertRaises(ValueError):
+                    qemu.trial(execute, state, terminal)
+            self.assertEqual(state["guest_failure"], "ROOT_READ")
+            self.assertFalse(state["root"] or state["complete"])
+            self.assertEqual(terminal["exit_code"], 0)
+            self.assertTrue(terminal["process_group_cleaned"])
+            self.assertFalse(path.exists())
+
+    def test_complete_frame_without_eof_still_fails(self):
+        connection = mock.Mock()
+        connection.recv.side_effect = [qemu.EXPECTED, socket.timeout()]
+        listener = mock.Mock()
+        listener.accept.return_value = (connection, None)
+        stopped = threading.Event()
+        stopped.set()
+        state = {"initrd": False, "root": False, "complete": False}
+        qemu.receive(listener, stopped, time.monotonic() + 1, state)
+        self.assertFalse(state["complete"])
+        self.assertEqual(state["protocol_error"], "missing-eof")
+
     def test_all_capability_sets_are_zero_after_the_one_way_reexec(self):
         status = "".join(name + ":\t0000000000000000\n" for name in ("CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"))
         status += "NoNewPrivs:\t1\nSeccomp:\t2\n"
