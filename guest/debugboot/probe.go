@@ -49,10 +49,25 @@ const (
 )
 
 var failureNames = [...]string{
-	"INITRD_STAGE", "INITRD_MARKER", "KERNEL", "PID1", "CMDLINE",
-	"PID1_MOUNT", "SELF_MOUNT", "MOUNT_MATCH", "DM_NAME", "DM_SUSPENDED", "DM_READONLY",
-	"TABLE_QUERY", "TABLE_FORMAT", "ROOT_OPEN", "ROOT_READ", "TABLE_RECHECK",
-	"STATUS_QUERY", "STATUS_FORMAT", "DEADLINE",
+	failedInitrd:       "INITRD_STAGE",
+	failedInitrdMarker: "INITRD_MARKER",
+	failedKernel:       "KERNEL",
+	failedPID1:         "PID1",
+	failedCmdline:      "CMDLINE",
+	failedPID1Mount:    "PID1_MOUNT",
+	failedSelfMount:    "SELF_MOUNT",
+	failedMountMatch:   "MOUNT_MATCH",
+	failedDMName:       "DM_NAME",
+	failedDMSuspended:  "DM_SUSPENDED",
+	failedDMReadonly:   "DM_READONLY",
+	failedTableQuery:   "TABLE_QUERY",
+	failedTableFormat:  "TABLE_FORMAT",
+	failedRootOpen:     "ROOT_OPEN",
+	failedRootRead:     "ROOT_READ",
+	failedTableRecheck: "TABLE_RECHECK",
+	failedStatusQuery:  "STATUS_QUERY",
+	failedStatusFormat: "STATUS_FORMAT",
+	failedDeadline:     "DEADLINE",
 }
 
 // Only compile-time labels cross the proof channel, never an error or file value.
