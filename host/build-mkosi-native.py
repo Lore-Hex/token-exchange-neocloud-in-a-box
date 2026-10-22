@@ -42,7 +42,8 @@ def preflight():
     require({name: (group / name).read_text().strip() for name in resources.LIMITS} == resources.LIMITS)
 
 
-def command(root, payload, output, mapped, compile_driver=False):
+def command(root, payload, output, mapped, compile_driver=False, install_driver=False):
+    require(not install_driver or compile_driver)
     before = [os.readlink("/proc/self/ns/" + name) for name in ("user", "mnt", "net", "ipc", "pid")]
     return [*probe.ownership.prefix(root, mapped), probe.native.PYTHON, "-I", "-S", "-B",
         str(payload / "mkosi-sandbox.py"), "--ro-bind", str(root), "/",
@@ -51,7 +52,7 @@ def command(root, payload, output, mapped, compile_driver=False):
         "--unshare-net", "--unshare-ipc", "--become-root",
         "/usr/bin/unshare", "--pid", "--fork", "--mount-proc=/proc", "--kill-child=KILL", "--",
         "/usr/bin/python3.12", "-I", "-S", "-B", "/nib/build-worker.py", *before,
-        *(["--compile-driver"] if compile_driver else [])]
+        *(["--install-driver"] if install_driver else ["--compile-driver"] if compile_driver else [])]
 
 
 def prepare(downloads, source_archive, revision, sources):
@@ -84,13 +85,15 @@ def collect_diagnostics(resultdir):
     artifacts = {}
     for name in ("installer.stdout", "installer.stderr", "dkms-compiler.stdout", "dkms-compiler.stderr",
                  "dkms-add.stdout", "dkms-add.stderr", "dkms-build.stdout", "dkms-build.stderr",
+                 "dkms-install.stdout", "dkms-install.stderr",
                  "dkms-symbols.stdout", "dkms-symbols.stderr", "dkms-make-0.log", "dkms-make-1.log"):
         if (resultdir / name).exists():
             artifacts[name] = base.read(resultdir / name, 2 << 20)
     return artifacts
 
 
-def run(downloads, archive, output, revision, sources, compile_driver=False):
+def run(downloads, archive, output, revision, sources, compile_driver=False, install_driver=False):
+    require(not install_driver or compile_driver)
     require(not output.exists() and not output.is_symlink())
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     report = {"schema": "nib.mkosi-installation/v1", "git_sha": revision, "result": "fail",
@@ -126,7 +129,7 @@ def run(downloads, archive, output, revision, sources, compile_driver=False):
             resultdir.mkdir(mode=0o700)
             report.update(stage="installation", prepared_receipt_sha256=base.digest(prepared["receipt.json"]),
                           tools_receipt_sha256=base.digest(files["receipt.json"]))
-            result = base.processes.execute_process_group(command(root, payload, resultdir, mapped, compile_driver),
+            result = base.processes.execute_process_group(command(root, payload, resultdir, mapped, compile_driver, install_driver),
                 env={**probe.native.worker.ENV, "RUNNER_ENVIRONMENT": "github-hosted"},
                 timeout=1900, max_output_bytes=2 << 20, stdin=subprocess.DEVNULL)
             report["process_cleanup_confirmed"] = True
@@ -145,6 +148,7 @@ def run(downloads, archive, output, revision, sources, compile_driver=False):
             if compile_driver:
                 require(report["worker"]["dkms_built"] is True
                         and report["worker"]["driver_build"]["result"] == "pass")
+                require(report["worker"]["driver_build"]["installed"] is install_driver)
             report.update(result="pass", stage="complete")
         except (OSError, ValueError, KeyError, TypeError, tarfile.TarError, subprocess.SubprocessError) as exc:
             report["failure_kind"] = probe.failure_kind(exc)
@@ -156,6 +160,9 @@ def run(downloads, archive, output, revision, sources, compile_driver=False):
     if compile_driver:
         evidence["command"] += " --compile-driver"
         evidence["notes"] = "Bounded offline installation and explicit DKMS build; no module loading, boot, LKCA, reproducibility or hardware qualification."
+    if install_driver:
+        evidence["command"] += " --install-driver"
+        evidence["notes"] = "Bounded offline driver build and guest-root installation; no module loading, boot, LKCA, reproducibility or hardware qualification."
     artifacts.update({"run.json": base.encoded(evidence), "result.json": base.encoded(report)})
     base.publish(output, artifacts)
     return 0 if report["result"] == "pass" else 1
@@ -166,13 +173,15 @@ def main():
     for name in ("downloads", "archive", "output"):
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--compile-driver", action="store_true")
+    parser.add_argument("--install-driver", action="store_true")
     args = parser.parse_args()
+    require(not args.install_driver or args.compile_driver)
     preflight()
     tools.separate_output(args.output, (args.downloads, args.archive))
     revision, sources = tools.committed((*mkosi.EXTRA, prep.SCRIPT, prep.POLICY,
         SCRIPT, PROBE, WORKER, ENTRY, RESOURCES, LAUNCHER, probe.NATIVE, probe.OWNERSHIP,
         probe.PID_CHECKER, probe.native.CHECKER, probe.native.WORKER, DKMS))
-    return run(args.downloads, args.archive, args.output, revision, sources, args.compile_driver)
+    return run(args.downloads, args.archive, args.output, revision, sources, args.compile_driver, args.install_driver)
 
 
 if __name__ == "__main__":

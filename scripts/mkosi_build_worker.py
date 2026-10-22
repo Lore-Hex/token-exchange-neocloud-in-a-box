@@ -123,7 +123,8 @@ def main():
               "package_installation_executed": False, "configured_state_verified": False,
               "dkms_built": False, "reproducibility_verified": False, "bootable": False, "deployable": False}
     try:
-        compile_driver = len(sys.argv) == 7 and sys.argv[-1] == "--compile-driver"
+        install_driver = len(sys.argv) == 7 and sys.argv[-1] == "--install-driver"
+        compile_driver = install_driver or (len(sys.argv) == 7 and sys.argv[-1] == "--compile-driver")
         require(sys.platform == "linux" and sys.version_info[:2] == (3, 12)
                 and sys.flags.isolated and sys.flags.no_site and sys.flags.dont_write_bytecode
                 and (len(sys.argv) == 6 or compile_driver) and os.geteuid() == os.getegid() == 0)
@@ -156,7 +157,8 @@ def main():
             guard = module("confinement")
             controls = {name: inputs.regular(Path("/nib/prepared/mkosi-skeleton") / name, 16384)
                         for name in driver.CONTROL_NAMES}
-            report["driver_build"] = driver.build(processes, Path("/out"), installation_environment(), controls, guard.PREFIX)
+            report["driver_build"] = driver.build(processes, Path("/out"), installation_environment(), controls,
+                                                 guard.PREFIX, install_driver=install_driver)
             report["dkms_built"] = True
         report["result"] = "pass"
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:

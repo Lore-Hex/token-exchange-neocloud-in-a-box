@@ -346,6 +346,8 @@ class BuildTests(unittest.TestCase):
         workflow = yaml.safe_load((ROOT / ".github/workflows/mkosi-native-build.yml").read_text())
         self.assertEqual(workflow[True], {"workflow_dispatch": {"inputs": {"compile_driver": {
             "description": "Compile the pinned NVIDIA driver after installation (no loading or boot)",
+            "type": "boolean", "default": False}, "install_driver": {
+            "description": "Install verified driver modules into the private guest root (requires compile_driver; never loads)",
             "type": "boolean", "default": False}}}})
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         job = workflow["jobs"]["install"]
@@ -358,7 +360,8 @@ class BuildTests(unittest.TestCase):
         self.assertIn("--metadata-archive", fetch)
         self.assertIn("--include-guest", fetch)
         self.assertIn("host/run-mkosi-build.py", job["steps"][2]["run"])
-        self.assertEqual(job["steps"][2]["env"], {"COMPILE_DRIVER": "${{ inputs.compile_driver }}"})
+        self.assertEqual(job["steps"][2]["env"], {"COMPILE_DRIVER": "${{ inputs.compile_driver }}",
+                                               "INSTALL_DRIVER": "${{ inputs.install_driver }}"})
         self.assertIn('if [ "$COMPILE_DRIVER" = true ]; then args+=(--compile-driver); fi',
                       job["steps"][2]["run"])
         self.assertNotIn("${{", job["steps"][2]["run"])
@@ -370,7 +373,10 @@ class BuildTests(unittest.TestCase):
             args = (Path("/rootfs"), Path("/payload"), Path("/result"), {})
             normal = host.command(*args)
             explicit = host.command(*args, compile_driver=True)
+            install = host.command(*args, compile_driver=True, install_driver=True)
+            with self.assertRaises(ValueError): host.command(*args, install_driver=True)
         self.assertEqual(explicit, normal + ["--compile-driver"])
+        self.assertEqual(install, normal + ["--install-driver"])
         self.assertNotIn("--compile-driver", normal)
 
     def test_host_syntax_compatible_with_fixed_python310(self):
