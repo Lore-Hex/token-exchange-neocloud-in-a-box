@@ -7,6 +7,10 @@ on:
         description: Compile the pinned NVIDIA driver after installation (no loading or boot)
         type: boolean
         default: false
+      install_driver:
+        description: Install verified driver modules into the private guest root (requires compile_driver; never loads)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -46,9 +50,14 @@ jobs:
       - name: Install only in the resource-bounded offline namespace
         env:
           COMPILE_DRIVER: ${{ inputs.compile_driver }}
+          INSTALL_DRIVER: ${{ inputs.install_driver }}
         run: |
           args=()
           if [ "$COMPILE_DRIVER" = true ]; then args+=(--compile-driver); fi
+          if [ "$INSTALL_DRIVER" = true ]; then
+            test "$COMPILE_DRIVER" = true
+            args+=(--install-driver)
+          fi
           sudo -- /usr/bin/python3.10 -I -S -B host/run-mkosi-build.py \
             --downloads "$PWD/build/native-install/inputs" \
             --archive "$PWD/build/native-install/source.tar.gz" \

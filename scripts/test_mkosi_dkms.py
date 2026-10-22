@@ -88,7 +88,7 @@ class DriverTests(unittest.TestCase):
     def test_fixed_commands_and_unchanged_final_confinement(self):
         self.assertEqual(driver.operation("compiler"),
                          ["/usr/bin/x86_64-linux-gnu-gcc-13", "-dumpfullversion", "-dumpversion"])
-        for name in ("add", "build"):
+        for name in ("add", "build", "install"):
             self.assertEqual(driver.operation(name), ["/usr/sbin/dkms", name, "-m", "nvidia",
                 "-v", "595.91.07", "-k", "6.8.0-147-generic", "-a", "x86_64"])
             args = driver.command(name, guard.PREFIX)
@@ -101,7 +101,7 @@ class DriverTests(unittest.TestCase):
             self.assertIn(["--dev", str(driver.ROOTFS) + "/dev"],
                           [args[i:i+2] for i in range(len(args)-1)])
             self.assertNotIn("sys_module", " ".join(args))
-        for name in ("autoinstall", "install", "modprobe", "build; other", "--force"):
+        for name in ("autoinstall", "modprobe", "build; other", "--force"):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 driver.operation(name)
         self.assertEqual(driver.operation("symbols"),
@@ -240,6 +240,135 @@ class DriverTests(unittest.TestCase):
             put(root, driver.MAKE_LOGS[0], b"x" * ((2 << 20) + 1))
             with self.assertRaises(ValueError):
                 driver.preserve_make_log(root, output)
+
+    def test_install_inputs_pin_hooks_and_reject_overrides_links_and_existing_install(self):
+        for merged_usr in (False, True):
+            with self.subTest(merged_usr=merged_usr), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                pins = {name: hashlib.sha256(name.encode()).hexdigest() for name in driver.INSTALL_PINS}
+                for name in pins:
+                    put(root, name, name.encode())
+                controls = {name: b"reviewed control\n" for name in driver.CONTROL_NAMES}
+                for name, raw in controls.items():
+                    put(root, name, raw)
+                (root / "var/lib/dkms/nvidia").mkdir(parents=True)
+                prefix = "usr/lib" if merged_usr else "lib"
+                directory = prefix + "/modules/" + driver.KERNEL + "/"
+                (root / directory).mkdir(parents=True)
+                if merged_usr:
+                    (root / "lib").symlink_to("usr/lib", target_is_directory=True)
+                with mock.patch.object(driver, "INSTALL_PINS", pins):
+                    self.assertEqual(driver.install_inputs(root, controls), directory)
+                    for name in (*pins, *controls):
+                        path = root / name
+                        original = path.read_bytes()
+                        path.write_bytes(b"changed")
+                        with self.subTest(name=name), self.assertRaises(ValueError):
+                            driver.install_inputs(root, controls)
+                        path.write_bytes(original)
+                    for name in ("etc/dkms/nvidia.conf", "etc/dkms/framework.conf.d/extra.conf"):
+                        extra = put(root, name, b"POST_INSTALL=unexpected\n")
+                        with self.assertRaises(ValueError): driver.install_inputs(root, controls)
+                        extra.unlink()
+                    extra = root / "var/lib/dkms/other"
+                    extra.mkdir()
+                    with self.assertRaises(ValueError): driver.install_inputs(root, controls)
+                    extra.rmdir()
+                    updates = root / directory / "updates"
+                    updates.symlink_to(root, target_is_directory=True)
+                    with self.assertRaises(ValueError): driver.install_inputs(root, controls)
+                    updates.unlink()
+                    (updates / "dkms").mkdir(parents=True)
+                    with self.assertRaises(ValueError): driver.install_inputs(root, controls)
+
+    def test_installed_files_must_match_built_and_appear_once_in_dependency_index(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            directory = "lib/modules/" + driver.KERNEL + "/"
+            for name in driver.MODULES:
+                put(root, driver.MODULE_DIRECTORY + name + ".ko", elf())
+                put(root, directory + "updates/dkms/" + name + ".ko", elf())
+            built = driver.inspect_modules(root)
+            deps = b"".join(("updates/dkms/" + name + ".ko: kernel/crypto/fixture.ko\n").encode()
+                            for name in driver.MODULES)
+            depfile = put(root, directory + "modules.dep", deps)
+            for name in ("modules.dep.bin", "modules.alias.bin", "modules.symbols.bin"):
+                put(root, directory + name, b"fixture index")
+            indexes = driver.installed_modules(root, directory, built)
+            self.assertEqual(indexes["modules.dep"]["sha256"], hashlib.sha256(deps).hexdigest())
+            for invalid in (deps + deps, b"unrelated.ko:\n", deps.replace(b"nvidia.ko", b"different.ko")):
+                depfile.write_bytes(invalid)
+                with self.assertRaises(ValueError): driver.installed_modules(root, directory, built)
+            depfile.write_bytes(deps)
+            path = root / directory / "updates/dkms/nvidia.ko"
+            path.write_bytes(elf() + b"changed")
+            with self.assertRaises(ValueError): driver.installed_modules(root, directory, built)
+            path.write_bytes(elf())
+            extra = put(root, directory + "updates/dkms/unknown.ko", elf())
+            with self.assertRaises(ValueError): driver.installed_modules(root, directory, built)
+            extra.unlink()
+            (root / directory / "modules.dep.bin").unlink()
+            with self.assertRaises(FileNotFoundError): driver.installed_modules(root, directory, built)
+
+    def test_install_command_is_bounded_and_never_runs_after_rejected_preflight(self):
+        processes = host.base.processes
+        with tempfile.TemporaryDirectory() as temporary, \
+                mock.patch.object(driver, "install_inputs", return_value="lib/modules/fixed/") as inputs, \
+                mock.patch.object(driver, "inspect_modules", return_value=[{"fixture": True}]), \
+                mock.patch.object(driver, "installed_modules", return_value={"fixture-index": True}) as inspect, \
+                mock.patch.object(processes, "execute_process_group", return_value=
+                                  subprocess.CompletedProcess([], 0, b"installed\n", b"")) as execute:
+            output = Path(temporary)
+            result = driver.install(processes, output, {}, {}, guard.PREFIX, [{"fixture": True}])
+            self.assertEqual(result, {"fixture-index": True})
+            self.assertEqual(execute.call_args.args[0][-1], "install")
+            self.assertEqual(execute.call_args.kwargs["timeout"], 120)
+            self.assertEqual(execute.call_args.kwargs["max_output_bytes"], 2 << 20)
+            self.assertEqual(execute.call_args.kwargs["max_stderr_bytes"], 2 << 20)
+            self.assertEqual((output / "dkms-install.stdout").read_bytes(), b"installed\n")
+            inspect.assert_called_once()
+            inputs.side_effect = ValueError("rejected")
+            execute.reset_mock()
+            with self.assertRaises(ValueError): driver.install(processes, output, {}, {}, guard.PREFIX, [])
+            execute.assert_not_called()
+
+    def test_install_failure_does_not_validate_files_or_hide_bounded_diagnostics(self):
+        processes = host.base.processes
+        for failure in (subprocess.CompletedProcess([], 1, b"partial", b"failed"),
+                        processes.OutputLimitExceeded("stderr", b"prefix", b"bounded")):
+            with self.subTest(failure=type(failure)), tempfile.TemporaryDirectory() as temporary, \
+                    mock.patch.object(driver, "install_inputs", return_value="lib/modules/fixed/"), \
+                    mock.patch.object(driver, "inspect_modules", return_value=[]), \
+                    mock.patch.object(driver, "installed_modules") as inspect, \
+                    mock.patch.object(processes, "execute_process_group", side_effect=[failure]):
+                output = Path(temporary)
+                with self.assertRaises((subprocess.CalledProcessError, processes.OutputLimitExceeded)):
+                    driver.install(processes, output, {}, {}, guard.PREFIX, [])
+                inspect.assert_not_called()
+                self.assertEqual((output / "dkms-install.stderr").read_bytes(), failure.stderr)
+
+    def test_install_is_opt_in_and_a_failed_install_cannot_return_build_success(self):
+        processes = host.base.processes
+        results = [subprocess.CompletedProcess([], 0, b"13.3.0\n", b""),
+                   subprocess.CompletedProcess([], 0, b"", b""),
+                   subprocess.CompletedProcess([], 0, b"", b""),
+                   subprocess.CompletedProcess([], 0, symbols(), b"")]
+        for enabled, fail in ((False, False), (True, False), (True, True)):
+            with self.subTest(enabled=enabled, fail=fail), tempfile.TemporaryDirectory() as temporary, \
+                    mock.patch.object(driver, "verify_inputs"), mock.patch.object(driver, "preserve_make_log"), \
+                    mock.patch.object(driver, "inspect_modules", return_value=[{"fixture": True}]), \
+                    mock.patch.object(driver, "install", return_value={"index": True}) as install, \
+                    mock.patch.object(processes, "execute_process_group", side_effect=results):
+                if fail:
+                    install.side_effect = ValueError("install-rejected")
+                    with self.assertRaises(ValueError):
+                        driver.build(processes, Path(temporary), {}, {}, guard.PREFIX, install_driver=enabled)
+                else:
+                    report = driver.build(processes, Path(temporary), {}, {}, guard.PREFIX, install_driver=enabled)
+                    self.assertIs(report["installed"], enabled)
+                    self.assertEqual(report["dependency_indexes"], {"index": True} if enabled else None)
+                    self.assertFalse(report["loaded"] or report["lkca_verified"] or report["bootable"])
+                self.assertEqual(install.call_count, int(enabled))
 
 
 if __name__ == "__main__":

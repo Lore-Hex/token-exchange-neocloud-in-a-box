@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Explicit pinned-target compilation, never installation or module loading."""
+"""Explicit pinned-target driver build and opt-in image install, never loading."""
 import hashlib
 import os
 from pathlib import Path
@@ -27,6 +27,10 @@ SOURCE_PINS = {
     "usr/src/nvidia-595.91.07/nvidia/libspdm_aead.c": "25dc00713ba1eaae12f3d6eb8433c87413b9d40c058e8a262ddbb6d35af34bb4",
     "usr/src/nvidia-595.91.07/nvidia/libspdm_ecc.c": "9dc820124a9f568d38d35c324bac8e845ddbc7158959ac94ed0000248749fb61",
     "usr/src/nvidia-595.91.07/nvidia/libspdm_shash.c": "5f396f9eb94ebaaf1a6636b5d9df82ccf94e988633bbd9757a0f4e42e506680b",
+}
+INSTALL_PINS = {
+    "usr/src/nvidia-595.91.07/dkms.conf": "ecc14df50b16604c446e9e5b8609dd60c5551dc5937d711aa782aea87b6ff217",
+    "etc/dkms/framework.conf": "4e1d08f13f8bd021383d2f0c42aaee498800a88325701b3556555cc4867e758f",
 }
 MODULE_DIRECTORY = "var/lib/dkms/nvidia/" + DRIVER + "/" + KERNEL + "/x86_64/module/"
 CRYPTO_REFERENCES = ("crypto_alloc_aead", "crypto_alloc_akcipher", "crypto_alloc_shash")
@@ -78,7 +82,7 @@ def operation(name):
     if name == "symbols":
         return ["/usr/bin/x86_64-linux-gnu-nm", "--undefined-only", "--format=posix",
                 "--no-demangle", "/" + MODULE_DIRECTORY + "nvidia.ko"]
-    require(name in ("add", "build"))
+    require(name in ("add", "build", "install"))
     return ["/usr/sbin/dkms", name, "-m", "nvidia", "-v", DRIVER, "-k", KERNEL, "-a", "x86_64"]
 
 
@@ -94,15 +98,78 @@ def command(name, prefix):
             "/usr/bin/python3.12", "-I", "-S", "-B", "/nib/dkms-worker.py", name]
 
 
-def inspect_modules(root):
+def inspect_modules(root, directory=MODULE_DIRECTORY):
     rows = []
     for name in MODULES:
-        raw = regular(root, MODULE_DIRECTORY + name + ".ko", 256 << 20)
+        raw = regular(root, directory + name + ".ko", 256 << 20)
         # ELF64 little-endian relocatable x86_64, not an executable or DSO.
         require(len(raw) >= 64 and raw[:7] == b"\x7fELF\x02\x01\x01"
                 and raw[16:20] == b"\x01\x00\x3e\x00")
         rows.append({"name": name, "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()})
     return rows
+
+
+def install_inputs(root, controls):
+    for name, digest in INSTALL_PINS.items():
+        require(hashlib.sha256(regular(root, name, 16384)).hexdigest() == digest)
+    require(set(controls) == set(CONTROL_NAMES))
+    for name, raw in controls.items():
+        require(regular(root, name, 16384) == raw)
+    # DKMS sources overrides and optional hooks from this tree. Only the
+    # authenticated framework and our reviewed build controls may be present.
+    expected = {*CONTROL_NAMES, "etc/dkms/framework.conf", "etc/dkms/framework.conf.d"}
+    observed = set()
+    for path in (root / "etc/dkms").rglob("*"):
+        name = path.relative_to(root).as_posix()
+        require(name in expected and not path.is_symlink())
+        observed.add(name)
+    require(observed == expected)
+    require({path.name for path in (root / "var/lib/dkms").iterdir() if path.is_dir()} == {"nvidia"})
+    lib = root / "lib"
+    if lib.is_symlink():
+        require(os.readlink(lib) == "usr/lib")
+        directory = "usr/lib/modules/" + KERNEL + "/"
+    else:
+        require(lib.is_dir())
+        directory = "lib/modules/" + KERNEL + "/"
+    # Validate every parent without resolving arbitrary links out of the image.
+    path = root
+    for part in Path(directory).parts:
+        path = path / part
+        require(path.is_dir() and not path.is_symlink())
+    require(not (path / "updates/dkms").exists() and not (path / "updates/dkms").is_symlink())
+    require(not (path / "updates").is_symlink())
+    return directory
+
+
+def installed_modules(root, directory, built):
+    target = directory + "updates/dkms/"
+    require(inspect_modules(root, target) == built and inspect_modules(root) == built)
+    require({path.name for path in (root / target).iterdir()} == {name + ".ko" for name in MODULES})
+    raw = regular(root, directory + "modules.dep", 8 << 20)
+    wanted = {"updates/dkms/" + name + ".ko" for name in MODULES}
+    rows = [line.split(":", 1)[0] for line in raw.decode("ascii").splitlines() if ":" in line]
+    require(all(rows.count(name) == 1 for name in wanted))
+    indexes = {}
+    for name in ("modules.dep", "modules.dep.bin", "modules.alias.bin", "modules.symbols.bin"):
+        data = regular(root, directory + name, 8 << 20)
+        indexes[name] = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+    return indexes
+
+
+def install(processes, output, environment, controls, prefix, built, root=ROOTFS):
+    require(root == ROOTFS)
+    directory = install_inputs(root, controls)
+    require(inspect_modules(root) == built)
+    try:
+        result = processes.execute_process_group(command("install", prefix), env=environment,
+            timeout=120, max_output_bytes=2 << 20, max_stderr_bytes=2 << 20, stdin=subprocess.DEVNULL)
+    except processes.OutputLimitExceeded as error:
+        preserve_diagnostics(output, "install", error)
+        raise
+    preserve_diagnostics(output, "install", result)
+    result.check_returncode()
+    return installed_modules(root, directory, built)
 
 
 def crypto_references(raw):
@@ -137,8 +204,8 @@ def preserve_make_log(root, output):
         (output / ("dkms-make-" + str(index) + ".log")).write_bytes(raw)
 
 
-def build(processes, output, environment, controls, prefix, root=ROOTFS):
-    require(root == ROOTFS)
+def build(processes, output, environment, controls, prefix, root=ROOTFS, *, install_driver=False):
+    require(root == ROOTFS and type(install_driver) is bool)
     verify_inputs(root, controls)
     modules = None
     references = None
@@ -163,9 +230,10 @@ def build(processes, output, environment, controls, prefix, root=ROOTFS):
             require(not result.stderr)
             references = crypto_references(result.stdout)
             require(inspect_modules(root) == modules)
+    indexes = install(processes, output, environment, controls, prefix, modules, root) if install_driver else None
     return {"result": "pass", "kernel": KERNEL, "driver": DRIVER, "compiler": "13.3.0",
             "modules": modules, "crypto_references": references, "crypto_linkage_verified": True,
-            "installed": False, "loaded": False,
+            "installed": install_driver, "dependency_indexes": indexes, "loaded": False,
             "lkca_verified": False, "reproducibility_verified": False, "bootable": False}
 
 
