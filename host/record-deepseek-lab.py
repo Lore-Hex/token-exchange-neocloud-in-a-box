@@ -34,6 +34,7 @@ EXCEPTIONS = "scripts/engine_exception.py"
 PROBE = "scripts/engine_lab_probe.py"
 CORRECTNESS = "scripts/engine_local_correctness.py"
 PARITY = "scripts/engine_tokenizer_parity.py"
+OBSERVATION = "scripts/engine_runtime_observation.py"
 SMOKE = "scripts/engine_import_smoke.py"
 TEST = "scripts/test_deepseek_lab.py"
 SIX_TEST = "scripts/test_botocore_six.py"
@@ -108,7 +109,7 @@ def parallel_size(contract):
 
 
 def make_payload(builder, revision, bundle, extra, binary, operation="functional", family="B200", security="confidential", replicas=1,
-                 *, tokenizer_parity=False, tokenizer_materialization=False):
+                 *, tokenizer_parity=False, tokenizer_materialization=False, runtime_observation=False):
     require(operation in ("functional", "hardware-diagnostic", "local-correctness", "pre-serve"))
     require(family in ("B200", "B300") and (family == "B200" or operation in ("local-correctness", "pre-serve")))
     require(security in ("confidential", "nonconfidential") and (security == "confidential"
@@ -118,6 +119,8 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
     require(type(tokenizer_parity) is bool and (not tokenizer_parity or
             (operation == "local-correctness" and family == "B300" and security == "confidential")))
     require(type(tokenizer_materialization) is bool and (not tokenizer_materialization or tokenizer_parity))
+    require(type(runtime_observation) is bool and (not runtime_observation or
+            (operation == "local-correctness" and family == "B300" and security == "confidential")))
     files, _ = builder.prepare_files(revision, bundle, extra)
     app = builder.overlay.load_json(files["payload/contract.json"])
     measured = builder.application.measurement(builder.overlay, extra[builder.application.EVIDENCE])
@@ -138,6 +141,8 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
         payload["tokenizer-parity.py"] = extra[PARITY]
     if tokenizer_materialization:
         payload["tokenizer-adapter.py"] = extra[LAB_BOOTSTRAP]
+    if runtime_observation:
+        payload["runtime-observation.py"] = extra[OBSERVATION]
     contract = {"schema": "nib.deepseek-lab-input/v1", "status": "BLOCKED", "deployable": False, "confidential": False,
                 "operation": operation,
                 "git_sha": revision, "base_image": builder.overlay.BASE_IMAGE, "official_config": app["official_config"],
@@ -162,13 +167,15 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
         adapter = types.ModuleType("lab_adapter_constants")
         exec(compile(extra[LAB_BOOTSTRAP], LAB_BOOTSTRAP, "exec", dont_inherit=True), adapter.__dict__)
         contract["tokenizer_materialization"] = adapter.tokenizer_adapter_identity()
+    if runtime_observation:
+        contract["runtime_observation"] = True
     payload["lab.json"] = builder.overlay.json_bytes(contract)
     payload["python"] = runtime.wrapper_bytes(contract["interpreter"]["resolved"], contract["environment"], digest(payload["lab.json"]))
     return payload, contract
 
 
 def prepare(destination, operation="functional", family="B200", security="confidential", replicas=1, *,
-            tokenizer_parity=False, tokenizer_materialization=False):
+            tokenizer_parity=False, tokenizer_materialization=False, runtime_observation=False):
     builder = load("lab_application_builder", ROOT / BUILDER, BUILDER_SHA)
     revision, bundle, extra = builder.inputs(ROOT)
     for name in (SCRIPT, HELPER, RUNTIME, LAB_BOOTSTRAP, EXCEPTIONS, PROBE, SMOKE, TEST, SIX_TEST,
@@ -183,6 +190,9 @@ def prepare(destination, operation="functional", family="B200", security="confid
     if tokenizer_materialization:
         name = "scripts/test_tokenizer_materialization.py"
         extra[name] = committed(builder, revision, name)
+    if runtime_observation:
+        for name in (OBSERVATION, "scripts/test_engine_runtime_observation.py"):
+            extra[name] = committed(builder, revision, name)
     require(extra[SCRIPT] == read(Path(__file__).absolute()))
     recorder = builder.recorder
     with tempfile.TemporaryDirectory(prefix="nib-lab-build-") as temporary:
@@ -190,7 +200,8 @@ def prepare(destination, operation="functional", family="B200", security="confid
         env = recorder.offline_environment(work / "control")
         binary, source_sha = recorder.build_validator(ROOT, revision, work, {**env, "GOOS": "linux", "GOARCH": "amd64"})
         payload, contract = make_payload(builder, revision, bundle, extra, read(binary, MAX_BYTES), operation, family, security, replicas,
-                                         tokenizer_parity=tokenizer_parity, tokenizer_materialization=tokenizer_materialization)
+                                         tokenizer_parity=tokenizer_parity, tokenizer_materialization=tokenizer_materialization,
+                                         runtime_observation=runtime_observation)
         config = recorder.raw_metadata(ROOT / "build/engine-image-metadata", contract)
         runtime = load("lab_environment_constants", ROOT / RUNTIME, digest(extra[RUNTIME]))
         image_env = dict(item.split("=", 1) for item in config["config"]["Env"])
@@ -263,6 +274,10 @@ def bundle_inputs(path, expected):
     if "tokenizer_materialization" in contract:
         adapter = load("lab_adapter_profile", path / "payload/tokenizer-adapter.py", contract["sources"]["tokenizer-adapter.py"])
         require(adapter.tokenizer_adapter_options(contract, require))
+    if "runtime_observation" in contract:
+        observer = load("lab_runtime_profile", path / "payload/runtime-observation.py",
+                        contract["sources"]["runtime-observation.py"])
+        require(observer.enabled(contract))
     config = recorder.raw_metadata(path / "metadata", contract)
     return receipt, contract, config, recorder
 
@@ -490,6 +505,13 @@ def validate_result(row, bundle, contract, recorder):
     fields = {"schema", "status", "deployable", "confidential", "functional_pass",
               "stage", "application", "hardware", "completion", "startup", "engine_stopped"}
     expected_schema = "nib.deepseek-lab-result/v2"
+    if "runtime_observation" in contract:
+        fields.add("runtime_observation")
+        observer = load("lab_runtime_validation", Path(bundle) / "payload/runtime-observation.py",
+                        contract["sources"]["runtime-observation.py"])
+        observer.validate(row.get("runtime_observation"), contract, digest(read(Path(bundle) / "payload/lab.json")),
+                          complete=row.get("functional_pass") is True or row.get("stage") == "complete")
+        require(not row["runtime_observation"]["samples"] or row.get("stage") in ("request", "complete"))
     if "tokenizer_materialization" in contract:
         fields.add("tokenizer_materialization")
         require(parity and row.get("tokenizer_materialization") == contract["tokenizer_materialization"])
@@ -655,6 +677,8 @@ def main():
                         help="Prepare the fixed B300 CC tokenizer prerequisite instead of correctness cases.")
     parser.add_argument("--tokenizer-materialization", action="store_true",
                         help="Prepare the pinned server validator adapter; requires --tokenizer-parity.")
+    parser.add_argument("--runtime-observation", action="store_true",
+                        help="Observe the owned B300 CC API process and cgroup counters; not tau admission.")
     parser.add_argument("--receipt-sha256")
     parser.add_argument("--weights")
     parser.add_argument("--output")
@@ -665,14 +689,19 @@ def main():
         destination = getattr(args, option.replace("-", "_"))
         if destination:
             require(not any((args.receipt_sha256, args.weights, args.output, args.deadline)))
+            optional = {}
+            if args.runtime_observation:
+                require(profile[:3] == ("local-correctness", "B300", "confidential"))
+                optional["runtime_observation"] = True
             if args.tokenizer_parity:
                 require(profile[:3] == ("local-correctness", "B300", "confidential"))
-                optional = {"tokenizer_materialization": True} if args.tokenizer_materialization else {}
+                if args.tokenizer_materialization:
+                    optional["tokenizer_materialization"] = True
                 prepare(destination, *profile, tokenizer_parity=True, **optional)
             else:
-                prepare(destination, *profile)
+                prepare(destination, *profile, **optional)
             return 0
-    require(not args.tokenizer_parity and not args.tokenizer_materialization)
+    require(not args.tokenizer_parity and not args.tokenizer_materialization and not args.runtime_observation)
     require(sys.platform == "linux" and all((args.receipt_sha256, args.output, args.deadline)))
     deadline = dt.datetime.strptime(args.deadline, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp()
     require(0 < deadline - time.time() <= MAX_SECONDS)

@@ -27,6 +27,10 @@ on:
           (requires verity_root; no export, signing or boot)
         type: boolean
         default: false
+      validate_export:
+        description: Verify then delete private GPT/UKI; upload JSON only (requires all five build flags; no boot)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -68,12 +72,14 @@ jobs:
             --metadata-archive "$PWD/build/native-install/metadata.tar.gz" \
             --output "$PWD/build/native-install/inputs" > build/native-install/input-fetch.log
       - name: Install only in the resource-bounded offline namespace
+        id: build
         env:
           COMPILE_DRIVER: ${{ inputs.compile_driver }}
           INSTALL_DRIVER: ${{ inputs.install_driver }}
           GUEST_RUNTIME: ${{ inputs.guest_runtime }}
           VERITY_ROOT: ${{ inputs.verity_root }}
           BOOT_UKI: ${{ inputs.boot_uki }}
+          VALIDATE_EXPORT: ${{ inputs.validate_export }}
         run: |
           args=()
           if [ "$GUEST_RUNTIME" = true ]; then args+=(--guest-runtime); fi
@@ -92,12 +98,32 @@ jobs:
             test "$VERITY_ROOT" = true
             args+=(--boot-uki)
           fi
+          if [ "$VALIDATE_EXPORT" = true ]; then
+            test "$BOOT_UKI" = true
+            test "$VERITY_ROOT" = true
+            test "$GUEST_RUNTIME" = true
+            test "$INSTALL_DRIVER" = true
+            test "$COMPILE_DRIVER" = true
+            args+=(--export-boot)
+          fi
           sudo -- /usr/bin/python3.10 -I -S -B host/run-mkosi-build.py \
             --downloads "$PWD/build/native-install/inputs" \
             --archive "$PWD/build/native-install/source.tar.gz" \
             --output "$PWD/build/native-install/evidence" "${args[@]}"
+      - name: Verify and delete private export before preparing metadata
+        id: export_validation
+        if: ${{ always() && inputs.validate_export }}
+        timeout-minutes: 5
+        env:
+          BUILD_RESULT: ${{ steps.build.outcome }}
+        run: |
+          result="$(/usr/bin/python3.10 -I -S -B host/validate-native-boot-export.py \
+            --build-result "$BUILD_RESULT")"
+          case "$result" in pass|fail) ;; *) exit 1 ;; esac
+          printf 'metadata_ready=true\n' >> "$GITHUB_OUTPUT"
+          test "$result" = pass
       - name: Preserve installation and independent cleanup evidence
-        if: always()
+        if: ${{ always() && !inputs.validate_export }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: native-mkosi-install-${{ github.run_id }}-${{ github.run_attempt }}
@@ -105,5 +131,18 @@ jobs:
             build/native-install/input-fetch.log
             build/native-install/evidence/
             build/native-install/evidence-resources.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve only verified export metadata after image deletion
+        if: ${{ always() && inputs.validate_export && steps.export_validation.outputs.metadata_ready == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: native-mkosi-export-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/native-install/export-validation/validation.json
+            build/native-install/export-validation/manifest.json
+            build/native-install/export-validation/run.json
+            build/native-install/export-validation/result.json
+            build/native-install/export-validation/resources.json
           if-no-files-found: error
           retention-days: 7

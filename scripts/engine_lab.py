@@ -28,6 +28,7 @@ PROCESSES = None
 GPU_PROBE = None
 CORRECTNESS = None
 PARITY = None
+RUNTIME_OBSERVER = None
 ENTRY_CHECKPOINTS = 17
 EXCEPTION_PACKET_BYTES = 3 + 8 * 36
 WORKER_EXCEPTION_PATH = "/cache/worker-exception.bin"
@@ -212,7 +213,7 @@ def load(name, raw, path):
 
 
 def lab_context(expected):
-    global PROCESSES, GPU_PROBE, CORRECTNESS, PARITY
+    global PROCESSES, GPU_PROBE, CORRECTNESS, PARITY, RUNTIME_OBSERVER
     import platform
     import re
     require(re.fullmatch(r"[0-9a-f]{64}", expected) and __file__ == ROOT + "/launch.py")
@@ -253,6 +254,9 @@ def lab_context(expected):
         require(PARITY.enabled(contract))
     if "tokenizer_materialization" in contract:
         tokenizer_adapter_options(contract, require)
+    if "runtime_observation" in contract:
+        RUNTIME_OBSERVER = load("lab_runtime_observer", sources["runtime-observation.py"], ROOT + "/runtime-observation.py")
+        require(RUNTIME_OBSERVER.enabled(contract))
     modules = [load(name, sources["application/" + name], ROOT + "/application/" + name)
                for name in ("engine_overlay.py", "engine_image_diagnostic.py", "engine_python_descriptor.py", "application.py")]
     overlay, _, _, app = modules
@@ -563,6 +567,20 @@ def check_scratch_mounts():
                 and bool(flags & os.ST_NOEXEC) != executable)
 
 
+def observe_runtime(engine, contract, row, started):
+    require(engine.poll() is None and len(row["samples"]) < 2)
+    remaining = started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE - time.monotonic()
+    require(remaining > RUNTIME_OBSERVER.SECONDS + RUNTIME_OBSERVER.CLEANUP_SECONDS)
+    event = RUNTIME_OBSERVER.EVENTS[len(row["samples"])]
+    raw = quiet_command([ROOT + "/python", "runtime-observation", str(engine.pid), event],
+                        RUNTIME_OBSERVER.SECONDS, output=True)
+    sample = CORRECTNESS.strict_json(raw)
+    require(engine.poll() is None)
+    candidate = {**row, "samples": [*row["samples"], sample]}
+    RUNTIME_OBSERVER.validate(candidate, contract, row["contract_sha256"])
+    row["samples"].append(sample)
+
+
 def application_and_request(contract, sources, modules, application, measured):
     overlay, diagnostic, descriptor, app = modules
     result = {"schema": "nib.deepseek-lab-result/v2", "status": "BLOCKED", "deployable": False,
@@ -573,6 +591,11 @@ def application_and_request(contract, sources, modules, application, measured):
     parity = contract.get("tokenizer_parity") is True
     if "tokenizer_materialization" in contract:
         result.update(tokenizer_adapter_options(contract, require))
+    if "runtime_observation" in contract:
+        require(RUNTIME_OBSERVER.enabled(contract))
+        result["runtime_observation"] = {"schema": RUNTIME_OBSERVER.SCHEMA,
+            "contract_sha256": hashlib.sha256(read_source(ROOT + "/lab.json")).hexdigest(),
+            "tau_admission": False, "quality_eligible": False, "samples": []}
     pre_serve = contract["operation"] == "pre-serve"
     if correctness:
         if parity:
@@ -643,6 +666,8 @@ def application_and_request(contract, sources, modules, application, measured):
             result.update(stage="complete", entry_pass=True)
             return result
         result["stage"] = "request"
+        if "runtime_observation" in contract:
+            observe_runtime(engine, contract, result["runtime_observation"], started)
         if parity:
             remaining = started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE - time.monotonic()
             require(remaining > 0)
@@ -659,6 +684,8 @@ def application_and_request(contract, sources, modules, application, measured):
                 "max_tokens": 128, "temperature": 0, "stream": False})
             result["completion"] = completion_result(raw)
         require(hardware(contract.get("gpu_family", "B200"), security, count) == result["hardware"])
+        if "runtime_observation" in contract:
+            observe_runtime(engine, contract, result["runtime_observation"], started)
         result["functional_pass"] = (result["tokenizer_parity" if parity else "correctness"]["all_cases_pass"] if correctness else
                                     (result["completion"]["final_content_present"]
                                      and result["completion"]["synthetic_answer_match"]
@@ -732,6 +759,15 @@ def lab_entry():
         return
     contract, sources, modules, application, measured = lab_context(sys.argv[1])
     mode, rest = sys.argv[2], sys.argv[2:]
+    if mode == "runtime-observation":
+        require(len(rest) == 3 and RUNTIME_OBSERVER.enabled(contract)
+                and re.fullmatch(r"[1-9][0-9]{0,9}", rest[1]) and rest[2] in RUNTIME_OBSERVER.EVENTS)
+        signal.signal(signal.SIGALRM, lambda *_: os._exit(124))
+        signal.alarm(RUNTIME_OBSERVER.SECONDS)
+        sample = RUNTIME_OBSERVER.observe(int(rest[1]), contract, sys.argv[1], rest[2],
+                                         time.monotonic() + RUNTIME_OBSERVER.SECONDS)
+        print(json.dumps(sample, sort_keys=True))
+        return
     if mode == "tokenizer-parity":
         require(len(rest) == 1 and contract.get("tokenizer_parity") is True)
         local_tokenizer(contract, modules, application)
