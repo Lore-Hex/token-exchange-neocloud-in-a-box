@@ -202,6 +202,36 @@ class ProcessTests(unittest.TestCase):
 
 
 class ContainerTests(unittest.TestCase):
+    def test_tagless_digest_reference_preserves_exact_pin_and_platform(self):
+        repository, pinned_digest = session.IMAGE.split("@")
+        canonical = repository.rsplit(":", 1)[0] + "@" + pinned_digest
+        for reference in (session.IMAGE, canonical):
+            for prefix in ("", "docker.io/", "docker.io/library/"):
+                row = image_info()
+                row["RepoDigests"] = [reference.removeprefix(prefix)]
+                with self.subTest(reference=row["RepoDigests"]):
+                    self.assertEqual(session.image_manifest(row), MANIFEST)
+        for references in ([], canonical, [None], [canonical + "extra"],
+                           [canonical.replace(pinned_digest, "sha256:" + "0" * 64)],
+                           [canonical.replace("/python@", "/other@")],
+                           ["untrusted.invalid/" + canonical], [repository],
+                           [canonical.replace("@", ":other@")]):
+            row = image_info()
+            row["RepoDigests"] = references
+            with self.subTest(references=references), self.assertRaises(ValueError):
+                session.image_manifest(row)
+        for change in (lambda r: r.update(Architecture="arm64"), lambda r: r.update(Os="windows"),
+                       lambda r: r["Config"].update(Volumes={"/unsafe": {}}),
+                       lambda r: r.update(Id="sha256:" + "0" * 64),
+                       lambda r: r["Descriptor"].update(digest="sha256:" + "0" * 64),
+                       lambda r: r["Descriptor"].update(mediaType="application/vnd.oci.image.index.v1+json"),
+                       lambda r: r["Descriptor"].update(platform={"architecture": "arm64", "os": "linux"})):
+            row = image_info()
+            row["RepoDigests"] = [canonical.removeprefix("docker.io/library/")]
+            change(row)
+            with self.assertRaises(ValueError):
+                session.image_manifest(row)
+
     def test_exact_cpu_create_and_inspect_reject_confinement_drift(self):
         payload = Path("/private/checker/payload")
         command = session.create_command(NAME + "-provider", OWNER, ENGINE, payload, SHA, worker)

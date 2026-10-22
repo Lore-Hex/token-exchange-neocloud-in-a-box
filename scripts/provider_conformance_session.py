@@ -220,13 +220,19 @@ def create_command(name, owner, engine_id, payload, plan_sha, worker):
 
 def image_manifest(info):
     descriptor = info["Descriptor"]
+    repository, pinned_digest = IMAGE.split("@")
+    # RepoDigests may drop the human-readable tag but must retain this exact pin.
+    canonical = repository.rsplit(":", 1)[0] + "@" + pinned_digest
+    references = {reference.removeprefix(prefix) for reference in (IMAGE, canonical)
+                  for prefix in ("", "docker.io/", "docker.io/library/")}
     require(info["Architecture"] == "amd64" and info["Os"] == "linux"
             and not info["Config"].get("Volumes") and info["Id"] == descriptor["digest"]
             and descriptor["mediaType"] == "application/vnd.oci.image.manifest.v1+json"
             and descriptor["platform"] == {"architecture": "amd64", "os": "linux"}
             and re.fullmatch(r"sha256:[0-9a-f]{64}", descriptor["digest"])
-            and any(reference in info["RepoDigests"] for reference in
-                    (IMAGE, IMAGE.removeprefix("docker.io/"), IMAGE.removeprefix("docker.io/library/"))))
+            and type(info["RepoDigests"]) is list
+            and all(type(reference) is str for reference in info["RepoDigests"])
+            and any(reference in references for reference in info["RepoDigests"]))
     return descriptor["digest"]
 
 
