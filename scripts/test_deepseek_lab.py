@@ -228,6 +228,15 @@ class VecTests(unittest.TestCase):
         self.assertIn("-B", tokens)
         self.assertNotIn("TORCHINDUCTOR_VEC_ISA_OK", env)
 
+    def test_tokenizer_parallelism_is_fixed_before_every_spawn(self):
+        with mock.patch.dict(os.environ, {"TOKENIZERS_PARALLELISM": "true"}):
+            env = lab.lab_environment({"fixed_engine_environment": {"TOKENIZERS_PARALLELISM": "true"}})
+        self.assertEqual(env["TOKENIZERS_PARALLELISM"], "false")
+        tokens = shlex.split(lab.wrapper_bytes("/usr/bin/python3.12", env, "a" * 64).decode().splitlines()[1][5:])
+        self.assertEqual(tokens[:2], ["/usr/bin/env", "-i"])
+        self.assertEqual(tokens.count("TOKENIZERS_PARALLELISM=false"), 1)
+        self.assertNotIn("TOKENIZERS_PARALLELISM=true", tokens)
+
 
 DRIVER = r'''
 import json
