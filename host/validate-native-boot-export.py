@@ -12,6 +12,7 @@ from pathlib import Path
 import runpy
 import stat
 import subprocess
+import time
 import types
 
 ROOT = Path(__file__).absolute().parent.parent
@@ -143,12 +144,13 @@ def validate(evidence, destination, source, validator_source, build_result, expo
                 manifest = export.parsed(metadata["manifest.json"])
                 report.update(root_hash=manifest["root_hash"], files=manifest["files"])
             metadata["validation.json"] = export.encoded(report)
-            require(set(metadata) <= set(RECEIPTS) | {"manifest.json", "validation.json"})
+            require(set(metadata) <= set(RECEIPTS) | {"manifest.json", "validation.json"}
+                    and time.monotonic() < deadline)
             # Fresh, exclusive creation; no glob, arbitrary path, or image bytes.
             base.publish(destination, metadata)
             base.verify(destination, metadata)
             same_directory(parent, destination, publication)
-            require(all(present(parent, name) is None for name in originals))
+            require(all(present(parent, name) is None for name in originals) and time.monotonic() < deadline)
         return report["result"]
     finally:
         os.close(parent)

@@ -135,8 +135,9 @@ class ValidationTests(unittest.TestCase):
             self.bundle(evidence, stage, report, source)
             with mock.patch.object(export, "TIMEOUT", 0.01), \
                     mock.patch.object(validator, "verify_bundle", side_effect=lambda *a: time.sleep(1)):
-                self.assertEqual(self.run_validation(evidence, source), "fail")
+                with self.assertRaises(ValueError): self.run_validation(evidence, source)
             self.assertFalse(any(os.path.lexists(p) for p in export.paths(evidence)))
+            self.assertFalse((evidence.parent / "export-validation").exists())
 
     def test_cleanup_identity_replacement_and_metadata_failure_disable_upload(self):
         for mutation in ("replacement", "parent", "publish", "metadata-rehash"):
