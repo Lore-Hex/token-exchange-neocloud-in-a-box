@@ -38,3 +38,15 @@ passing comparison remains a trusted-builder receipt comparison, not independent
 builder trust, cross-day/cross-platform reproducibility, signing, hardware
 attestation or a confidential service. An actual workflow run is required to
 validate orchestration; unit tests alone do not establish that result.
+
+## Recorded Outcome
+
+The first actual dispatch, [39851595140](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39851595140),
+passed all three jobs on 2026-10-22 at exact producer
+`72aad43b1e3cb77c203d2620d7fca9c2e577dcf3`. Both clean builds produced matching
+root GPT, verity-root and unsigned UKI hashes; the comparison job downloaded the
+correct attempt's artifacts and its result replays byte-for-byte locally.
+The [original evidence](../../evidence/p3/2026-10-22-native-repeat-workflow/README.md)
+retains source closure, separate job windows, cleanup and the unchanged false
+qualification flags. This proves one successful orchestration run, not the
+remaining guest-boot, hardware or confidential-service requirements.
