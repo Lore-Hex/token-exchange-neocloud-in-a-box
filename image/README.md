@@ -32,6 +32,10 @@ the same isolation boundary and verifies the matching APT proof and reviewed
 package-hook inventory before execution. Its [native installation proof](../docs/tasks/p3-t1-runtime-install-pass.md)
 passed, including compressed-driver handling and independent cleanup. This
 candidate still includes build dependencies and is not a minimized release.
+The subsequent [startup policy](../docs/tasks/p3-t1-runtime-startup-policy.md)
+masks package-provided login and background-management paths and disables
+journal persistence/forwarding inside the private runtime candidate only.
+This is not a complete release image or a verified boot policy.
 
 The [measured-image decision](../docs/decisions/0004-measured-guest-image.md)
 remains authoritative: immutable release/debug outputs must differ, the UKI
