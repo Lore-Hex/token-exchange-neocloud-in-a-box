@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S -B host/record-gpu-appraisal.py --attest --enable-readiness",
+  "ended_utc": "2026-10-22T12:33:34.360862Z",
+  "execution": "software",
+  "git_sha": "319201ea33a63266755118b1305cd696314c8a83",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "eight-device appraisal scope",
+    "machine": "linux",
+    "provider": "operator-approved-test-host"
+  },
+  "notes": "Committed software appraisal observation, not GPU execution or CPU/fabric/service qualification. No raw identities, nonce, tokens or claims. Command package path is normalized. Failure may follow a partial install or attempted transition; no rollback or retry is inferred. Source hashes are in output.log.",
+  "phase": "P2",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-22T12:33:30.337078Z",
+  "task": "T3"
+}
