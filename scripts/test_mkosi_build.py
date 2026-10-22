@@ -423,6 +423,8 @@ class BuildTests(unittest.TestCase):
             "description": "Install verified driver modules into the private guest root (requires compile_driver; never loads)",
             "type": "boolean", "default": False}, "guest_runtime": {
             "description": "Install the reviewed 212-package runtime candidate instead of the kernel-only candidate",
+            "type": "boolean", "default": False}, "verity_root": {
+            "description": "Generate and verify private EROFS/verity files (requires runtime and driver installation; no export or boot)",
             "type": "boolean", "default": False}}}})
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         job = workflow["jobs"]["install"]
@@ -439,7 +441,8 @@ class BuildTests(unittest.TestCase):
         self.assertIn("host/run-mkosi-build.py", job["steps"][2]["run"])
         self.assertEqual(job["steps"][2]["env"], {"COMPILE_DRIVER": "${{ inputs.compile_driver }}",
                                                "INSTALL_DRIVER": "${{ inputs.install_driver }}",
-                                               "GUEST_RUNTIME": "${{ inputs.guest_runtime }}"})
+                                               "GUEST_RUNTIME": "${{ inputs.guest_runtime }}",
+                                               "VERITY_ROOT": "${{ inputs.verity_root }}"})
         self.assertIn('if [ "$GUEST_RUNTIME" = true ]; then args+=(--guest-runtime); fi',
                       job["steps"][2]["run"])
         self.assertIn('if [ "$COMPILE_DRIVER" = true ]; then args+=(--compile-driver); fi',
