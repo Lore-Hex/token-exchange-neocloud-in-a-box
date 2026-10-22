@@ -1,0 +1,75 @@
+{
+  "bootable": false,
+  "deployable": false,
+  "failure_kind": null,
+  "git_sha": "e01eb89fee56f36686b27c74dd92713970db93f4",
+  "mapping_helper_hashes": {
+    "/usr/bin/newgidmap": "076d35f3dd11680a17725ea7b694715bc909182eeb930f1771ef0550e4779459",
+    "/usr/bin/newuidmap": "e26eed17f29ce6ee829855064b83f9ab20afdd9503ec4517f1ce8c1230bebaad"
+  },
+  "payload_removed": true,
+  "prepared_receipt_sha256": "bc388e3dde09e5dd695e023596b47ee1654714b0a4f327d8cad66b16f56ecb87",
+  "process_cleanup_confirmed": true,
+  "result": "pass",
+  "schema": "nib.mkosi-installation/v1",
+  "stage": "complete",
+  "tools_receipt_sha256": "57e1ac7ed04d2f598b368de3b9ec48b609b5f188e4667c23f0fea8c6a61403d1",
+  "worker": {
+    "bootable": false,
+    "configured_state_verified": true,
+    "deployable": false,
+    "dkms_built": true,
+    "driver_build": {
+      "bootable": false,
+      "compiler": "13.3.0",
+      "crypto_linkage_verified": true,
+      "crypto_references": [
+        "crypto_alloc_aead",
+        "crypto_alloc_akcipher",
+        "crypto_alloc_shash"
+      ],
+      "driver": "595.91.07",
+      "installed": false,
+      "kernel": "6.8.0-147-generic",
+      "lkca_verified": false,
+      "loaded": false,
+      "modules": [
+        {
+          "bytes": 18976888,
+          "name": "nvidia",
+          "sha256": "9fd5a3fbddf1f9cd1b009bf0c6f4e18fd33729dc9c282572b4e6b90371105ab0"
+        },
+        {
+          "bytes": 3152208,
+          "name": "nvidia-modeset",
+          "sha256": "823e5aecf3dfd9363a0baa4b6a959f0de936debd4f0dc5f6f86bfe841477f6a3"
+        },
+        {
+          "bytes": 271632,
+          "name": "nvidia-drm",
+          "sha256": "07ad93a3dff67119f60ba08e09ef44b18c4ebf840f948a1b9c3daf529f942b2d"
+        },
+        {
+          "bytes": 3884344,
+          "name": "nvidia-uvm",
+          "sha256": "c0eca2d7bf776dbefda12806eca96383fcb36198fa7fcefbce075193bf88ee2b"
+        },
+        {
+          "bytes": 7224,
+          "name": "nvidia-peermem",
+          "sha256": "011f6cc3569ec454204dcf490a102339658583795c5ab9f6c31ead6d42f6d59c"
+        }
+      ],
+      "reproducibility_verified": false,
+      "result": "pass"
+    },
+    "failure_kind": null,
+    "installed_packages": 145,
+    "installer_exit_code": 0,
+    "package_installation_executed": true,
+    "reproducibility_verified": false,
+    "result": "pass",
+    "schema": "nib.mkosi-install-worker/v1",
+    "stage": "driver-build"
+  }
+}

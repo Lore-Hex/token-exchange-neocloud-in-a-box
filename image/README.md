@@ -1,52 +1,29 @@
-# Guest image
+# Guest Image
 
-Reserved for the measured UKI and dm-verity guest image in PLAN.md P3/P5.
+**Status, 2026-10-22:** the offline Ubuntu 24.04 package installation and
+NVIDIA driver compilation are proven on a native Linux build runner. There
+is no bootable or production-qualified confidential guest image yet.
 
-The [R595 input audit](../docs/tasks/p3-t1-r595-package-inputs.md) pins the
-`595.91.07` kernel/driver build dependency graph from authenticated metadata.
-Its offline checker proves declared dependency coverage, not installability,
-LKCA compilation, a complete guest rootfs, bootability or hardware qualification.
-No release or debug image has been built or validated yet.
+| Component | Verified state |
+| --- | --- |
+| Public inputs | Authenticated, hash-pinned kernel/driver graph and 203-package tools graph; no floating package resolution during builds. |
+| Build boundary | Offline user/mount/PID/network namespaces, fixed capabilities, seccomp and cgroup limits, with independent cleanup evidence. |
+| Guest package installation | All 145 expected package versions configured successfully in the private root. |
+| NVIDIA R595.91.07 | Five modules compiled for kernel 6.8.0-147; strong references to the three required Linux crypto interfaces verified. |
+| Driver installation | Default-off implementation exists; native installation evidence is still pending. |
+| Release image | UKI, dm-verity root, full guest runtime closure, reproducibility and boot validation remain incomplete. |
+| Confidential service | Runtime LKCA, CPU/GPU attestation, measured workload/TLS binding and deployment qualification remain incomplete. |
 
-[Offline package preparation](../docs/tasks/p3-t1-offline-package-preparation.md)
-now verifies all pinned archives and control metadata, prepares a private local
-repository and re-verifies its complete bytes without installation. The generated
-nonbootable mkosi candidate still requires a pinned Linux tools tree and reviewed
-installation boundary; it is not an installability or reproducibility result.
+The [raw linkage proof](../docs/tasks/p3-t1-raw-linkage-evidence.md) retains the
+original symbol table and cleanup receipts. The
+[driver installation contract](../docs/tasks/p3-t1-driver-install.md) describes
+the next explicit step; installation alone is not module loading or boot.
+The [prerequisite audit](../docs/tasks/p3-t1-guest-image-feasibility.md) records
+remaining full-image inputs and source references. Earlier task documents
+describe historical checkpoints, not the current aggregate status.
 
-The [Linux APT simulation tools](../docs/tasks/p3-t1-linux-tools-simulation.md)
-assemble a source-bound, nonbootable image archive without package execution.
-Its fixed CPU-only runner rehearses the exact guest package plan without
-installation. Container execution awaits independent review and coordinated
-validation; the minimal APT root is not yet the complete mkosi tools tree.
-
-The separate [mkosi build-input preparer](../docs/tasks/p3-t1-mkosi-build-inputs.md)
-verifies the exact 27.1 source archive and a 203-package tools graph, then
-assembles their union with the guest packages without execution. Script review,
-expanded-tools APT/runtime checks and a reviewed Linux mount/namespace policy
-still block installation; its receipt cannot authorize a build.
-Its [local service-denial patch](patches/README.md) binds an exact executable-mode
-correction for each APT transaction; only synthetic behavior is tested, not an
-actual installation or observed service start.
-
-The [exact tools-tree preparer](../docs/tasks/p3-t1-mkosi-tools-members.md)
-handles one archive-bound UTF-8 certificate member, two verified awk aliases,
-and the complete pinned inventory of 278 non-host GRUB inputs. It produces a
-deterministic tar and receipt without executing packages; generic path and
-host-executable architecture checks remain strict. Dynamic loading, ABI and
-installation are still unverified.
-
-[P3.T1 prerequisite audit](../docs/tasks/p3-t1-guest-image-feasibility.md)
-records the source-backed build inputs and unresolved package/boot requirements.
-It is not a build recipe, an artifact lock or evidence of image readiness.
-
-[Ubuntu kernel candidate inspection](../docs/tasks/p3-t1-kernel-package-audit.md)
-records authenticated package hashes and actual TDX/configfs/crypto contents.
-TDX/TSM require the extra modules package; full closure, R595 pairing and runtime
-initialization remain unverified.
-
-The [native namespace probe](../docs/tasks/p3-t1-native-mkosi-probe.md) passed
-on an unprivileged Ubuntu 22.04 runner after the Ubuntu 24.04 attempt was denied.
-The separate [native pinned-tools probe](../docs/tasks/p3-t1-native-pinned-tools.md)
-fetches hash-bound inputs and tests the reconstructed tools inside that boundary.
-Neither diagnostic authorizes installation or makes the image bootable.
+The [measured-image decision](../docs/decisions/0004-measured-guest-image.md)
+remains authoritative: immutable release/debug outputs must differ, the UKI
+must authenticate the selected verity root, and two clean builds must reproduce
+the published hashes. A package build, GPU CC label or working inference smoke
+does not satisfy those requirements.
