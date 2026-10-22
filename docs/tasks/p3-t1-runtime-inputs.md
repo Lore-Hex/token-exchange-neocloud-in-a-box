@@ -78,4 +78,21 @@ required for a passing result.
 Regression tests cover additive package preservation, exact dependency closure,
 explicit scope selection, wrong-lock rejection, hash/mirror rejection and
 refusal to promote a dependency-plan result to installation or boot success.
-Real rehearsal evidence will be linked here after the committed producer runs.
+
+## Recorded Rehearsal
+
+Producer `d056a5d63952a147fc5befb2a181e2b4def7af4d` passed the real offline
+Linux/amd64 APT rehearsal on 2026-10-22, 04:18:10-04:18:18 UTC. APT planned
+installation and configuration of all 212 exact versions, with zero removals.
+Container and image cleanup were confirmed. These are **simulated APT actions**,
+not installed runtime packages, executed maintainer hooks or boot evidence.
+
+- [Run record](../../evidence/p3/2026-10-22-runtime-apt-plan/run.json)
+- [Original result](../../evidence/p3/2026-10-22-runtime-apt-plan/report.json)
+- [Original output](../../evidence/p3/2026-10-22-runtime-apt-plan/output.log)
+
+The runtime lock SHA-256 is
+`f3162aeab969aba9a99d3dc96ddeb80b7ee808b55b126762710a08269e182de8`;
+the exact APT plan SHA-256 is
+`fef37e640471583a037ddc030816c8609f1ada95b880a531b386eb42b9e65483`.
+The installation and boot claims remain false in the original receipts.
