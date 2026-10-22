@@ -2,11 +2,12 @@
 
 # P1.T1 guest services
 
-**Implemented and tested against fakes only. Not confidential, not deployed,
-not hardware-validated.** This task implements the guest-service slice of
+**P1 was implemented and tested against fakes only. Not confidential, not
+deployed, not hardware-validated.** This task implements the guest-service slice of
 [P1](../PLAN.md#p1-gpu-free-end-to-end-node-ci-only), stacked on P0.T2 commit
 `3a6c902`. It does not implement trcs integration, CPU/GPU appraisal, a real
-engine launcher, dm-verity, or firewall installation.
+engine launcher, dm-verity, or firewall installation. The separately scoped P3
+network implementation below is also not yet validated in a running guest.
 
 ## Build boundary
 
@@ -16,11 +17,13 @@ gate/startup/service failure exits 1 with a fixed diagnostic; successful fake
 oneshots and an intentionally stopped fake engine exit 0. No arguments, paths,
 backend errors, request data or arbitrary metric labels are logged.
 
-Ordinary builds link only `backend_release.go`, which unconditionally denies
-startup without reading configuration or opening listeners. It cannot mount,
-appraise, enable GPU readiness or install firewall rules. Environment variables
-and `--fake` cannot bypass that refusal. Implementing real backends requires
-separate reviewed work, not a flag flip.
+Ordinary builds now include the separately scoped
+[real network gate](../docs/tasks/p3-t1-guest-network.md): Linux only, fixed
+protected config and pinned executable, create-only policy installation and
+strict whole-ruleset readback. It is unit-tested, not yet guest-validated.
+GPU, weights and engine still deny startup without reading configuration or
+opening listeners. Environment variables and `--fake` cannot bypass these
+refusals. No real appraisal, weights mount, inference or front door is enabled.
 
 The `nibfake` build tag selects the fixture reader and the four `nibfake*`
 backend functions. There is no exported verifier interface or runtime backend
@@ -105,6 +108,9 @@ not hardware or model tuning.
 `nib-failclosed.target` requests poweroff. Units are image-integration inputs
 only, with no automatic enablement. The image must supply the `nib` account,
 the helpers and protected `/etc/nib/guest.json`; P1 does not provision them.
+The real network unit instead uses `/etc/nib/network.json` and guest-only
+`CAP_NET_ADMIN`, with explicit early-boot ordering and no automatic enablement;
+see its separate P3 task record. Do not grant this capability to a host helper.
 
 Sources reviewed 2026-10-19 UTC, pinned to **systemd v255**, not a claim that
 an image/package version has been selected or qualified:
@@ -129,6 +135,8 @@ hardening settings; no systemd boot/poweroff test has been performed here.
 ## Network policy
 
 The renderer never calls `nft`, flushes a ruleset or modifies networking.
+The separate real backend reuses its exact bytes and validates kernel readback;
+that implementation does not change the qualification limits below.
 Its candidate `inet` table drops unmatched input, output and forward traffic,
 permits loopback and established/related traffic, new TCP 8443 input for the
 future front door, and new TCP 443 output only to literal configured addresses.

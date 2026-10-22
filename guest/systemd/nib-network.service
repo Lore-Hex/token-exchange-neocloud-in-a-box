@@ -2,16 +2,25 @@
 # systemd v255 directives: ../README.md#systemd-units
 [Unit]
 Description=Neocloud network policy gate
-Before=nib-gpu-gate.service nib-weights.service nib-engine.service
+DefaultDependencies=no
+After=local-fs.target
+Wants=network-pre.target
+Before=network-pre.target nib-gpu-gate.service nib-weights.service nib-engine.service shutdown.target
+Conflicts=shutdown.target
 OnFailure=nib-failclosed.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/libexec/nib-network --config /etc/nib/guest.json
+ExecStart=/usr/libexec/nib-network --config /etc/nib/network.json
 TimeoutStartSec=10
+TimeoutStopSec=2
+KillMode=control-group
 User=nib
 Group=nib
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN
+RestrictAddressFamilies=AF_NETLINK AF_UNIX
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

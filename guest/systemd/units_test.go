@@ -56,9 +56,13 @@ func TestGateOrderingAndHardening(t *testing.T) {
 	for _, name := range []string{"network", "gpu-gate", "weights", "engine"} {
 		t.Run(name, func(t *testing.T) {
 			v := readUnit(t, "nib-"+name+".service")
+			config := "/etc/nib/guest.json"
+			if name == "network" {
+				config = "/etc/nib/network.json"
+			}
 			require(t, v, map[string]string{
 				"Unit.OnFailure":    "nib-failclosed.target",
-				"Service.ExecStart": "/usr/libexec/nib-" + name + " --config /etc/nib/guest.json",
+				"Service.ExecStart": "/usr/libexec/nib-" + name + " --config " + config,
 				"Service.User":      "nib", "Service.Group": "nib", "Service.NoNewPrivileges": "yes",
 				"Service.ProtectSystem": "strict", "Service.ProtectHome": "yes", "Service.PrivateTmp": "yes",
 				"Service.UMask": "0077", "Service.LimitCORE": "0",
@@ -74,7 +78,14 @@ func TestGateOrderingAndHardening(t *testing.T) {
 				if name != "network" {
 					require(t, v, map[string]string{"Unit.Requires": "nib-network.service", "Unit.After": "nib-network.service", "Unit.Before": "nib-engine.service"})
 				} else {
-					require(t, v, map[string]string{"Unit.Before": "nib-gpu-gate.service nib-weights.service nib-engine.service"})
+					require(t, v, map[string]string{
+						"Unit.DefaultDependencies": "no", "Unit.After": "local-fs.target",
+						"Unit.Wants": "network-pre.target", "Unit.Conflicts": "shutdown.target",
+						"Unit.Before":                   "network-pre.target nib-gpu-gate.service nib-weights.service nib-engine.service shutdown.target",
+						"Service.CapabilityBoundingSet": "CAP_NET_ADMIN", "Service.AmbientCapabilities": "CAP_NET_ADMIN",
+						"Service.RestrictAddressFamilies": "AF_NETLINK AF_UNIX", "Service.KillMode": "control-group",
+						"Service.TimeoutStopSec": "2",
+					})
 				}
 			}
 			for key := range v {
