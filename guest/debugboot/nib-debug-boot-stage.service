@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+# Present only in the explicit debug initrd.
+[Unit]
+Description=Carry fixed debug probe across root switch
+DefaultDependencies=no
+Before=initrd-switch-root.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/nib-debug-boot --stage-initrd
+TimeoutStartSec=30
+TimeoutStopSec=2
+KillMode=control-group
+NoNewPrivileges=yes
+LimitCORE=0
+LimitFSIZE=8388608
+StandardInput=null
+StandardOutput=null
+StandardError=null

@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Apache-2.0
+[Unit]
+Description=Debug boot probe only
+DefaultDependencies=no
+Requires=nib-debug-boot.service
+After=nib-debug-boot.service
+AllowIsolate=yes
