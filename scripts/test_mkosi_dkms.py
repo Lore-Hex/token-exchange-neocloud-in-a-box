@@ -241,6 +241,12 @@ class DriverTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 driver.preserve_make_log(root, output)
 
+    def test_upstream_autoinstall_configuration_is_pinned_byte_for_byte(self):
+        raw = b'autoinstall_all_kernels="yes"\n'
+        self.assertEqual(len(raw), 30)
+        self.assertEqual(driver.INSTALL_PINS["etc/dkms/framework.conf.d/autoinstall_all_kernels.conf"],
+                         hashlib.sha256(raw).hexdigest())
+
     def test_install_inputs_pin_hooks_and_reject_overrides_links_and_existing_install(self):
         for merged_usr in (False, True):
             with self.subTest(merged_usr=merged_usr), tempfile.TemporaryDirectory() as temporary:
@@ -265,6 +271,15 @@ class DriverTests(unittest.TestCase):
                         path.write_bytes(b"changed")
                         with self.subTest(name=name), self.assertRaises(ValueError):
                             driver.install_inputs(root, controls)
+                        path.unlink()
+                        with self.subTest(missing=name), self.assertRaises(FileNotFoundError):
+                            driver.install_inputs(root, controls)
+                        target = put(root, "outside-config", original)
+                        path.symlink_to(target)
+                        with self.subTest(link=name), self.assertRaises(ValueError):
+                            driver.install_inputs(root, controls)
+                        path.unlink()
+                        target.unlink()
                         path.write_bytes(original)
                     for name in ("etc/dkms/nvidia.conf", "etc/dkms/framework.conf.d/extra.conf"):
                         extra = put(root, name, b"POST_INSTALL=unexpected\n")

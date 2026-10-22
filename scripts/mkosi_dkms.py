@@ -31,6 +31,7 @@ SOURCE_PINS = {
 INSTALL_PINS = {
     "usr/src/nvidia-595.91.07/dkms.conf": "ecc14df50b16604c446e9e5b8609dd60c5551dc5937d711aa782aea87b6ff217",
     "etc/dkms/framework.conf": "4e1d08f13f8bd021383d2f0c42aaee498800a88325701b3556555cc4867e758f",
+    "etc/dkms/framework.conf.d/autoinstall_all_kernels.conf": "e362342a516c0507da4407b889d041a1df7e187f4cb8d05c8a039b1a307d2d4b",
 }
 MODULE_DIRECTORY = "var/lib/dkms/nvidia/" + DRIVER + "/" + KERNEL + "/x86_64/module/"
 CRYPTO_REFERENCES = ("crypto_alloc_aead", "crypto_alloc_akcipher", "crypto_alloc_shash")
@@ -116,8 +117,9 @@ def install_inputs(root, controls):
     for name, raw in controls.items():
         require(regular(root, name, 16384) == raw)
     # DKMS sources overrides and optional hooks from this tree. Only the
-    # authenticated framework and our reviewed build controls may be present.
-    expected = {*CONTROL_NAMES, "etc/dkms/framework.conf", "etc/dkms/framework.conf.d"}
+    # authenticated package configuration and our reviewed build controls may be present.
+    expected = {*CONTROL_NAMES, "etc/dkms/framework.conf.d",
+                *(name for name in INSTALL_PINS if name.startswith("etc/dkms/"))}
     observed = set()
     for path in (root / "etc/dkms").rglob("*"):
         name = path.relative_to(root).as_posix()

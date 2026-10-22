@@ -9,6 +9,40 @@ import mkosi_dkms
 
 
 class CryptoLinkageEvidenceTests(unittest.TestCase):
+    def test_install_configuration_rejection_keeps_failed_original_evidence(self):
+        root = Path(__file__).resolve().parents[1] / "evidence/p3/2026-10-22-dkms-package-config"
+        pins = {
+            "run.json": "d6765812a6d8d113f5ad81779d86ae3eb5fd0b634500f0d27d904d2959f08ebe",
+            "result.json": "29a9cb2f78fd94843c068124ba0b643054d1013caa7ca182e35bea0703bad2bf",
+            "evidence-resources.json": "0dbb504c20c4ed98a4b7a7a094a0b11e89573abd4228a6b9a73985f7ddebc60f",
+            "output.log": "38771d47badea124cdfc6d3a74787fa033aa50bd68e20f90b51488315b81ae77",
+        }
+        for name, digest in pins.items():
+            self.assertEqual(hashlib.sha256((root / name).read_bytes()).hexdigest(), digest)
+        run = json.loads((root / "run.json").read_bytes())
+        result = json.loads((root / "result.json").read_bytes())
+        resources = json.loads((root / "evidence-resources.json").read_bytes())
+        self.assertEqual(run["git_sha"], "6efd0fbf6021afacb30745f76058f3563dfbe910")
+        self.assertEqual(result["git_sha"], run["git_sha"])
+        self.assertEqual(mkosi_dkms.crypto_references((root / "output.log").read_bytes()),
+                         list(mkosi_dkms.CRYPTO_REFERENCES))
+        self.assertEqual(result["worker"]["installed_packages"], 145)
+        self.assertTrue(result["worker"]["configured_state_verified"])
+        self.assertFalse(result["worker"]["dkms_built"])
+        self.assertNotIn("driver_build", result["worker"])
+        self.assertTrue(result["payload_removed"])
+        self.assertTrue(result["process_cleanup_confirmed"])
+        for row in (run, result, resources):
+            self.assertEqual(row["result"], "fail")
+        self.assertFalse(run["hardware_validated"])
+        self.assertFalse(result["deployable"])
+        self.assertFalse(result["bootable"])
+        for name in ("empty_verified", "group_removed", "limits_read_back"):
+            self.assertTrue(resources[name])
+        self.assertEqual(resources["oom_kill"], 0)
+        self.assertEqual(resources["populated_before_cleanup"], 0)
+        self.assertLess(resources["memory_peak_bytes"], int(resources["limits"]["memory.max"]))
+
     def test_retained_raw_symbol_table_matches_native_receipts(self):
         evidence = Path(__file__).resolve().parents[1] / "evidence/p3"
         root = evidence / "2026-10-22-crypto-symbols-pass"
