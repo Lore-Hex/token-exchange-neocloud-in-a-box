@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/nib/appraisal-probe.py", line 156, in <module>
+  File "/nib/appraisal-probe.py", line 149, in main
+  File "/nib/appraisal-probe.py", line 134, in drop_privileges
+LookupError: unknown encoding: ascii
