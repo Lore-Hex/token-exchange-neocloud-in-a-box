@@ -179,6 +179,9 @@ def lab_environment(plan):
     return {**plan["fixed_engine_environment"],
             "VLLM_WORKER_MULTIPROC_METHOD": "spawn", "VLLM_HOST_IP": "127.0.0.1",
             "VLLM_ENGINE_READY_TIMEOUT_S": str(STARTUP_SECONDS), "OMP_NUM_THREADS": "1",
+            # tokenizers v0.23.3 utils/parallelism.rs: false selects serial
+            # iterators before encode_batch; do not size a pool per GPU worker.
+            "TOKENIZERS_PARALLELISM": "false",
             "PYTORCH_NVML_BASED_CUDA_CHECK": "1", "TORCHINDUCTOR_COMPILE_THREADS": "1",
             "TRITON_CACHE_AUTOTUNING": "1", "TILELANG_CLEANUP_TEMP_FILES": "1",
             "TORCH_DEVICE_BACKEND_AUTOLOAD": "0", "OPENBLAS_MAIN_FREE": "1", "GOTOBLAS_MAIN_FREE": "1",
