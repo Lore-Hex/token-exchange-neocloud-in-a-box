@@ -5,12 +5,56 @@ package debugboot
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestBoundedQueryFiniteOutput(t *testing.T) {
+	for _, size := range []int{4095, 4096, 4097, 65537} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "query")
+			script := fmt.Sprintf("#!/bin/sh\nprintf '%%%ds' x\n", size)
+			if err := os.WriteFile(path, []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			out, err := execute(context.Background(), path)
+			if size <= 4096 {
+				if err != nil || string(out) != strings.Repeat(" ", size-1)+"x" {
+					t.Fatal("bounded stdout changed or was rejected")
+				}
+			} else if err == nil || out != nil {
+				t.Fatal("oversize stdout accepted or exposed")
+			}
+		})
+	}
+}
+
+func TestBoundedOutputCopy(t *testing.T) {
+	for _, size := range []int{4095, 4096, 4097, 65537} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			var out boundedOutput
+			if _, bypass := any(&out).(io.ReaderFrom); bypass {
+				t.Fatal("stream cap must not expose ReaderFrom")
+			}
+			// Hide WriterTo to exercise io.Copy's destination ReaderFrom path,
+			// as os/exec's pipe copier does for child stdout and stderr.
+			source := struct{ io.Reader }{strings.NewReader(strings.Repeat("x", size))}
+			n, err := io.Copy(&out, source)
+			if size <= 4096 {
+				if err != nil || n != int64(size) || out.buffer.Len() != size {
+					t.Fatal("bounded copy changed bytes")
+				}
+			} else if err == nil || n > 4096 || out.buffer.Len() > 4096 {
+				t.Fatal("copy bypassed stream cap")
+			}
+		})
+	}
+}
 
 func TestBoundedQuery(t *testing.T) {
 	for _, tc := range []struct {
@@ -76,7 +120,7 @@ func TestBoundedReads(t *testing.T) {
 	if _, err := out.Write([]byte(strings.Repeat("x", 4096))); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := out.Write([]byte("x")); err == nil || out.Len() != 4096 {
+	if _, err := out.Write([]byte("x")); err == nil || out.buffer.Len() != 4096 {
 		t.Fatal("stream cap exceeded")
 	}
 }

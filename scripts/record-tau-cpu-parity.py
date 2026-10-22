@@ -29,7 +29,7 @@ WHEEL = "cmake-3.31.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
 WHEEL_SHA = "1c8b05df0602365da91ee6a3336fe57525b137706c4ab5675498f662ae1dbcec"
 SOURCES = (SCRIPT, SNAPSHOT, "scripts/e2e/exercise.py", "scripts/pilot/run.py",
            "scripts/pilot/pins.json", "scripts/pilot/build-requirements.lock", "scripts/e2e/pins.json",
-           "scripts/tau_cpu_parity.py", "scripts/tau_cpu_parity.cpp", "scripts/tau_cpu_parity.cmake",
+           "scripts/tau_cpu_parity.py", "scripts/tau_cpu_session.py", "scripts/tau_cpu_parity.cpp", "scripts/tau_cpu_parity.cmake",
            "scripts/tau_cpu_parity.Dockerfile", "scripts/tau_cpu_support_models.json",
            "scripts/engine_tokenizer_parity.py", "scripts/tau_live_identity.py",
            "scripts/tau_local_llama.py", "scripts/tau_llama_identity.py", "scripts/tau_local_vllm.py", "scripts/tau_transport.py",
@@ -58,7 +58,8 @@ def toolkit(root):
     # This path is private and freshly extracted, with no ignored bytecode.
     # Order the explicit source closure instead of importing ambient modules.
     for name in ("engine_tokenizer_parity", "tau_preflight", "tau_trial_worker", "tau_transport",
-                 "tau_local_vllm", "tau_local_llama", "tau_llama_identity", "tau_live_identity", "tau_cpu_parity"):
+                 "tau_local_vllm", "tau_local_llama", "tau_llama_identity", "tau_live_identity", "tau_cpu_parity",
+                 "tau_cpu_session"):
         sys.modules[name] = load(root / "scripts" / (name + ".py"), name)
     return sys.modules["tau_cpu_parity"]
 
@@ -117,7 +118,7 @@ def context(source, target, inputs, pilot):
     return digest(json.dumps(hashes, sort_keys=True, separators=(",", ":")).encode()), files
 
 
-def execute(source, work, env, snapshot, inputs, report, home):
+def execute(source, work, env, snapshot, inputs, report, home, *, session_fd=None):
     cpu = toolkit(source)
     pilot, _ = cpu.tools()
     cleanup = load(source / "scripts/e2e/run.py", "cpu_cleanup").cleanup_resources
@@ -155,12 +156,21 @@ def execute(source, work, env, snapshot, inputs, report, home):
         require(re.fullmatch("sha256:[0-9a-f]{64}", image_id))
         report["image_id"] = image_id
         report["stage"] = "runtime"
-        result = snapshot.execute_process_group(runtime_command(image_id, name), env=env,
-            timeout=cpu.TOTAL_SECONDS, max_output_bytes=65536, max_stderr_bytes=65536,
-            stdin=subprocess.DEVNULL)
-        require(result.returncode in (0, 1) and not result.stderr)
-        runtime = cpu.validate(cpu.llama.worker.decode(result.stdout))
-        require((runtime["result"] == "pass") == (result.returncode == 0))
+        if session_fd is None:
+            result = snapshot.execute_process_group(runtime_command(image_id, name), env=env,
+                timeout=cpu.TOTAL_SECONDS, max_output_bytes=65536, max_stderr_bytes=65536,
+                stdin=subprocess.DEVNULL)
+            require(result.returncode in (0, 1) and not result.stderr)
+            runtime = cpu.validate(cpu.llama.worker.decode(result.stdout))
+            require((runtime["result"] == "pass") == (result.returncode == 0))
+        else:
+            session = sys.modules["tau_cpu_session"]
+            command = runtime_command(image_id, name)
+            command[2:2] = ["-i", "--entrypoint", "python3"]
+            command += ["-I", "-S", "-B", SCRIPT, "--session-worker", image_id, report["git_sha"]]
+            producer = {"git_sha": report["git_sha"], "script": SCRIPT,
+                        "source_sha256": report["sources"][SCRIPT]}
+            runtime = session.relay(command, env, snapshot, producer, image_id.removeprefix("sha256:"), session_fd)
         report["runtime"] = runtime
         report["result"] = runtime["result"]
         report["stage"] = "complete" if runtime["result"] == "pass" else "runtime"
@@ -176,7 +186,7 @@ def execute(source, work, env, snapshot, inputs, report, home):
             report["result"] = "fail"
 
 
-def worker():
+def worker(session_args=None):
     # No ambient imports or bytecode. Every dependency comes from the parent's
     # exact source snapshot embedded in the read-only, identity-bound image.
     expected = json.loads((ROOT / "source.json").read_bytes())
@@ -184,8 +194,16 @@ def worker():
     for path, sha in expected.items():
         require(digest((ROOT / path).read_bytes()) == sha)
     cpu = toolkit(ROOT)
-    result = cpu.validate(cpu.run(Path("/inputs/llama.tar.gz"),
-        [Path("/inputs/0.gguf"), Path("/inputs/1.gguf")], Path("/work")))
+    if session_args is None:
+        result = cpu.validate(cpu.run(Path("/inputs/llama.tar.gz"),
+            [Path("/inputs/0.gguf"), Path("/inputs/1.gguf")], Path("/work")))
+    else:
+        image, revision = session_args
+        require(re.fullmatch("sha256:[0-9a-f]{64}", image) and re.fullmatch("[0-9a-f]{40}", revision))
+        producer = {"git_sha": revision, "script": SCRIPT, "source_sha256": expected[SCRIPT]}
+        result = sys.modules["tau_cpu_session"].run(Path("/inputs/llama.tar.gz"),
+            [Path("/inputs/0.gguf"), Path("/inputs/1.gguf")], Path("/work"), producer,
+            image.removeprefix("sha256:"))
     raw = cpu.probes.encoded(result)
     require(len(raw) <= 65536)
     sys.stdout.buffer.write(raw)
@@ -206,6 +224,8 @@ def write(fd, name, value):
 def main():
     if sys.argv[1:] == ["--worker"]:
         return worker()
+    if len(sys.argv) == 4 and sys.argv[1] == "--session-worker":
+        return worker(sys.argv[2:])
     class Parser(argparse.ArgumentParser):
         def error(self, message):
             raise ValueError("CPU parity arguments rejected")
@@ -213,8 +233,11 @@ def main():
     for name in ("archive", "model-06", "model-17", "cmake-wheel", "output"):
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--host-kind", choices=("local", "github-actions"), default="local")
+    parser.add_argument("--session", action="store_true", help="fresh held CPU pair; private FIFO stdin/stdout controller required")
     args = parser.parse_args()
     facts = host(args.host_kind)
+    if args.session:
+        require(args.host_kind == "local" and all(stat.S_ISFIFO(os.fstat(fd).st_mode) for fd in (0, 1)))
     os.umask(0o077)
     raw = (ROOT / SNAPSHOT).read_bytes()
     require(digest(raw) == SNAPSHOT_SHA)
@@ -247,11 +270,15 @@ def main():
                       "hardware_validated": False,
                       "host": facts,
                       "notes": "Offline CPU tokenizer prerequisite only. No tau trial, quality, live admission, public service or confidential claim. Pending until output.log and final receipt are present."}
+            if args.session:
+                report["schema"] = "nib.tau-cpu-session-run/v1"
+                record["command"] += " --session"
+                record["notes"] = "Fresh held CPU-pair receipts only. No target, tau trial, quality, live admission or confidential claim. Pending until output.log and final receipt are present."
             if args.host_kind != "local":
                 record["command"] += " --host-kind " + args.host_kind
             write(fd, "run.json", record)
             execute(source, work, env, snapshot, [args.archive, args.model_06, args.model_17, args.cmake_wheel],
-                    report, Path(pwd.getpwuid(os.getuid()).pw_dir))
+                    report, Path(pwd.getpwuid(os.getuid()).pw_dir), session_fd=fd if args.session else None)
             try:
                 snapshot.validate_snapshot(source, files)
             except BaseException:
@@ -262,7 +289,10 @@ def main():
             write(fd, "run.json.pending", record)
             os.replace("run.json.pending", "run.json", src_dir_fd=fd, dst_dir_fd=fd)
             os.fsync(fd)
-            print("CPU parity: " + report["result"] + "; no qualification claim.")
+            if args.session:
+                print("CPU session: " + report["result"] + "; no qualification claim.", file=sys.stderr)
+            else:
+                print("CPU parity: " + report["result"] + "; no qualification claim.")
             return 0 if report["result"] == "pass" else 1
         finally:
             os.close(fd)
