@@ -107,3 +107,7 @@ and original tau prompt/context fit remain unproven. Only after those measuremen
 should an explicitly reviewed CPU runtime kind be admitted and connected to the
 selected-target lifecycle. Full benchmark acceptance and distinct simulator and
 evaluator requirements are unchanged.
+
+The first actual run [failed readiness](p2-t3-cpu-readiness-diagnostics.md).
+Original receipts are preserved; bounded source-frame diagnostics support the
+next investigation without relaxing the runtime checks or claiming parity.

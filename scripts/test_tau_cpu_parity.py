@@ -31,10 +31,94 @@ def fixture_report():
                 "cases": [{"id": name, "local": measurement, "server": measurement,
                            "usage": {"prompt_tokens": 2, "completion_tokens": 1, "total_tokens": 3},
                            "result": "pass"} for name in cpu.probes.IDS]} for model in cpu.MODEL_IDS],
-            "quality_eligible": False, "confidential": False, "live_admission": False}
+            "quality_eligible": False, "confidential": False, "live_admission": False, "failure": None}
 
 
 class CPUParityTests(unittest.TestCase):
+    def test_original_readiness_failure_preserved_without_claiming_root_cause(self):
+        root = ROOT / "evidence/p2/2026-10-22-cpu-parity-readiness-failure"
+        for name, sha in (("run.json", "9906438a0d5b75fbe9c1693357c6b55717d80950c083dbb44e5fab060a8bf4ec"),
+                          ("output.log", "c9db8ed196397b20d4fdd704276a4d5c7a456c2f5529acdfb977530b600e71a9")):
+            raw = (root / name).read_bytes()
+            self.assertEqual(hashlib.sha256(raw).hexdigest(), sha)
+            row = json.loads(raw)
+            self.assertEqual(row["git_sha"], "e75dca644aa891a1c762635ef67d9730fac936b7")
+            self.assertEqual(row["result"], "fail")
+        self.assertEqual(row["cleanup"], dict.fromkeys(("container", "image", "build_completion"), "confirmed"))
+        runtime = row["runtime"]
+        self.assertEqual(runtime["stage"], "readiness")
+        self.assertEqual(len(runtime["models"]), 1)
+        self.assertEqual(runtime["models"][0]["cases"], [])
+        self.assertFalse(runtime["models"][0]["owner_socket_checked"])
+        self.assertEqual(set(runtime["binaries"]), {"helper", "server"})
+        self.assertTrue(all(row[key] is False for key in ("confidential", "quality_eligible", "live_admission")))
+
+    def test_diagnostics_filter_content_paths_and_bind_only_existing_source_lines(self):
+        try:
+            cpu.require(False)
+        except ValueError as error:
+            result = cpu.failure_diagnostics(error, -4)
+        self.assertEqual(result["kind"], "rejected")
+        self.assertEqual(result["server_exit"], -4)
+        self.assertEqual(len(result["frames"]), 1)
+        self.assertEqual(result["frames"][0]["source"], "scripts/tau_cpu_parity.py")
+        cpu.validate_failure(result)
+        for error, kind, number in ((OSError(13, fixtures.CANARY, fixtures.CANARY), "os-error", 13),
+                                    (TimeoutError(fixtures.CANARY), "timeout", None),
+                                    (RuntimeError(fixtures.CANARY), "other", None),
+                                    (KeyboardInterrupt(fixtures.CANARY), "cancelled", None)):
+            diagnostic = cpu.failure_diagnostics(error, None)
+            self.assertEqual(diagnostic, {"kind": kind, "errno": number, "server_exit": None, "frames": []})
+            self.assertNotIn(fixtures.CANARY, json.dumps(diagnostic))
+        for change in (lambda r: r.update(kind=fixtures.CANARY), lambda r: r.update(errno=True),
+                       lambda r: r.update(server_exit=True), lambda r: r.update(server_exit=256),
+                       lambda r: r.update(frames=r["frames"] * 9),
+                       lambda r: r["frames"][0].update(source="/private/" + fixtures.CANARY),
+                       lambda r: r["frames"][0].update(line=100000),
+                       lambda r: r["frames"][0].update(line=True)):
+            invalid = copy.deepcopy(result)
+            change(invalid)
+            with self.assertRaises((ValueError, cpu.llama.worker.Abort)):
+                cpu.validate_failure(invalid)
+        report = fixture_report()
+        report["failure"] = result
+        with self.assertRaises(ValueError): cpu.validate(report)
+        report["result"] = "fail"
+        self.assertIs(cpu.validate(report), report)
+
+    def test_readiness_failure_records_exit_before_cleanup_and_keeps_guard(self):
+        pins = cpu.settings()
+        archive, weights, work = mock.Mock(), [mock.Mock(), mock.Mock()], Path("/unused")
+        archive.stat.return_value.st_size = 1
+        for weight, model in zip(weights, cpu.MODEL_IDS):
+            weight.stat.return_value.st_size = pins["models"][model]["bytes"]
+        binaries = (Path("/fixed/server"), Path("/fixed/helper"))
+        hashes = {archive: pins["engine"]["archive_sha256"], binaries[0]: "a" * 64, binaries[1]: "b" * 64,
+                  **{weight: pins["models"][model]["sha256"] for weight, model in zip(weights, cpu.MODEL_IDS)}}
+        for exit_code in (None, -4, 1):
+            pilot, process = mock.Mock(), mock.Mock()
+            pilot.controlled_env.return_value = {}
+            pilot.file_digest.side_effect = hashes.__getitem__
+            pilot.engine_command.return_value = ["fixed", "--api-key-file", "unused"]
+            process.poll.return_value = exit_code
+            def cleanup(child):
+                self.assertIs(child, process)
+                process.poll.return_value = -15
+                return True
+            pilot.stop.side_effect = cleanup
+            with mock.patch.object(cpu, "confinement"), mock.patch.object(cpu, "tools", return_value=(pilot, None)), \
+                    mock.patch.object(cpu, "build", return_value=binaries), mock.patch.object(cpu, "native_tokens"), \
+                    mock.patch.object(cpu.subprocess, "Popen", return_value=process), \
+                    mock.patch.object(cpu, "endpoint", side_effect=PermissionError(13, fixtures.CANARY)) as guard:
+                report = cpu.run(archive, weights, work)
+            guard.assert_called_once()
+            pilot.stop.assert_called_once_with(process)
+            self.assertEqual(cpu.validate(report)["stage"], "readiness")
+            self.assertEqual(report["failure"]["server_exit"], exit_code)
+            self.assertEqual(report["failure"]["errno"], 13)
+            self.assertEqual(report["models"][0]["cases"], [])
+            self.assertNotIn(fixtures.CANARY, json.dumps(report))
+
     def test_same_fixed_probes_and_no_semantic_repair(self):
         source = ROOT / "scripts/engine_tokenizer_parity.py"
         self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(),
