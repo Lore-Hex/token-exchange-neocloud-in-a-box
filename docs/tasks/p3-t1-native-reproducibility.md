@@ -30,6 +30,8 @@ for cryptographic attestation. No guest boot, kernel verity enforcement,
 release signing, CPU/GPU attestation or confidential-service claim follows from
 matching image hashes. Two independent builders in P8 remain a separate gate.
 
-This change is tested with synthetic mutations of the retained native export.
-It contains no new measured reproducibility result. Actual attempt metadata
-and comparison output must be preserved together before updating that status.
+The [actual same-commit pair](../../evidence/p3/2026-10-22-native-repro-mismatch/README.md)
+failed reproducibility: both builds verified and cleaned up, but GPT, verity-root
+and UKI hashes differ. Original attempt metadata and comparison output are
+preserved unchanged. Compiled drivers and initrd match; the changing root files
+are not yet identified. The comparator also has synthetic mutation coverage.
