@@ -126,3 +126,61 @@ for receipt in tool-protocol-fail fixed-pass runtime-pass runtime-adapter-source
   printf 'Synthetic-hash exception requires the exact field and path.\n'
   rm "$tmp/receipt/$evidence_path" "$tmp/receipt/other.log"
 done
+
+# New held-pair originals include compact JSON. Exempt only the matched field,
+# never another candidate secret on the same line as a known public digest.
+expect_receipt_scan() {
+  local status=0
+  "$root/build/gitleaks" dir --config "$root/.gitleaks.toml" --redact --no-banner \
+    --exit-code 42 --report-format json --report-path "$tmp/held-report.json" "$1" \
+    > "$tmp/held-scan.log" 2>&1 || status=$?
+  if [[ "$status" != "$2" ]]; then
+    printf 'Held-pair scanner boundary failed (%s, expected %s).\n' "$status" "$2" >&2
+    exit 1
+  fi
+}
+write_receipt_field() {
+  if [[ "$format" == compact ]]; then
+    printf '{"%s":"%s"}\n' "$2" "$3" > "$1"
+  else
+    printf '  "%s": "%s"%s\n' "$2" "$3" "$suffix" > "$1"
+  fi
+}
+while IFS='|' read -r relative format field known suffix; do
+  target="$tmp/held/evidence/p2/2026-10-22-cpu-session-native-pass/$relative"
+  mkdir -p "$(dirname "$target")"
+  write_receipt_field "$target" "$field" "$known"
+  expect_receipt_scan "$target" 0
+  write_receipt_field "$target" "$field" "$unknown"
+  expect_receipt_scan "$target" 42
+  write_receipt_field "$target" api_key "$known"
+  expect_receipt_scan "$target" 42
+  write_receipt_field "$tmp/held/other.log" "$field" "$known"
+  expect_receipt_scan "$tmp/held/other.log" 42
+  printf '{"%s":"%s","api_key":"%s"}\n' "$field" "$known" "$unknown" > "$target"
+  expect_receipt_scan "$target" 42
+  python3 - "$tmp/held-report.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    findings = json.load(stream)
+assert any(row["RuleID"] == "generic-api-key" and row["Match"].startswith("api_key") for row in findings)
+PY
+  printf 'Held-pair exact value/field/path and same-line secret boundaries passed.\n'
+done <<'CASES'
+output.log|pretty|scripts/engine_tokenizer_parity.py|09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a|,
+pair/output.log|pretty|scripts/engine_tokenizer_parity.py|09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a|,
+pair/output.log|pretty|tokens_sha256|1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|
+output.log|pretty|simulator-tokenizer.json|de96abc426d3e94cfbc45736e27641c1498220325c57b08306d8eaa98728300f|
+pair/output.log|pretty|simulator-tokenizer.json|de96abc426d3e94cfbc45736e27641c1498220325c57b08306d8eaa98728300f|
+output.log|pretty|evaluator-tokenizer.json|132e5b388cb51278d647d7e1b9627754c5bf4d2537450a749b774314423e430d|,
+pair/output.log|pretty|evaluator-tokenizer.json|132e5b388cb51278d647d7e1b9627754c5bf4d2537450a749b774314423e430d|,
+pair/simulator-runtime.json|compact|tokenizer_sha256|554324f21418252a59edb045493a143a783b499d67b8680883e310e0f2ee77d9|
+pair/simulator-tokenizer.json|compact|tokenizer_sha256|554324f21418252a59edb045493a143a783b499d67b8680883e310e0f2ee77d9|
+pair/evaluator-runtime.json|compact|tokenizer_sha256|604363ffa22647728e0dd56e84926ad3ca1422999e356af99628fe2535b010a8|
+pair/evaluator-tokenizer.json|compact|tokenizer_sha256|604363ffa22647728e0dd56e84926ad3ca1422999e356af99628fe2535b010a8|
+pair/simulator-tokenizer.json|compact|endpoint_tokens_sha256|1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|
+pair/evaluator-tokenizer.json|compact|endpoint_tokens_sha256|1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|
+pair/simulator-tokenizer.json|compact|independent_tokens_sha256|1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|
+pair/evaluator-tokenizer.json|compact|independent_tokens_sha256|1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|
+CASES
