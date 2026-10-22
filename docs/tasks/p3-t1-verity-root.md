@@ -1,8 +1,9 @@
 # P3.T1 private EROFS and verity increment
 
-Status: implemented, fixture-tested, **not natively executed**. This does not
-complete P3.T1. No image size, image hash, native tool execution, boot result or
-reproducibility result is claimed by the unit fixtures.
+Status: implemented and fixture-tested; native run 39784301704 reached EROFS
+generation but failed on progress-output overflow. The quiet-output correction
+below awaits a full native rerun. This does not complete P3.T1. No successful
+image generation, boot or reproducibility result is claimed by the unit fixtures.
 
 ## Entry point and order
 
@@ -23,15 +24,61 @@ extra source paths (38 unique paths with the eight base inputs), within the
 existing limit; no allowance increase or dependency/lock change. Without the
 flag, no helper is added to the payload and no image operation is invoked.
 
-No workflow was dispatched for this implementation. A later authorized native
-run must preserve its original bounded diagnostics, worker result, source/tool
-receipts and independent resource-cleanup receipt before claiming actual build
-success. A fixture supervisor returning zero is not that evidence.
+No workflow was dispatched for the quiet-output correction. A later authorized
+native run must preserve its original bounded diagnostics, worker result,
+source/tool receipts and independent resource-cleanup receipt before claiming
+actual build success. A fixture supervisor returning zero is not that evidence.
+
+## Native progress failure and correction
+
+[Native run 39784301704](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39784301704)
+used `84152f74b436e12626f03450013a2690b96e03ac`. Its unchanged
+[run receipt](../../evidence/p3/2026-10-22-verity-progress-failure/run.json),
+[worker result](../../evidence/p3/2026-10-22-verity-progress-failure/result.json),
+[bounded mkfs stdout](../../evidence/p3/2026-10-22-verity-progress-failure/verity-mkfs.stdout),
+and [resource receipt](../../evidence/p3/2026-10-22-verity-progress-failure/evidence-resources.json)
+come from artifact `native-mkosi-install-39784301704-1`. All three NVIDIA
+appraiser help checks passed without appraisal, GPU or network access. The
+worker then failed at `verity-root`: retained stdout is exactly 65536 bytes of
+per-file progress, and failure frames reach the supervisor's output-limit
+exception. Cleanup passed with no OOM. No verity success was produced.
+
+The old `-d 0` sets only the debug level. In pinned EROFS v1.7.1,
+`mkfs/main.c:mkfs_parse_options_cfg` handles `--quiet` by setting the same
+`EROFS_ERR` level and clearing `c_showprogress`. The independent progress path
+in [lib/config.c](https://github.com/erofs/erofs-utils/blob/v1.7.1/lib/config.c)
+otherwise writes a line for each file even with redirected stdout; SHA-256
+`fa0c27a59563766391d248f5410b639619077631e050cefe6ac167bd9de2862d`.
+[include/erofs/print.h](https://github.com/erofs/erofs-utils/blob/v1.7.1/include/erofs/print.h)
+defines `EROFS_ERR = 0` and retains error reporting at that level; SHA-256
+`4b0e2fd1ba87b34eea1b7100d6452bf70a7cbfcb7203faace75c452c8e40b97b`.
+The exact [mkfs source](https://github.com/erofs/erofs-utils/blob/v1.7.1/mkfs/main.c)
+hash is pinned below. Replace `-d 0` with `--quiet`; no image-setting, source,
+tool, hash, output cap, timeout, verification or cleanup gate changes.
+
+The hash-matched 163496-byte `mkfs.erofs` from the locked Ubuntu
+`erofs-utils_1.7.1-1build2_amd64.deb` was also run with `--help` in a disposable
+local container on 2026-10-22. It exited 0 with empty stdout and 2345 stderr
+bytes, explicitly listing `--quiet`. The loader and libraries came from the
+existing tools archive, including `libdeflate.so.0`; an initial incomplete
+library extraction failed to load and was not treated as a successful check.
+This was a help-only check, not image generation or native build qualification.
+The container used an existing local image (no pull), network none, read-only
+root and tool mount, UID/GID 65534, all capabilities dropped, no-new-privileges,
+one CPU, 128 MiB and 32 PIDs. The shared process supervisor retained both
+65536-byte output caps with a 20-second check timeout; the container was removed.
+
+Regression tests pin the exact corrected argv and unchanged image parameters,
+authenticate the four original failure artifacts, and require either stream's
+overflow to retain at most its 64 KiB prefix, remove the partial image workspace,
+and stop before repart. Positive-tool nonzero exits still fail. The focused
+command below passed 122 tests; independent final-head review and the next
+guarded native build remain pending.
 
 ## Fixed operations
 
 1. Make EROFS directly from the read-only installed root using the existing
-   tools-tree `mkfs.erofs`: block size 4096, LZ4, label `nib-root`, timestamp
+   tools-tree `mkfs.erofs --quiet`: block size 4096, LZ4, label `nib-root`, timestamp
    `1792454400`, UUID `1ea2d72f-6bd0-480e-89a3-132f03a4c7e1`. No UID/GID override,
    file exclusion or xattr-disabling option is used. `SOURCE_DATE_EPOCH` is
    omitted from the helper environment: v1.7.1 would use it to replace `-T`'s

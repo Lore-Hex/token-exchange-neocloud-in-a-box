@@ -23,6 +23,36 @@ from test_mkosi_build import host, launcher, worker, ROOT
 
 
 class VerityTests(unittest.TestCase):
+    def test_original_native_failure_is_mkfs_progress_after_appraiser_help(self):
+        root = ROOT / "evidence/p3/2026-10-22-verity-progress-failure"
+        expected = {
+            "run.json": "9b4cdfa341631830512f9d8886427b40d11f07bf57fef2a6c5368ba8e573f312",
+            "result.json": "fb8cc56be24eb0a77613d6205d0cb2f4573e8412b2f4dddc7be3e6a97d82592d",
+            "verity-mkfs.stdout": "cf60a75ff89b4a094ecf5b6e7d92594110f501af666e4ce677ea21f72d1a6e3c",
+            "evidence-resources.json": "a0d8e39843be5801c6c1f4efa54829445673de949b10d079712d12b60929ae90",
+        }
+        for name, digest in expected.items():
+            self.assertEqual(hashlib.sha256((root / name).read_bytes()).hexdigest(), digest)
+        progress = (root / "verity-mkfs.stdout").read_bytes()
+        self.assertEqual(len(progress), 65536)
+        self.assertGreater(progress.count(b"Processing "), 100)
+        result = json.loads((root / "result.json").read_bytes())
+        self.assertEqual(result["git_sha"], "84152f74b436e12626f03450013a2690b96e03ac")
+        self.assertEqual(result["result"], "fail")
+        self.assertEqual(result["worker"]["stage"], "verity-root")
+        appraisal = result["worker"]["appraisal_cli"]
+        self.assertEqual(appraisal["result"], "pass")
+        self.assertEqual(set(appraisal["help"]), {"help", "attest-help", "token-help"})
+        self.assertFalse(appraisal["appraisal_performed"])
+        self.assertTrue(result["process_cleanup_confirmed"])
+        self.assertTrue(result["payload_removed"])
+        self.assertFalse(result["bootable"])
+        self.assertFalse(result["deployable"])
+        resources = json.loads((root / "evidence-resources.json").read_bytes())
+        self.assertEqual(resources["oom_kill"], 0)
+        self.assertTrue(resources["empty_verified"])
+        self.assertTrue(resources["group_removed"])
+
     @contextmanager
     def fixture(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -90,7 +120,7 @@ class VerityTests(unittest.TestCase):
                                          "SOURCE_DATE_EPOCH": "0", "SECRET": "sentinel"}, clear=True):
             self.assertEqual(set(verity.environment()),
                 {"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "SYSTEMD_PAGER", "SYSTEMD_COLORS"})
-        self.assertEqual(verity.operation("mkfs"), ["/usr/bin/mkfs.erofs", "-d", "0", "-b", "4096",
+        self.assertEqual(verity.operation("mkfs"), ["/usr/bin/mkfs.erofs", "--quiet", "-b", "4096",
             "-z", "lz4", "-T", "1792454400", "-U", verity.SEED, "-L", "nib-root",
             "/work/verity-root/root.erofs", "/work/output/rootfs"])
         self.assertEqual(verity.operation("fsck"), ["/usr/bin/fsck.erofs", "--extract", "/work/verity-root/root.erofs"])
@@ -285,13 +315,25 @@ class VerityTests(unittest.TestCase):
                                               for s in ("stdout", "stderr")})
 
     def test_output_overflow_retains_only_prefix_and_fails(self):
-        with self.fixture() as root:
-            processes = self.supervisor()
-            error = processes.OutputLimitExceeded("stderr", b"", b"public prefix")
-            processes.execute_process_group.side_effect = error
-            with self.assertRaises(processes.OutputLimitExceeded):
-                verity.execute(processes, guard.PREFIX, "mkfs", root / "out")
-            self.assertEqual((root / "out/verity-mkfs.stderr").read_bytes(), b"public prefix")
+        for stream in ("stdout", "stderr"):
+            with self.subTest(stream=stream), self.fixture() as root, \
+                    mock.patch.object(verity, "verify_tools", return_value={}):
+                processes = self.supervisor()
+                prefix = b"x" * 65536
+                def overflow(argv, **kwargs):
+                    self.assertEqual(kwargs["max_output_bytes"], 65536)
+                    self.assertEqual(kwargs["max_stderr_bytes"], 65536)
+                    self.assertEqual(kwargs["timeout"], 240)
+                    (verity.WORK / verity.DATA).write_bytes(b"partial image")
+                    raise processes.OutputLimitExceeded(stream,
+                        prefix if stream == "stdout" else b"", prefix if stream == "stderr" else b"")
+                processes.execute_process_group.side_effect = overflow
+                with self.assertRaises(processes.OutputLimitExceeded):
+                    verity.build(processes, guard.PREFIX, dkms.regular, root / "out")
+                self.assertEqual((root / "out" / ("verity-mkfs." + stream)).read_bytes(), prefix)
+                self.assertEqual(len(list((root / "out").iterdir())), 1)
+                self.assertFalse(verity.WORK.exists())
+                processes.execute_process_group.assert_called_once()
 
     def test_all_positive_tool_nonzero_exits_fail(self):
         for name in verity.OPERATIONS:
