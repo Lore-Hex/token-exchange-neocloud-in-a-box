@@ -14,6 +14,8 @@ import time
 import unittest
 from unittest.mock import patch
 
+import yaml
+
 SOURCE = Path(__file__).resolve().parents[1] / "host" / "prepare-lab.py"
 spec = importlib.util.spec_from_file_location("lab_preparation", SOURCE)
 lab = importlib.util.module_from_spec(spec)
@@ -46,6 +48,27 @@ class LabPreparationTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     lab.prepare_ram_stage(path)
             opened.assert_not_called()
+
+    def test_ram_budget_covers_pinned_weights_engine_cap_and_host_reserve(self):
+        source = SOURCE.with_name("record-deepseek-lab.py")
+        spec = importlib.util.spec_from_file_location("bounded_lab_host", source)
+        host = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(host)
+        self.assertEqual(host.ENGINE_MEMORY_GIB, 512)
+        self.assertEqual(lab.MIN_RAM_BYTES, 1152 << 30)
+        pack = yaml.safe_load((SOURCE.parent.parent / host.PACK / "pack.yaml").read_text())
+        self.assertEqual(pack["total_bytes"], 510311045295)
+        self.assertLess(pack["total_bytes"] + ((host.ENGINE_MEMORY_GIB + 128) << 30), lab.MIN_RAM_BYTES)
+        mounts = "42 11 0:30 / /dev/shm rw,nosuid,nodev - tmpfs tmpfs rw\n"
+        boundary_kb = lab.MIN_RAM_BYTES // 1024
+        mem = f"MemTotal: {boundary_kb} kB\nMemAvailable: {boundary_kb} kB\nSwapTotal: 0 kB\n"
+        self.assertEqual(lab.ram_capacity(mem, mounts, 600 << 30)["host_available_bytes"], lab.MIN_RAM_BYTES)
+        for name in ("MemTotal", "MemAvailable"):
+            bad = mem.replace(f"{name}: {boundary_kb}", f"{name}: {boundary_kb - 1}")
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                lab.ram_capacity(bad, mounts, 600 << 30)
+        with self.assertRaises(ValueError):
+            lab.ram_capacity(mem, mounts, (600 << 30) - 1)
 
     def test_private_init_is_repeatable(self):
         with tempfile.TemporaryDirectory() as parent:

@@ -97,7 +97,7 @@ a successful result.
   `1bae0e1088993b9b82de08f59de5be5a34e42170`, 510,311,045,295 bytes.
   The bundled committed-source `nib model check-local` rehashes the entire
   exact set before application. No downloader or partial-weight fallback.
-- Capacity for a 768 GiB RAM cap, private 2 GiB SHM, private 16 GiB JIT/cache
+- Capacity for a 512 GiB RAM cap, private 2 GiB SHM, private 16 GiB JIT/cache
   tmpfs, private 256 MiB `/tmp`, and the image's writable ephemeral layer.
   The selected image's native/source inventory is verified; generated JIT
   libraries are **not** verified native provenance. The ephemeral image layer
@@ -161,11 +161,15 @@ CPU SEV-SNP on a rented B300 host does not fulfill the plan's Intel TDX gate.
 
 An optional disposable public-weight staging path uses an existing `/dev/shm`
 tmpfs on a large-memory test VM. Run committed `host/prepare-lab.py ram-stage
---root /dev/shm/nib-deepseek-weights` as root. It requires at least 1536 GiB
+--root /dev/shm/nib-deepseek-weights` as root. It requires at least 1152 GiB
 available host RAM, at least 600 GiB free in that tmpfs, no swap, and a new
 private directory. It changes no mounts or system settings. Stage the pack
 under that directory with the existing hash-verifying bounded stager; the
-engine still receives a read-only mount and its existing 768 GiB memory cap.
+engine still receives a read-only mount and a 512 GiB memory cap. The fixed
+510,311,045,295-byte checkpoint, that cap, and a 128 GiB host reserve fit within
+1152 GiB. SHM and scratch tmpfs are charged within the container memory limit;
+swap remains prohibited. This is a resource envelope, not a claim that a host
+has sufficient GPU memory or has passed a serving test.
 The 476 GiB pack plus that cap leaves at least 292 GiB at the admission floor
 before other costs. This is a capacity preflight, not a memory reservation:
 stop if concurrent memory consumption invalidates the budget. The cache is
@@ -257,7 +261,7 @@ failures and redaction sentinels. No actual diagnostic run is claimed here.
 
 The container has no external network, published ports, credentials, Docker
 socket or host IPC. Capabilities are dropped, no-new-privileges is set, and
-limits are 1,024 PIDs, 64 CPUs and 768 GiB RAM/swap. The RAM bound is a
+limits are 1,024 PIDs, 64 CPUs and 512 GiB RAM with no additional swap. The RAM bound is a
 conservative experimental choice for the operator-reported approximately
 1.3 TiB host and 510.3 GB weights, not a measured loader-memory requirement.
 Only the payload and weights
