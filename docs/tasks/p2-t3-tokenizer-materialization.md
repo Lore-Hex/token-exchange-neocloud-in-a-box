@@ -1,7 +1,8 @@
 # P2.T3 pinned tokenizer request materialization
 
 Status: opt-in executed-code correction and actual local pinned-image CPU
-controls passed; the GPU parity rerun remains a separate gate. Not qualification,
+controls passed. The subsequent [eight-GPU parity rerun](p2-t3-fixed-parity-evidence.md)
+passed all four unchanged cases and usage comparisons with confirmed cleanup. Not qualification,
 quality, confidential success, boot validation, or complete tokenizer equivalence.
 
 ## Observed baseline and primary sources
@@ -91,7 +92,8 @@ the payload and source-bundle hashes. CPU `adapter_verified=true` requires the
 fixed control child to verify active identities before checkpoint 16, clean exit,
 unchanged finder state, and no exception. The GPU receipt's identity is only
 **contract-bound adapter configuration**, not an observed activation receipt.
-An actual full parity rerun is still required.
+The subsequent four-case runtime parity rerun passed; its separate evidence is
+linked above. This is not full tokenizer equivalence or an activation receipt.
 
 The original five-stage application, disk inventory digests, immutable image,
 model pack, four parity payloads, default DP1 behavior, network policy, resource
