@@ -1,0 +1,26 @@
+{
+  "schema": "nib.tau-cpu-support-candidates/v1",
+  "runtime_verified": false,
+  "quality_eligible": false,
+  "engine": {
+    "repository": "ggml-org/llama.cpp",
+    "revision": "620d2225cc436ab0b001e3200e590e3b286ef9ab",
+    "archive_sha256": "1d4a987d9bd048f6e93107e838026438df70fbde237fc0c69c63d600512b4bd9"
+  },
+  "models": {
+    "qwen/qwen3-0.6b": {
+      "repository": "Qwen/Qwen3-0.6B-GGUF",
+      "revision": "23749fefcc72300e3a2ad315e1317431b06b590a",
+      "filename": "Qwen3-0.6B-Q8_0.gguf",
+      "sha256": "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031",
+      "bytes": 639446688
+    },
+    "qwen/qwen3-1.7b": {
+      "repository": "Qwen/Qwen3-1.7B-GGUF",
+      "revision": "90862c4b9d2787eaed51d12237eafdfe7c5f6077",
+      "filename": "Qwen3-1.7B-Q8_0.gguf",
+      "sha256": "061b54daade076b5d3362dac252678d17da8c68f07560be70818cace6590cb1a",
+      "bytes": 1834426016
+    }
+  }
+}
