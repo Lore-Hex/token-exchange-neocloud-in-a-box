@@ -1,7 +1,7 @@
 # P2.T3: fresh held CPU support pair
 
-Status: implemented and tested with synthetic controls, **not run with both
-models held concurrently**. This is an opt-in executable continuation of
+Status: the first native lifecycle attempt **failed before pair readiness**;
+whether either model completed parity is unknown. This is an opt-in executable continuation of
 [CPU parity](p2-t3-tau-cpu-parity.md) and [CPU admission](p2-t3-tau-cpu-admission.md),
 not a tau trial or an acceptance result. Historical sequential parity receipts
 are not converted into live receipts.
@@ -89,6 +89,43 @@ captured child output remains 64 KiB; controller acknowledgement is at most
 automatic release, keepalive, retry, external network or timeout extension is
 added. The output envelope always leaves `live_admission`, `quality_eligible`,
 `confidential` and `hardware_validated` false.
+
+## Failed native attempt and diagnostics
+
+[Native workflow 39865822820](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39865822820)
+ran producer `ea1de780008a7f81b1e54d2df3012c437f109830` on native
+Linux/amd64. The controller recorded 2026-10-22 22:36:07-22:41:29 UTC.
+The [four original files](../../evidence/p2/2026-10-22-cpu-session-parity-failure/)
+are preserved byte-for-byte, including their original source hashes and failed
+results. No runtime/tokenizer originals were published. The inner report says
+stage `parity`, with child cleanup confirmed; container/image/build cleanup is
+also confirmed. The outer report conservatively leaves producer cleanup
+`unknown` because it did not admit a successful producer. These reports are
+not rewritten to reconcile that distinction.
+
+The old `parity` stage covered the native helper, launch, ownership, health,
+comparisons, rehashing and receipt construction. It retained no model index,
+comparison rows or exception classification. It therefore proves neither a
+tokenizer mismatch nor a timeout, resource failure or receipt-construction
+failure. Source comparison has not established the cause. The earlier
+sequential pass does not establish concurrent pair readiness.
+
+Session report v2 fixes that observability gap, not a proven runtime cause.
+It retains a fixed substage, model index and the existing closed CPU parity
+metadata: completed per-case token hashes/counts, usage, measured binary and
+process identity. A later failure cannot erase earlier completed comparisons.
+Failure metadata is limited to fixed enum, errno, pre-cleanup server exit and
+at most eight fixed-source SHA-256/line frames. No exception messages, raw
+paths, arguments, locals, prompts, tokens or response bodies are retained.
+The existing CPU validator checks these observations; partial comparisons are
+not runtime/tokenizer receipts and cannot produce READY or successful release.
+No original v1 artifact is promoted to v2.
+
+The standalone parity worker, probes, pilot, kernel/socket guards, Dockerfile,
+recorder/controller and workflow remain byte-identical. Source closure remains
+23 worker files / 27 controller files; diagnostic sources are already in it.
+The v2 diagnostic path has only synthetic regression coverage until a separately
+reviewed, green-CI, explicitly approved native attempt. No retry was performed.
 
 ## Remaining executable prerequisites
 

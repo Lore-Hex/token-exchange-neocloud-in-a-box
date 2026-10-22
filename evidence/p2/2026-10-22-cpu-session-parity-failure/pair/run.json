@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S -B scripts/record-tau-cpu-parity.py --archive PRIVATE --model-06 PRIVATE --model-17 PRIVATE --cmake-wheel PRIVATE --output PRIVATE --session",
+  "ended_utc": "2026-10-22T22:41:29Z",
+  "execution": "software",
+  "git_sha": "ea1de780008a7f81b1e54d2df3012c437f109830",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "owned-linux-amd64-container",
+    "provider": "local"
+  },
+  "notes": "Fresh held CPU-pair receipts only. No target, tau trial, quality, live admission or confidential claim.",
+  "phase": "P2",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-22T22:36:08Z",
+  "task": "T3"
+}
