@@ -41,6 +41,24 @@ def same_directory(parent, path, publication):
         os.close(check)
 
 
+def committed_validator(revision):
+    checked_revision, sources = native.tools.committed((SCRIPT,))
+    require(checked_revision == revision and sources[SCRIPT] == SELF)
+    # The generic source gate deliberately rejects leading-dot paths. Audit
+    # this one fixed workflow separately without widening that gate.
+    def git(*args):
+        result = base.processes.execute_process_group(
+            ["git", "-c", "core.hooksPath=" + os.devnull, "-C", str(ROOT), *args],
+            env=base.GIT_ENV, timeout=30, max_output_bytes=65536, stdin=subprocess.DEVNULL)
+        result.check_returncode()
+        return result.stdout
+    row = git("ls-tree", revision, "--", WORKFLOW).decode("ascii").split()
+    require(len(row) == 4 and row[:2] == ["100644", "blob"] and row[3] == WORKFLOW)
+    raw = git("cat-file", "blob", row[2])
+    require(raw == base.read(ROOT / WORKFLOW, 65536))
+    return {SCRIPT: base.digest(sources[SCRIPT]), WORKFLOW: base.digest(raw)}
+
+
 def verify_bundle(evidence, bundle, original, source, export, deadline):
     with base.directory(bundle) as fd:
         info = os.fstat(fd)
@@ -146,12 +164,10 @@ def main():
     export, _ = base.helper("export_verification_alarm", native.EXPORT)
     with export.deadline_alarm():
         revision, sources = native.committed_sources(True, True, True, True)
-        validator_revision, validator_sources = native.tools.committed((SCRIPT, WORKFLOW))
-        require(revision == validator_revision and validator_sources[SCRIPT] == SELF)
+        validator_source = committed_validator(revision)
         export, publication = native.export_helpers(sources)
     result = validate(EVIDENCE, METADATA, native.source_identity(revision, sources),
-                      {name: base.digest(validator_sources[name]) for name in (SCRIPT, WORKFLOW)},
-                      args.build_result, export, publication)
+                      validator_source, args.build_result, export, publication)
     # Only these fixed values reach the workflow. Exit zero means metadata is
     # safe to upload, not that export passed; the workflow separately checks it.
     print(result)

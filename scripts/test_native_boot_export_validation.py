@@ -173,7 +173,6 @@ class ValidationTests(unittest.TestCase):
 
     def test_entrypoint_requires_host_and_source_gates_and_fixed_paths(self):
         sources = {validator.native.EXPORT: (ROOT / validator.native.EXPORT).read_bytes()}
-        verifier_sources = {validator.SCRIPT: validator.SELF, validator.WORKFLOW: b"fixture workflow"}
         for failure in (None, "host", "source", "self"):
             with self.subTest(failure=failure), \
                     mock.patch.object(validator.sys, "argv", ["verify", "--build-result", "success"]), \
@@ -181,8 +180,8 @@ class ValidationTests(unittest.TestCase):
                                       side_effect=ValueError("PRIVATE") if failure == "host" else None) as host_gate, \
                     mock.patch.object(validator.native, "committed_sources", return_value=("ab" * 20, sources),
                                       side_effect=ValueError("PRIVATE") if failure == "source" else None) as audit, \
-                    mock.patch.object(validator.native.tools, "committed", return_value=("ab" * 20,
-                        {**verifier_sources, **({validator.SCRIPT: b"changed"} if failure == "self" else {})})), \
+                    mock.patch.object(validator, "committed_validator", return_value=self.validator_source,
+                                      side_effect=ValueError("PRIVATE") if failure == "self" else None), \
                     mock.patch.object(validator.native, "export_helpers", return_value=(export, publication)), \
                     mock.patch.object(validator, "validate", return_value="pass") as validate, \
                     mock.patch("builtins.print") as output:
@@ -196,6 +195,31 @@ class ValidationTests(unittest.TestCase):
                     with self.assertRaises(ValueError): validator.main()
                     validate.assert_not_called()
                     output.assert_not_called()
+
+    def test_fixed_workflow_audit_preserves_generic_source_gate_and_checks_exact_blob(self):
+        revision = "ab" * 20
+        raw = (ROOT / validator.WORKFLOW).read_bytes()
+        oid = "cd" * 20
+        for failure in (None, "revision", "self", "mode", "path", "bytes", "git"):
+            with self.subTest(failure=failure):
+                row = ("120000" if failure == "mode" else "100644") + " blob " + oid + "\t" + (
+                    "other" if failure == "path" else validator.WORKFLOW) + "\n"
+                replies = [subprocess.CompletedProcess([], 0, row.encode(), b""),
+                           subprocess.CompletedProcess([], 1 if failure == "git" else 0,
+                               b"changed" if failure == "bytes" else raw, b"PRIVATE")]
+                with mock.patch.object(validator.native.tools, "committed", return_value=(
+                        "ef" * 20 if failure == "revision" else revision,
+                        {validator.SCRIPT: b"changed" if failure == "self" else validator.SELF})) as generic, \
+                        mock.patch.object(validator.base.processes, "execute_process_group", side_effect=replies) as git:
+                    if failure is not None:
+                        with self.assertRaises((ValueError, subprocess.SubprocessError)):
+                            validator.committed_validator(revision)
+                    else:
+                        self.assertEqual(validator.committed_validator(revision), {
+                            validator.SCRIPT: base.digest(validator.SELF), validator.WORKFLOW: base.digest(raw)})
+                        self.assertEqual(git.call_args.kwargs["max_output_bytes"], 65536)
+                        self.assertEqual(git.call_args.kwargs["timeout"], 30)
+                    generic.assert_called_once_with((validator.SCRIPT,))
 
     def test_real_workflow_shell_only_authorizes_prepared_metadata_and_fails_bad_result(self):
         workflow = yaml.safe_load((ROOT / validator.WORKFLOW).read_text())
