@@ -4,6 +4,8 @@ Implemented with local synthetic tests and a subsequent
 [real native pass](../../evidence/p3/2026-10-22-native-private-export-pass/README.md)
 verifying and deleting the exported files. **No boot, signing, reproducibility
 or confidential-computing result is claimed here.** The separate
+[two-build comparison](p3-t1-native-reproducibility.md) checks identical-input
+output hashes without broadening those claims. The separate
 [private export](p3-t1-private-boot-export.md) preserves the original verified
 GPT and unsigned UKI; this workflow exercises that export and deliberately
 discards both images before upload.
