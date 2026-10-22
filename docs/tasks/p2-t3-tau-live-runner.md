@@ -8,7 +8,12 @@ hardware or confidential qualification is claimed.
 This builds on the [local vLLM transport](p2-t3-tau-local-vllm.md) and
 [isolated parent-pipe runner](p2-t3-tau-container-pipes.md). The separate
 `scripts/tau_live_trial.py` CLI selects live transport explicitly. The default
-`scripts/tau_trial.py` CLI and its scripted outputs remain unchanged.
+`scripts/tau_trial.py` CLI and its scripted execution contract remain unchanged.
+
+The explicit [selected-target v2 contract](p2-t3-tau-selected-target.md) admits
+one target (`candidate` or `reference`) plus simulator and evaluator per trial.
+It preserves both target configurations in the frozen benchmark. Legacy v1
+still requires four live deployments; nothing silently converts its inputs.
 
 ## Execution boundary
 
@@ -38,7 +43,7 @@ This builds on the [local vLLM transport](p2-t3-tau-local-vllm.md) and
 
 The deployment SHA-256 supplied by the operator is an **authenticated input
 approval**, not a value to copy from an untrusted endpoint. It commits to the
-private manifest and eight original measurement receipts. Before approving it,
+private manifest and original measurement receipts (six for v2, eight for v1). Before approving it,
 the operator must review the receipt producers and their original runtime and
 independent tokenizer measurements. A source hash proves which committed script
 is named; it does not prove that a measurement was actually performed. This
@@ -46,7 +51,7 @@ consumer never manufactures those receipts, executes supplied verifier code,
 accepts `verified=true` as proof, or promotes them to attestation.
 
 The base repository has no producer for these live receipts. Obtaining reviewed
-original receipts for all four actual deployments is an explicit remaining
+original receipts for every active deployment is an explicit remaining
 prerequisite, owned by the deployment work. Do not translate a stopped historical
 lab run, a fixture, `/v1/models`, an engine version string or localhost reachability
 into a receipt. Unknown producer commits, missing receipts or binding mismatches
@@ -58,8 +63,9 @@ It is not one of these admission receipts, does not keep engines alive and does
 not establish the four-role topology or GPU-sharing capacity.
 
 At execution, Linux procfs must expose each admitted API process in the parent's
-network namespace and UID. Four distinct PIDs, listening socket inodes and IPv4
-ports are required. Simulator and evaluator model identifiers must differ from
+network namespace and UID. Distinct PIDs, listening socket inodes and IPv4
+ports are required for all active roles (three for v2, four for v1).
+Simulator and evaluator model identifiers must differ from
 each other and from the model under test; their model-file inventories must also
 be distinct, so aliases cannot hide shared weights. Revisions must be exact 40-hex commits;
 candidate/reference retain the existing pinned DeepSeek revision and tokenizer.
@@ -84,13 +90,13 @@ the approved producer. Token usage remains **engine-reported**.
 
 ## Private input contract
 
-All nine JSON files must be regular single-link, current-user-owned mode `0600`
+All JSON inputs (seven for v2, nine for v1) must be regular single-link, current-user-owned mode `0600`
 files in a mode `0700` directory. Reads are bounded to 1 MiB per file, reject
 symlinks throughout the path, check identity before/after reading and run under a
 whole admission deadline. JSON rejects duplicate keys and nonfinite numbers.
 Unknown fields are rejected. No default endpoint, identity or receipt is filled in.
 
-`deployment.json` has exactly:
+Legacy v1 `deployment.json` has exactly:
 
 - `schema`: `nib.tau-local-deployment/v1`.
 - `expires_unix`: integer expiry, in the next hour, checked before each connection
@@ -101,6 +107,16 @@ Unknown fields are rejected. No default endpoint, identity or receipt is filled 
 - `roles`: exactly `candidate`, `reference`, `simulator`, `evaluator`. Each has
   `host` equal to `127.0.0.1`, integer `port` in 1024..65535, and `runtime_sha256`
   and `tokenizer_sha256` of the corresponding receipt files below.
+
+V2 changes `schema` to `nib.tau-local-deployment/v2`, adds `selected_target`
+equal to `candidate` or `reference`, and requires exactly that target plus
+`simulator` and `evaluator` in `roles`. The complete embedded manifest still
+contains all four role configurations and both target serving configurations.
+The CLI selection, prepared payload and execution must agree on the target.
+Only the active roles' receipt files are read or admitted. Each keeps the same
+runtime/tokenizer receipt schemas below. V2 exports `nib.tau-live-binding/v2`
+with `selected_target` and only the three actual receipt pairs; v1 bindings
+remain unchanged. See the [sequential operation limits](p2-t3-tau-selected-target.md#sequential-operation).
 
 For each role, `<role>-runtime.json` has exactly:
 
@@ -164,7 +180,7 @@ python3 -I -S -B scripts/tau_live_trial.py prepare \
   --output NEW_PRIVATE_PAYLOAD_PARENT
 ```
 
-On the approved Linux host, with the four independently verified engines already
+On the approved Linux host, with the three (v2) or four (v1) independently verified engines already
 running and the pinned worker image already local:
 
 ```sh

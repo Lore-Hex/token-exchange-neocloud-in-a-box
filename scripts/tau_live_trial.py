@@ -63,6 +63,7 @@ def main():
         runner.aggregate.validate_manifest(manifest, args.manifest_sha256,
             runner.tau.json_value(runner.runtime.read_file(runner.ROOT / runner.tau.PINS, 1 << 20, deadline)))
         deployment = live.Deployment(Path(args.deployment), args.deployment_sha256, manifest, deadline)
+        deployment.require_target(args.role)
         files, _ = runner.prepare(Path(args.source_archive), Path(args.wheelhouse), Path(args.manifest),
             args.manifest_sha256, {key: getattr(args, key) for key in ("domain", "task_id", "trial", "role")},
             deadline, parent_pipe=True, live_binding=deployment.binding)
