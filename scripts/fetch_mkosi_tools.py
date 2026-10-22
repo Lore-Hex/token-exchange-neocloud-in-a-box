@@ -30,6 +30,10 @@ MAX_BYTES = 160 << 20
 NVIDIA_BASE = "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/"
 GUEST_SCOPE = "kernel-driver-build-dependency-coverage"
 MAX_METADATA = 64 << 20
+# curl's documented transport errors only; HTTP, TLS verification, byte limits
+# and content-integrity failures never become retryable.
+# https://curl.se/libcurl/c/libcurl-errors.html
+TRANSIENT_CODES = frozenset((6, 7, 28, 52, 55, 56))
 
 
 class FetchFailure(ValueError):
@@ -164,7 +168,65 @@ def unpack_metadata(raw, items):
     return files
 
 
-def fetch(lock_raw, execute, *, clock=time.monotonic, guest_raw=None, metadata=None):
+def fetch_attempt(name, item, execute, deadline, clock):
+    url, size, sha = item
+    seconds = min(60, deadline - clock())
+    def failed(category, returncode=None):
+        raise FetchFailure(name, size, sha, category, returncode) from None
+    if seconds <= 0:
+        failed("deadline")
+    # No curlrc, proxy, redirect, credentials, implicit curl retry or raw logs.
+    try:
+        result = execute(["/usr/bin/curl", "--disable", "--noproxy", "*", "--fail", "--silent",
+            "--show-error", "--proto", "=https", "--tlsv1.2", "--connect-timeout", "10",
+            "--max-time", str(seconds), "--max-filesize", str(size), url],
+            env=dict(ENV), timeout=seconds, max_output_bytes=size + 65536,
+            stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        failed("timeout")
+    except base.processes.OutputLimitExceeded:
+        failed("output-limit")
+    except OSError:
+        failed("io")
+    except (ValueError, subprocess.SubprocessError):
+        failed("process-rejected")
+    if type(result.returncode) is not int or not -255 <= result.returncode <= 255:
+        failed("process-rejected")
+    if result.returncode:
+        failed("process-exit", result.returncode)
+    if clock() >= deadline:
+        failed("deadline")
+    if result.stderr != b"":
+        failed("stderr")
+    if type(result.stdout) is not bytes or len(result.stdout) != size:
+        failed("size")
+    if base.digest(result.stdout) != sha:
+        failed("digest")
+    return result.stdout
+
+
+def fetch_item(name, item, execute, deadline, clock, sleep):
+    for attempt in range(1, 4):
+        try:
+            return fetch_attempt(name, item, execute, deadline, clock)
+        except FetchFailure as error:
+            row = error.report
+            retryable = row["failure"] == "timeout" or (
+                row["failure"] == "process-exit" and row["returncode"] in TRANSIENT_CODES)
+            if not retryable or attempt == 3:
+                raise
+            delay = 2 ** (attempt - 1)
+            if deadline - clock() <= delay:
+                raise FetchFailure(name, item[1], item[2], "deadline") from None
+            # Record every retry without retaining response bytes, stderr,
+            # exception strings, URLs, paths or request-derived identifiers.
+            print(json.dumps({**row, "schema": "nib.input-fetch-retry/v1", "result": "retry",
+                              "failed_attempt": attempt, "delay_seconds": delay}, sort_keys=True), flush=True)
+            sleep(delay)
+    raise AssertionError("unreachable fetch attempt")
+
+
+def fetch(lock_raw, execute, *, clock=time.monotonic, sleep=time.sleep, guest_raw=None, metadata=None):
     lock = json.loads(lock_raw)
     items = plan(lock) if guest_raw is None else build_plan(lock, json.loads(guest_raw))
     files = {"mkosi-tools-inputs.json": lock_raw}
@@ -174,42 +236,10 @@ def fetch(lock_raw, execute, *, clock=time.monotonic, guest_raw=None, metadata=N
         validate_metadata(metadata, items)
         files.update(metadata)
     deadline = clock() + 600
-    for name, (url, size, sha) in sorted(items.items()):
+    for name, item in sorted(items.items()):
         if name in files:
             continue
-        seconds = min(60, deadline - clock())
-        def failed(category, returncode=None):
-            raise FetchFailure(name, size, sha, category, returncode) from None
-        if seconds <= 0:
-            failed("deadline")
-        # No curlrc, proxy, redirect, credentials, retry or unbounded diagnostics.
-        try:
-            result = execute(["/usr/bin/curl", "--disable", "--noproxy", "*", "--fail", "--silent",
-                "--show-error", "--proto", "=https", "--tlsv1.2", "--connect-timeout", "10",
-                "--max-time", str(seconds), "--max-filesize", str(size), url],
-                env=dict(ENV), timeout=seconds, max_output_bytes=size + 65536,
-                stdin=subprocess.DEVNULL)
-        except subprocess.TimeoutExpired:
-            failed("timeout")
-        except base.processes.OutputLimitExceeded:
-            failed("output-limit")
-        except OSError:
-            failed("io")
-        except (ValueError, subprocess.SubprocessError):
-            failed("process-rejected")
-        if type(result.returncode) is not int or not -255 <= result.returncode <= 255:
-            failed("process-rejected")
-        if result.returncode:
-            failed("process-exit", result.returncode)
-        if clock() >= deadline:
-            failed("deadline")
-        if result.stderr != b"":
-            failed("stderr")
-        if type(result.stdout) is not bytes or len(result.stdout) != size:
-            failed("size")
-        if base.digest(result.stdout) != sha:
-            failed("digest")
-        files[name] = result.stdout
+        files[name] = fetch_item(name, item, execute, deadline, clock, sleep)
     return files
 
 
