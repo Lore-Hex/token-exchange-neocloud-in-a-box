@@ -80,6 +80,16 @@ def prepare(downloads, source_archive, revision, sources):
     return prepared, preparation, payload, modes, links
 
 
+def collect_diagnostics(resultdir):
+    artifacts = {}
+    for name in ("installer.stdout", "installer.stderr", "dkms-compiler.stdout", "dkms-compiler.stderr",
+                 "dkms-add.stdout", "dkms-add.stderr", "dkms-build.stdout", "dkms-build.stderr",
+                 "dkms-symbols.stdout", "dkms-symbols.stderr", "dkms-make-0.log", "dkms-make-1.log"):
+        if (resultdir / name).exists():
+            artifacts[name] = base.read(resultdir / name, 2 << 20)
+    return artifacts
+
+
 def run(downloads, archive, output, revision, sources, compile_driver=False):
     require(not output.exists() and not output.is_symlink())
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -127,11 +137,7 @@ def run(downloads, archive, output, revision, sources, compile_driver=False):
                 require(worker["schema"] == "nib.mkosi-install-worker/v1"
                         and worker["bootable"] is False and worker["deployable"] is False)
                 report["worker"] = worker
-            for name in ("installer.stdout", "installer.stderr", "dkms-compiler.stdout", "dkms-compiler.stderr",
-                         "dkms-add.stdout", "dkms-add.stderr", "dkms-build.stdout", "dkms-build.stderr",
-                         "dkms-make-0.log", "dkms-make-1.log"):
-                if (resultdir / name).exists():
-                    artifacts[name] = base.read(resultdir / name, 2 << 20)
+            artifacts.update(collect_diagnostics(resultdir))
             result.check_returncode()
             require(report["worker"] and report["worker"]["result"] == "pass"
                     and report["worker"]["configured_state_verified"] is True
