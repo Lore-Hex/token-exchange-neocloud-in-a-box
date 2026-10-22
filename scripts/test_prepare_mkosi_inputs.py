@@ -431,7 +431,7 @@ class BindingTests(unittest.TestCase):
                 self.assertEqual(set(old), set(tool.tools.FILES))
                 self.assertEqual(set(new), set(paths))
                 for extra in (("../private",), ("/private",), ("-option",), ["not-tuple"],
-                              (tool.EXTRA[0],) * 29):
+                              (tool.EXTRA[0],) * 30):
                     with self.subTest(extra=extra), self.assertRaises(ValueError):
                         tool.tools.committed(extra)
                 (root / tool.EXTRA[1]).write_bytes(b"uncommitted")
