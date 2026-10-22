@@ -1271,6 +1271,41 @@ class HardwareTests(unittest.TestCase):
             self.assertFalse(probe.matches_family(name, "B300"))
         self.assertFalse(probe.matches_family(b"NVIDIA B300 B200", "B200"))
 
+    def test_eight_gpus_require_explicit_count_and_every_device_passes(self):
+        library = DiagnosticTests().library(count=8, name=b"NVIDIA B300", memory=250 << 20)
+        with mock.patch.object(probe.c, "CDLL", return_value=library):
+            raw = probe.NVML().observe("B300", expected=8)
+            with self.assertRaises(ValueError):
+                probe.NVML().observe("B300")
+        row = probe.validate(raw, family="B300", expected=8)
+        self.assertEqual(probe.validate_report(row, family="B300", expected=8), row)
+        self.assertEqual(row["selected_gpus"], 8)
+        self.assertFalse(row["attestation_verified"])
+        for expected in (4, 7, 9, True, "8", None):
+            for validate, value in ((probe.validate, raw), (probe.validate_report, row)):
+                with self.subTest(expected=expected), self.assertRaises(ValueError):
+                    validate(value, family="B300", expected=expected)
+        for index in range(8):
+            bad = copy.deepcopy(raw)
+            bad["devices"][index]["b300"] = False
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                probe.validate(bad, family="B300", expected=8)
+        with mock.patch.object(probe.c, "CDLL", return_value=library), self.assertRaises(ValueError):
+            probe.NVML().observe("B300", nonconfidential=True, expected=8)
+
+    def test_dp2_is_only_explicit_b300_cc_correctness(self):
+        good = {"operation": "local-correctness", "gpu_family": "B300", "data_parallel_size": 2}
+        for validate in (host.parallel_size, probe.parallel_size):
+            self.assertEqual(validate({}), 1)
+            self.assertEqual(validate(good), 2)
+            for update in ({"operation": "pre-serve"}, {"operation": "functional"},
+                           {"operation": "hardware-diagnostic"}, {"gpu_family": "B200"},
+                           {"gpu_security": "nonconfidential"}, {"data_parallel_size": True},
+                           {"data_parallel_size": "2"}, {"data_parallel_size": 0},
+                           {"data_parallel_size": 4}):
+                with self.subTest(update=update), self.assertRaises(ValueError):
+                    validate({**good, **update})
+
     def test_b300_nvml_keeps_actual_family_in_report(self):
         with mock.patch.object(probe.c, "CDLL", return_value=DiagnosticTests().library(
                 name=b"NVIDIA B300", memory=250 << 20)):
@@ -1718,6 +1753,49 @@ class PayloadTests(unittest.TestCase):
             self.assertEqual(command[command.index("--network") + 1], "none")
             self.assertNotIn("--privileged", command)
 
+    def test_dp2_payload_changes_only_explicit_parallel_profile(self):
+        args = (self.builder, "1" * 40, self.bundle, self.extra, b"fake-linux-binary")
+        old_files, old = host.make_payload(*args, "local-correctness", "B300")
+        files, contract = host.make_payload(*args, "local-correctness", "B300", "confidential", 2)
+        expected_args = list(old["arguments"])
+        expected_args[expected_args.index("--data-parallel-size") + 1] = "2"
+        self.assertEqual(contract, {**old, "data_parallel_size": 2, "arguments": expected_args})
+        self.assertEqual({k for k in files if files[k] != old_files[k]}, {"lab.json", "python"})
+        self.assertEqual(old["arguments"][old["arguments"].index("--tensor-parallel-size") + 1], "4")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / "payload").mkdir()
+            for key in ("lab.json", "probe.py"):
+                (root / "payload" / key).write_bytes(files[key])
+            command = host.create_command("owned", "owner", root, "/weights", contract, {"config": {"Env": []}})
+            for flag, value in (("--gpus", '\"device=0,1,2,3,4,5,6,7\"'), ("--memory", "1024g"),
+                                ("--memory-swap", "1024g"), ("--network", "none")):
+                self.assertEqual(command[command.index(flag) + 1], value)
+            self.assertIn("NVIDIA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7", command)
+            raw = HardwareTests().raw()
+            raw["devices"] = [{"b300": True, "protected_kib": 250 << 20} for _ in range(8)]
+            row = {"schema": "nib.deepseek-lab-correctness-result/v2", "status": "BLOCKED",
+                   "deployable": False, "confidential": False, "functional_pass": False, "stage": "weights",
+                   "hardware": probe.validate(raw, family="B300", expected=8), "application": None,
+                   "completion": None, "correctness": None, "startup": None, "engine_stopped": False}
+            host.validate_result(row, root, contract, None)
+            with self.assertRaises(ValueError):
+                host.validate_result(row, root, old, None)
+
+    def test_parallel_override_rejects_drifted_plan_and_preserves_default(self):
+        plan = self.builder.recorder.prep.launch_plan()
+        self.assertEqual(lab.lab_args(plan), lab.lab_args(plan, 1))
+        original = copy.deepcopy(plan)
+        lab.lab_args(plan, 2)
+        self.assertEqual(plan, original)
+        for args in ([], ["--data-parallel-size"], ["--data-parallel-size", "2"],
+                     ["--data-parallel-size", "1", "--data-parallel-size", "1"]):
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                lab.lab_args({"fixed_engine_arguments": args}, 2)
+        for size in (0, 3, True, "2", None):
+            with self.subTest(size=size), self.assertRaises(ValueError):
+                lab.lab_args(plan, size)
+
     def test_b300_baseline_payload_and_result_keep_security_and_family_separate(self):
         args = (self.builder, "1" * 40, self.bundle, self.extra, b"fake-linux-binary")
         cc_files, cc_contract = host.make_payload(*args, "local-correctness", "B300")
@@ -1746,6 +1824,7 @@ class PayloadTests(unittest.TestCase):
             "--prepare-hardware-diagnostic": ("hardware-diagnostic", "B200", "confidential"),
             "--prepare-local-correctness": ("local-correctness", "B200", "confidential"),
             "--prepare-local-correctness-b300": ("local-correctness", "B300", "confidential"),
+            "--prepare-local-correctness-b300-dp2": ("local-correctness", "B300", "confidential", 2),
             "--prepare-pre-serve": ("pre-serve", "B200", "confidential"),
             "--prepare-pre-serve-b300": ("pre-serve", "B300", "confidential"),
             "--prepare-nonconfidential-baseline": ("local-correctness", "B200", "nonconfidential"),
@@ -2696,6 +2775,19 @@ class ReportTests(unittest.TestCase):
                            {"Type": "bind", "Source": "/weights", "Destination": "/model", "RW": False}],
             }
             host.check_container(info, "owned", "owner", root, "/weights", contract, config, "image-id")
+            dp2 = {**contract, "operation": "local-correctness", "gpu_family": "B300", "data_parallel_size": 2}
+            dp2_args = host.create_command("owned", "owner", root, "/weights", dp2, config)
+            dp2_info = copy.deepcopy(info)
+            dp2_info["Config"]["Cmd"] = dp2_args[dp2_args.index("pinned") + 1:]
+            dp2_info["Config"]["Env"] = [dp2_args[i + 1] for i, value in enumerate(dp2_args) if value == "--env"]
+            dp2_info["HostConfig"]["Memory"] = dp2_info["HostConfig"]["MemorySwap"] = 1024 << 30
+            dp2_info["HostConfig"]["DeviceRequests"][0]["DeviceIDs"] = list(map(str, range(8)))
+            host.check_container(dp2_info, "owned", "owner", root, "/weights", dp2, config, "image-id")
+            for devices in (list(map(str, range(7))), list(map(str, range(9))), ["0"] * 8):
+                bad = copy.deepcopy(dp2_info)
+                bad["HostConfig"]["DeviceRequests"][0]["DeviceIDs"] = devices
+                with self.subTest(devices=devices), self.assertRaises(ValueError):
+                    host.check_container(bad, "owned", "owner", root, "/weights", dp2, config, "image-id")
             for key in ("Memory", "MemorySwap"):
                 for value in (0, -1, 511 << 30, 768 << 30):
                     changed = copy.deepcopy(info)

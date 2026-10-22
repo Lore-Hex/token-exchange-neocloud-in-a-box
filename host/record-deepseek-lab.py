@@ -97,11 +97,22 @@ def committed(builder, revision, name):
     return builder.checker.git(ROOT, "cat-file", "blob", row[2])
 
 
-def make_payload(builder, revision, bundle, extra, binary, operation="functional", family="B200", security="confidential"):
+def parallel_size(contract):
+    size = contract.get("data_parallel_size", 1)
+    require(type(size) is int and size in (1, 2))
+    require(size == 1 or (contract.get("operation") == "local-correctness"
+            and contract.get("gpu_family") == "B300"
+            and contract.get("gpu_security", "confidential") == "confidential"))
+    return size
+
+
+def make_payload(builder, revision, bundle, extra, binary, operation="functional", family="B200", security="confidential", replicas=1):
     require(operation in ("functional", "hardware-diagnostic", "local-correctness", "pre-serve"))
     require(family in ("B200", "B300") and (family == "B200" or operation in ("local-correctness", "pre-serve")))
     require(security in ("confidential", "nonconfidential") and (security == "confidential"
             or operation == "local-correctness"))
+    parallel_size({"operation": operation, "gpu_family": family, "gpu_security": security,
+                   "data_parallel_size": replicas})
     files, _ = builder.prepare_files(revision, bundle, extra)
     app = builder.overlay.load_json(files["payload/contract.json"])
     measured = builder.application.measurement(builder.overlay, extra[builder.application.EVIDENCE])
@@ -128,18 +139,20 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
                 "pack_revision": runtime.MODEL_REVISION, "pack_bytes": runtime.TOTAL_BYTES,
                 "manifest_sha256": digest(payload["pack/files.sha256"]),
                 "interpreter": {key: measured["files"][0][key] for key in ("resolved", "bytes", "sha256")},
-                "paths": measured["proposed_paths"], "arguments": runtime.lab_args(plan),
+                "paths": measured["proposed_paths"], "arguments": runtime.lab_args(plan, replicas),
                 "environment": runtime.lab_environment(plan), "sources": {name: digest(data) for name, data in payload.items()}}
     if family == "B300":
         contract["gpu_family"] = family
     if security == "nonconfidential":
         contract["gpu_security"] = security
+    if replicas == 2:
+        contract["data_parallel_size"] = replicas
     payload["lab.json"] = builder.overlay.json_bytes(contract)
     payload["python"] = runtime.wrapper_bytes(contract["interpreter"]["resolved"], contract["environment"], digest(payload["lab.json"]))
     return payload, contract
 
 
-def prepare(destination, operation="functional", family="B200", security="confidential"):
+def prepare(destination, operation="functional", family="B200", security="confidential", replicas=1):
     builder = load("lab_application_builder", ROOT / BUILDER, BUILDER_SHA)
     revision, bundle, extra = builder.inputs(ROOT)
     for name in (SCRIPT, HELPER, RUNTIME, LAB_BOOTSTRAP, EXCEPTIONS, PROBE, SMOKE, TEST, SIX_TEST,
@@ -154,7 +167,7 @@ def prepare(destination, operation="functional", family="B200", security="confid
         work = Path(temporary).resolve()
         env = recorder.offline_environment(work / "control")
         binary, source_sha = recorder.build_validator(ROOT, revision, work, {**env, "GOOS": "linux", "GOARCH": "amd64"})
-        payload, contract = make_payload(builder, revision, bundle, extra, read(binary, MAX_BYTES), operation, family, security)
+        payload, contract = make_payload(builder, revision, bundle, extra, read(binary, MAX_BYTES), operation, family, security, replicas)
         config = recorder.raw_metadata(ROOT / "build/engine-image-metadata", contract)
         runtime = load("lab_environment_constants", ROOT / RUNTIME, digest(extra[RUNTIME]))
         image_env = dict(item.split("=", 1) for item in config["config"]["Env"])
@@ -220,6 +233,7 @@ def bundle_inputs(path, expected):
     require(family in ("B200", "B300") and (family == "B200" or contract["operation"] in ("local-correctness", "pre-serve")))
     probe = load("lab_profile_validation", path / "payload/probe.py", contract["sources"]["probe.py"])
     probe.security_profile(contract)
+    require(probe.parallel_size(contract) == parallel_size(contract))
     config = recorder.raw_metadata(path / "metadata", contract)
     return receipt, contract, config, recorder
 
@@ -228,11 +242,13 @@ def create_command(name, owner, bundle, weights, contract, config):
     require(contract["operation"] in ("functional", "hardware-diagnostic", "local-correctness", "pre-serve"))
     payload = str(Path(bundle) / "payload")
     pre_serve = contract["operation"] == "pre-serve"
-    memory = str(8 if pre_serve else ENGINE_MEMORY_GIB) + "g"
+    replicas = parallel_size(contract)
+    devices = ",".join(str(i) for i in range(4 * replicas))
+    memory = str(8 if pre_serve else ENGINE_MEMORY_GIB * replicas) + "g"
     require((weights is None) == pre_serve)
     command = ["docker", "container", "create", "--name", name, "--label", LABEL + "=" + owner,
                "--pull", "never", "--platform", "linux/amd64", "--runtime", "nvidia",
-               "--gpus", '"device=0,1,2,3"', "--network", "none", "--cap-drop", "ALL",
+               "--gpus", '"device=' + devices + '"', "--network", "none", "--cap-drop", "ALL",
                "--security-opt", "no-new-privileges", "--pids-limit", "1024",
                "--memory", memory, "--memory-swap", memory,
                "--cpus", "2" if pre_serve else "64",
@@ -256,7 +272,7 @@ def create_command(name, owner, bundle, weights, contract, config):
     # Retain the verified image's vendor constraints for the NVIDIA prestart
     # hook; env -i runs only after that hook has enforced them.
     for key in sorted(names | {"PATH", "HOME", "NVIDIA_VISIBLE_DEVICES", "NVIDIA_DRIVER_CAPABILITIES"}):
-        command += ["--env", key + "=" + ({**constraints, "NVIDIA_VISIBLE_DEVICES": "0,1,2,3",
+        command += ["--env", key + "=" + ({**constraints, "NVIDIA_VISIBLE_DEVICES": devices,
                                           "NVIDIA_DRIVER_CAPABILITIES": "compute,utility"}.get(key, ""))]
     return command + [contract["base_image"], "-i", *[key + "=" + value for key, value in sorted(contract["environment"].items())],
                       "/usr/bin/python3.12", "-I", "-S", "-B", "/opt/nib/launch.py",
@@ -280,7 +296,7 @@ def check_container(info, name, owner, bundle, weights, contract, config, image_
             and not host.get("DeviceCgroupRules") and not host.get("PortBindings") and not host.get("PublishAllPorts")
             and not host.get("PidMode") and not host.get("UTSMode") and not host.get("VolumesFrom") and not host.get("Binds")
             and host["IpcMode"] == "private" and host["ShmSize"] == 2 << 30 and host["CgroupnsMode"] == "private"
-            and host["Memory"] == host["MemorySwap"] == (8 if pre_serve else ENGINE_MEMORY_GIB) << 30
+            and host["Memory"] == host["MemorySwap"] == (8 if pre_serve else ENGINE_MEMORY_GIB * parallel_size(contract)) << 30
             and host["NanoCpus"] == (2 if pre_serve else 64) * 1000000000
             and host["PidsLimit"] == 1024 and host["RestartPolicy"]["Name"] == "no" and host["LogConfig"]["Type"] == "none"
             and set(host["SecurityOpt"]) in ({"no-new-privileges"}, {"no-new-privileges=true"})
@@ -288,7 +304,7 @@ def check_container(info, name, owner, bundle, weights, contract, config, image_
             and host["Tmpfs"] == {"/cache": "rw,nosuid,nodev,exec,size=16g,mode=0700",
                                  "/tmp": "rw,nosuid,nodev,noexec,size=256m,mode=1777"})
     devices = host["DeviceRequests"]
-    require(len(devices) == 1 and devices[0]["DeviceIDs"] == ["0", "1", "2", "3"]
+    require(len(devices) == 1 and devices[0]["DeviceIDs"] == [str(i) for i in range(4 * parallel_size(contract))]
             and devices[0]["Capabilities"] == [["gpu"]] and devices[0]["Count"] == 0
             and devices[0]["Driver"] in ("", "nvidia") and not devices[0].get("Options"))
     mounts = info["Mounts"]
@@ -504,7 +520,7 @@ def validate_result(row, bundle, contract, recorder):
         if probe.security_profile(contract) == "nonconfidential":
             probe.validate_nonconfidential_report(row["hardware"], family=contract.get("gpu_family", "B200"))
         else:
-            probe.validate_report(row["hardware"], family=contract.get("gpu_family", "B200"))
+            probe.validate_report(row["hardware"], family=contract.get("gpu_family", "B200"), expected=4 * parallel_size(contract))
     if row["application"] is not None:
         # Reuse the existing exact application-receipt validator unchanged. This
         # temporary validation envelope is not evidence of a P0 import attempt.
@@ -586,6 +602,7 @@ def main():
         "prepare-hardware-diagnostic": ("hardware-diagnostic", "B200", "confidential"),
         "prepare-local-correctness": ("local-correctness", "B200", "confidential"),
         "prepare-local-correctness-b300": ("local-correctness", "B300", "confidential"),
+        "prepare-local-correctness-b300-dp2": ("local-correctness", "B300", "confidential", 2),
         "prepare-pre-serve": ("pre-serve", "B200", "confidential"),
         "prepare-pre-serve-b300": ("pre-serve", "B300", "confidential"),
         "prepare-nonconfidential-baseline": ("local-correctness", "B200", "nonconfidential"),
