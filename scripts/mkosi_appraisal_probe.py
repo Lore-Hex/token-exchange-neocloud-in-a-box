@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 """Exercise the installed guest appraiser's CLI, without devices or networking."""
+import codecs
 import hashlib
 import os
 from pathlib import Path
@@ -135,6 +136,12 @@ def drop_privileges(bounding_mask):
         unprivileged_status(stream.read(16385), bounding_mask)
 
 
+def prepare_chroot_runtime():
+    # TextIOWrapper resolves ASCII lazily. The minimal guest intentionally has
+    # no Python stdlib: populate the codec cache before crossing that boundary.
+    require(codecs.lookup("ascii").name == "ascii")
+
+
 def main():
     require(sys.platform == "linux" and sys.version_info[:2] == (3, 12)
             and sys.flags.isolated and sys.flags.no_site and sys.flags.dont_write_bytecode
@@ -144,6 +151,7 @@ def main():
     confinement = module("confinement")
     confinement.check()
     verify_files(module("dkms-worker").regular)
+    prepare_chroot_runtime()
     os.chroot(ROOTFS)
     os.chdir("/")
     drop_privileges(confinement.CAP_MASK)

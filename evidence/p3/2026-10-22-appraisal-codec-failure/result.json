@@ -1,0 +1,196 @@
+{
+  "bootable": false,
+  "deployable": false,
+  "failure_kind": "process-exit",
+  "git_sha": "b722ea7e1da0ee50a8050cbce5d6cfbab68e2f09",
+  "mapping_helper_hashes": {
+    "/usr/bin/newgidmap": "076d35f3dd11680a17725ea7b694715bc909182eeb930f1771ef0550e4779459",
+    "/usr/bin/newuidmap": "e26eed17f29ce6ee829855064b83f9ab20afdd9503ec4517f1ce8c1230bebaad"
+  },
+  "payload_removed": true,
+  "prepared_receipt_sha256": "970cccba8c586f6f5311c595fbdf996251fb4d0879cbaeff5e13052c50a9854c",
+  "process_cleanup_confirmed": true,
+  "result": "fail",
+  "schema": "nib.mkosi-installation/v1",
+  "stage": "installation",
+  "tools_receipt_sha256": "2da6a558fdb8eac8e077b357f20f6f1574b61cdfaa160ddae81ebd698d459cd1",
+  "worker": {
+    "appraisal_cli_diagnostics": {
+      "exit_code": 1,
+      "operation": "help",
+      "stderr_bytes": 243,
+      "stderr_sha256": "488f7a2fe2a8aa3b72a410f1d14347098996d060337d91de89c5bd31c44b2089",
+      "stdout_bytes": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "bootable": false,
+    "configured_state_verified": true,
+    "deployable": false,
+    "dkms_built": true,
+    "driver_build": {
+      "bootable": false,
+      "compiler": "13.3.0",
+      "compressed_modules": [
+        {
+          "bytes": 9854416,
+          "name": "nvidia",
+          "sha256": "851d129eee42a4d03a65bae5b5b59391733bb4fa19f060a7e0b21a6c1b8269e8"
+        },
+        {
+          "bytes": 904020,
+          "name": "nvidia-modeset",
+          "sha256": "fed7a83cd1b7233965a9b33172b4dccb2df0f17de9175bad8162b2256d8ccb7a"
+        },
+        {
+          "bytes": 74208,
+          "name": "nvidia-drm",
+          "sha256": "4398cfd6667257b0d8f01d6ed5cb521e27d829dcb46709adaf0bf977f24f8ae3"
+        },
+        {
+          "bytes": 821734,
+          "name": "nvidia-uvm",
+          "sha256": "71b8541462b0c3f9a97a328b02cd29587f82a69ee91bb0ea97265949a7738f32"
+        },
+        {
+          "bytes": 1755,
+          "name": "nvidia-peermem",
+          "sha256": "36f14918eb608234ee3e7b9c7cbd23902669f9cc7d8b241866ceab5eae5c06cc"
+        }
+      ],
+      "crypto_linkage_verified": true,
+      "crypto_references": [
+        "crypto_alloc_aead",
+        "crypto_alloc_akcipher",
+        "crypto_alloc_shash"
+      ],
+      "dependency_indexes": {
+        "modules.alias.bin": {
+          "bytes": 1651901,
+          "sha256": "80d174f1406a0e0b3c52ca06e5c63c5faa115e4510f552ebdccd46bc2ec10136"
+        },
+        "modules.dep": {
+          "bytes": 864262,
+          "sha256": "39ceca339a8328ec1671a91eba1150b01ab6abbd398951676a0dafff2072490f"
+        },
+        "modules.dep.bin": {
+          "bytes": 1146134,
+          "sha256": "cfd9623677925beeeb177029755f6d5d07c9f66d094475f4f0561b8ee8668d5a"
+        },
+        "modules.symbols.bin": {
+          "bytes": 899199,
+          "sha256": "1b85fcfec1e41040c99d9e1306760f467cbb78714bf3a2927500fca5cb9549a2"
+        }
+      },
+      "driver": "595.91.07",
+      "installed": true,
+      "kernel": "6.8.0-147-generic",
+      "lkca_verified": false,
+      "loaded": false,
+      "modules": [
+        {
+          "bytes": 18976888,
+          "name": "nvidia",
+          "sha256": "9fd5a3fbddf1f9cd1b009bf0c6f4e18fd33729dc9c282572b4e6b90371105ab0"
+        },
+        {
+          "bytes": 3152208,
+          "name": "nvidia-modeset",
+          "sha256": "823e5aecf3dfd9363a0baa4b6a959f0de936debd4f0dc5f6f86bfe841477f6a3"
+        },
+        {
+          "bytes": 271632,
+          "name": "nvidia-drm",
+          "sha256": "07ad93a3dff67119f60ba08e09ef44b18c4ebf840f948a1b9c3daf529f942b2d"
+        },
+        {
+          "bytes": 3884344,
+          "name": "nvidia-uvm",
+          "sha256": "c0eca2d7bf776dbefda12806eca96383fcb36198fa7fcefbce075193bf88ee2b"
+        },
+        {
+          "bytes": 7224,
+          "name": "nvidia-peermem",
+          "sha256": "011f6cc3569ec454204dcf490a102339658583795c5ab9f6c31ead6d42f6d59c"
+        }
+      ],
+      "reproducibility_verified": false,
+      "result": "pass"
+    },
+    "failure_frames": [
+      {
+        "line": 185,
+        "source": "build-worker"
+      },
+      {
+        "line": 103,
+        "source": "appraisal-probe"
+      }
+    ],
+    "failure_kind": "process-exit",
+    "installed_packages": 212,
+    "installer_exit_code": 0,
+    "package_installation_executed": true,
+    "reproducibility_verified": false,
+    "result": "fail",
+    "runtime_policy": {
+      "boot_verified": false,
+      "complete_release_hardening": false,
+      "files": {
+        "etc/systemd/journald.conf.d/00-nib-no-content.conf": "4f253ce618c56c172e32cb085988616e3a125f80b34f1cd114138fb150acaaa3",
+        "etc/systemd/system-preset/00-nib-default-deny.preset": "3127b197b9eae62eb84eeed69b0413419612238332006183e36a3fba89578378",
+        "etc/systemd/system.conf.d/00-nib-no-coredumps.conf": "6ef1f024b21539b587bc9329c0339202e6132c82aaebab5892d50283b1e6002f",
+        "etc/systemd/user-preset/00-nib-default-deny.preset": "3127b197b9eae62eb84eeed69b0413419612238332006183e36a3fba89578378"
+      },
+      "masks": {
+        "etc/systemd/journald.conf.d/syslog.conf": "/dev/null",
+        "etc/systemd/system/autovt@.service": "/dev/null",
+        "etc/systemd/system/console-getty.service": "/dev/null",
+        "etc/systemd/system/container-getty@.service": "/dev/null",
+        "etc/systemd/system/dbus-org.freedesktop.login1.service": "/dev/null",
+        "etc/systemd/system/debug-shell.service": "/dev/null",
+        "etc/systemd/system/emergency.service": "/dev/null",
+        "etc/systemd/system/getty-static.service": "/dev/null",
+        "etc/systemd/system/getty@.service": "/dev/null",
+        "etc/systemd/system/nvidia-cdi-refresh.path": "/dev/null",
+        "etc/systemd/system/nvidia-cdi-refresh.service": "/dev/null",
+        "etc/systemd/system/podman-auto-update.service": "/dev/null",
+        "etc/systemd/system/podman-auto-update.timer": "/dev/null",
+        "etc/systemd/system/podman-clean-transient.service": "/dev/null",
+        "etc/systemd/system/podman-kube@.service": "/dev/null",
+        "etc/systemd/system/podman-restart.service": "/dev/null",
+        "etc/systemd/system/podman.service": "/dev/null",
+        "etc/systemd/system/podman.socket": "/dev/null",
+        "etc/systemd/system/rescue.service": "/dev/null",
+        "etc/systemd/system/serial-getty@.service": "/dev/null",
+        "etc/systemd/system/systemd-journald-varlink@.socket": "/dev/null",
+        "etc/systemd/system/systemd-journald@.service": "/dev/null",
+        "etc/systemd/system/systemd-journald@.socket": "/dev/null",
+        "etc/systemd/system/systemd-logind.service": "/dev/null",
+        "etc/systemd/system/systemd-pstore.service": "/dev/null",
+        "etc/systemd/system/systemd-user-sessions.service": "/dev/null",
+        "etc/systemd/system/user-runtime-dir@.service": "/dev/null",
+        "etc/systemd/system/user@.service": "/dev/null",
+        "etc/systemd/user/dirmngr.service": "/dev/null",
+        "etc/systemd/user/dirmngr.socket": "/dev/null",
+        "etc/systemd/user/gpg-agent-browser.socket": "/dev/null",
+        "etc/systemd/user/gpg-agent-extra.socket": "/dev/null",
+        "etc/systemd/user/gpg-agent-ssh.socket": "/dev/null",
+        "etc/systemd/user/gpg-agent.service": "/dev/null",
+        "etc/systemd/user/gpg-agent.socket": "/dev/null",
+        "etc/systemd/user/keyboxd.service": "/dev/null",
+        "etc/systemd/user/keyboxd.socket": "/dev/null",
+        "etc/systemd/user/podman-auto-update.service": "/dev/null",
+        "etc/systemd/user/podman-auto-update.timer": "/dev/null",
+        "etc/systemd/user/podman-kube@.service": "/dev/null",
+        "etc/systemd/user/podman-restart.service": "/dev/null",
+        "etc/systemd/user/podman.service": "/dev/null",
+        "etc/systemd/user/podman.socket": "/dev/null"
+      },
+      "result": "pass",
+      "schema": "nib.runtime-startup-policy/v1",
+      "services_started": false
+    },
+    "schema": "nib.mkosi-install-worker/v1",
+    "stage": "appraisal-cli"
+  }
+}

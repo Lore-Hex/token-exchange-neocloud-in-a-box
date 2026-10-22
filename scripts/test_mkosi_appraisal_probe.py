@@ -2,9 +2,11 @@
 """Offline fixture tests; never execute vendor binaries or change host state."""
 from contextlib import contextmanager
 import hashlib
+import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import types
 import unittest
@@ -16,6 +18,30 @@ import mkosi_dkms as dkms
 
 
 class AppraisalProbeTests(unittest.TestCase):
+    def test_original_failure_is_codec_import_not_driver_or_gpu_failure(self):
+        root = Path(__file__).resolve().parents[1] / "evidence/p3/2026-10-22-appraisal-codec-failure"
+        expected = {
+            "appraisal-cli-help.stderr": "488f7a2fe2a8aa3b72a410f1d14347098996d060337d91de89c5bd31c44b2089",
+            "evidence-resources.json": "d28746c24a37601a955402e7ad31efd6f76d11730ea24ca59ea460fcf19142b4",
+            "result.json": "6313ba734bf0e1d99be921b41ff44489f90a478216d08c4128d21dc0164ae6ef",
+            "run.json": "feb47feb1d186ddf768c05eadbf08b2f6e9c7dc62584384864bdd5106e26364d",
+        }
+        for name, digest in expected.items():
+            self.assertEqual(hashlib.sha256((root / name).read_bytes()).hexdigest(), digest)
+        self.assertIn("LookupError: unknown encoding: ascii", (root / "appraisal-cli-help.stderr").read_text())
+        result = json.loads((root / "result.json").read_bytes())
+        worker = result["worker"]
+        self.assertEqual(worker["stage"], "appraisal-cli")
+        self.assertEqual(worker["installed_packages"], 212)
+        self.assertEqual(worker["driver_build"]["result"], "pass")
+        self.assertTrue(worker["driver_build"]["installed"])
+        self.assertEqual(worker["runtime_policy"]["result"], "pass")
+        self.assertTrue(result["process_cleanup_confirmed"])
+        self.assertTrue(result["payload_removed"])
+        self.assertEqual(result["result"], "fail")
+        self.assertFalse(result["bootable"])
+        self.assertFalse(result["deployable"])
+
     @contextmanager
     def fixture(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -167,6 +193,7 @@ class AppraisalProbeTests(unittest.TestCase):
     def test_child_drops_all_capabilities_and_uses_clean_environment(self):
         fakeguard = types.SimpleNamespace(check=mock.Mock(), CAP_MASK=guard.CAP_MASK)
         fakefiles = types.SimpleNamespace(regular=mock.Mock())
+        order = []
         with mock.patch.object(probe.sys, "platform", "linux"), \
                 mock.patch.object(probe.sys, "version_info", (3, 12)), \
                 mock.patch.object(probe.sys, "flags", types.SimpleNamespace(isolated=1, no_site=1, dont_write_bytecode=1)), \
@@ -176,13 +203,16 @@ class AppraisalProbeTests(unittest.TestCase):
                 mock.patch.object(probe.socket, "if_nameindex", return_value=[(1, "lo")]), \
                 mock.patch.object(probe, "module", side_effect=[fakeguard, fakefiles]), \
                 mock.patch.object(probe, "verify_files") as verify, \
-                mock.patch.object(probe.os, "chroot") as chroot, \
+                mock.patch.object(probe, "prepare_chroot_runtime", side_effect=lambda: order.append("codec")) as prepare, \
+                mock.patch.object(probe.os, "chroot", side_effect=lambda _: order.append("chroot")) as chroot, \
                 mock.patch.object(probe.os, "chdir") as chdir, \
                 mock.patch.object(probe, "drop_privileges") as drop, \
                 mock.patch.object(probe.os, "execve") as execute:
             probe.main()
         fakeguard.check.assert_called_once_with()
         verify.assert_called_once_with(fakefiles.regular)
+        prepare.assert_called_once_with()
+        self.assertEqual(order, ["codec", "chroot"])
         chroot.assert_called_once_with(probe.ROOTFS)
         chdir.assert_called_once_with("/")
         drop.assert_called_once_with(guard.CAP_MASK)
@@ -190,6 +220,40 @@ class AppraisalProbeTests(unittest.TestCase):
         self.assertEqual(path, "/usr/bin/nvattest")
         self.assertEqual(argv, [path, "--help"])
         self.assertNotIn("LD_LIBRARY_PATH", environment)
+
+    def test_ascii_io_without_importable_stdlib_requires_preparation(self):
+        # Separate fresh interpreters prove the original lazy-import failure,
+        # then the fix, without chroot privileges or borrowing warmed codecs.
+        script = r'''
+import codecs, encodings, io, runpy, sys
+probe = runpy.run_path(sys.argv[1], run_name="fixture")
+codecs.unregister(encodings.search_function)
+codecs.register(encodings.search_function)
+sys.modules.pop("encodings.ascii", None)
+if sys.argv[2] == "warm":
+    probe["prepare_chroot_runtime"]()
+sys.meta_path.clear()
+sys.path.clear()
+try:
+    stream = io.TextIOWrapper(io.BytesIO(b"Uid:\t65534\n"), encoding="ascii")
+    assert stream.read() == "Uid:\t65534\n"
+except LookupError:
+    print("unavailable")
+else:
+    print("available")
+'''
+        for mode, expected in (("cold", b"unavailable\n"), ("warm", b"available\n")):
+            with self.subTest(mode=mode):
+                result = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", script,
+                                         str(Path(probe.__file__).resolve()), mode],
+                                        capture_output=True, timeout=10, check=True)
+                self.assertEqual(result.stdout, expected)
+                self.assertEqual(result.stderr, b"")
+
+    def test_unexpected_codec_identity_rejects(self):
+        with mock.patch.object(probe.codecs, "lookup", return_value=types.SimpleNamespace(name="wrong")), \
+                self.assertRaises(ValueError):
+            probe.prepare_chroot_runtime()
 
     def status(self):
         return ("Uid:\t65534\t65534\t65534\t65534\nGid:\t65534\t65534\t65534\t65534\nGroups:\t\n"
