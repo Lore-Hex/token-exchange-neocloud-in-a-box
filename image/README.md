@@ -34,6 +34,9 @@ The subsequent [startup policy](../docs/tasks/p3-t1-runtime-startup-policy.md)
 masks package-provided login and background-management paths and disables
 journal persistence/forwarding inside the private runtime candidate only.
 This is not a complete release image or a verified boot policy.
+The [appraiser CLI probe](../docs/tasks/p3-t1-appraisal-cli.md) tests loading the
+installed vendor executable offline; it cannot collect GPU evidence or grant
+a confidential verdict.
 
 The [measured-image decision](../docs/decisions/0004-measured-guest-image.md)
 remains authoritative: immutable release/debug outputs must differ, the UKI

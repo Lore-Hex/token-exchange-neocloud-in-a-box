@@ -351,9 +351,9 @@ class BuildTests(unittest.TestCase):
                                                     "--output", "/output", "--guest-runtime"]):
             self.assertEqual(host.main(), 1)
         paths = committed.call_args.args[0]
-        self.assertLessEqual(len(paths), 29)
+        self.assertLessEqual(len(paths), 30)
         for name in (host.HOOKS, host.hooks.RUNTIME_LOCK, host.hooks.RUNTIME_POLICY, host.RUNTIME_APT,
-                     host.RUNTIME_POLICY):
+                     host.RUNTIME_POLICY, host.APPRAISAL):
             self.assertIn(name, paths)
         self.assertIs(run.call_args.args[-1], True)
 
@@ -363,6 +363,12 @@ class BuildTests(unittest.TestCase):
         self.assertLess(source.index('module("runtime-policy").apply()'), source.index('report["result"] = "pass"'))
         self.assertIn('if guest["scope"] == "guest-runtime-dependency-coverage":', source)
         self.assertIn("runtime-policy", worker.STAGES)
+
+    def test_appraisal_cli_runs_after_policy_only_for_runtime(self):
+        source = (ROOT / host.WORKER).read_text()
+        self.assertLess(source.index('module("runtime-policy").apply()'), source.index('stage = "appraisal-cli"'))
+        self.assertLess(source.index('module("appraisal-probe").probe('), source.index('report["result"] = "pass"'))
+        self.assertIn("appraisal-cli", worker.STAGES)
 
     def test_worker_accepts_only_the_two_fixed_source_bound_closures(self):
         for path in (host.hooks.LOCK, host.hooks.RUNTIME_LOCK):
