@@ -35,6 +35,8 @@ PROBE = "scripts/engine_lab_probe.py"
 CORRECTNESS = "scripts/engine_local_correctness.py"
 PARITY = "scripts/engine_tokenizer_parity.py"
 OBSERVATION = "scripts/engine_runtime_observation.py"
+PROVIDER = "scripts/provider_conformance_session.py"
+PROVIDER_WORKER = "scripts/provider_conformance_worker.py"
 SMOKE = "scripts/engine_import_smoke.py"
 TEST = "scripts/test_deepseek_lab.py"
 SIX_TEST = "scripts/test_botocore_six.py"
@@ -109,7 +111,8 @@ def parallel_size(contract):
 
 
 def make_payload(builder, revision, bundle, extra, binary, operation="functional", family="B200", security="confidential", replicas=1,
-                 *, tokenizer_parity=False, tokenizer_materialization=False, runtime_observation=False):
+                 *, tokenizer_parity=False, tokenizer_materialization=False, runtime_observation=False,
+                 provider_conformance=None):
     require(operation in ("functional", "hardware-diagnostic", "local-correctness", "pre-serve"))
     require(family in ("B200", "B300") and (family == "B200" or operation in ("local-correctness", "pre-serve")))
     require(security in ("confidential", "nonconfidential") and (security == "confidential"
@@ -143,6 +146,11 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
         payload["tokenizer-adapter.py"] = extra[LAB_BOOTSTRAP]
     if runtime_observation:
         payload["runtime-observation.py"] = extra[OBSERVATION]
+    if provider_conformance is not None:
+        require(type(provider_conformance) is dict and runtime_observation and tokenizer_materialization
+                and tokenizer_parity and replicas == 2)
+        payload["provider-session.py"] = extra[PROVIDER]
+        payload["provider-worker.py"] = extra[PROVIDER_WORKER]
     contract = {"schema": "nib.deepseek-lab-input/v1", "status": "BLOCKED", "deployable": False, "confidential": False,
                 "operation": operation,
                 "git_sha": revision, "base_image": builder.overlay.BASE_IMAGE, "official_config": app["official_config"],
@@ -169,13 +177,16 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
         contract["tokenizer_materialization"] = adapter.tokenizer_adapter_identity()
     if runtime_observation:
         contract["runtime_observation"] = True
+    if provider_conformance is not None:
+        contract["provider_conformance"] = provider_conformance
     payload["lab.json"] = builder.overlay.json_bytes(contract)
     payload["python"] = runtime.wrapper_bytes(contract["interpreter"]["resolved"], contract["environment"], digest(payload["lab.json"]))
     return payload, contract
 
 
 def prepare(destination, operation="functional", family="B200", security="confidential", replicas=1, *,
-            tokenizer_parity=False, tokenizer_materialization=False, runtime_observation=False):
+            tokenizer_parity=False, tokenizer_materialization=False, runtime_observation=False,
+            provider_wheelhouse=None):
     builder = load("lab_application_builder", ROOT / BUILDER, BUILDER_SHA)
     revision, bundle, extra = builder.inputs(ROOT)
     for name in (SCRIPT, HELPER, RUNTIME, LAB_BOOTSTRAP, EXCEPTIONS, PROBE, SMOKE, TEST, SIX_TEST,
@@ -193,6 +204,22 @@ def prepare(destination, operation="functional", family="B200", security="confid
     if runtime_observation:
         for name in (OBSERVATION, "scripts/test_engine_runtime_observation.py"):
             extra[name] = committed(builder, revision, name)
+    checker_files = provider_settings = provider_prep = None
+    if provider_wheelhouse is not None:
+        require(operation == "local-correctness" and family == "B300" and security == "confidential"
+                and replicas == 2 and runtime_observation and tokenizer_parity and tokenizer_materialization)
+        for name in (PROVIDER, PROVIDER_WORKER, "scripts/provider_conformance.py",
+                     "scripts/tau_runtime.py", "scripts/tau_trial_worker.py", "scripts/tau_preflight.py",
+                     "scripts/e2e/requirements.lock", "scripts/test_provider_conformance_session.py"):
+            extra[name] = committed(builder, revision, name)
+        provider_prep = load("lab_provider_preparation", ROOT / "scripts/provider_conformance.py",
+                             digest(extra["scripts/provider_conformance.py"]))
+        require(provider_prep.identity(time.monotonic() + 60)["git_sha"] == revision)
+        checker_files = provider_prep.prepare(Path(provider_wheelhouse), time.monotonic() + 60)
+        require(checker_files["worker.py"] == extra[PROVIDER_WORKER])
+        session = load("lab_provider_settings", ROOT / PROVIDER, digest(extra[PROVIDER]))
+        provider_settings = {"schema": "nib.owned-provider-input/v1", "image": session.IMAGE,
+                             "payload_sha256": digest(checker_files["trial.json"])}
     require(extra[SCRIPT] == read(Path(__file__).absolute()))
     recorder = builder.recorder
     with tempfile.TemporaryDirectory(prefix="nib-lab-build-") as temporary:
@@ -201,7 +228,7 @@ def prepare(destination, operation="functional", family="B200", security="confid
         binary, source_sha = recorder.build_validator(ROOT, revision, work, {**env, "GOOS": "linux", "GOARCH": "amd64"})
         payload, contract = make_payload(builder, revision, bundle, extra, read(binary, MAX_BYTES), operation, family, security, replicas,
                                          tokenizer_parity=tokenizer_parity, tokenizer_materialization=tokenizer_materialization,
-                                         runtime_observation=runtime_observation)
+                                         runtime_observation=runtime_observation, provider_conformance=provider_settings)
         config = recorder.raw_metadata(ROOT / "build/engine-image-metadata", contract)
         runtime = load("lab_environment_constants", ROOT / RUNTIME, digest(extra[RUNTIME]))
         image_env = dict(item.split("=", 1) for item in config["config"]["Env"])
@@ -220,6 +247,8 @@ def prepare(destination, operation="functional", family="B200", security="confid
                    "files": {n: {"bytes": len(b), "sha256": digest(b)} for n, b in files.items()}}
         files["receipt.json"] = recorder.overlay.json_bytes(receipt)
         recorder.prep.publish(destination, files)
+        if checker_files is not None:
+            provider_prep.publish(Path(destination) / "checker", checker_files)
         for name in ("payload/nib", "payload/python"):
             (Path(destination) / name).chmod(0o500)
     print(json.dumps({"git_sha": revision, "receipt_sha256": digest(files["receipt.json"]),
@@ -245,7 +274,11 @@ def bundle_inputs(path, expected):
         require(row == {"bytes": len(data), "sha256": digest(data)} and total <= 80 << 20)
     actual = set()
     directories_seen = 0
+    provider_present = "payload/provider-session.py" in receipt["files"]
     for parent, directories, names in os.walk(path, followlinks=False):
+        if Path(parent) == path and provider_present:
+            require("checker" in directories and not (path / "checker").is_symlink())
+            directories.remove("checker")
         directories_seen += 1
         require(directories_seen <= 130 and len(Path(parent).relative_to(path).parts) <= 16
                 and len(directories) <= 130)
@@ -278,6 +311,18 @@ def bundle_inputs(path, expected):
         observer = load("lab_runtime_profile", path / "payload/runtime-observation.py",
                         contract["sources"]["runtime-observation.py"])
         require(observer.enabled(contract))
+    require(provider_present == ("provider_conformance" in contract))
+    if provider_present:
+        session = load("lab_provider_session", path / "payload/provider-session.py",
+                       contract["sources"]["provider-session.py"])
+        settings = session.enabled(contract)
+        worker = load("lab_provider_worker", path / "payload/provider-worker.py",
+                      contract["sources"]["provider-worker.py"])
+        checker = path / "checker"
+        require(stat.S_ISDIR(checker.lstat().st_mode)
+                and sorted(p.name for p in checker.iterdir()) == ["payload"])
+        plan = worker.verify(checker / "payload", settings["payload_sha256"])
+        require(plan["files"]["worker.py"]["sha256"] == contract["sources"]["provider-worker.py"])
     config = recorder.raw_metadata(path / "metadata", contract)
     return receipt, contract, config, recorder
 
@@ -303,6 +348,8 @@ def create_command(name, owner, bundle, weights, contract, config):
                "--mount", "type=bind,src=" + payload + ",dst=/opt/nib,readonly",
                *([] if pre_serve else ["--mount", "type=bind,src=" + str(weights) + ",dst=/model,readonly"]),
                "--entrypoint", "/usr/bin/env"]
+    if "provider_conformance" in contract:
+        command.insert(3, "--interactive")
     names = set()
     constraints = {}
     for item in config["config"].get("Env", []):
@@ -331,7 +378,8 @@ def check_container(info, name, owner, bundle, weights, contract, config, image_
     require(info["Image"] == image_id and cfg["Image"] == contract["base_image"]
             and cfg["Labels"].get(LABEL) == owner and cfg["Entrypoint"] == ["/usr/bin/env"]
             and cfg["Cmd"] == command[command.index(contract["base_image"]) + 1:]
-            and cfg["User"] == "0:0" and cfg["WorkingDir"] == "/" and not cfg.get("Tty") and not cfg.get("OpenStdin"))
+            and cfg["User"] == "0:0" and cfg["WorkingDir"] == "/" and not cfg.get("Tty")
+            and bool(cfg.get("OpenStdin")) == ("provider_conformance" in contract))
     env = [command[i + 1] for i, arg in enumerate(command) if arg == "--env"]
     require(len(cfg["Env"]) == len(env) and set(cfg["Env"]) == set(env))
     require(host["NetworkMode"] == "none" and not host["Privileged"] and host["Runtime"] == "nvidia"
@@ -360,7 +408,25 @@ def check_container(info, name, owner, bundle, weights, contract, config, image_
             == expected_mounts)
 
 
-def cleanup(recorder, name, owner, env):
+def cleanup(recorder, name, owner, env, *, provider=False, checker_only=False):
+    if provider or checker_only:
+        checker_name = name + "-provider"
+        absent_checker = ["docker", "container", "ls", "--all", "--quiet", "--filter", "name=^/" + checker_name + "$"]
+        error = None
+        try:
+            if recorder.call(absent_checker, env, timeout=10, limit=4096).strip():
+                info = inspect(recorder, "container", checker_name, env)
+                require(info["Config"]["Labels"].get(LABEL + ".provider") == owner)
+                recorder.call(["docker", "container", "rm", "--force", checker_name], env, timeout=20, limit=4096)
+            require(not recorder.call(absent_checker, env, timeout=10, limit=4096).strip())
+        except Exception as caught:
+            error = caught
+        finally:
+            if not checker_only:
+                cleanup(recorder, name, owner, env)
+        if error is not None:
+            raise ValueError("lab checker cleanup unconfirmed") from None
+        return
     absent = ["docker", "container", "ls", "--all", "--quiet", "--filter", "name=^/" + name + "$"]
     if recorder.call(absent, env, timeout=10, limit=4096).strip():
         info = inspect(recorder, "container", name, env)
@@ -373,26 +439,28 @@ def inspect(recorder, kind, name, env):
     return recorder.docker_json(kind, name, env, recorder.snapshot.execute_process_group)
 
 
-def watchdog(bundle, sha, name, owner, deadline, life_fd, docker_host):
+def watchdog(bundle, sha, name, owner, deadline, life_fd, docker_host, *, checker_only=False):
     require(re.fullmatch(r"nib-deepseek-[0-9a-f]{32}", name) and re.fullmatch(r"[0-9a-f]{32}", owner))
-    _, _, _, recorder = bundle_inputs(bundle, sha)
+    _, contract, _, recorder = bundle_inputs(bundle, sha)
+    provider = "provider_conformance" in contract
+    require(not checker_only or provider)
     env = controlled_env(docker_host)
     remaining = max(0, deadline - time.time())
-    select.select([life_fd], [], [], min(remaining, MAX_SECONDS))
+    select.select([life_fd], [], [], min(remaining, 200 if checker_only else MAX_SECONDS))
     # Retry across the bounded create-client window: parent death can race a
     # request already accepted by Docker. Uncertain daemon completion is still
     # reported as unknown by the parent, never as successful cancellation.
     end = time.monotonic() + WATCHDOG_SETTLE_SECONDS
     while True:
         try:
-            cleanup(recorder, name, owner, env)
+            cleanup(recorder, name, owner, env, **({"provider": True, "checker_only": checker_only} if provider else {}))
         except Exception:
             if time.monotonic() >= end:
                 raise ValueError("lab cleanup unconfirmed") from None
         if time.monotonic() >= end:
             break
         time.sleep(1)
-    cleanup(recorder, name, owner, env)
+    cleanup(recorder, name, owner, env, **({"provider": True, "checker_only": checker_only} if provider else {}))
 
 
 def controlled_env(docker_host):
@@ -412,14 +480,32 @@ def container_observation(info, identifier, owner):
 
 def run_container(bundle, sha, weights, deadline, recorder, contract, config, env):
     global CLEANING
+    provider = "provider_conformance" in contract
+    provider_ready = None
+    if provider:
+        session = load("lab_provider_live", Path(bundle) / "payload/provider-session.py",
+                       contract["sources"]["provider-session.py"])
+        session.enabled(contract)
+        require(session.TEARDOWN_RESERVE < deadline - time.time() <= session.OVERALL_SECONDS)
+        deadline -= session.TEARDOWN_RESERVE
+        worker = load("lab_provider_live_worker", Path(bundle) / "payload/provider-worker.py",
+                      contract["sources"]["provider-worker.py"])
+        observer = load("lab_provider_live_observer", Path(bundle) / "payload/runtime-observation.py",
+                        contract["sources"]["runtime-observation.py"])
+        contract_sha = digest(read(Path(bundle) / "payload/lab.json"))
+        monotonic_deadline = time.monotonic() + deadline - time.time()
     name, owner = "nib-deepseek-" + uuid.uuid4().hex, uuid.uuid4().hex
     report = {"result": "fail", "status": "BLOCKED", "deployable": False, "confidential": False,
               "functional_pass": False, "stage": "image", "cleanup": "not-created",
               "experiment_step": None, "container_observation": None, "output_bytes": None}
+    if provider:
+        report["provider_conformance"] = None
     monitor = None
     life_r, life_w = os.pipe()
     created = started = terminal = create_finished = False
     try:
+        if provider:
+            session.preflight_image(recorder, env)
         image = inspect(recorder, "image", contract["base_image"], env)
         report["image"] = recorder.image_binding(image, config, contract)
         require(not CANCELLED and deadline > time.time())
@@ -441,8 +527,41 @@ def run_container(bundle, sha, weights, deadline, recorder, contract, config, en
         report["stage"] = "experiment"
         started = True
         report["experiment_step"] = "attach"
-        raw = recorder.call(["docker", "container", "start", "--attach", name], env,
-                            timeout=max(1, min(MAX_SECONDS, deadline - time.time())), limit=65536)
+        if provider:
+            def owner_check():
+                current = inspect(recorder, "container", name, env)
+                check_container(current, name, owner, bundle, weights, contract, config, image["Id"])
+                require(current["Id"] == identifier and monitor.poll() is None and not CANCELLED)
+                return current
+            def checker_monitor(cutoff):
+                reader, writer = os.pipe()
+                try:
+                    process = subprocess.Popen([sys.executable, "-I", "-S", str(Path(__file__).absolute()),
+                        "--provider-watchdog", str(bundle), sha, name, owner, str(cutoff), str(reader), env["DOCKER_HOST"]],
+                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        env=env, pass_fds=(reader,), start_new_session=True)
+                except BaseException:
+                    os.close(writer)
+                    raise
+                finally:
+                    os.close(reader)
+                return process, writer
+            def ready(raw):
+                nonlocal provider_ready
+                provider_ready = session.validate_ready(raw, contract, contract_sha, observer)
+                row = session.run_checker(Path(bundle) / "checker/payload", contract, worker, recorder, env,
+                    name, owner, identifier, owner_check,
+                    lambda: cleanup(recorder, name, owner, env, checker_only=True), checker_monitor,
+                    min(monotonic_deadline, time.monotonic() + session.SECONDS), lambda: CANCELLED)
+                report["provider_conformance"] = row
+                return {"ready_sha256": digest(raw), "report_sha256": digest(session.encoded(row)),
+                        "accepted": row["accepted"]}
+            code, raw = session.capture(["docker", "container", "start", "--attach", "--interactive", name],
+                env, monotonic_deadline, recorder.snapshot, ready=ready, cancelled=lambda: CANCELLED)
+            require(code == 0)
+        else:
+            raw = recorder.call(["docker", "container", "start", "--attach", name], env,
+                                timeout=max(1, min(MAX_SECONDS, deadline - time.time())), limit=65536)
         report["output_bytes"] = len(raw)
         report["experiment_step"] = "decode"
         experiment = json.loads(raw)
@@ -453,6 +572,11 @@ def run_container(bundle, sha, weights, deadline, recorder, contract, config, en
                 and final["State"]["ExitCode"] == 0 and not final["State"].get("OOMKilled"))
         report["experiment_step"] = "validation"
         validate_result(experiment, bundle, contract, recorder)
+        if provider:
+            if provider_ready is not None:
+                session.validate_join(report["provider_conformance"], provider_ready, experiment, worker)
+            else:
+                require(experiment["provider_conformance"] is None and experiment["functional_pass"] is False)
         terminal = True
         report.update(experiment=experiment, functional_pass=experiment["functional_pass"],
                       stage="completed", experiment_step="completed")
@@ -471,7 +595,7 @@ def run_container(bundle, sha, weights, deadline, recorder, contract, config, en
         if created:
             report["cleanup"] = "unconfirmed"
             try:
-                cleanup(recorder, name, owner, env)
+                cleanup(recorder, name, owner, env, **({"provider": True} if provider else {}))
                 report["cleanup"] = "confirmed"
             except Exception:
                 report["functional_pass"] = False
@@ -512,6 +636,16 @@ def validate_result(row, bundle, contract, recorder):
         observer.validate(row.get("runtime_observation"), contract, digest(read(Path(bundle) / "payload/lab.json")),
                           complete=row.get("functional_pass") is True or row.get("stage") == "complete")
         require(not row["runtime_observation"]["samples"] or row.get("stage") in ("request", "complete"))
+    if "provider_conformance" in contract:
+        fields.add("provider_conformance")
+        session = load("lab_provider_validation", Path(bundle) / "payload/provider-session.py",
+                       contract["sources"]["provider-session.py"])
+        session.enabled(contract)
+        if row.get("provider_conformance") is not None:
+            session.validate_ack(row["provider_conformance"])
+            require(row.get("stage") in ("request", "complete"))
+        if row.get("functional_pass") is True:
+            require(row.get("provider_conformance") is not None and row["provider_conformance"]["accepted"])
     if "tokenizer_materialization" in contract:
         fields.add("tokenizer_materialization")
         require(parity and row.get("tokenizer_materialization") == contract["tokenizer_materialization"])
@@ -649,10 +783,11 @@ def cancel(*_):
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == "--watchdog":
+    if len(sys.argv) > 1 and sys.argv[1] in ("--watchdog", "--provider-watchdog"):
         require(len(sys.argv) == 9)
         watchdog(Path(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5],
-                 float(sys.argv[6]), int(sys.argv[7]), sys.argv[8])
+                 float(sys.argv[6]), int(sys.argv[7]), sys.argv[8],
+                 **({"checker_only": True} if sys.argv[1] == "--provider-watchdog" else {}))
         return 0
     class QuietParser(argparse.ArgumentParser):
         def error(self, message):
@@ -679,6 +814,8 @@ def main():
                         help="Prepare the pinned server validator adapter; requires --tokenizer-parity.")
     parser.add_argument("--runtime-observation", action="store_true",
                         help="Observe the owned B300 CC API process and cgroup counters; not tau admission.")
+    parser.add_argument("--provider-conformance-wheels", metavar="PRIVATE_LOCKED_WHEELHOUSE",
+                        help="Prepare the opt-in owned CPU checker; requires DP2, parity, materialization and observation.")
     parser.add_argument("--receipt-sha256")
     parser.add_argument("--weights")
     parser.add_argument("--output")
@@ -690,6 +827,10 @@ def main():
         if destination:
             require(not any((args.receipt_sha256, args.weights, args.output, args.deadline)))
             optional = {}
+            if args.provider_conformance_wheels:
+                require(profile == ("local-correctness", "B300", "confidential", 2)
+                        and args.tokenizer_parity and args.tokenizer_materialization and args.runtime_observation)
+                optional["provider_wheelhouse"] = args.provider_conformance_wheels
             if args.runtime_observation:
                 require(profile[:3] == ("local-correctness", "B300", "confidential"))
                 optional["runtime_observation"] = True
@@ -701,7 +842,8 @@ def main():
             else:
                 prepare(destination, *profile, **optional)
             return 0
-    require(not args.tokenizer_parity and not args.tokenizer_materialization and not args.runtime_observation)
+    require(not args.tokenizer_parity and not args.tokenizer_materialization and not args.runtime_observation
+            and not args.provider_conformance_wheels)
     require(sys.platform == "linux" and all((args.receipt_sha256, args.output, args.deadline)))
     deadline = dt.datetime.strptime(args.deadline, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp()
     require(0 < deadline - time.time() <= MAX_SECONDS)

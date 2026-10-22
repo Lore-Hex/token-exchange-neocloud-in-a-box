@@ -1174,7 +1174,7 @@ class BoundedProcessTests(unittest.TestCase):
             watchdog.write_text(
                 "import sys,types,pathlib,os,time\nm=types.ModuleType('fixture');m.__file__=" + repr(host.__file__) + "\n"
                 "exec(compile(pathlib.Path(m.__file__).read_bytes(),m.__file__,'exec'),m.__dict__)\n"
-                "m.WATCHDOG_SETTLE_SECONDS=0\nm.bundle_inputs=lambda *a:(None,None,None,None)\n"
+                "m.WATCHDOG_SETTLE_SECONDS=0\nm.bundle_inputs=lambda *a:(None,{},None,None)\n"
                 "m.cleanup=lambda *a:pathlib.Path(" + repr(str(marker)) + ").write_text('confirmed')\n"
                 "pathlib.Path(" + repr(str(ready)) + ").write_text('ready')\n"
                 "m.watchdog(None,None,'nib-deepseek-'+'a'*32,'b'*32,time.time()+30,int(sys.argv[1]),'unix:///var/run/docker.sock')\n")

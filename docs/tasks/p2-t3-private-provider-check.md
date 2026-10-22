@@ -1,10 +1,11 @@
-# Private provider checker preparation
+# Private provider checker
 
-This increment prepares and exercises the **unchanged upstream provider checker**,
-not replacement HTTP checks. It does not launch a model, attach to a live engine,
-change engine imports/logging, or grant P2 conformance. The retained VM/cache is
-untouched. The next live run requires parent coordination and a separately reviewed
-owned-runtime controller.
+The preparation increment exercises the **unchanged upstream provider checker**,
+not replacement HTTP checks. The subsequent opt-in owned-runtime integration is
+implemented and software-tested, but has not run against DeepSeek. Neither
+increment grants P2 conformance or changes engine imports/logging. A live run
+requires final-head independent review and parent coordination; no run is
+implied by these tests or the historical closed-endpoint receipt.
 
 ## Audited Source
 
@@ -111,21 +112,23 @@ owned container was removed. It is not DeepSeek conformance. The
 records exactly this result: seven warnings, eleven skips, upstream gate true,
 strict gate false, worker exit 1, cleanup confirmed.
 
-## Next Owned Runtime Route
+## Owned Runtime Integration
 
-The [existing producer](../../host/record-deepseek-lab.py) owns engine readiness
-and cleanup; its [guest worker](../../scripts/engine_lab.py) stops the API after
-bounded probes. A historical receipt cannot supply a currently valid endpoint.
-The engine is stopped, so no conformance request can be dispatched now.
+The [producer](../../host/record-deepseek-lab.py) owns engine readiness and cleanup.
+The [session helper](../../scripts/provider_conformance_session.py) is included in
+the source-bound private payload only with the explicit preparation flag below.
+The unchanged locked checker payload is a separate read-only subtree: no wheel
+code is imported into the engine or host. Default commands/contracts remain
+unchanged when the flag is absent.
 
 1. Parent approves a fresh fixed run window, startup allowance and checker budget
    against retained/cache-verified weights. No new resource/API authorization is
    inferred. Keep the existing exact image/model/import/logging confinement.
-2. Add a narrow owner-authenticated readiness handshake and include this checker
-   in the producer's existing lifetime. Verify the exact owned container ID,
-   process/start-time/executable/listener/argv identities and source contract
-   before and after the checker. Do not accept arbitrary container IDs or relax
-   existing runtime admission to consume this result.
+2. After the existing parity cases pass, the guest emits one fixed metadata frame
+   containing the source-contract digest and the first owned API observation.
+   It waits at most 300 seconds for a digest-bound acknowledgement. The parent
+   validates the observation, exact owned container ID/configuration, host PID,
+   start time, and namespace identities. No arbitrary container ID is accepted.
 3. Start a separate CPU checker with `--network container:<exact-owned-id>`, not
    `docker exec`, host networking, a bridge, port publication, an engine import
    hook, or a general HTTP proxy. Docker documents that this shares the engine's
@@ -133,14 +136,66 @@ The engine is stopped, so no conformance request can be dispatched now.
    flags ([primary source](https://docs.docker.com/engine/network/#container-networks)).
    Keep separate PID/cgroup/filesystem, no GPU devices, no credentials/socket
    mount, and the same worker limits. Inspect the realized Docker configuration,
-   immutable image manifest and namespace identity before starting the worker.
+   pinned image/platform and configuration before start; verify its realized
+   kernel network namespace equals the engine's and its PID/cgroup namespaces
+   differ immediately after start. Recheck the unchanged engine identity after
+   checks. A checker that exits before its namespace can be observed is rejected.
 4. Parent retains a bounded content-free result, original status vector, upstream
    gate and strict gate. Failure, warning, skip, timeout, OOM, changed identities
    or uncertain cleanup remains nonacceptance. Do not upload raw upstream output.
-5. Kill/remove the checker on every path before stopping/removing the engine;
-   verify both absences. Preserve a source-bound original run receipt. Only this
-   future actual run can establish the requested direct-node conformance result;
+5. Remove the checker before sending the acknowledgement. The guest obtains the
+   second process/executable/listener/argv observation, then stops its engine.
+   The parent joins both observations, the exact readiness frame, worker report
+   digest and acknowledgement. Both owned container absences must be verified.
+   Preserve a source-bound original run receipt. Only an actual run can establish
+   the requested direct-node conformance result;
    tau/quality, attestation, front-door/catalog and public listing remain separate.
 
-The readiness/controller integration is intentionally not included here. Its
-owner needs to approve the run plan and review its lifecycle changes first.
+Only the B300 confidential-mode DP2 profile with parity, pinned tokenizer
+materialization and runtime observation can enable this mode:
+
+```sh
+python3 -I -S -B host/record-deepseek-lab.py \
+  --prepare-local-correctness-b300-dp2 /absolute/private/new-bundle \
+  --tokenizer-parity --tokenizer-materialization --runtime-observation \
+  --provider-conformance-wheels /absolute/private/locked-wheels
+```
+
+Preparation requires a committed source tree and the existing authenticated raw
+engine metadata. Transfer the prepared bundle privately without changing bytes.
+The retained engine image, exact verified model cache and pinned CPU image must
+already be present. Runtime uses `--pull never`; CPU image inspection precedes
+engine creation, and failure does not trigger a pull, installation or fallback.
+The ordinary `--run` invocation consumes the receipt digest and an explicit UTC
+deadline. No runtime flag can enable or override the prepared checker profile.
+
+The authorized trial is at most 45 minutes overall. The producer starts teardown
+four minutes before that cutoff. It leaves the existing 1,800-second engine
+startup bound unchanged. The checker keeps its 180-second alarm and has an
+independent process issuing owned-checker removal at 200 seconds or parent-pipe
+EOF. The whole-engine watchdog also removes the owned checker, then engine, on
+parent death or the operational cutoff. Cleanup retries cover the existing
+create-client race; daemon failure, unknown completion or unproven absence
+remains failure. A software watchdog cannot guarantee teardown of an unresponsive
+kernel/daemon; that condition requires operator intervention, never acceptance.
+The VM, image/cache and SSH key are never deleted by this producer.
+
+The parent stdout cap remains 64 KiB including the readiness frame; stderr also
+retains its 64-KiB cap. The checker projection remains capped at 16 KiB. Only a
+fixed metadata acknowledgement enters guest stdin; engine application stdin,
+stdout and stderr remain `/dev/null`. No API listener, port, network interface,
+engine argument, application stage, import exception or logging bypass is added.
+
+An actual accepted narrow trial requires **both** outer `functional_pass=true`
+and `cleanup=confirmed`, the matching guest/parent checker acknowledgements,
+the strict worker gate and stable complete runtime observations. A nested worker
+gate alone cannot prove the join or whole-engine cleanup. The top-level evidence
+remains `result=fail`, `status=BLOCKED`, `deployable=false`, `confidential=false`:
+this is not full P2, tau, quality, attestation, front-door or catalog acceptance.
+
+[Session controls](../../scripts/test_provider_conformance_session.py) exercise
+real local pipe/EOF/deadline handling and process reaping, plus synthetic Docker
+state/namespace/ownership, lifecycle, privacy and binding negative controls.
+They do not start a GPU, simulate conformance acceptance as hardware evidence,
+or weaken the pinned upstream checker. Before launch, notify the parent and
+coordinate with other agents; no concurrent retained-GPU job is permitted.

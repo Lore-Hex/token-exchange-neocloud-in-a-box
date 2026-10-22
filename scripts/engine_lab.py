@@ -29,6 +29,7 @@ GPU_PROBE = None
 CORRECTNESS = None
 PARITY = None
 RUNTIME_OBSERVER = None
+PROVIDER_SESSION = None
 ENTRY_CHECKPOINTS = 17
 EXCEPTION_PACKET_BYTES = 3 + 8 * 36
 WORKER_EXCEPTION_PATH = "/cache/worker-exception.bin"
@@ -213,7 +214,7 @@ def load(name, raw, path):
 
 
 def lab_context(expected):
-    global PROCESSES, GPU_PROBE, CORRECTNESS, PARITY, RUNTIME_OBSERVER
+    global PROCESSES, GPU_PROBE, CORRECTNESS, PARITY, RUNTIME_OBSERVER, PROVIDER_SESSION
     import platform
     import re
     require(re.fullmatch(r"[0-9a-f]{64}", expected) and __file__ == ROOT + "/launch.py")
@@ -257,6 +258,9 @@ def lab_context(expected):
     if "runtime_observation" in contract:
         RUNTIME_OBSERVER = load("lab_runtime_observer", sources["runtime-observation.py"], ROOT + "/runtime-observation.py")
         require(RUNTIME_OBSERVER.enabled(contract))
+    if "provider_conformance" in contract:
+        PROVIDER_SESSION = load("lab_provider_session", sources["provider-session.py"], ROOT + "/provider-session.py")
+        PROVIDER_SESSION.enabled(contract)
     modules = [load(name, sources["application/" + name], ROOT + "/application/" + name)
                for name in ("engine_overlay.py", "engine_image_diagnostic.py", "engine_python_descriptor.py", "application.py")]
     overlay, _, _, app = modules
@@ -589,6 +593,9 @@ def application_and_request(contract, sources, modules, application, measured):
               "startup": None, "engine_stopped": False}
     correctness = contract["operation"] == "local-correctness"
     parity = contract.get("tokenizer_parity") is True
+    if "provider_conformance" in contract:
+        PROVIDER_SESSION.enabled(contract)
+        result["provider_conformance"] = None
     if "tokenizer_materialization" in contract:
         result.update(tokenizer_adapter_options(contract, require))
     if "runtime_observation" in contract:
@@ -683,6 +690,12 @@ def application_and_request(contract, sources, modules, application, measured):
                 "model": MODEL, "messages": [{"role": "user", "content": "Compute 1 + 1. Reply with the single digit only."}],
                 "max_tokens": 128, "temperature": 0, "stream": False})
             result["completion"] = completion_result(raw)
+        if "provider_conformance" in contract:
+            require(result["tokenizer_parity"]["all_cases_pass"] is True and engine.poll() is None)
+            result["provider_conformance"] = PROVIDER_SESSION.guest_wait(
+                result["runtime_observation"]["contract_sha256"], result["runtime_observation"]["samples"][0],
+                min(time.monotonic() + PROVIDER_SESSION.SECONDS,
+                    started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE))
         require(hardware(contract.get("gpu_family", "B200"), security, count) == result["hardware"])
         if "runtime_observation" in contract:
             observe_runtime(engine, contract, result["runtime_observation"], started)
@@ -690,6 +703,8 @@ def application_and_request(contract, sources, modules, application, measured):
                                     (result["completion"]["final_content_present"]
                                      and result["completion"]["synthetic_answer_match"]
                                      and result["completion"]["finish"] == "stop"))
+        if "provider_conformance" in contract:
+            result["functional_pass"] = result["functional_pass"] and result["provider_conformance"]["accepted"]
         result["stage"] = "complete"
     except Exception:
         result["functional_pass"] = False
