@@ -138,7 +138,7 @@ class AppraisalProbeTests(unittest.TestCase):
             self.assertEqual(verify.call_count, 1)
 
     def test_child_drops_all_capabilities_and_uses_clean_environment(self):
-        fakeguard = types.SimpleNamespace(check=mock.Mock())
+        fakeguard = types.SimpleNamespace(check=mock.Mock(), CAP_MASK=guard.CAP_MASK)
         fakefiles = types.SimpleNamespace(regular=mock.Mock())
         with mock.patch.object(probe.sys, "platform", "linux"), \
                 mock.patch.object(probe.sys, "version_info", (3, 12)), \
@@ -151,17 +151,53 @@ class AppraisalProbeTests(unittest.TestCase):
                 mock.patch.object(probe, "verify_files") as verify, \
                 mock.patch.object(probe.os, "chroot") as chroot, \
                 mock.patch.object(probe.os, "chdir") as chdir, \
+                mock.patch.object(probe, "drop_privileges") as drop, \
                 mock.patch.object(probe.os, "execve") as execute:
             probe.main()
         fakeguard.check.assert_called_once_with()
         verify.assert_called_once_with(fakefiles.regular)
         chroot.assert_called_once_with(probe.ROOTFS)
         chdir.assert_called_once_with("/")
+        drop.assert_called_once_with(guard.CAP_MASK)
         path, argv, environment = execute.call_args.args
-        self.assertEqual(path, "/usr/bin/setpriv")
-        self.assertEqual(argv, [path, "--no-new-privs", "--inh-caps=-all", "--ambient-caps=-all",
-                                "--bounding-set=-all", "--", "/usr/bin/nvattest", "--help"])
+        self.assertEqual(path, "/usr/bin/nvattest")
+        self.assertEqual(argv, [path, "--help"])
         self.assertNotIn("LD_LIBRARY_PATH", environment)
+
+    def status(self):
+        return ("Uid:\t65534\t65534\t65534\t65534\nGid:\t65534\t65534\t65534\t65534\nGroups:\t\n"
+                "CapInh:\t0000000000000000\nCapPrm:\t0000000000000000\nCapEff:\t0000000000000000\n"
+                f"CapBnd:\t{guard.CAP_MASK:016x}\nCapAmb:\t0000000000000000\nNoNewPrivs:\t1\nSeccomp:\t2\n")
+
+    def test_privilege_drop_requires_kernel_observed_unprivileged_state(self):
+        text = self.status()
+        probe.unprivileged_status(text, guard.CAP_MASK)
+        for field in ("CapInh", "CapPrm", "CapEff", "CapAmb"):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                probe.unprivileged_status(text.replace(field + ":\t0000000000000000",
+                                                       field + ":\t0000000000000001"), guard.CAP_MASK)
+        for before, after in (("Uid:\t65534", "Uid:\t0"), ("Gid:\t65534", "Gid:\t0"),
+                              ("Groups:\t", "Groups:\t0"), ("NoNewPrivs:\t1", "NoNewPrivs:\t0"),
+                              ("Seccomp:\t2", "Seccomp:\t0"), ("CapBnd:", "missing:")):
+            with self.subTest(before=before), self.assertRaises(ValueError):
+                probe.unprivileged_status(text.replace(before, after), guard.CAP_MASK)
+        with self.assertRaises(ValueError):
+            probe.unprivileged_status(text + "CapEff:\t0000000000000000\n", guard.CAP_MASK)
+
+    def test_drop_order_is_groups_then_all_gids_then_all_uids_then_kernel_check(self):
+        calls = []
+        def record(name):
+            return lambda *args: calls.append((name, args))
+        with mock.patch.object(probe.os, "setgroups", side_effect=record("groups")), \
+                mock.patch.object(probe.os, "setresgid", side_effect=record("gid"), create=True), \
+                mock.patch.object(probe.os, "setresuid", side_effect=record("uid"), create=True), \
+                mock.patch.object(probe.os, "getresuid", return_value=(65534,) * 3, create=True), \
+                mock.patch.object(probe.os, "getresgid", return_value=(65534,) * 3, create=True), \
+                mock.patch.object(probe.os, "getgroups", return_value=[]), \
+                mock.patch("builtins.open", mock.mock_open(read_data=self.status())) as read:
+            probe.drop_privileges(guard.CAP_MASK)
+        self.assertEqual(calls, [("groups", ([],)), ("gid", (65534, 65534, 65534)), ("uid", (65534, 65534, 65534))])
+        read.assert_called_once_with("/proc/self/status", encoding="ascii")
 
 
 if __name__ == "__main__":

@@ -96,20 +96,45 @@ def probe(processes, prefix, reader):
             "boot_verified": False}
 
 
+def unprivileged_status(text, bounding_mask):
+    require(type(text) is str and len(text) <= 16384)
+    expected = {"CapInh": 0, "CapPrm": 0, "CapEff": 0, "CapBnd": bounding_mask, "CapAmb": 0}
+    for field, value in expected.items():
+        matches = re.findall(r"^" + field + r":\s*([0-9a-f]{16})$", text, re.M)
+        require(len(matches) == 1 and int(matches[0], 16) == value)
+    for field in ("Uid", "Gid"):
+        require(re.findall(r"^" + field + r":\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)$", text, re.M)
+                == [("65534",) * 4])
+    require(re.findall(r"^Groups:[ \t]*([^\n]*)$", text, re.M) == [""])
+    require(re.findall(r"^NoNewPrivs:\s*(\d+)$", text, re.M) == ["1"])
+    require(re.findall(r"^Seccomp:\s*(\d+)$", text, re.M) == ["2"])
+
+
+def drop_privileges(bounding_mask):
+    # Linux setresuid(2)/capabilities(7): removing every root UID clears
+    # permitted/effective capabilities. NNP prevents file-cap/setuid regain.
+    # CAP_SETPCAP is already absent: do not try to alter the bounding set.
+    os.setgroups([])
+    os.setresgid(65534, 65534, 65534)
+    os.setresuid(65534, 65534, 65534)
+    require(os.getresuid() == os.getresgid() == (65534, 65534, 65534) and not os.getgroups())
+    with open("/proc/self/status", encoding="ascii") as stream:
+        unprivileged_status(stream.read(16385), bounding_mask)
+
+
 def main():
     require(sys.platform == "linux" and sys.version_info[:2] == (3, 12)
             and sys.flags.isolated and sys.flags.no_site and sys.flags.dont_write_bytecode
             and len(sys.argv) == 2 and os.geteuid() == os.getegid() == 0
             and socket.if_nameindex() == [(1, "lo")])
     args = operation(sys.argv[1])
-    module("confinement").check()
+    confinement = module("confinement")
+    confinement.check()
     verify_files(module("dkms-worker").regular)
     os.chroot(ROOTFS)
     os.chdir("/")
-    # No capability, including sys_chroot, survives into the vendor process.
-    argv = ["/usr/bin/setpriv", "--no-new-privs", "--inh-caps=-all", "--ambient-caps=-all",
-            "--bounding-set=-all", "--", *args]
-    os.execve(argv[0], argv, {"PATH": "/usr/bin:/usr/sbin:/bin:/sbin", "HOME": "/tmp",
+    drop_privileges(confinement.CAP_MASK)
+    os.execve(args[0], args, {"PATH": "/usr/bin:/usr/sbin:/bin:/sbin", "HOME": "/tmp",
                            "TMPDIR": "/tmp", "LANG": "C", "LC_ALL": "C"})
 
 

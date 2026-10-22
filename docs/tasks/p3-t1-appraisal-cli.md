@@ -31,11 +31,27 @@ is included in the committed, hash-bound source closure.
 The existing private PID/network namespaces, seccomp policy and cgroup limits
 remain. The child sees a read-only guest root, private tmpfs and synthetic
 devices; no GPU device, service key or network connection is provided. After
-the confinement check and chroot, all remaining capabilities are dropped before
-executing the vendor binary. There is no attestation command without `--help`,
+the confinement check and chroot, the child clears supplementary groups and
+sets all real/effective/saved UIDs and GIDs to the mapped nobody ID 65534.
+Before executing the vendor binary it checks the kernel's UID/GID, empty groups,
+zero effective/permitted/inheritable/ambient capabilities, `NoNewPrivs=1` and
+seccomp filter mode. The restricted bounding set remains unchanged; it grants
+no capabilities, and no-new-privileges prevents setuid/file-capability regain.
+This avoids attempting a second bounding-set reduction after `CAP_SETPCAP`
+has already been removed. See Linux [capabilities(7)](https://man7.org/linux/man-pages/man7/capabilities.7.html)
+and [setresuid(2)](https://man7.org/linux/man-pages/man2/setresuid.2.html).
+There is no attestation command without `--help`,
 no arbitrary-command entry point and no retry or relaxed-loader fallback.
 
 The runtime installer fails if this probe fails. Its receipt always says that
 GPU access, networking, appraisal and boot validation were not performed.
 Production guest backends remain fail-closed. Native execution evidence is
 pending; fixture tests do not prove binary compatibility or confidentiality.
+
+`scripts/linux-appraisal-drop-check.py` is a separate, fixed Linux regression
+for the privilege transition. In a local read-only, networkless container with
+only the existing eight-capability mask, it exercised chroot, group/UID/GID
+reduction and a second exec, checking the real kernel capability fields both
+before and after exec. It passed on October 22, 2026. This is local software
+validation, not the pinned Ubuntu guest ABI or GPU proof. The native installation
+workflow still has to pass the actual appraiser probe.
