@@ -25,7 +25,7 @@ Observed 2026-10-22 18:54:30-18:54:38 UTC:
 The envelope's `result: pass` means the negative-control **test** passed. It does
 not mean provider conformance. No actual DeepSeek conformance claim is made.
 The implemented boundaries, exact source audit, commands and remaining live
-lifecycle integration are in the [task note](../../../../docs/tasks/p2-t3-private-provider-check.md).
+lifecycle integration are in the [task note](../../../docs/tasks/p2-t3-private-provider-check.md).
 
 The preparer CLI separately generated the same payload manifest digest
 `ba3768f58f82afd3b034998b6284470fab0ce8267b0ea8a1c94647f48deca446`.
