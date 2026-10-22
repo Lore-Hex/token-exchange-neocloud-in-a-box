@@ -32,6 +32,26 @@ inputs = load("scripts/guest_package_inputs.py")
 
 
 class BuildTests(unittest.TestCase):
+    def test_host_preserves_only_fixed_bounded_appraisal_diagnostics(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            expected = {}
+            for operation in ("help", "attest-help", "token-help"):
+                for stream in ("stdout", "stderr"):
+                    name = "appraisal-cli-" + operation + "." + stream
+                    expected[name] = b"public package diagnostic\n"
+                    (root / name).write_bytes(expected[name])
+            (root / "appraisal-cli-other.stderr").write_bytes(b"not collected")
+            self.assertEqual(host.collect_diagnostics(root), expected)
+            path = root / "appraisal-cli-help.stderr"
+            path.write_bytes(b"x" * 65537)
+            with self.assertRaises(ValueError):
+                host.collect_diagnostics(root)
+            path.unlink()
+            path.symlink_to(root / "appraisal-cli-other.stderr")
+            with self.assertRaises((ValueError, OSError)):
+                host.collect_diagnostics(root)
+
     def test_host_preserves_bounded_symbol_outputs_only(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
