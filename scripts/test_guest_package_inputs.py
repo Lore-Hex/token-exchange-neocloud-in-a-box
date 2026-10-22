@@ -207,6 +207,40 @@ class InputsTest(unittest.TestCase):
                          "6.8.0-147.147")
         self.assertEqual(by_name["nvattest"]["Version"], "2.0.0.1790976895-1")
 
+    def test_runtime_lock_is_additive_without_initrd_or_debug_services(self):
+        base = json.loads(G.LOCK.read_bytes())
+        lock = json.loads(G.LOCK.with_name("guest-runtime-ubuntu2404.json").read_bytes())
+        self.assertEqual(lock["scope"], "guest-runtime-dependency-coverage")
+        self.assertEqual(lock["indexes"], base["indexes"])
+        self.assertFalse(lock["installable_verified"])
+        self.assertFalse(lock["deployable"])
+        rows = {r["Package"]: r for r in lock["packages"]}
+        self.assertEqual(len(rows), len(lock["packages"]))
+        self.assertEqual(G.check_graph(lock["packages"], lock["roots"], lock["essential"]),
+                         lock["archive_bytes"])
+        for row in base["packages"]:
+            self.assertEqual(rows[row["Package"]], row)
+        for name, version in {"systemd": "255.4-1ubuntu8.18", "udev": "255.4-1ubuntu8.18",
+                              "podman": "4.9.3+ds1-1ubuntu0.2", "crun": "1.14.1-1",
+                              "cryptsetup-bin": "2:2.7.0-1ubuntu4.2", "nftables": "1.0.9-1ubuntu0.1",
+                              "nvidia-container-toolkit": "1.20.1-1"}.items():
+            self.assertEqual(rows[name]["Version"], version)
+        for name in ("initramfs-tools", "dracut", "openssh-server", "systemd-resolved",
+                     "systemd-timesyncd"):
+            self.assertNotIn(name, rows)
+
+    def test_runtime_scope_does_not_relax_input_integrity(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            lock = self.fixture(root)
+            lock["scope"] = "guest-runtime-dependency-coverage"
+            with self.assertRaises(ValueError):
+                G.check(lock, root)
+            self.assertEqual(G.check(lock, root, scope=lock["scope"])["result"], "pass")
+            lock["packages"][0]["SHA256"] = "b" * 64
+            with self.assertRaises(ValueError):
+                G.check(lock, root, scope=lock["scope"])
+
 
 if __name__ == "__main__":
     unittest.main()

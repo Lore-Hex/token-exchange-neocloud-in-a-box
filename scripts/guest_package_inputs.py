@@ -209,7 +209,7 @@ def check_graph(rows, roots, essential):
 
 def check(lock, directory, *, scope="kernel-driver-build-dependency-coverage"):
     require(scope in ("kernel-driver-build-dependency-coverage", "apt-tools-dependency-coverage",
-                      "mkosi-build-tools-dependency-coverage"))
+                      "mkosi-build-tools-dependency-coverage", "guest-runtime-dependency-coverage"))
     require(lock["format"] == "nib-package-inputs/v1"
             and lock["scope"] == scope
             and lock["installable_verified"] is False

@@ -467,9 +467,30 @@ class ContainerTests(unittest.TestCase):
             committed.reset_mock()
             prep.target_sources("mkosi-tools")
             committed.assert_called_once_with(("image/inputs/mkosi-tools-ubuntu2404.json",))
+            committed.reset_mock()
+            prep.target_sources("guest-runtime")
+            committed.assert_called_once_with(("image/inputs/guest-runtime-ubuntu2404.json",))
         for value in ("/tmp/lock", "../lock", "all", "", None):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 prep.target_spec(value)
+
+    def test_runtime_target_cannot_substitute_kernel_lock_or_claim_installation(self):
+        path, scope = prep.target_spec("guest-runtime")
+        self.assertEqual(scope, "guest-runtime-dependency-coverage")
+        self.receipt["target_profile"] = "guest-runtime"
+        self.receipt["source_hashes"][path] = "e" * 64
+        with self.assertRaises(ValueError):
+            runner.validate_result(self.result, self.receipt, self.guest)
+        self.result["guest_lock_sha256"] = "e" * 64
+        result = runner.execute(b"verified fixture", self.receipt, self.guest, self.call)
+        self.assertEqual((result["result"], result["cleanup"], result["target_profile"]),
+                         ("pass", "confirmed", "guest-runtime"))
+        for field in ("package_installation_executed", "maintainer_scripts_executed",
+                      "installable_verified", "bootable", "deployable"):
+            bad = copy.deepcopy(self.result)
+            bad[field] = True
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                runner.validate_result(bad, self.receipt, self.guest)
 
     def test_evidence_preserves_failure_and_reports_simulation_only(self):
         result = {"git_sha": "a" * 40, "started_at": "2026-10-21T00:00:00Z",
