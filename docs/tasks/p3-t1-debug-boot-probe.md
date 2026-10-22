@@ -2,16 +2,28 @@
 
 ## Status
 
-The next separately authorized [39856626007](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39856626007),
+The separately authorized corrected [39863142055](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39863142055),
+producer `eed4b10ce0ffff750df345652a8db05d95297a02`, **passed CPU-only debug-root
+boot proof**. Its [four original receipts](../../evidence/p3/2026-10-22-debug-root-boot-pass/README.md)
+are byte-preserved. All five pinned startup checks passed, and the exact
+INITRD/PASS/EOF protocol completed. The source-bound probe requires the full
+mapped-root read, extra EOF, unchanged table, valid status and live-root
+recheck before PASS. QEMU exited zero and independent parent cleanup passed.
+The worker's `private_work_removed: false` remains unchanged: the parent,
+not that subordinate scope, verifies final private-image deletion. This is
+not a full guest-service or confidential result. No read-speed measurement is
+emitted on success, and all earlier failure evidence remains below.
+
+The preceding separately authorized [39856626007](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39856626007),
 producer `6a15eee38c82225bc6649218829532d5ed135d63`, **failed the mapped-root
 read deadline**. Its [four original receipts](../../evidence/p3/2026-10-22-debug-boot-read-deadline/README.md)
 are byte-preserved. The fixed diagnostic records `deadline`, 171,704,320 bytes
 read and 23 whole elapsed read seconds. It identifies the loop deadline, not
 the underlying throughput bottleneck. Assembly, all five runtime startup
 checks and independent cleanup passed; root proof did not. There was no retry.
-The resulting debug-root-only budget adjustment below is implemented for a
-reviewed follow-up, not yet demonstrated by an actual boot. The initrd and all
-outer/resource/output bounds remain unchanged.
+The resulting debug-root-only budget adjustment below was reviewed and used
+by the successful corrected run. The initrd and all outer/resource/output
+bounds remain unchanged.
 
 The separately authorized follow-up [39851156135](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39851156135),
 producer `28f9fc01d59bc316ffdb206c8c0434cd5ad191e7`, also **failed root proof**.
@@ -35,14 +47,15 @@ The original receiver discarded generic FAIL frames. Its metadata cannot
 identify a failed guest check or establish whether the real-root probe ran.
 The diagnostic repair retains only fixed failure-stage codes and protocol
 error categories, without changing the acceptance checks, privileges or
-deadlines. It is locally tested, not a demonstrated fix for the unknown boot
-failure. Another attempt requires final-head review, green checks and separate
-run authorization; the first run's permission is consumed.
+deadlines. That diagnostic change alone was not a demonstrated fix for the
+unknown failure; subsequent observations and the final adjustment remain
+separate above. Another attempt requires final-head review, green checks and
+separate run authorization; all recorded runs' permissions are consumed.
 
 This experiment is not a TDX, GPU CC, complete guest-service, release,
 reproducibility or post-mount-tamper qualification. The existing installed root
-does not contain the complete inference/trcs service composition. A successful
-future probe would establish only that this measured debug UKI entered the
+does not contain the complete inference/trcs service composition. The passing
+probe establishes only that this measured debug UKI entered the
 initrd, switched to the expected read-only EROFS/dm-verity root, read every mapped
 data block successfully, observed a valid unchanged verity table/status, and
 powered off within the host deadline. It does not prove GCP GPU compatibility:
@@ -313,6 +326,14 @@ drain, nonzero exit/timeout diagnostics, OOM and cleanup failures, directory
 replacement, source mutation, assembler failures, readonly namespace arguments
 and metadata-only workflow paths. Full-suite and independent-review results
 belong to the exact PR head, not an assumed boot-success claim.
+
+The read-only `dmsetup` query helper keeps stdout and stderr behind a named
+buffer, not an embedded `bytes.Buffer`: embedding promotes `ReadFrom`, allowing
+`io.Copy` in `os/exec` to bypass the 4096-byte `Write` limit. Regression tests
+exercise both the reader-only copy path and finite subprocess output at 4095,
+4096, 4097 and 65537 bytes. Overflow returns no output; the original timeout,
+process-group cleanup and stderr rejection remain unchanged. This is a
+software correction, not a new boot result or a change to historical evidence.
 
 Failure-diagnostic regressions exercise every fixed failure frame at every
 fragment boundary, rejection of arbitrary/extra bytes, missing EOF, and clean
