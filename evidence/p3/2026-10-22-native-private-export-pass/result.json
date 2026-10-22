@@ -1,0 +1,430 @@
+{
+  "bootable": false,
+  "deployable": false,
+  "failure_kind": null,
+  "git_sha": "db23faee25adddccd5d090ca55ec3120d5f7a957",
+  "mapping_helper_hashes": {
+    "/usr/bin/newgidmap": "076d35f3dd11680a17725ea7b694715bc909182eeb930f1771ef0550e4779459",
+    "/usr/bin/newuidmap": "e26eed17f29ce6ee829855064b83f9ab20afdd9503ec4517f1ce8c1230bebaad"
+  },
+  "payload_removed": true,
+  "prepared_receipt_sha256": "48adf67d62d92f7b83372b01b34fbdde589fe6e7ec864aae5596bcb0238a32be",
+  "process_cleanup_confirmed": true,
+  "result": "pass",
+  "schema": "nib.mkosi-installation/v1",
+  "stage": "complete",
+  "tools_receipt_sha256": "a54ef0778a493056e6af5b5395145388ddea8d0a60677ab0b45466e4eaa42c01",
+  "worker": {
+    "appraisal_cli": {
+      "appraisal_performed": false,
+      "boot_verified": false,
+      "files": {
+        "usr/bin/nvattest": {
+          "bytes": 1128696,
+          "sha256": "9c269a22c3f4710cdb115ce21d72c1c3b8e9c9e2db9cf4a391b510ed1a1dea42"
+        },
+        "usr/lib/x86_64-linux-gnu/libnvat.so.2.0.0": {
+          "bytes": 26794312,
+          "sha256": "e757a59f8241830553da3f99f717ddd44d47973ca756a4fa3feac78012dce896"
+        }
+      },
+      "gpu_access": false,
+      "help": {
+        "attest-help": {
+          "bytes": 3998,
+          "sha256": "736dd518bbf07160dc5ee37527f851636c2d33b06cb439d9229b11b357658794"
+        },
+        "help": {
+          "bytes": 1812,
+          "sha256": "93ce05721ba9e2cfbfa035782425df4aa0954dbae96fe196cccd74c5bc08e46e"
+        },
+        "token-help": {
+          "bytes": 2631,
+          "sha256": "2cc73d35b9537dfa66b90a6142cabfc927bf7da1285075882d918d02a7594510"
+        }
+      },
+      "network_access": false,
+      "result": "pass"
+    },
+    "appraisal_cli_diagnostics": {
+      "exit_code": 0,
+      "operation": "token-help",
+      "stderr_bytes": 0,
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_bytes": 2631,
+      "stdout_sha256": "2cc73d35b9537dfa66b90a6142cabfc927bf7da1285075882d918d02a7594510"
+    },
+    "artifact_stage": {
+      "files": {
+        "nib.efi": {
+          "bytes": 97898496,
+          "sha256": "8e5fef6037723bf6e7d094bfe1b6a7cfd1b8fcb06ea4e16c584044ca0e0e817c"
+        },
+        "root.raw": {
+          "bytes": 928989184,
+          "sha256": "62c7542ed04aec91ac07bdd4ae356de4dccc40107feadec144e078d31d55e5f6"
+        }
+      },
+      "published": false,
+      "root_hash": "c0ec6de5e1057e2a536c10a860a578be25da452192abe86c64cc565105232220",
+      "schema": "nib.boot-artifact-stage/v1",
+      "source": {
+        "git_sha": "db23faee25adddccd5d090ca55ec3120d5f7a957",
+        "sources": {
+          "evidence/p3/2026-10-22-runtime-apt-plan/report.json": "7163f89663ba6444ca8e18eb02de2d3822ffaac1aec9a060c52d5d85fabab911",
+          "host/build-mkosi-native.py": "26bcce6c35d6680d8aa2e603631968cb0c65c7171197087275a4323a265fd488",
+          "host/probe-build-resources.py": "2b740ef5b1ecbc87cb3a078fcbb081017f7db5c9600c9956f97cc52330ad9fdc",
+          "host/probe-mkosi-native-tools.py": "a70213ff514a39ed99fdcd241ed96f4fd01d53e9217384f7267b41a1a525a885",
+          "host/probe-mkosi-native.py": "cab4c8e62f4e65b131bcf81d14cf4285432b9daa17671b47e85f7359512607c8",
+          "host/run-mkosi-build.py": "2335ab6b28dff0328b7d891e82aed1663d61e7386709119c4370fbc2bee8f63f",
+          "host/simulate-guest-apt.py": "ed27b795459a710ce56457645be24ba6526c57662fde0641c4415865c277c38c",
+          "image/inputs/apt-tools-ubuntu2404.json": "d50d82e2f4e622a7263fdbe1dae0e5fc6b6ffa6806cf215144f0bcd31a97f6f2",
+          "image/inputs/guest-runtime-ubuntu2404-hook-review.json": "3aab538b28ece32bf6e60c6182746a9e6067542f024e47abe92a1feb0a501b39",
+          "image/inputs/guest-runtime-ubuntu2404.json": "f3162aeab969aba9a99d3dc96ddeb80b7ee808b55b126762710a08269e182de8",
+          "image/inputs/mkosi-27.1-package-boundary.json": "0621998f82305db8d706d656fb39b7143f27e14986f0e824bc6569382ad4b63f",
+          "image/inputs/mkosi-27.1-service-denial.json": "19fb0388b2dcb3ccccac510281353c589dac53516178bb52ebda1df354448bfb",
+          "image/inputs/mkosi-27.1.json": "612c3fceacd8acc34265ec2c9aa64121ab7af7a6d7fd847974981f5ca0a37d55",
+          "image/inputs/mkosi-tools-members.json": "d1d383d27ed3fec38ddfd9492945caeb5b37ff0d1341be91e2f4492166ced1da",
+          "image/inputs/mkosi-tools-ubuntu2404.json": "0ad871ad797954c2a107a196aa31e8543931cfe947fa919b24fdbcd3737d9b90",
+          "image/inputs/r595-ubuntu2404.json": "ea8a93155131f15d460f6b3c147063e672e718d027366ab6c53c4264066a8883",
+          "image/patches/mkosi-27.1-service-denial.patch": "430661f2b9fa5c96cc5e9d2cc505f91b427d1a5c7b2a1177a561322dfb1ab2dd",
+          "scripts/e2e/snapshot.py": "e73a5a1e3ddb7a6e7b20afce39f7c080a0317d78340f224b2bd95f705bccb59c",
+          "scripts/guest_apt_simulation.py": "88c2857ad32e1936d301f4d49f9c2a4ad627ef6377a276de438f8c2260fb5ad7",
+          "scripts/guest_package_inputs.py": "584e0d1dec6b02cd5983a70675ee62512f99779a0bbe49fe178ebeeeae8993a0",
+          "scripts/mkosi_appraisal_probe.py": "e18060c5dfb75d59e95e2d6b6746ac32297bfb11a76e7a1a6577f9553a96ef1e",
+          "scripts/mkosi_boot.py": "f7eefd1ff9b2001f05115fc9fa3f65e4f1282388a4e1747650b09f5d7ba86fc4",
+          "scripts/mkosi_build_entry.py": "2be921aafcc6284de748c1fb619136cf39eb0165d5cfd9598026a56d9896ad1a",
+          "scripts/mkosi_build_worker.py": "da13ccc2b120e099ac3a2eacff46c198f11ae68949d2eebc22fba26b4933fb38",
+          "scripts/mkosi_confinement.py": "6476cac8829c60d2f06f48eac320b4474bf2231cc40086c45b5f9312533a3a41",
+          "scripts/mkosi_dkms.py": "36ab60088e72770a3430ada0ac3b86c5df471a3de19ba39ce5214f1f9cb6a86a",
+          "scripts/mkosi_export.py": "b23bacbb9181e6c9ca4be17d31f390e835e5fede28628f5211d17bcd40059a85",
+          "scripts/mkosi_namespace_check.py": "5836e053fb4def73f683248e523992b4e39e3c03aff7ea7fc805382aabe2d985",
+          "scripts/mkosi_ownership.py": "7cf9acc8edd50b39816b07e2f7c5e7bcd474a092bfa478cf01431ac666aafb5f",
+          "scripts/mkosi_package_patch.py": "13dc3ffc293e066958ff6ada53ebe088952685883eaa3a097031a1d5a299a845",
+          "scripts/mkosi_package_worker.py": "b286d978da320852550d642b8284cf0e3af01301397fa20d3e3e6811b737886a",
+          "scripts/mkosi_pid_check.py": "97ebdc454c8553479308dd72a8a8f22dce8306c2597ee1e65d3248a2082233ea",
+          "scripts/mkosi_runtime_policy.py": "7078d206f4abf7eb50827741f0330ad98c07909f572c68e10399bc945f3b5a60",
+          "scripts/mkosi_tools_probe.py": "b32ac4a5582a0fb232e2dcf7d42adcbaae36a6946a4de15de133a2eac7959cc5",
+          "scripts/mkosi_verity.py": "17ad85d587c3e18a3ad56c8cdec910ef94d0ee4b31da216958866bf984a62185",
+          "scripts/pilot/export.py": "baaf98e34904b080513fdd468e83e1eb818c2e2ce69d87cf6fb6a421e7268666",
+          "scripts/prepare_guest_packages.py": "9bfbbd8a2b3cc45a0d96863d76212492c9f2ca868acfd5b7fa7613c9f2c0d6e2",
+          "scripts/prepare_guest_tools.py": "11433727d836353032f2d079e990758b1c1f69c98802135aff39e3dfd376da47",
+          "scripts/prepare_mkosi_boot.py": "d6eaa0a92e3f556bdb66497075a57ae246a7e0fa109bd7437901cddd739ce1ac",
+          "scripts/prepare_mkosi_inputs.py": "32792f0799d49994a23e40ba6ce623615cdf5bd70ee9c309da06041af1c6a078",
+          "scripts/prepare_mkosi_tools.py": "101517124099ecc116fd29763bd53d8f666eb446a080c80fb7759cd99d6c59b3",
+          "scripts/review_guest_hooks.py": "eeffac9209e6b39db893f5774af48fa030d8547e610906b1625bf8c692016e52"
+        }
+      }
+    },
+    "boot_input_diagnostics": {},
+    "boot_uki": {
+      "archive_checked": true,
+      "boot_verified": false,
+      "confidentiality_verified": false,
+      "images_exported": false,
+      "initrd": {
+        "bytes": 82744320,
+        "sha256": "6002dc3102dd8c43fbd979c54fe896c9fc2a277039fdf8b667ed5ecd45c165cf"
+      },
+      "initrd_members": 2359,
+      "inputs": {
+        "bytes": 471091,
+        "sha256": "b10eb64d60d8cfeba7de15b8533e2f7f8b38f56594bfa4abe90b4ff55ba6971b"
+      },
+      "kernel": "6.8.0-147-generic",
+      "private_images_removed": true,
+      "reproducibility_verified": false,
+      "result": "pass",
+      "root_hash": "c0ec6de5e1057e2a536c10a860a578be25da452192abe86c64cc565105232220",
+      "schema": "nib.private-boot-uki/v1",
+      "sections_checked": true,
+      "signed": false,
+      "tools": {
+        "guest/boot/vmlinuz-6.8.0-147-generic": {
+          "bytes": 15083912,
+          "sha256": "41ba36d860aa0b0cd995f4ca8856d80249b244577e704929b55be13fbd1ebd2f"
+        },
+        "guest/usr/lib/systemd/boot/efi/linuxx64.efi.stub": {
+          "bytes": 68608,
+          "sha256": "799551ebda600e8358612a1d15805df5311210243a6ee69178aa27ff0a195d4e"
+        },
+        "tools/usr/bin/cpio": {
+          "bytes": 140928,
+          "sha256": "d342b752fcab2d8d6af40a548bcd6ba096ab34c52c53b608618f55950734ffe5"
+        },
+        "tools/usr/bin/kmod": {
+          "bytes": 174328,
+          "sha256": "5abf732e561c8be9ccd1794940b5d43025b041d4bed1db34782d979e0accc36f"
+        },
+        "tools/usr/bin/ukify": {
+          "bytes": 56179,
+          "sha256": "62b033782cf535e8633d82e4b6f4792352578da86a8bf0984beeaffd68b3c382"
+        },
+        "tools/usr/lib/python3/dist-packages/ordlookup/__init__.py": {
+          "bytes": 784,
+          "sha256": "a95df6e43bea93d1d81a517605792348053c36202a1a4f7083a6dc180ec33026"
+        },
+        "tools/usr/lib/python3/dist-packages/ordlookup/oleaut32.py": {
+          "bytes": 10877,
+          "sha256": "8346cd7072d1b87fe75bbe71a996ed6593564eb39505b74457c5bbbf1cf43ae7"
+        },
+        "tools/usr/lib/python3/dist-packages/ordlookup/ws2_32.py": {
+          "bytes": 3265,
+          "sha256": "832f959ebb7ac959b337cb1ba8b40449a370167676a238782ec880ab9203aee0"
+        },
+        "tools/usr/lib/python3/dist-packages/pefile.py": {
+          "bytes": 292005,
+          "sha256": "f99468cfed1930e8e9036a4bf4fcb9b23acb28c4e5421e215ce352a5ccdc811f"
+        }
+      },
+      "uki": {
+        "image": {
+          "bytes": 97898496,
+          "sha256": "8e5fef6037723bf6e7d094bfe1b6a7cfd1b8fcb06ea4e16c584044ca0e0e817c"
+        },
+        "schema": "nib.uki-sections/v1",
+        "sections": {
+          ".cmdline": {
+            "bytes": 115,
+            "sha256": "53c175260992c785750cff8acc40650179affea542c9906c33787920366f57d2"
+          },
+          ".initrd": {
+            "bytes": 82744320,
+            "sha256": "6002dc3102dd8c43fbd979c54fe896c9fc2a277039fdf8b667ed5ecd45c165cf"
+          },
+          ".linux": {
+            "bytes": 15083912,
+            "sha256": "41ba36d860aa0b0cd995f4ca8856d80249b244577e704929b55be13fbd1ebd2f"
+          },
+          ".osrel": {
+            "bytes": 445,
+            "sha256": "27294876c0c569b1f50960119e09e149bc2436aaff672528931a81d4ffc79b8b"
+          },
+          ".uname": {
+            "bytes": 17,
+            "sha256": "af32736b0427ac8ed1b9515782dc8efbf51390f1d2a40c2ecfde0f1b4524fd7b"
+          }
+        },
+        "signed": false
+      }
+    },
+    "bootable": false,
+    "configured_state_verified": true,
+    "deployable": false,
+    "dkms_built": true,
+    "driver_build": {
+      "bootable": false,
+      "compiler": "13.3.0",
+      "compressed_modules": [
+        {
+          "bytes": 9854416,
+          "name": "nvidia",
+          "sha256": "851d129eee42a4d03a65bae5b5b59391733bb4fa19f060a7e0b21a6c1b8269e8"
+        },
+        {
+          "bytes": 904020,
+          "name": "nvidia-modeset",
+          "sha256": "fed7a83cd1b7233965a9b33172b4dccb2df0f17de9175bad8162b2256d8ccb7a"
+        },
+        {
+          "bytes": 74208,
+          "name": "nvidia-drm",
+          "sha256": "4398cfd6667257b0d8f01d6ed5cb521e27d829dcb46709adaf0bf977f24f8ae3"
+        },
+        {
+          "bytes": 821734,
+          "name": "nvidia-uvm",
+          "sha256": "71b8541462b0c3f9a97a328b02cd29587f82a69ee91bb0ea97265949a7738f32"
+        },
+        {
+          "bytes": 1755,
+          "name": "nvidia-peermem",
+          "sha256": "36f14918eb608234ee3e7b9c7cbd23902669f9cc7d8b241866ceab5eae5c06cc"
+        }
+      ],
+      "crypto_linkage_verified": true,
+      "crypto_references": [
+        "crypto_alloc_aead",
+        "crypto_alloc_akcipher",
+        "crypto_alloc_shash"
+      ],
+      "dependency_indexes": {
+        "modules.alias.bin": {
+          "bytes": 1651901,
+          "sha256": "80d174f1406a0e0b3c52ca06e5c63c5faa115e4510f552ebdccd46bc2ec10136"
+        },
+        "modules.dep": {
+          "bytes": 864262,
+          "sha256": "39ceca339a8328ec1671a91eba1150b01ab6abbd398951676a0dafff2072490f"
+        },
+        "modules.dep.bin": {
+          "bytes": 1146134,
+          "sha256": "cfd9623677925beeeb177029755f6d5d07c9f66d094475f4f0561b8ee8668d5a"
+        },
+        "modules.symbols.bin": {
+          "bytes": 899199,
+          "sha256": "1b85fcfec1e41040c99d9e1306760f467cbb78714bf3a2927500fca5cb9549a2"
+        }
+      },
+      "driver": "595.91.07",
+      "installed": true,
+      "kernel": "6.8.0-147-generic",
+      "lkca_verified": false,
+      "loaded": false,
+      "modules": [
+        {
+          "bytes": 18976888,
+          "name": "nvidia",
+          "sha256": "9fd5a3fbddf1f9cd1b009bf0c6f4e18fd33729dc9c282572b4e6b90371105ab0"
+        },
+        {
+          "bytes": 3152208,
+          "name": "nvidia-modeset",
+          "sha256": "823e5aecf3dfd9363a0baa4b6a959f0de936debd4f0dc5f6f86bfe841477f6a3"
+        },
+        {
+          "bytes": 271632,
+          "name": "nvidia-drm",
+          "sha256": "07ad93a3dff67119f60ba08e09ef44b18c4ebf840f948a1b9c3daf529f942b2d"
+        },
+        {
+          "bytes": 3884344,
+          "name": "nvidia-uvm",
+          "sha256": "c0eca2d7bf776dbefda12806eca96383fcb36198fa7fcefbce075193bf88ee2b"
+        },
+        {
+          "bytes": 7224,
+          "name": "nvidia-peermem",
+          "sha256": "011f6cc3569ec454204dcf490a102339658583795c5ab9f6c31ead6d42f6d59c"
+        }
+      ],
+      "reproducibility_verified": false,
+      "result": "pass"
+    },
+    "failure_kind": null,
+    "installed_packages": 212,
+    "installer_exit_code": 0,
+    "package_installation_executed": true,
+    "reproducibility_verified": false,
+    "result": "pass",
+    "runtime_policy": {
+      "boot_verified": false,
+      "complete_release_hardening": false,
+      "files": {
+        "etc/systemd/journald.conf.d/00-nib-no-content.conf": "4f253ce618c56c172e32cb085988616e3a125f80b34f1cd114138fb150acaaa3",
+        "etc/systemd/system-preset/00-nib-default-deny.preset": "3127b197b9eae62eb84eeed69b0413419612238332006183e36a3fba89578378",
+        "etc/systemd/system.conf.d/00-nib-no-coredumps.conf": "6ef1f024b21539b587bc9329c0339202e6132c82aaebab5892d50283b1e6002f",
+        "etc/systemd/user-preset/00-nib-default-deny.preset": "3127b197b9eae62eb84eeed69b0413419612238332006183e36a3fba89578378"
+      },
+      "masks": {
+        "etc/systemd/journald.conf.d/syslog.conf": "/dev/null",
+        "etc/systemd/system/autovt@.service": "/dev/null",
+        "etc/systemd/system/console-getty.service": "/dev/null",
+        "etc/systemd/system/container-getty@.service": "/dev/null",
+        "etc/systemd/system/dbus-org.freedesktop.login1.service": "/dev/null",
+        "etc/systemd/system/debug-shell.service": "/dev/null",
+        "etc/systemd/system/emergency.service": "/dev/null",
+        "etc/systemd/system/getty-static.service": "/dev/null",
+        "etc/systemd/system/getty@.service": "/dev/null",
+        "etc/systemd/system/nvidia-cdi-refresh.path": "/dev/null",
+        "etc/systemd/system/nvidia-cdi-refresh.service": "/dev/null",
+        "etc/systemd/system/podman-auto-update.service": "/dev/null",
+        "etc/systemd/system/podman-auto-update.timer": "/dev/null",
+        "etc/systemd/system/podman-clean-transient.service": "/dev/null",
+        "etc/systemd/system/podman-kube@.service": "/dev/null",
+        "etc/systemd/system/podman-restart.service": "/dev/null",
+        "etc/systemd/system/podman.service": "/dev/null",
+        "etc/systemd/system/podman.socket": "/dev/null",
+        "etc/systemd/system/rescue.service": "/dev/null",
+        "etc/systemd/system/serial-getty@.service": "/dev/null",
+        "etc/systemd/system/systemd-journald-varlink@.socket": "/dev/null",
+        "etc/systemd/system/systemd-journald@.service": "/dev/null",
+        "etc/systemd/system/systemd-journald@.socket": "/dev/null",
+        "etc/systemd/system/systemd-logind.service": "/dev/null",
+        "etc/systemd/system/systemd-pstore.service": "/dev/null",
+        "etc/systemd/system/systemd-user-sessions.service": "/dev/null",
+        "etc/systemd/system/user-runtime-dir@.service": "/dev/null",
+        "etc/systemd/system/user@.service": "/dev/null",
+        "etc/systemd/user/dirmngr.service": "/dev/null",
+        "etc/systemd/user/dirmngr.socket": "/dev/null",
+        "etc/systemd/user/gpg-agent-browser.socket": "/dev/null",
+        "etc/systemd/user/gpg-agent-extra.socket": "/dev/null",
+        "etc/systemd/user/gpg-agent-ssh.socket": "/dev/null",
+        "etc/systemd/user/gpg-agent.service": "/dev/null",
+        "etc/systemd/user/gpg-agent.socket": "/dev/null",
+        "etc/systemd/user/keyboxd.service": "/dev/null",
+        "etc/systemd/user/keyboxd.socket": "/dev/null",
+        "etc/systemd/user/podman-auto-update.service": "/dev/null",
+        "etc/systemd/user/podman-auto-update.timer": "/dev/null",
+        "etc/systemd/user/podman-kube@.service": "/dev/null",
+        "etc/systemd/user/podman-restart.service": "/dev/null",
+        "etc/systemd/user/podman.service": "/dev/null",
+        "etc/systemd/user/podman.socket": "/dev/null"
+      },
+      "result": "pass",
+      "schema": "nib.runtime-startup-policy/v1",
+      "services_started": false
+    },
+    "schema": "nib.mkosi-install-worker/v1",
+    "stage": "boot-uki",
+    "verity_root": {
+      "boot_partuuids_checked": true,
+      "boot_verified": false,
+      "confidentiality_verified": false,
+      "erofs_checked": true,
+      "erofs_timestamp": 1792454400,
+      "erofs_uuid": "1ea2d72f-6bd0-480e-89a3-132f03a4c7e1",
+      "images": {
+        "root.erofs": {
+          "bytes": 917434368,
+          "sha256": "3a35a4ad6174ae172410e4671fa31cd347dad395adb2164ea1e854558ee6578a"
+        },
+        "root.raw": {
+          "bytes": 928989184,
+          "sha256": "62c7542ed04aec91ac07bdd4ae356de4dccc40107feadec144e078d31d55e5f6"
+        },
+        "root.verity.raw": {
+          "bytes": 10485760,
+          "sha256": "043d042c3777878802c320c2ac6da3335f1fba263323f37133fa1bd0d6230dbc"
+        }
+      },
+      "images_exported": false,
+      "kernel_verity_verified": false,
+      "parameters": {
+        "data_block_bytes": 4096,
+        "data_blocks": 223983,
+        "format": 1,
+        "hash_algorithm": "sha256",
+        "hash_block_bytes": 4096,
+        "salt": "89609461d8139622a4a5e5b22ac0a928626ceac08652e36004266d6c7acc3c16",
+        "uuid": "58468b84-9dc4-4d41-b651-ceece5ff3767"
+      },
+      "private_images_removed": true,
+      "reproducibility_verified": false,
+      "result": "pass",
+      "root_hash": "c0ec6de5e1057e2a536c10a860a578be25da452192abe86c64cc565105232220",
+      "schema": "nib.private-verity-root/v1",
+      "seed": "1ea2d72f-6bd0-480e-89a3-132f03a4c7e1",
+      "tools": {
+        "guest/usr/sbin/veritysetup": {
+          "bytes": 44992,
+          "sha256": "95659d771286250ebdb04c831c198711bb8f6b5e569a39e88d35b3f619cd4faf"
+        },
+        "tools/usr/bin/fsck.erofs": {
+          "bytes": 68216,
+          "sha256": "9df25cc289bbd04f1995383aa6a5a235757ef895a6085b26d0b63eb45718a448"
+        },
+        "tools/usr/bin/mkfs.erofs": {
+          "bytes": 163496,
+          "sha256": "9ad2004dd18dba23f1297a1e360cb79280c174267a99a99e53d926cb776d5180"
+        },
+        "tools/usr/bin/systemd-repart": {
+          "bytes": 199912,
+          "sha256": "5e731ad1322a7badc6a57001622ddb8ff2b5a665f293a19781f91a86c6db219d"
+        }
+      },
+      "userspace_verity_verified": true,
+      "wrong_root_rejected": true
+    }
+  }
+}
