@@ -3,6 +3,9 @@
 Status: implemented for local tests; no eight-GPU runtime result yet. This is
 not a release profile, attestation result, tau benchmark, or serving deployment.
 
+The separate opt-in [tokenizer parity prerequisite](p2-t3-tokenizer-parity.md)
+reuses this bounded profile without changing its default correctness commands.
+
 ## Source-backed topology
 
 The pinned vLLM revision is
