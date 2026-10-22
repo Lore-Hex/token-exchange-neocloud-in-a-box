@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 """Fixed private EROFS + dm-verity build; no image export or kernel activation."""
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 import hashlib
 import json
 import os
@@ -51,6 +51,8 @@ TREE_FILES = ("etc/machine-id", "etc/shadow", "etc/gshadow", "etc/ld.so.cache",
               "var/lib/dkms/nvidia/595.91.07/6.8.0-147-generic/x86_64/log/make.log")
 TREE_MAX_ENTRIES = 150000
 TREE_MAX_BYTES = 8 << 30
+BUILD_ARTIFACTS = (TREE_FILES[-1], "var/log/alternatives.log", "var/cache/ldconfig/aux-cache")
+BUILD_ARTIFACT_MAX_BYTES = 2 << 20
 
 
 def require(value):
@@ -95,6 +97,47 @@ def directory(path):
         os.close(fd)
 
 
+def file_stamp(info):
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid,
+            info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def remove_build_artifacts(root):
+    """Discard only fixed build logs/cache, never runtime loader/package state.
+
+    DKMS records wall time; ldconfig's auxiliary cache records build inode/ctime.
+    Source review and scope: docs/tasks/p3-t1-rootfs-build-artifacts.md.
+    """
+    report = {name: None for name in BUILD_ARTIFACTS}
+    pending = []
+    with directory(root), ExitStack() as stack:
+        for name in BUILD_ARTIFACTS:
+            path = Path(name)
+            try:
+                parent = stack.enter_context(directory(root / path.parent))
+                fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+            except FileNotFoundError:
+                continue
+            stream = stack.enter_context(os.fdopen(fd, "rb"))
+            before = os.fstat(fd)
+            require(stat.S_ISREG(before.st_mode) and before.st_nlink == 1
+                    and 0 <= before.st_size <= BUILD_ARTIFACT_MAX_BYTES)
+            raw = stream.read(BUILD_ARTIFACT_MAX_BYTES + 1)
+            require(len(raw) == before.st_size and file_stamp(before) == file_stamp(os.fstat(fd)))
+            report[name] = {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+            pending.append((parent, path.name, fd, file_stamp(before)))
+        # Validate all candidates before removing any. This runs only after the
+        # confined installer and driver children have exited, never on a live root.
+        for parent, name, fd, expected in pending:
+            require(expected == file_stamp(os.fstat(fd))
+                    == file_stamp(os.stat(name, dir_fd=parent, follow_symlinks=False)))
+        for parent, name, fd, expected in pending:
+            require(expected == file_stamp(os.fstat(fd))
+                    == file_stamp(os.stat(name, dir_fd=parent, follow_symlinks=False)))
+            os.unlink(name, dir_fd=parent)
+    return report
+
+
 def tree_diagnostics(root, *, clock=time.monotonic):
     """Hash fixed directory buckets, never expose file contents or dynamic paths.
 
@@ -106,9 +149,7 @@ def tree_diagnostics(root, *, clock=time.monotonic):
     stats = {name: {"entries": 0, "bytes": 0} for name in TREE_BUCKETS}
     selected = {name: None for name in TREE_FILES}
 
-    def stamp(info):
-        return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid,
-                info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+    stamp = file_stamp
 
     def visit(parent, prefix, depth):
         nonlocal count, total
@@ -358,6 +399,7 @@ def build(processes, prefix, reader, output=Path("/out"), *, require_boot_ids=Fa
     with directory(WORK.parent) as fd:
         os.mkdir(WORK.name, 0o700, dir_fd=fd)  # Collision rejects; never reuse/delete a prior workspace.
     try:
+        removed = remove_build_artifacts(ROOTFS)
         diagnostics = tree_diagnostics(ROOTFS)
         execute(processes, prefix, "mkfs", output)
         data = inspect_file(DATA, MAX_DATA)
@@ -378,6 +420,7 @@ def build(processes, prefix, reader, output=Path("/out"), *, require_boot_ids=Fa
         require(inspect_file(DATA, MAX_DATA) == data and inspect_file(HASH, MAX_HASH) == hashes
                 and verify_tools(reader) == identities)
         report = {"schema": "nib.private-verity-root/v1", "result": "pass", "seed": SEED,
+                  "discarded_build_artifacts": removed,
                   "source_tree_diagnostics": diagnostics,
                   "erofs_uuid": SEED, "erofs_timestamp": int(EPOCH), "parameters": parameters,
                   "root_hash": root_hash, "images": {DATA: data, HASH: hashes, DISK: disk}, "tools": identities,

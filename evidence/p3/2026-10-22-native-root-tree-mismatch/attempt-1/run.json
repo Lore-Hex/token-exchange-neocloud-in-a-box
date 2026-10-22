@@ -1,0 +1,20 @@
+{
+  "command": "host/run-mkosi-build.py --downloads PRIVATE --archive PRIVATE --output PRIVATE --compile-driver --install-driver --guest-runtime --verity-root --boot-uki --export-boot",
+  "ended_utc": "2026-10-22T19:32:50Z",
+  "execution": "software",
+  "git_sha": "ad1ab45e6b96a06a5972bedfcb5d4b5f5dcf5c9c",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "ubuntu-22.04-x86_64",
+    "provider": "github-actions"
+  },
+  "notes": "Verified GPT and unsigned UKI staged privately; final publication requires independent resource cleanup. No boot, signing, LKCA, reproducibility or confidentiality proof.",
+  "phase": "P3",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-22T19:28:21Z",
+  "task": "T1"
+}
