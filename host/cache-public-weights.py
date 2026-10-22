@@ -66,22 +66,24 @@ def command(args):
                           env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C", "LC_ALL": "C"}).stdout
 
 
-def mount_cache(export, target):
+def mount_cache(export, target, *, readonly=False):
     require(re.fullmatch(r"[a-z0-9.-]+:/[A-Za-z0-9_-]+", export) is not None)
     with directory(target, create=True) as fd:
         with os.scandir(fd) as entries:
             require(next(entries, None) is None)
-    command(["mount", "-t", "nfs", "-o", OPTIONS, export, str(target)])
-    verify_mount(export, target)
+    command(["mount", "-t", "nfs", "-o", ("ro," if readonly else "") + OPTIONS, export, str(target)])
+    verify_mount(export, target, readonly=readonly)
 
 
-def verify_mount(export, target):
+def verify_mount(export, target, *, readonly=False):
     row = json.loads(command(["findmnt", "--json", "--mountpoint", str(target),
                               "--output", "SOURCE,TARGET,FSTYPE,OPTIONS"]))
     require(type(row) is dict and len(row["filesystems"]) == 1)
     fs = row["filesystems"][0]
     require(fs["source"] == export and fs["target"] == str(target) and fs["fstype"] in ("nfs", "nfs4")
             and {"nodev", "nosuid", "noexec"} <= set(fs["options"].split(",")))
+    if readonly:
+        require("ro" in fs["options"].split(",") and "rw" not in fs["options"].split(","))
 
 
 def unmount_cache(export, target):
@@ -204,12 +206,51 @@ def copy_pack(source, destination, rows, deadline):
     return {"files": len(rows), "verified_bytes": sum(row[1] for row in rows)}
 
 
+def restore_report(export, target, destination, rows, output, producer, seconds):
+    require(type(seconds) is int and 60 < seconds <= 7200)
+    require(not destination.is_relative_to(target) and not target.is_relative_to(destination)
+            and not output.is_relative_to(target) and not output.is_relative_to(destination))
+    with directory(destination.parent):
+        require(not os.path.lexists(destination))
+        space = os.statvfs(destination.parent)
+        needed = sum(row[1] for row in rows)
+        require(space.f_bavail * space.f_frsize >= needed + max(10 << 30, (needed + 9) // 10))
+    report = {"schema": "nib.public-weight-cache-restore/v1", "result": "fail", "stage": "mount",
+              "producer": producer, "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+              "manifest_sha256": MANIFEST_SHA256,
+              "started_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              "confidential": False, "source_removed": False, "files": 0, "verified_bytes": 0}
+    with directory(output.parent) as parent:
+        fd = os.open(output.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+    with os.fdopen(fd, "w") as stream:
+        signal.signal(signal.SIGALRM, lambda *_: (_ for _ in ()).throw(TimeoutError("cache-deadline")))
+        signal.alarm(seconds)
+        try:
+            mount_cache(export, target, readonly=True)
+            report["stage"] = "copy-and-verify"
+            report.update(copy_pack(target / "deepseek-v4.1-flash-1017", destination, rows,
+                                    time.monotonic() + seconds - 60))
+            verify_mount(export, target, readonly=True)
+            report.update(result="pass", stage="complete")
+        except Exception:
+            pass
+        finally:
+            signal.alarm(0)
+            report["ended_utc"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            json.dump(report, stream, sort_keys=True)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+    return 0 if report["result"] == "pass" else 1
+
+
 def main():
     require(sys.flags.isolated and sys.flags.no_site and sys.platform == "linux" and os.getuid() == 0)
     parser = argparse.ArgumentParser()
     parser.add_argument("--export", required=True)
     parser.add_argument("--mount", required=True, type=Path)
     parser.add_argument("--source", type=Path)
+    parser.add_argument("--restore-to", type=Path)
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--unmount-only", action="store_true")
     parser.add_argument("--output", required=True, type=Path)
@@ -218,12 +259,15 @@ def main():
     args = parser.parse_args()
     require(re.fullmatch(r"[0-9a-f]{40}", args.producer))
     if args.unmount_only:
-        require(args.source is None and args.manifest is None and args.timeout is None)
+        require(args.source is None and args.restore_to is None and args.manifest is None and args.timeout is None)
         return unmount_report(args.export, args.mount, args.output, args.producer)
-    require(args.source is not None and args.manifest is not None
+    require((args.source is None) != (args.restore_to is None) and args.manifest is not None
             and type(args.timeout) is int and 60 < args.timeout <= 7200)
     with args.manifest.open("rb") as stream:
         rows = manifest(stream.read(65537))
+    if args.restore_to is not None:
+        return restore_report(args.export, args.mount, args.restore_to, rows,
+                              args.output, args.producer, args.timeout)
     started = datetime.datetime.now(datetime.timezone.utc).isoformat()
     report = {"schema": "nib.public-weight-cache/v1", "result": "fail", "stage": "mount",
               "producer": args.producer, "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),

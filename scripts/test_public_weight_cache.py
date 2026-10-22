@@ -89,6 +89,74 @@ class CacheTests(unittest.TestCase):
         for invalid in (raw[:-1], raw + b"extra", b"x" * 65537):
             with self.assertRaises(ValueError): cache.manifest(invalid)
 
+    def test_readonly_mount_requires_kernel_readback(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            target = Path(temporary).resolve() / "mount"
+            export = "nfs.example.test:/public"
+            fs = {"source": export, "target": str(target), "fstype": "nfs4",
+                  "options": "ro,nosuid,nodev,noexec,nconnect=16"}
+            with mock.patch.object(cache, "command", side_effect=[b"", json.dumps({"filesystems": [fs]}).encode()]) as command:
+                cache.mount_cache(export, target, readonly=True)
+            self.assertEqual(command.call_args_list[0].args[0][4], "ro,nconnect=16,nodev,nosuid,noexec")
+            for options in ("rw,nosuid,nodev,noexec", "ro,rw,nosuid,nodev,noexec", "ro,nodev,noexec"):
+                with mock.patch.object(cache, "command", return_value=json.dumps(
+                        {"filesystems": [{**fs, "options": options}]}).encode()), self.assertRaises(ValueError):
+                    cache.verify_mount(export, target, readonly=True)
+
+    def test_restore_uses_verified_copy_and_never_overwrites(self):
+        source, destination, rows = self.fixture()
+        target = source.parent / "mount"
+        target.mkdir()
+        source.rename(target / "deepseek-v4.1-flash-1017")
+        receipt = destination.parent / "restore.json"
+        with mock.patch.object(cache, "mount_cache") as mount, \
+                mock.patch.object(cache, "verify_mount") as verify, \
+                mock.patch.object(cache.os, "statvfs", return_value=types.SimpleNamespace(f_bavail=1 << 50, f_frsize=1)), \
+                mock.patch.object(cache.signal, "signal"), mock.patch.object(cache.signal, "alarm") as alarm:
+            self.assertEqual(cache.restore_report("nfs.example.test:/public", target, destination, rows,
+                                                 receipt, "a" * 40, 120), 0)
+            mount.assert_called_once_with("nfs.example.test:/public", target, readonly=True)
+            verify.assert_called_once_with("nfs.example.test:/public", target, readonly=True)
+            self.assertEqual(alarm.call_args_list, [mock.call(120), mock.call(0)])
+            for existing in (destination, destination.parent / "new"):
+                with self.assertRaises((ValueError, FileExistsError)):
+                    cache.restore_report("nfs.example.test:/public", target, existing, rows, receipt, "a" * 40, 120)
+            self.assertEqual(mount.call_count, 1)
+        result = json.loads(receipt.read_text())
+        self.assertEqual((result["result"], result["files"], result["verified_bytes"]), ("pass", 2, 24))
+        self.assertFalse(result["confidential"])
+        self.assertFalse(result["source_removed"])
+        self.assertEqual(receipt.stat().st_mode & 0o777, 0o600)
+        self.assertEqual((destination / "config.json").read_bytes(), b"public")
+
+    def test_restore_rejects_bad_cache_and_insufficient_space(self):
+        for mode in ("space", "corrupt", "readback"):
+            with self.subTest(mode=mode):
+                source, destination, rows = self.fixture()
+                target = source.parent / "mount"
+                target.mkdir()
+                source.rename(target / "deepseek-v4.1-flash-1017")
+                if mode == "corrupt":
+                    (target / "deepseek-v4.1-flash-1017/config.json").write_bytes(b"secret")
+                receipt = destination.parent / "restore.json"
+                with mock.patch.object(cache, "mount_cache") as mount, \
+                        mock.patch.object(cache, "verify_mount", side_effect=ValueError("private") if mode == "readback" else None), \
+                        mock.patch.object(cache.os, "statvfs", return_value=types.SimpleNamespace(
+                            f_bavail=0 if mode == "space" else 1 << 50, f_frsize=1)), \
+                        mock.patch.object(cache.signal, "signal"), mock.patch.object(cache.signal, "alarm"):
+                    if mode == "space":
+                        with self.assertRaises(ValueError):
+                            cache.restore_report("nfs.example.test:/public", target, destination, rows, receipt, "a" * 40, 120)
+                        mount.assert_not_called()
+                        self.assertFalse(receipt.exists())
+                    else:
+                        self.assertEqual(cache.restore_report("nfs.example.test:/public", target, destination,
+                                                             rows, receipt, "a" * 40, 120), 1)
+                        self.assertEqual(json.loads(receipt.read_text())["result"], "fail")
+                        self.assertNotIn("private", receipt.read_text())
+                if mode != "readback":
+                    self.assertFalse(destination.exists())
+
     def test_unmount_requires_exact_mount_and_confirmed_absence(self):
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary).resolve()
