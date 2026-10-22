@@ -326,14 +326,21 @@ class ParentSession:
     `records` are trusted-parent inputs, never accepted from worker frames. Their
     counts are synthetic in tests; a real count verifier/endpoint adapter is absent.
     """
-    def __init__(self, channel, manifest, manifest_sha, role, records, *, assertions=(), clock=time.monotonic):
-        self.manifest = smoke_manifest(manifest, manifest_sha)
+    def __init__(self, channel, manifest, manifest_sha, role, records, *, assertions=(), clock=time.monotonic,
+                 support_probe=False):
+        if support_probe:
+            import tau_support_probe
+            require(role == "candidate" and records == [])
+            self.manifest = tau_support_probe.transport_manifest(snapshot(manifest, worker.MAX_REQUEST), manifest_sha)
+        else:
+            self.manifest = smoke_manifest(manifest, manifest_sha)
         require(role in ("candidate", "reference") and type(records) is list and len(records) <= 128)
         self.records = snapshot(records, 4 << 20)
         for record in self.records:
             require(type(record) is dict and set(record) == {"bounds", "response"})
         self.channel, self.manifest_sha, self.role, self.sequence = channel, manifest_sha, role, 0
-        self.bridge = worker.Bridge(tau, self.manifest["settings"], role, self.dispatch, clock=clock)
+        self.bridge = worker.Bridge(tau, self.manifest["input"] if support_probe else self.manifest["settings"],
+                                    role, self.dispatch, clock=clock, **({"support_probe": True} if support_probe else {}))
         self.started, self.result = clock(), None
         require(type(assertions) in (list, tuple) and all(type(item) is str for item in assertions))
         self.bridge.assertions = snapshot(list(assertions), worker.MAX_RESPONSE)

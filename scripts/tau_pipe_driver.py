@@ -2,7 +2,9 @@
 """Bounded Docker-attach lifecycle; scripted by default, explicit admitted live mode."""
 
 import os
+import select
 import signal
+import stat
 import subprocess
 import time
 
@@ -10,6 +12,82 @@ import tau_transport as transport
 import tau_aggregate as aggregate
 
 worker, tau, require = transport.worker, transport.tau, transport.require
+CPU_PROBE_REPORT = b"NIB-TAU-CPU-PROBE "
+
+
+def validate_support_probe(row):
+    require(type(row) is dict and set(row) == {"schema", "result", "status", "plan_sha256", "selection", "upstream_revision",
+            "observations", "roles", "target", "pricing", "quality_eligible", "confidential", "live_admission"}
+            and row["schema"] == "nib.tau-cpu-probe/v1" and row["result"] in ("pass", "fail")
+            and row["status"] in worker.STATUSES and row["target"] == "scripted"
+            and row["pricing"] == "not-measured"
+            and row["upstream_revision"] == tau.REVISION
+            and all(row[name] is False for name in ("quality_eligible", "confidential", "live_admission")))
+    tau.sha(row["plan_sha256"])
+    require(type(row["selection"]) is dict and set(row["selection"]) == {"domain", "task_id", "trial", "seed", "role"}
+            and type(row["selection"]["trial"]) is int
+            and row["selection"] == {"domain": "retail", "task_id": "2", "trial": 0,
+                                     "seed": row["selection"]["seed"], "role": "candidate"})
+    tau.integer(row["selection"]["seed"], 0, 2**32 - 1)
+    require(type(row["roles"]) is dict and set(row["roles"]) in (set(), {"agent", "simulator", "evaluator"}))
+    for count in row["roles"].values():
+        tau.integer(count, 0, 1)
+    require(type(row["observations"]) is list and len(row["observations"]) <= 2)
+    for role, observation in zip(("simulator", "evaluator"), row["observations"]):
+        require(type(observation) is dict and set(observation) == {
+            "role", "request_sha256", "prompt_tokens", "completion_tokens", "status"}
+            and observation["role"] == role and observation["status"] in ("pass", "not-completed", "context-exceeded"))
+        tau.sha(observation["request_sha256"])
+        if observation["prompt_tokens"] is not None:
+            tau.integer(observation["prompt_tokens"], 1, 4096)
+        if observation["completion_tokens"] is not None:
+            tau.integer(observation["completion_tokens"], 0, 256)
+        if observation["status"] == "pass":
+            require(observation["prompt_tokens"] is not None and observation["completion_tokens"] is not None
+                    and observation["prompt_tokens"] + observation["completion_tokens"] <= 4096)
+    if row["result"] == "pass":
+        require(row["status"] == "evaluated" and row["roles"] == {"agent": 1, "simulator": 1, "evaluator": 1}
+                and len(row["observations"]) == 2 and all(item["status"] == "pass" for item in row["observations"]))
+    return row
+
+
+def attach_probe_scorer(command, environment, held, deadline):
+    """The existing sealed-scorer owner supplies its fixed Docker attach argv."""
+    require(type(held) is dict and set(held) == {"process", "ready_sha256", "controller_fd"})
+    process = held["process"]
+    tau.sha(held["ready_sha256"])
+    require(isinstance(process, subprocess.Popen) and process.poll() is None
+            and type(held["controller_fd"]) is int and held["controller_fd"] >= 0
+            and stat.S_ISFIFO(os.fstat(held["controller_fd"]).st_mode))
+    scorer, data, observed = None, bytearray(), None
+    try:
+        scorer = subprocess.Popen(command, env=environment, stdin=process.stdout, stdout=process.stdin,
+                                  stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True)
+        while observed is None:
+            require(time.monotonic() < deadline and process.poll() is None)
+            ready = select.select([process.stderr, held["controller_fd"]], [], [],
+                                  min(0.1, max(0, deadline - time.monotonic())))[0]
+            require(held["controller_fd"] not in ready)  # EOF or premature release cancels the probe.
+            if process.stderr in ready:
+                block = os.read(process.stderr.fileno(), 16385 - len(data))
+                require(block)
+                data.extend(block)
+                require(len(data) <= 16384)
+                if b"\n" in data:
+                    require(data.startswith(CPU_PROBE_REPORT) and data.endswith(b"\n") and data.count(b"\n") == 1)
+                    observed = validate_support_probe(worker.decode(bytes(data[len(CPU_PROBE_REPORT):-1])))
+            if scorer.poll() is not None and observed is None:
+                deadline = min(deadline, time.monotonic() + 5)
+        if observed["result"] == "pass":
+            require(scorer.wait(timeout=max(0.001, min(10, deadline - time.monotonic()))) == 0)
+        return observed
+    finally:
+        if scorer is not None and scorer.poll() is None:
+            try:
+                os.killpg(scorer.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            scorer.wait(timeout=10)
 
 
 def scripted_manifest(manifest):

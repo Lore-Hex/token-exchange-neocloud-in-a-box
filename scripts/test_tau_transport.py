@@ -503,7 +503,7 @@ class ContractTests(unittest.TestCase):
         imports = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
         imports.update(alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names)
         self.assertEqual(imports, {"decimal", "fcntl", "math", "os", "re", "select", "stat", "threading", "time",
-                                   "tau_preflight", "tau_trial_worker"})
+                                   "tau_preflight", "tau_trial_worker", "tau_support_probe"})
         self.assertNotIn("Budget", {node.name for node in ast.walk(tree) if isinstance(node, ast.ClassDef)})
         self.assertFalse(hasattr(transport, "run_upstream"))
         self.assertFalse(hasattr(transport, "live_dispatch"))

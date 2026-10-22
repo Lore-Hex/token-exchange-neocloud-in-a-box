@@ -19,8 +19,8 @@ import types
 import zipfile
 
 ROOT = Path(__file__).absolute().parent.parent
-RUNTIME_SHA = "1c6cd5cc2aa3cbfe3a49f5bbc4c920281fbdd9cd40e83334c93dec010437ffc9"
-SUPPORT_SHA = "5626bd91151737a26c9b1633284a5deb5b6f447e8fa50dd8426fbf5698ba233c"
+RUNTIME_SHA = "bba26279580ed48959c571cffa9b386ce094e7ac524a0cfbcad917d442341090"
+SUPPORT_SHA = "418ab0a6f8ec26b7f6d768af0bf1952dce1229ac3a3d0a2dc2f1ab4aebf78010"
 LOCK_SHA = "d5fbea8926b7410c34730593b8ebd305f01b04a160eb30e9867330c45799ade7"
 CHECKER_SHA = "591a11295d3f1e0ef20fbc51c788cabfbedf176e79ce56de8378252bd13adecd"
 SOURCES = ("scripts/provider_conformance.py", "scripts/provider_conformance_worker.py",

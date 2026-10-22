@@ -249,15 +249,29 @@ class Budget:
     usage keeps the reservation and aborts; no implicit zero cost or retry.
     """
     def __init__(self, config, *, clock=time.monotonic):
-        self.config, self.clock = settings(config), clock
+        self._initialize(settings(config), clock)
+
+    def _initialize(self, config, clock):
+        self.config, self.clock = config, clock
         self.limits = self.config["limits"]
         self.deadline = clock() + self.limits["run_seconds"]
-        self.spent = amount(self.limits["resource_cost_usd"])
+        self.spent = self._initial_spend()
         self.tokens = self.requests = 0
         self.pending = None
         self.failed = False
         self.trial_deadline = None
         self.turns = 0
+
+    def _initial_spend(self):
+        return amount(self.limits["resource_cost_usd"])
+
+    def _price(self, role, incoming, outgoing):
+        cfg = self.config["roles"][role]
+        return (amount(cfg["input_usd_per_million"]) * incoming
+                + amount(cfg["output_usd_per_million"]) * outgoing) / 1000000
+
+    def _within_cost(self, price):
+        return self.spent + price <= amount(self.limits["cost_usd"])
 
     def begin_trial(self):
         require(not self.failed and self.pending is None and self.trial_deadline is None
@@ -278,10 +292,9 @@ class Budget:
         require(left > 0 and self.turns < self.limits["turns"])
         cfg = self.config["roles"][role]
         incoming, outgoing = self.limits["input_tokens_per_request"], cfg["generation"]["max_tokens"]
-        price = (amount(cfg["input_usd_per_million"]) * incoming
-                 + amount(cfg["output_usd_per_million"]) * outgoing) / 1000000
+        price = self._price(role, incoming, outgoing)
         require(self.requests < self.limits["requests"] and self.tokens + incoming + outgoing <= self.limits["total_tokens"]
-                and self.spent + price <= amount(self.limits["cost_usd"]))
+                and self._within_cost(price))
         self.spent += price
         self.tokens += incoming + outgoing
         self.requests += 1
@@ -302,9 +315,7 @@ class Budget:
         integer(used_out, 0, outgoing)
         integer(usage["total_tokens"], 0, incoming + outgoing)
         require(usage["total_tokens"] == used_in + used_out)
-        cfg = self.config["roles"][role]
-        charged = (amount(cfg["input_usd_per_million"]) * used_in
-                   + amount(cfg["output_usd_per_million"]) * used_out) / 1000000
+        charged = self._price(role, used_in, used_out)
         self.spent += charged - reserved
         self.tokens += used_in + used_out - incoming - outgoing
         self.pending = None

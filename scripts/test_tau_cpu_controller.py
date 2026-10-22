@@ -229,7 +229,7 @@ class CPUControllerTests(unittest.TestCase):
         for forbidden in ("pull_request:", "  push:", "secrets.", "sudo ", "--gpus", "--privileged", "**"):
             self.assertNotIn(forbidden, text)
         paths = [line.strip() for line in text.splitlines() if line.strip().startswith("build/tau-cpu-session/proof/")]
-        self.assertEqual(len(paths), 8)
+        self.assertEqual(len(paths), 10)
         self.assertEqual(set(path.rsplit("/", 1)[1] for path in paths), {"run.json", "output.log", *session.FILES})
         for path in (".github/workflows/tau-cpu-parity-native.yml", "scripts/prepare-tau-cpu-parity-native.py",
                      "scripts/tau_cpu_parity.py", "scripts/pilot/run.py"):

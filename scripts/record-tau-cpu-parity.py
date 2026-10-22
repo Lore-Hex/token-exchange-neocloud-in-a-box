@@ -29,7 +29,9 @@ WHEEL = "cmake-3.31.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
 WHEEL_SHA = "1c8b05df0602365da91ee6a3336fe57525b137706c4ab5675498f662ae1dbcec"
 SOURCES = (SCRIPT, SNAPSHOT, "scripts/e2e/exercise.py", "scripts/pilot/run.py",
            "scripts/pilot/pins.json", "scripts/pilot/build-requirements.lock", "scripts/e2e/pins.json",
-           "scripts/tau_cpu_parity.py", "scripts/tau_cpu_session.py", "scripts/tau_cpu_parity.cpp", "scripts/tau_cpu_parity.cmake",
+           "scripts/tau_cpu_parity.py", "scripts/tau_cpu_session.py", "scripts/tau_cpu_probe.py",
+           "scripts/tau_aggregate.py", "scripts/tau_pipe_driver.py", "scripts/tau_support_probe.py",
+           "scripts/tau_cpu_parity.cpp", "scripts/tau_cpu_parity.cmake",
            "scripts/tau_cpu_parity.Dockerfile", "scripts/tau_cpu_support_models.json",
            "scripts/engine_tokenizer_parity.py", "scripts/tau_live_identity.py",
            "scripts/tau_local_llama.py", "scripts/tau_llama_identity.py", "scripts/tau_local_vllm.py", "scripts/tau_transport.py",
@@ -57,9 +59,9 @@ def load(path, name, raw=None):
 def toolkit(root):
     # This path is private and freshly extracted, with no ignored bytecode.
     # Order the explicit source closure instead of importing ambient modules.
-    for name in ("engine_tokenizer_parity", "tau_preflight", "tau_trial_worker", "tau_transport",
+    for name in ("engine_tokenizer_parity", "tau_preflight", "tau_support_probe", "tau_trial_worker", "tau_transport",
                  "tau_local_vllm", "tau_local_llama", "tau_llama_identity", "tau_live_identity", "tau_cpu_parity",
-                 "tau_cpu_session"):
+                 "tau_aggregate", "tau_pipe_driver", "tau_cpu_probe", "tau_cpu_session"):
         sys.modules[name] = load(root / "scripts" / (name + ".py"), name)
     return sys.modules["tau_cpu_parity"]
 
@@ -88,7 +90,7 @@ def runtime_command(image, name):
             "--tmpfs", "/work:rw,exec,nosuid,nodev,size=4g,mode=0700,uid=65532,gid=65532", image]
 
 
-def context(source, target, inputs, pilot):
+def context(source, target, inputs, pilot, probe_input=None):
     require(len(inputs) == 4)
     pins = json.loads((source / "scripts/tau_cpu_support_models.json").read_bytes())
     files = {}
@@ -100,6 +102,10 @@ def context(source, target, inputs, pilot):
         destination.write_bytes(raw)
         files[relative] = digest(raw)
     (target / "repo/source.json").write_text(json.dumps(files, sort_keys=True))
+    if probe_input is not None:
+        raw = sys.modules["tau_cpu_probe"].tau.encoded(probe_input)
+        require(len(raw) <= 1 << 20)
+        (target / "repo/probe.json").write_bytes(raw)
     shutil.copyfile(source / "scripts/tau_cpu_parity.Dockerfile", target / "Dockerfile")
     (target / "inputs").mkdir()
     (target / "cmake").mkdir()
@@ -118,7 +124,7 @@ def context(source, target, inputs, pilot):
     return digest(json.dumps(hashes, sort_keys=True, separators=(",", ":")).encode()), files
 
 
-def execute(source, work, env, snapshot, inputs, report, home, *, session_fd=None):
+def execute(source, work, env, snapshot, inputs, report, home, *, session_fd=None, probe=None):
     cpu = toolkit(source)
     pilot, _ = cpu.tools()
     cleanup = load(source / "scripts/e2e/run.py", "cpu_cleanup").cleanup_resources
@@ -129,9 +135,24 @@ def execute(source, work, env, snapshot, inputs, report, home, *, session_fd=Non
         env = {**env, "DOCKER_HOST": snapshot.local_docker_endpoint(env, home)}
         snapshot.require_buildkit(env)
         report["stage"] = "inputs"
+        prepared = None
+        if probe is not None:
+            require(session_fd is not None)
+            runner = load(source / "scripts/tau_trial.py", "cpu_probe_runner")
+            deadline = cpu.time.monotonic() + 60
+            toolkit_identity = runner.identity(deadline, parent_pipe=True, support_probe=True)
+            plan, manifest = runner.validate_plan(probe["payload"], probe["sha"], toolkit_identity, deadline,
+                                                   parent_pipe=True, support_probe=True)
+            require(digest(cpu.identity.tau.encoded(plan)) == probe["sha"])
+            prepared = sys.modules["tau_cpu_probe"].inputs(plan, manifest,
+                sys.modules["tau_pipe_driver"].selected_assertions(probe["payload"], plan["selection"]))
+            require(env["DOCKER_HOST"].startswith("unix://"))
+            probe["socket"] = Path(env["DOCKER_HOST"].removeprefix("unix://"))
+            probe["record"] = None
         target = work / "context"
         target.mkdir()
-        report["context_sha256"], report["sources"] = context(source, target, inputs, pilot)
+        report["context_sha256"], report["sources"] = context(source, target, inputs, pilot,
+            **({"probe_input": prepared} if prepared is not None else {}))
         bases = json.loads((source / "scripts/e2e/pins.json").read_bytes())
         report["base_images"] = {key: bases[key] for key in ("go_image", "python_image")}
         # Docker 28.0.4 inspect has no --platform flag; verify returned platform.
@@ -143,6 +164,13 @@ def execute(source, work, env, snapshot, inputs, report, home, *, session_fd=Non
                 max_output_bytes=1024, max_stderr_bytes=1024)
             require(result.returncode == 0 and not result.stderr
                     and re.fullmatch(rb"sha256:[0-9a-f]{64} linux/amd64\s*", result.stdout))
+        if probe is not None:
+            result = snapshot.execute_process_group(["docker", "image", "inspect", runner.runtime.TARGET["image"]],
+                env=env, timeout=15, max_output_bytes=65536, max_stderr_bytes=1024)
+            require(result.returncode == 0 and not result.stderr)
+            images = json.loads(result.stdout)
+            require(type(images) is list and len(images) == 1)
+            runner.check_probe_image(images[0])
         report["stage"] = "toolchain"
         build_started = True
         iid = work / "image-id"
@@ -167,16 +195,24 @@ def execute(source, work, env, snapshot, inputs, report, home, *, session_fd=Non
             session = sys.modules["tau_cpu_session"]
             command = runtime_command(image_id, name)
             command[2:2] = ["-i", "--entrypoint", "python3"]
-            command += ["-I", "-S", "-B", SCRIPT, "--session-worker", image_id, report["git_sha"]]
+            command += ["-I", "-S", "-B", SCRIPT,
+                        "--probe-worker" if prepared is not None else "--session-worker", image_id, report["git_sha"]]
+            if prepared is not None:
+                command.append(digest(cpu.identity.tau.encoded(prepared)))
             producer = {"git_sha": report["git_sha"], "script": SCRIPT,
                         "source_sha256": report["sources"][SCRIPT]}
-            runtime = session.relay(command, env, snapshot, producer, image_id.removeprefix("sha256:"), session_fd)
+            runtime = session.relay(command, env, snapshot, producer, image_id.removeprefix("sha256:"), session_fd,
+                                    **({"probe": probe} if probe is not None else {}))
         report["runtime"] = runtime
         report["result"] = runtime["result"]
-        report["stage"] = "complete" if runtime["result"] == "pass" else "runtime"
+        if probe is not None and (probe["record"] is None or probe["record"]["result"] != "pass"):
+            report["result"] = "fail"
+        report["stage"] = "complete" if report["result"] == "pass" else "runtime"
     except BaseException:
         report["result"] = "fail"
     finally:
+        if probe is not None:
+            report["scorer"] = probe.get("record")
         # Removing Docker's client group does not prove its daemon-side children
         # stopped. Always remove the owned container and query actual absence.
         cleaned = cleanup(image, name, env=env)
@@ -186,7 +222,7 @@ def execute(source, work, env, snapshot, inputs, report, home, *, session_fd=Non
             report["result"] = "fail"
 
 
-def worker(session_args=None):
+def worker(session_args=None, probe_sha=None):
     # No ambient imports or bytecode. Every dependency comes from the parent's
     # exact source snapshot embedded in the read-only, identity-bound image.
     expected = json.loads((ROOT / "source.json").read_bytes())
@@ -201,9 +237,14 @@ def worker(session_args=None):
         image, revision = session_args
         require(re.fullmatch("sha256:[0-9a-f]{64}", image) and re.fullmatch("[0-9a-f]{40}", revision))
         producer = {"git_sha": revision, "script": SCRIPT, "source_sha256": expected[SCRIPT]}
+        prepared = None
+        if probe_sha is not None:
+            raw = cpu.identity.tau.regular(ROOT / "probe.json", 1 << 20, cpu.time.monotonic() + 5)
+            require(re.fullmatch("[0-9a-f]{64}", probe_sha) and digest(raw) == probe_sha)
+            prepared = sys.modules["tau_cpu_probe"].prepared_input(cpu.llama.worker.decode(raw))
         result = sys.modules["tau_cpu_session"].run(Path("/inputs/llama.tar.gz"),
             [Path("/inputs/0.gguf"), Path("/inputs/1.gguf")], Path("/work"), producer,
-            image.removeprefix("sha256:"))
+            image.removeprefix("sha256:"), **({"probe": prepared} if prepared is not None else {}))
     raw = cpu.probes.encoded(result)
     require(len(raw) <= 65536)
     sys.stdout.buffer.write(raw)
@@ -226,6 +267,8 @@ def main():
         return worker()
     if len(sys.argv) == 4 and sys.argv[1] == "--session-worker":
         return worker(sys.argv[2:])
+    if len(sys.argv) == 5 and sys.argv[1] == "--probe-worker":
+        return worker(sys.argv[2:4], sys.argv[4])
     class Parser(argparse.ArgumentParser):
         def error(self, message):
             raise ValueError("CPU parity arguments rejected")
@@ -234,9 +277,13 @@ def main():
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--host-kind", choices=("local", "github-actions"), default="local")
     parser.add_argument("--session", action="store_true", help="fresh held CPU pair; private FIFO stdin/stdout controller required")
+    parser.add_argument("--probe-payload", type=Path)
+    parser.add_argument("--probe-plan-sha256")
     args = parser.parse_args()
     facts = host(args.host_kind)
-    if args.session:
+    probing = args.probe_payload is not None or args.probe_plan_sha256 is not None
+    require(not probing or args.probe_payload is not None and args.probe_plan_sha256 is not None and not args.session)
+    if args.session or probing:
         require(args.host_kind == "local" and all(stat.S_ISFIFO(os.fstat(fd).st_mode) for fd in (0, 1)))
     os.umask(0o077)
     raw = (ROOT / SNAPSHOT).read_bytes()
@@ -274,11 +321,18 @@ def main():
                 report["schema"] = "nib.tau-cpu-session-run/v1"
                 record["command"] += " --session"
                 record["notes"] = "Fresh held CPU-pair receipts only. No target, tau trial, quality, live admission or confidential claim. Pending until output.log and final receipt are present."
+            if probing:
+                require(re.fullmatch("[0-9a-f]{64}", args.probe_plan_sha256))
+                report.update(schema="nib.tau-cpu-probe-run/v1", scorer=None)
+                record["command"] += " --probe-payload PRIVATE --probe-plan-sha256 " + args.probe_plan_sha256
+                record["notes"] = "Fixed original tau CPU support probe with scripted target only. No full tau trial, target quality, live admission or confidential claim. Pending until output.log and final receipt are present."
             if args.host_kind != "local":
                 record["command"] += " --host-kind " + args.host_kind
             write(fd, "run.json", record)
             execute(source, work, env, snapshot, [args.archive, args.model_06, args.model_17, args.cmake_wheel],
-                    report, Path(pwd.getpwuid(os.getuid()).pw_dir), session_fd=fd if args.session else None)
+                    report, Path(pwd.getpwuid(os.getuid()).pw_dir), session_fd=fd if args.session or probing else None,
+                    **({"probe": {"payload": args.probe_payload, "sha": args.probe_plan_sha256,
+                                   "output": args.output / "scorer"}} if probing else {}))
             try:
                 snapshot.validate_snapshot(source, files)
             except BaseException:
@@ -289,7 +343,7 @@ def main():
             write(fd, "run.json.pending", record)
             os.replace("run.json.pending", "run.json", src_dir_fd=fd, dst_dir_fd=fd)
             os.fsync(fd)
-            if args.session:
+            if args.session or probing:
                 print("CPU session: " + report["result"] + "; no qualification claim.", file=sys.stderr)
             else:
                 print("CPU parity: " + report["result"] + "; no qualification claim.")
