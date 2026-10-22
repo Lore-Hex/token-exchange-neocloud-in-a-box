@@ -38,12 +38,36 @@ python3 -I -S -B host/cache-public-weights.py \
   --producer "$REVIEWED_COMMIT" --timeout 7200 --output "$NEW_PRIVATE_RECEIPT"
 ```
 
-Run under the existing detached-job procedure. The receipt is reserved before
-mounting or copying and records failure on deadline, corruption or failed
-readback. The cache remains read-only mounted afterward; use the documented
+Run under the existing detached-job procedure. Keep this script, its sibling
+`host/probe.py`, and the private receipt on local storage, outside the cache and
+restore destination. The parent verifies the supervisor source against
+SHA-256 `dd196679dc4b6d7ee335b3d62900b25484734884bd3da6e74f925260ad7864ff`
+and executes the exact restore source bytes recorded in the receipt, without
+ambient helper imports or cached bytecode. No additional dependency is installed.
+
+The parent reserves and syncs a failure receipt before launching the child.
+Manifest loading, free-space inspection, mount commands, readback and every
+hash/copy operation run in that independently supervised child. Its budget is
+the requested timeout minus 60 seconds; the existing supervisor kills its
+owned process group and bounds its own reap wait to one second. The reserve
+leaves time for reporting. This does not depend on a Python alarm interrupting
+[hard-NFS RPC waits](https://github.com/torvalds/linux/blob/v6.8/net/sunrpc/sched.c#L918-L922).
+
+Timeout, cancellation, nonzero exit, malformed output or failed supervisor
+cleanup cannot produce a pass. Such receipts conservatively say
+`cleanup=unproven`: sending SIGKILL or reaping the supervisor does not prove
+that a kernel-stuck descendant disappeared. Successful `worker-completed`
+means the verified worker exited normally and the supervisor was reaped;
+`process_group_absence_verified` remains false. Do not infer VM teardown or
+mount absence from either result. A failure may leave a partial destination;
+it is never overwritten or silently resumed.
+
+The cache remains mounted after a completed restore; use the documented
 explicit unmount operation when appropriate. No automatic teardown, deletion,
-engine launch or confidential verdict is introduced. Tests use tiny synthetic
-fixtures, not a measured recovery of the full model pack.
+engine launch or confidential verdict is introduced. The historical upload
+and explicit-unmount modes are unchanged. Tests use tiny synthetic fixtures,
+including a real local subprocess that ignores its own alarm, not a measured
+NFS outage or recovery of the full model pack.
 
 Tests use tiny synthetic files and fake mount commands. They cover source
 preservation, exact bytes, no overwrite, corrupted/extra/link/FIFO rejection,

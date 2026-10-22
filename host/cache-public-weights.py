@@ -14,10 +14,19 @@ import stat
 import subprocess
 import sys
 import time
+import types
 
 MANIFEST_SHA256 = "b74ae635c35372cf6c350e4b33ef60c90ff01fe6426ad0fa7bc99b1982fe5bed"
 TOTAL_BYTES = 510311045295
 OPTIONS = "nconnect=16,nodev,nosuid,noexec"
+PROBE_SHA256 = "dd196679dc4b6d7ee335b3d62900b25484734884bd3da6e74f925260ad7864ff"
+RESTORE_RESERVE = 60
+WORKER_BOOTSTRAP = """
+import sys
+scope = {'__name__': 'bound_cache_restore'}
+exec(compile(sys.argv.pop(1), '<bound-cache-restore>', 'exec'), scope)
+scope['restore_worker'](*sys.argv[1:])
+"""
 
 
 def require(ok):
@@ -206,41 +215,122 @@ def copy_pack(source, destination, rows, deadline):
     return {"files": len(rows), "verified_bytes": sum(row[1] for row in rows)}
 
 
-def restore_report(export, target, destination, rows, output, producer, seconds):
-    require(type(seconds) is int and 60 < seconds <= 7200)
-    require(not destination.is_relative_to(target) and not target.is_relative_to(destination)
-            and not output.is_relative_to(target) and not output.is_relative_to(destination))
+def read_regular(path, limit=65536):
+    with directory(path.parent) as parent:
+        fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        with os.fdopen(fd, "rb") as stream:
+            before = os.fstat(stream.fileno())
+            require(stat.S_ISREG(before.st_mode) and before.st_nlink == 1 and 0 < before.st_size <= limit)
+            raw = stream.read(limit + 1)
+            after = os.fstat(stream.fileno())
+            fields = ("st_dev", "st_ino", "st_mode", "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns")
+            require(len(raw) == before.st_size and
+                    all(getattr(before, key) == getattr(after, key) for key in fields))
+            return raw
+
+
+def load_capture():
+    path = Path(__file__).absolute().with_name("probe.py")
+    raw = read_regular(path)
+    require(hashlib.sha256(raw).hexdigest() == PROBE_SHA256)
+    helper = types.ModuleType("bound_cache_capture")
+    exec(compile(raw, str(path), "exec", dont_inherit=True), helper.__dict__)
+    return helper.capture
+
+
+def restore_worker(export, target, destination, manifest_path, seconds):
+    require(sys.platform == "linux" and sys.flags.isolated and sys.flags.no_site
+            and sys.dont_write_bytecode and os.getuid() == 0)
+    target, destination, manifest_path = map(Path, (target, destination, manifest_path))
+    seconds = int(seconds)
+    require(0 < seconds <= 7200 - RESTORE_RESERVE)
+    deadline = time.monotonic() + seconds
+    rows = manifest(read_regular(manifest_path))
+    require(not destination.is_relative_to(target) and not target.is_relative_to(destination))
+    # All potentially blocking source/destination work belongs to this child.
     with directory(destination.parent):
         require(not os.path.lexists(destination))
         space = os.statvfs(destination.parent)
         needed = sum(row[1] for row in rows)
         require(space.f_bavail * space.f_frsize >= needed + max(10 << 30, (needed + 9) // 10))
-    report = {"schema": "nib.public-weight-cache-restore/v1", "result": "fail", "stage": "mount",
-              "producer": producer, "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+    mount_cache(export, target, readonly=True)
+    result = copy_pack(target / "deepseek-v4.1-flash-1017", destination, rows, deadline)
+    verify_mount(export, target, readonly=True)
+    require(time.monotonic() < deadline)
+    print(json.dumps({"schema": "nib.public-weight-cache-restore-worker/v1", **result}, sort_keys=True))
+
+
+def restore_report(export, target, destination, manifest_path, output, producer, seconds):
+    require(type(seconds) is int and RESTORE_RESERVE < seconds <= 7200)
+    require(re.fullmatch(r"[0-9a-f]{40}", producer) is not None)
+    for path in (target, destination, manifest_path, output):
+        require(path.is_absolute() and str(path) == os.path.normpath(path) and ".." not in path.parts)
+    require(not destination.is_relative_to(target) and not target.is_relative_to(destination)
+            and not output.is_relative_to(target) and not output.is_relative_to(destination)
+            and not manifest_path.is_relative_to(target) and not manifest_path.is_relative_to(destination))
+    source = read_regular(Path(__file__).absolute())
+    report = {"schema": "nib.public-weight-cache-restore/v1", "result": "fail", "stage": "preflight",
+              "producer": producer, "script_sha256": hashlib.sha256(source).hexdigest(),
+              "supervisor_sha256": PROBE_SHA256, "timeout_seconds": seconds,
               "manifest_sha256": MANIFEST_SHA256,
               "started_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              "ended_utc": None, "failure": None, "cleanup": "not-started", "worker_exit_confirmed": False,
+              "process_group_absence_verified": False,
               "confidential": False, "source_removed": False, "files": 0, "verified_bytes": 0}
     with directory(output.parent) as parent:
         fd = os.open(output.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
     with os.fdopen(fd, "w") as stream:
-        signal.signal(signal.SIGALRM, lambda *_: (_ for _ in ()).throw(TimeoutError("cache-deadline")))
-        signal.alarm(seconds)
-        try:
-            mount_cache(export, target, readonly=True)
-            report["stage"] = "copy-and-verify"
-            report.update(copy_pack(target / "deepseek-v4.1-flash-1017", destination, rows,
-                                    time.monotonic() + seconds - 60))
-            verify_mount(export, target, readonly=True)
-            report.update(result="pass", stage="complete")
-        except Exception:
-            pass
-        finally:
-            signal.alarm(0)
-            report["ended_utc"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        def publish():
+            stream.seek(0)
             json.dump(report, stream, sort_keys=True)
             stream.write("\n")
+            stream.truncate()
             stream.flush()
             os.fsync(stream.fileno())
+        cancelled = False
+        def cancel(*_):
+            nonlocal cancelled
+            if not cancelled:
+                cancelled = True
+                raise InterruptedError("restore-cancelled")
+        previous = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+        publish()
+        try:
+            for sig in previous:
+                signal.signal(sig, cancel)
+            capture = load_capture()
+            report.update(stage="restore-worker", cleanup="unproven")
+            publish()
+            budget = seconds - RESTORE_RESERVE
+            deadline = time.monotonic() + budget
+            raw = capture([sys.executable, "-I", "-S", "-B", "-c", WORKER_BOOTSTRAP, source.decode("utf-8"),
+                           export, str(target), str(destination), str(manifest_path), str(budget)],
+                          timeout=budget, limit=4096)
+            require(time.monotonic() < deadline and type(raw) is bytes and len(raw) <= 4096)
+            row = json.loads(raw)
+            require(type(row) is dict and set(row) == {"schema", "files", "verified_bytes"}
+                    and row["schema"] == "nib.public-weight-cache-restore-worker/v1"
+                    and type(row["files"]) is int and row["files"] == 83
+                    and type(row["verified_bytes"]) is int and row["verified_bytes"] == TOTAL_BYTES)
+            report.update(result="pass", stage="complete", files=row["files"], verified_bytes=row["verified_bytes"],
+                          cleanup="worker-completed", worker_exit_confirmed=True)
+        except InterruptedError:
+            report.update(result="fail", failure="cancelled")
+        except Exception as error:
+            kinds = {"probe-timeout": "timeout", "probe-output-limit": "output-limit",
+                     "probe-command-failed": "worker-failed", "probe-cleanup-timeout": "cleanup-unproven",
+                     "probe-cleanup-failed": "cleanup-unproven"}
+            report.update(result="fail", failure=kinds.get(
+                error.args[0] if error.args and type(error.args[0]) is str else "", "rejected"))
+        finally:
+            for sig in previous:
+                signal.signal(sig, signal.SIG_IGN)
+            try:
+                report["ended_utc"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                publish()
+            finally:
+                for sig, handler in previous.items():
+                    signal.signal(sig, handler)
     return 0 if report["result"] == "pass" else 1
 
 
@@ -263,11 +353,11 @@ def main():
         return unmount_report(args.export, args.mount, args.output, args.producer)
     require((args.source is None) != (args.restore_to is None) and args.manifest is not None
             and type(args.timeout) is int and 60 < args.timeout <= 7200)
+    if args.restore_to is not None:
+        return restore_report(args.export, args.mount, args.restore_to, args.manifest.absolute(),
+                              args.output, args.producer, args.timeout)
     with args.manifest.open("rb") as stream:
         rows = manifest(stream.read(65537))
-    if args.restore_to is not None:
-        return restore_report(args.export, args.mount, args.restore_to, rows,
-                              args.output, args.producer, args.timeout)
     started = datetime.datetime.now(datetime.timezone.utc).isoformat()
     report = {"schema": "nib.public-weight-cache/v1", "result": "fail", "stage": "mount",
               "producer": args.producer, "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
