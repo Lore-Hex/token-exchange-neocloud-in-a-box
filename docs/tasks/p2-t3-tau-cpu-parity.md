@@ -1,8 +1,8 @@
 # CPU Support Tokenizer Parity Producer
 
-Status: implemented and tested with synthetic protocol/process fixtures. No model
-execution, tokenizer parity measurement, tau trial, quality result or confidential
-execution is claimed by this change. Legacy live tau admission remains vLLM-only;
+Status: [actual native two-model functional parity passed](../../evidence/p2/2026-10-22-cpu-parity-native-pass/README.md)
+for all four fixed probes per model. This is not a tau trial, quality result or
+confidential execution. Legacy live tau admission remains vLLM-only;
 the [explicit v3 CPU consumer](p2-t3-tau-cpu-admission.md) requires fresh original
 receipts. This producer does not create admission receipts or start DeepSeek.
 
@@ -105,11 +105,13 @@ python3 -B scripts/check-doc-links.py
 make check
 ```
 
-Actual two-model parity, latency/memory feasibility, structured evaluator output
-and original tau prompt/context fit remain unproven. Only after those measurements
-should an explicitly reviewed CPU runtime kind be admitted and connected to the
-selected-target lifecycle. Full benchmark acceptance and distinct simulator and
-evaluator requirements are unchanged.
+The fixed four-probe parity prerequisite passed for both pinned models in a
+sequential run. Concurrent-pair memory feasibility, application latency,
+structured evaluator output and original tau prompt/context fit remain unproven.
+The [explicit CPU consumer](p2-t3-tau-cpu-admission.md) still requires fresh owned
+live receipts; historical stopped-process parity cannot satisfy that lifecycle.
+Full benchmark acceptance and distinct simulator/evaluator requirements are
+unchanged.
 
 The first actual run [failed readiness](p2-t3-cpu-readiness-diagnostics.md).
 Original receipts are preserved; bounded source-frame diagnostics support the

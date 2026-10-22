@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S -B scripts/record-tau-cpu-parity.py --archive PRIVATE --model-06 PRIVATE --model-17 PRIVATE --cmake-wheel PRIVATE --output PRIVATE --host-kind github-actions",
+  "ended_utc": "2026-10-22T21:38:39Z",
+  "execution": "software",
+  "git_sha": "0a89d7f5193fab48f1b1e3cfa8e88fd772436f4f",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "owned-linux-amd64-container",
+    "provider": "github-actions"
+  },
+  "notes": "Offline CPU tokenizer prerequisite only. No tau trial, quality, live admission, public service or confidential claim.",
+  "phase": "P2",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-22T21:33:14Z",
+  "task": "T3"
+}

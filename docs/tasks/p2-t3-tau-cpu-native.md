@@ -77,6 +77,20 @@ and future inspection failures retain fixed stage `base-images`.
 Tests reject nonzero exit, wrong OS/architecture, malformed/multiple output,
 stderr, timeout and output-limit failure for either base before building or
 running anything. They also bind every original source hash and receipt byte.
-No corrected native execution is claimed. Another bounded run requires the
-fix's final-head independent review, full checks, CI, and a new explicit run
-approval; it must not be a blind retry.
+The correction was gated on final-head independent review, full checks, CI and
+one explicit corrected-run approval; no blind retry was performed.
+
+## Actual Native Parity
+
+The [original corrected-run receipts](../../evidence/p2/2026-10-22-cpu-parity-native-pass/README.md)
+from workflow **39857959628** at producer
+`0a89d7f5193fab48f1b1e3cfa8e88fd772436f4f` passed. Both pinned Qwen3-0.6B and
+Qwen3-1.7B models matched independent token-ID hashes and generated prompt usage
+for all four unchanged probes: **20, 28, 160, 198** tokens. Strict ownership
+checks passed and owned container/image cleanup was confirmed. The original
+21-source closure is preserved, not upgraded to a later producer.
+
+This measured sequential CPU functional parity only. It did not produce fresh
+live-pair admission, a tau trial, a quality result or confidential proof. No
+claim is made about concurrent memory fit, arbitrary histories, peak memory,
+binary reproducibility or the cause of the earlier OrbStack argv mismatch.
