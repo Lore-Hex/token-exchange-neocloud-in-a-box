@@ -1,0 +1,63 @@
+{
+  "bootable": false,
+  "deployable": false,
+  "failure_kind": "process-exit",
+  "git_sha": "6efd0fbf6021afacb30745f76058f3563dfbe910",
+  "mapping_helper_hashes": {
+    "/usr/bin/newgidmap": "076d35f3dd11680a17725ea7b694715bc909182eeb930f1771ef0550e4779459",
+    "/usr/bin/newuidmap": "e26eed17f29ce6ee829855064b83f9ab20afdd9503ec4517f1ce8c1230bebaad"
+  },
+  "payload_removed": true,
+  "prepared_receipt_sha256": "43036522952a8463b350111d4a0cb28284bb338fa7dbc231483ebfef3dd5838b",
+  "process_cleanup_confirmed": true,
+  "result": "fail",
+  "schema": "nib.mkosi-installation/v1",
+  "stage": "installation",
+  "tools_receipt_sha256": "dbb48af95dac7550d0ad878d6c1a6eecf061f89b782c74bddd9f606579248d3b",
+  "worker": {
+    "bootable": false,
+    "configured_state_verified": true,
+    "deployable": false,
+    "dkms_built": false,
+    "failure_frames": [
+      {
+        "line": 160,
+        "source": "build-worker"
+      },
+      {
+        "line": 233,
+        "source": "driver-worker"
+      },
+      {
+        "line": 162,
+        "source": "driver-worker"
+      },
+      {
+        "line": 124,
+        "source": "driver-worker"
+      },
+      {
+        "line": 43,
+        "source": "driver-worker"
+      }
+    ],
+    "failure_kind": "rejected",
+    "installed_packages": 145,
+    "installer_exit_code": 0,
+    "package_installation_executed": true,
+    "private_process_states": {
+      "D": 0,
+      "I": 0,
+      "R": 1,
+      "S": 0,
+      "T": 0,
+      "X": 0,
+      "Z": 0,
+      "t": 0
+    },
+    "reproducibility_verified": false,
+    "result": "fail",
+    "schema": "nib.mkosi-install-worker/v1",
+    "stage": "driver-build"
+  }
+}

@@ -11,9 +11,12 @@ The pinned DKMS 3.4.3 `do_install` path installs into Ubuntu's `updates/dkms`
 directory and runs `depmod`. Source review covers `read_conf`,
 `read_framework_conf`, `do_install`, dependent-module handling and
 post-transaction hooks. The package's NVIDIA config declares no install hooks
-or dependent modules. Its framework config is comments only. We pin both exact
-files and require that `/etc/dkms` contains only them and our existing controls;
-unexpected overrides are rejected. Only NVIDIA may have a DKMS directory.
+or dependent modules. Its framework config is comments only. The package also
+ships a pinned `autoinstall_all_kernels.conf`; the existing `no-autoinstall`
+sentinel prevents automatic installation. We pin
+these exact files and require that `/etc/dkms` contains only the authenticated
+package configuration and our existing controls; unexpected overrides are
+rejected. Only NVIDIA may have a DKMS directory.
 Module loading remains disabled by the reviewed framework control and the
 unchanged capability/seccomp boundary.
 
@@ -35,3 +38,6 @@ bootable image, reproducibility, Secure Boot signing, CPU/GPU attestation or a
 deployable service. Original compilation-only evidence remains unchanged.
 Synthetic tests are not a real installation claim; the opt-in native workflow
 must provide that evidence after all local and hosted gates pass.
+
+The [first native installation attempt](p3-t1-dkms-package-config.md) exposed
+the omitted package configuration. Its failed evidence is retained unchanged.
