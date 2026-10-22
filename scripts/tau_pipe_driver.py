@@ -58,7 +58,7 @@ class ScriptedSession(transport.ParentSession):
         return worker.scripted(self.bridge, category, request, bounds)
 
 
-def diagnostic(session, plan, manifest):
+def diagnostic(session, plan, manifest, *, upstream_executed=True):
     result, bridge = session.result, session.bridge
     require(result is not None)
     row = {key: plan["selection"][key] for key in ("domain", "task_id", "trial", "seed")}
@@ -72,7 +72,18 @@ def diagnostic(session, plan, manifest):
                 "reserved_tokens": bridge.budget.tokens, "reserved_cost_usd": format(bridge.budget.spent, "f"),
                 "usage_known": bridge.usage_known},
             "quality_accepted": False, "confidential": False, "live_transport": False,
-            "token_usage": "synthetic-not-tokenized", "upstream_executed": True}
+            "token_usage": "synthetic-not-tokenized", "upstream_executed": upstream_executed}
+
+
+def failure_result(session, exc):
+    bridge = session.bridge
+    try:
+        bridge.stop(transport.status(exc))
+    except worker.Abort:
+        pass
+    return {"status": bridge.failed, "reward": None,
+            "elapsed_ms": min(86400000, max(0, int((bridge.clock() - session.started) * 1000))),
+            "requests": bridge.budget.requests, "usage": bridge.usage()}
 
 
 def run_process(command, environment, payload, plan, manifest, deadline):
@@ -81,7 +92,7 @@ def run_process(command, environment, payload, plan, manifest, deadline):
             and plan["transport"] == "scripted-parent-pipe")
     frozen = scripted_manifest(manifest)
     assertions = selected_assertions(payload, plan["selection"])
-    process, channel, session = None, None, None
+    process, channel, session, result = None, None, None, None
     try:
         process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, env=environment, bufsize=0, close_fds=True, start_new_session=True)
@@ -96,7 +107,12 @@ def run_process(command, environment, payload, plan, manifest, deadline):
         # Do not let a worker hang after its terminal acknowledgement. The
         # enclosing runner also inspects and removes the exact owned container.
         require(process.wait(timeout=max(0.001, min(10, deadline - time.monotonic()))) == 0)
-        return diagnostic(session, plan, manifest)
+        result = diagnostic(session, plan, manifest)
+    except (worker.Abort, Exception, KeyboardInterrupt) as exc:
+        if session is None:
+            raise ValueError("tau pipe setup failed") from None
+        session.result = failure_result(session, exc)
+        result = diagnostic(session, plan, manifest, upstream_executed=False)
     finally:
         if session is not None:
             session.close()
@@ -106,9 +122,16 @@ def run_process(command, environment, payload, plan, manifest, deadline):
             for stream in (process.stdin, process.stdout):
                 if stream is not None:
                     stream.close()
-            if process.poll() is None:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                process.wait(timeout=10)
+            try:
+                if process.poll() is None:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.wait(timeout=10)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                if session is None:
+                    raise ValueError("tau pipe cleanup failed") from None
+                session.result = failure_result(session, exc)
+                result = diagnostic(session, plan, manifest, upstream_executed=False)
+    return result

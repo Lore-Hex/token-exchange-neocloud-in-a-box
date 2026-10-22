@@ -8,6 +8,7 @@ if __name__ == "__main__" and not (sys.flags.isolated and sys.flags.no_site and 
     sys.exit("Use python3 -I -S -B scripts/tau_trial.py")
 
 import argparse
+import builtins
 import datetime
 import hashlib
 import io
@@ -45,7 +46,7 @@ def require(value):
         raise ValueError("tau trial rejected")
 
 
-def load(name, expected=None):
+def load(name, expected=None, *, modules=None):
     path = ROOT / name
     # Only own committed helpers; upstream code is never loaded in the host.
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
@@ -62,8 +63,25 @@ def load(name, expected=None):
     require(expected is None or hashlib.sha256(raw).hexdigest() == expected)
     module = types.ModuleType(name)
     module.__file__ = str(path)
+    if modules is not None:
+        def source_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name in modules:
+                require(level == 0)
+                return modules[name]
+            return builtins.__import__(name, globals, locals, fromlist, level)
+        module.__dict__["__builtins__"] = {**vars(builtins), "__import__": source_import}
     exec(compile(raw, str(path), "exec", dont_inherit=True), module.__dict__)
     return module
+
+
+def parent_driver(toolkit):
+    # Compile the exact verified closure, never timestamp-valid .pyc files or
+    # preexisting same-name modules from an ambient import path.
+    modules = {}
+    for name in ("tau_preflight", "tau_trial_worker", "tau_aggregate", "tau_transport", "tau_pipe_driver"):
+        path = "scripts/" + name + ".py"
+        modules[name] = load(path, toolkit["files"][path], modules=modules)
+    return modules["tau_pipe_driver"]
 
 
 runtime = load("scripts/tau_runtime.py", RUNTIME_SHA)
@@ -302,7 +320,7 @@ def check_result(value, plan, manifest):
     if not value["completed"]:
         require(value["stage"] != "completed" and value["report"] is value["accounting"] is None)
         return
-    require(value["stage"] == "completed" and value["upstream_executed"] is True)
+    require(value["stage"] == "completed")
     report = value["report"]
     aggregate.validate_report(report, manifest, plan["manifest_sha256"], plan["selection"]["role"])
     require(report["kind"] == "synthetic-fixture" and report["producer"] == plan["producer"]
@@ -329,7 +347,7 @@ def check_result(value, plan, manifest):
         require(row["usage"]["total_tokens"] == accounting["reserved_tokens"]
                 and row["usage"]["cost_usd"] == accounting["reserved_cost_usd"])
     if row["status"] == "evaluated":
-        require(accounting["usage_known"] and accounting["role_requests"]["agent"] > 0
+        require(value["upstream_executed"] and accounting["usage_known"] and accounting["role_requests"]["agent"] > 0
                 and accounting["role_requests"]["simulator"] > 0)
 
 
@@ -377,11 +395,7 @@ def run(payload, sha, destination, socket, *, parent_pipe=False):
             create_unknown = False
             stage = "trial"
             if parent_pipe:
-                # Only verified toolkit helpers enter this import path. The
-                # content-bearing stream is parsed in memory, never captured.
-                sys.path.insert(0, str(ROOT / "scripts"))
-                import tau_pipe_driver
-                observed = tau_pipe_driver.run_process(
+                observed = parent_driver(toolkit).run_process(
                     [docker, "--host", "unix://" + str(socket), "--config", private,
                      "start", "--attach", "--interactive", name], env, payload, plan, manifest,
                     min(operation_deadline, time.monotonic() + worker.SECONDS))
@@ -395,7 +409,7 @@ def run(payload, sha, destination, socket, *, parent_pipe=False):
                     and terminal["State"]["ExitCode"] == 0)
             result = observed
             stage = "completed"
-        except (Exception, KeyboardInterrupt):
+        except BaseException:
             pass
         finally:
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
@@ -418,7 +432,7 @@ def run(payload, sha, destination, socket, *, parent_pipe=False):
               "result": "pass" if cleaned and result and result["completed"]
                         and result["report"]["trials"][0]["status"] == "evaluated" else "fail",
               "confidential": False, "quality_accepted": False, "live_transport": False}
-    envelope = evidence_record(toolkit["git_sha"], sha, started, record)
+    envelope = evidence_record(toolkit["git_sha"], sha, started, record, parent_pipe=parent_pipe)
     publish_evidence(destination, {"run.json": tau.encoded(envelope), "output.log": tau.encoded(record)})
     print(tau.encoded({"result": record["result"], "cleanup_confirmed": cleaned}).decode(), end="")
     return 0 if record["result"] == "pass" else 1
@@ -428,10 +442,11 @@ def now():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def evidence_record(revision, sha, started, record):
+def evidence_record(revision, sha, started, record, *, parent_pipe=False):
     return {"schema": "nib.evidence/v1", "phase": "P2", "task": "T3", "git_sha": revision,
                 "command": "python3 -I -S -B scripts/tau_trial.py run --payload PRIVATE "
-                           "--plan-sha256 " + sha + " --docker-socket PRIVATE --output PRIVATE",
+                           "--plan-sha256 " + sha + " --docker-socket PRIVATE --output PRIVATE"
+                           + (" --parent-pipe" if parent_pipe else ""),
                 "started_utc": started, "ended_utc": record["ended_utc"],
                 "host": {"provider": "local", "machine": "isolated-linux-amd64-container",
                          "gpus": "none", "driver": None, "cuda": None},

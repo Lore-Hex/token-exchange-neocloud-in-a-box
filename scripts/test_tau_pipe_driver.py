@@ -5,6 +5,7 @@ import copy
 import hashlib
 import json
 import os
+import py_compile
 from pathlib import Path
 import subprocess
 import sys
@@ -104,15 +105,17 @@ class PipeDriverTests(unittest.TestCase):
         self.assertFalse(result["quality_accepted"])
         self.assertFalse(result["live_transport"])
 
-    def test_malformed_stdout_or_early_exit_is_failure_not_a_report(self):
+    def test_malformed_stdout_or_early_exit_records_failure_without_content(self):
         for code in ("print('private-message-canary')", "raise SystemExit(1)"):
             with self.subTest(code=code), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 self.payload(root)
-                with self.assertRaises(worker.Abort) as caught:
-                    driver.run_process([sys.executable, "-I", "-S", "-B", "-c", code], {}, root,
-                                       self.plan, self.manifest, time.monotonic() + 3)
-                self.assertNotIn("canary", str(caught.exception))
+                result = driver.run_process([sys.executable, "-I", "-S", "-B", "-c", code], {}, root,
+                                            self.plan, self.manifest, time.monotonic() + 3)
+                runner.check_result(result, self.plan, self.manifest)
+                self.assertEqual(result["report"]["trials"][0]["status"], "protocol_error")
+                self.assertFalse(result["upstream_executed"])
+                self.assertNotIn("canary", worker.encoded(result).decode())
 
     def test_stalled_attach_is_killed_and_reaped(self):
         children = []
@@ -127,12 +130,57 @@ class PipeDriverTests(unittest.TestCase):
             root = Path(temp)
             self.payload(root)
             begin = time.monotonic()
-            with self.assertRaises(worker.Abort):
-                driver.run_process([sys.executable, "-I", "-S", "-B", "-c", "import time;time.sleep(30)"],
-                    {}, root, self.plan, self.manifest, begin + 0.1)
+            result = driver.run_process([sys.executable, "-I", "-S", "-B", "-c", "import time;time.sleep(30)"],
+                {}, root, self.plan, self.manifest, begin + 0.1)
+            runner.check_result(result, self.plan, self.manifest)
+            self.assertEqual(result["report"]["trials"][0]["status"], "timeout")
             self.assertLess(time.monotonic() - begin, 2)
         self.assertEqual(len(children), 1)
         self.assertIsNotNone(children[0].poll())
+
+    def test_transport_failure_preserves_already_billed_requests(self):
+        code = CHILD.replace("('agent', 'simulator')", "('agent',)").replace("return 0.0", "os._exit(9)")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.payload(root)
+            result = driver.run_process([sys.executable, "-I", "-S", "-B", "-c", code, str(ROOT / "scripts")],
+                {}, root, self.plan, self.manifest, time.monotonic() + 5)
+        runner.check_result(result, self.plan, self.manifest)
+        row = result["report"]["trials"][0]
+        self.assertEqual((row["status"], row["requests"], row["usage"]["total_tokens"]), ("protocol_error", 1, 2))
+        self.assertIsNone(row["reward"])
+        self.assertEqual(result["accounting"]["role_requests"]["agent"], 1)
+
+    def test_parent_loader_ignores_ambient_modules_and_checks_hashes(self):
+        names = ("tau_preflight", "tau_trial_worker", "tau_aggregate", "tau_transport", "tau_pipe_driver")
+        files = {"scripts/" + name + ".py": hashlib.sha256((ROOT / "scripts" / (name + ".py")).read_bytes()).hexdigest()
+                 for name in names}
+        with mock.patch.dict(sys.modules, {name: object() for name in names}):
+            loaded = runner.parent_driver({"files": files})
+            self.assertEqual(loaded.worker.STATUSES, worker.STATUSES)
+            self.assertIs(loaded.worker, loaded.transport.worker)
+        files["scripts/tau_pipe_driver.py"] = "0" * 64
+        with self.assertRaises(ValueError):
+            runner.parent_driver({"files": files})
+
+    def test_source_loader_ignores_valid_timestamp_bytecode(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "fixture.py"
+            source.write_text("marker = 'dirty'\n")
+            py_compile.compile(str(source), doraise=True)
+            before = source.stat()
+            source.write_text("marker = 'clean'\n")
+            os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
+            expected = hashlib.sha256(source.read_bytes()).hexdigest()
+            with mock.patch.object(runner, "ROOT", root):
+                self.assertEqual(runner.load("fixture.py", expected, modules={}).marker, "clean")
+
+    def test_evidence_records_the_explicit_pipe_mode(self):
+        record = {"ended_utc": "2026-10-22T00:00:00Z", "result": "fail"}
+        for selected in (False, True):
+            evidence = runner.evidence_record("a" * 40, "b" * 64, record["ended_utc"], record, parent_pipe=selected)
+            self.assertEqual("--parent-pipe" in evidence["command"], selected)
 
     def test_no_process_for_wrong_mode_or_expired_deadline(self):
         wrong = copy.deepcopy(self.plan)
