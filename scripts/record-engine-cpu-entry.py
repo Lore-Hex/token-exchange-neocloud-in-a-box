@@ -31,6 +31,8 @@ TEST = "scripts/test_engine_cpu_entry.py"
 SIX_TEST = "scripts/test_botocore_six.py"
 OPENCV_TEST = "scripts/test_opencv_loader.py"
 LABEL = "nib.cpu-entry"
+TOKENIZER_FILES = ("scripts/engine_tokenizer_diagnostic.py", "scripts/engine_tokenizer_parity.py",
+                   "scripts/test_engine_tokenizer_diagnostic.py")
 
 
 def read_source(path):
@@ -79,9 +81,10 @@ cpu.require = base.overlay.require
 builder, overlay, recorder, checker = base.builder, base.overlay, base.recorder, base.checker
 
 
-def inputs(root=ROOT):
+def inputs(root=ROOT, tokenizer_continuation=False):
     revision, bundle, extra = base.inputs(root)
-    for name in (SCRIPT, BASE, RUNTIME, LAB, LAB_BOOTSTRAP, EXCEPTIONS, TEST, SIX_TEST, OPENCV_TEST, "scripts/test_deepseek_lab.py"):
+    for name in (SCRIPT, BASE, RUNTIME, LAB, LAB_BOOTSTRAP, EXCEPTIONS, TEST, SIX_TEST, OPENCV_TEST, "scripts/test_deepseek_lab.py",
+                 *(TOKENIZER_FILES if tokenizer_continuation else ())):
         row = checker.git(root, "ls-tree", revision, "--", name).decode().split()
         overlay.require(len(row) == 4 and row[:2] == ["100644", "blob"] and row[3] == name)
         overlay.require(int(checker.git(root, "cat-file", "-s", row[2])) <= checker.LIMIT)
@@ -93,7 +96,7 @@ def inputs(root=ROOT):
     return revision, bundle, extra
 
 
-def prepare_files(revision, bundle, extra):
+def prepare_files(revision, bundle, extra, tokenizer_continuation=False):
     files, _ = builder.prepare_files(revision, bundle, extra)
     application = overlay.load_json(files["payload/contract.json"])
     measured = builder.application.measurement(overlay, extra[builder.application.EVIDENCE])
@@ -103,6 +106,9 @@ def prepare_files(revision, bundle, extra):
     payload["lab.py"] = extra[base.BOOTSTRAP_FILE] + b"\n" + extra[LAB_BOOTSTRAP] + b"\n" + extra[LAB]
     plan = recorder.prep.launch_plan()
     payload["launch-plan.json"] = overlay.json_bytes(plan)
+    if tokenizer_continuation:
+        payload["tokenizer-diagnostic.py"] = extra[TOKENIZER_FILES[0]]
+        payload["tokenizer-parity.py"] = extra[TOKENIZER_FILES[1]]
     contract = {"schema": "nib.engine-cpu-entry-input/v1", "status": "BLOCKED", "deployable": False,
                 "confidential": False, "execution": "software", "git_sha": revision,
                 "base_image": overlay.BASE_IMAGE, "official_config": application["official_config"],
@@ -113,6 +119,8 @@ def prepare_files(revision, bundle, extra):
                 "paths": measured["proposed_paths"], "arguments": lab.lab_args(plan),
                 "interpreter": {key: measured["files"][0][key] for key in ("resolved", "bytes", "sha256")},
                 "environment": lab.lab_environment(plan), "sources": {name: overlay.digest(raw) for name, raw in payload.items()}}
+    if tokenizer_continuation:
+        contract["diagnostic"] = "tokenizer-continuation"
     payload["entry.json"] = overlay.json_bytes(contract)
     payload["python"] = lab.wrapper_bytes(contract["interpreter"]["resolved"], contract["environment"], overlay.digest(payload["entry.json"]))
     overlay.require(len(payload) <= 110 and sum(map(len, payload.values())) <= overlay.MAX_CONTEXT)
@@ -216,6 +224,7 @@ def run_container(payload, contract, config, env, execute=recorder.snapshot.exec
                             timeout=cpu.ATTACH_SECONDS, limit=65536)
         report["stage"] = "result-validation"
         result = overlay.load_json(raw)
+        overlay.require(result.get("diagnostic") == contract.get("diagnostic"))
         application = overlay.load_json(read_source(payload / "application/contract.json"))
         measured = builder.application.measurement(overlay, read_source(payload / "application/measurement.json"))
         passed = cpu.validate(overlay, result, application, measured, base.smoke)
@@ -248,13 +257,17 @@ def run_container(payload, contract, config, env, execute=recorder.snapshot.exec
 def evidence_record(revision, slug, started, report, host_kind="local"):
     overlay.require(host_kind in ("local", "github-actions"))
     suffix = "" if host_kind == "local" else " --host-kind github-actions"
+    diagnostic = report.get("diagnostic") == "tokenizer-continuation"
+    if diagnostic:
+        suffix += " --tokenizer-continuation"
     return {"schema": "nib.evidence/v1", "phase": "P2", "task": "T3", "git_sha": revision,
             "command": "python3 -I -S scripts/record-engine-cpu-entry.py --slug " + slug + suffix,
             "started_utc": started, "ended_utc": recorder.now(), "result": "fail", "execution": "software",
             "hardware_validated": False, "host": {"provider": host_kind, "machine": "local-software-experiment"
                                                 if host_kind == "local" else "linux-amd64-software-runner",
                                                 "gpus": "none", "driver": None, "cuda": None},
-            "notes": "CPU-only pre-serve diagnostic, not the P0 deny-all import sandbox. "
+            "notes": ("CPU-only tokenizer request/parser/normalizer diagnostic; no BPE, renderer or HTTP execution. "
+                      if diagnostic else "CPU-only pre-serve diagnostic, not the P0 deny-all import sandbox. ") +
                      "No model/weights/GPU runtime/ports/network/credentials; serve.cmd and worker routes never invoked. "
                      "Imports may probe absent CUDA or compile dependencies; cache is bounded noexec. "
                      "A failure is not proof of the earlier GPU startup cause; a pass is not GPU/ABI/inference qualification. "
@@ -272,7 +285,10 @@ def check_evidence(record, report, revision, slug, payload, contract, host_kind,
     expected = evidence_record(revision, slug, record["started_utc"], report, host_kind)
     expected["ended_utc"] = record["ended_utc"]
     overlay.require(overlay.json_bytes(record) == overlay.json_bytes(expected))
-    overlay.require(set(report) == set(report_start()) | {"image", "experiment", "provenance"})
+    overlay.require(set(report) == set(report_start()) | {"image", "experiment", "provenance"}
+                    | ({"diagnostic"} if "diagnostic" in contract else set()))
+    overlay.require(report.get("diagnostic") == contract.get("diagnostic")
+                    and report["experiment"].get("diagnostic") == contract.get("diagnostic"))
     for key, value in report_start().items():
         if key not in ("stage", "cleanup", "entry_pass"):
             overlay.require(type(report.get(key)) is type(value) and report[key] == value)
@@ -315,9 +331,11 @@ def main():
     action.add_argument("--slug", help="Explicit bounded local CPU-only execution; no qualification.")
     action.add_argument("--check-result", metavar="EVIDENCE_DIRECTORY", help="Offline check against this exact producer.")
     parser.add_argument("--host-kind", choices=("local", "github-actions"), default="local")
+    parser.add_argument("--tokenizer-continuation", action="store_true",
+                        help="Fixed CPU-only parity request/parser/normalizer failure diagnostic.")
     args = parser.parse_args()
-    revision, bundle, extra = inputs()
-    payload, contract = prepare_files(revision, bundle, extra)
+    revision, bundle, extra = inputs(tokenizer_continuation=args.tokenizer_continuation)
+    payload, contract = prepare_files(revision, bundle, extra, tokenizer_continuation=args.tokenizer_continuation)
     if args.check_result:
         directory = Path(args.check_result).absolute()
         match = re.fullmatch(r"\d{4}-\d{2}-\d{2}-([a-z0-9]+(?:-[a-z0-9]+)*)", directory.name)
@@ -370,6 +388,8 @@ def main():
             "payload_sha256": overlay.bundle_digest(payload), "validator_source_sha256": validator_sha,
             "requested_image": overlay.BASE_IMAGE, "expected_config_sha256": contract["official_config"]["sha256"],
             "raw_oci_metadata_verified": verified, "measurement_sha256": contract["measurement_sha256"]}
+        if args.tokenizer_continuation:
+            report["diagnostic"] = "tokenizer-continuation"
         record = evidence_record(revision, args.slug, started, report, args.host_kind)
         recorder.publish_evidence(record, report, nib, work, destination, env)
     print(destination.relative_to(ROOT).as_posix())

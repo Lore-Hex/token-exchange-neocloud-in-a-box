@@ -287,7 +287,7 @@ def entry_child(expected, checkpoint_fd, state_fd, lab):
         require(state_fd != checkpoint_fd)
         state_writer = lab.EntryCheckpointWriter(state_fd)
         checkpoints.emit(1)
-        contract, _, modules, application, _, verified_lab = context(expected)
+        contract, sources, modules, application, _, verified_lab = context(expected)
         source_roots = (ROOT + "/", *tuple(path.rstrip("/") + "/" for path in contract["paths"]))
         require(verified_lab.__file__ == lab.__file__)
         checkpoints.emit(2)
@@ -295,7 +295,13 @@ def entry_child(expected, checkpoint_fd, state_fd, lab):
         catalog = finder_catalog(contract["paths"][-1])
         # The shared helper stops after the original state check. No ID 17,
         # serve.cmd, HTTP client, model loader, probe, or worker route is called.
-        verified_lab.prepare_engine(contract, checkpoints)
+        if contract.get("diagnostic") == "tokenizer-continuation":
+            diagnostic = load_module("tokenizer_diagnostic", sources["tokenizer-diagnostic.py"],
+                                     ROOT + "/tokenizer-diagnostic.py")
+            diagnostic.run(contract, sources, verified_lab, checkpoints, read_source)
+        else:
+            require("diagnostic" not in contract)
+            verified_lab.prepare_engine(contract, checkpoints)
     except BaseException as error:
         fault = exception_packet(error, source_roots)
         raise
@@ -384,6 +390,9 @@ def apply_and_observe(contract, sources, modules, application, measured, lab):
               "abi_validated": False, "inference_started": False, "entry_pass": False,
               "stage": "application-preflight", "application": None, "entry": None,
               "phase_elapsed_ms": {"application-preflight": None, "application": None, "entry": None}}
+    if "diagnostic" in contract:
+        require(contract["diagnostic"] == "tokenizer-continuation")
+        result["diagnostic"] = contract["diagnostic"]
     phase = "application-preflight"
     started = time.monotonic()
     deadline = started + APPLICATION_SECONDS
@@ -419,6 +428,8 @@ def validate(overlay, report, application, measured, receipt_validator):
     fixed = {"schema": SCHEMA, "status": "BLOCKED", "execution": "software",
              "deployable": False, "confidential": False, "hardware_validated": False,
              "abi_validated": False, "inference_started": False}
+    if type(report) is dict and "diagnostic" in report:
+        fixed["diagnostic"] = "tokenizer-continuation"
     require(type(report) is dict
             and set(report) in (set(fixed) | {"entry_pass", "stage", "application", "entry", "phase_elapsed_ms"},
                                 set(fixed) | {"entry_pass", "stage", "application", "entry", "phase_elapsed_ms", "failure"})
