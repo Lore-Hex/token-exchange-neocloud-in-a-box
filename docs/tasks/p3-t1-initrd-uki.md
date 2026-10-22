@@ -33,9 +33,25 @@ The remaining packages are those utilities plus dmsetup, base-files and the
 exact kernel's base modules. No NVIDIA module is put in the initrd; the driver
 remains in the verified installed root.
 
-The nonexecuting local archive audit reproduced 2,321 inventory entries and
-81,138,441 regular-file bytes. The 471,091-byte inventory JSON is pinned to
-SHA-256 `9e58a03558396b6cf3370b44405fad56acc18c7962e6b80661eb8942ce46d540`.
+The original archive-only inventory had 2,321 entries and 81,138,441 regular-file
+bytes, pinned to `9e58a03558396b6cf3370b44405fad56acc18c7962e6b80661eb8942ce46d540`.
+That omitted a deterministic installed-file change: the recipe's fixed
+`ImageId=nib-r595-installability-candidate` makes pinned mkosi's
+[configure_os_release](https://github.com/systemd/mkosi/blob/ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b/mkosi/__init__.py#L373)
+append `IMAGE_ID="nib-r595-installability-candidate"` to `usr/lib/os-release`.
+Preparation now applies that exact 45-byte line to the authenticated package
+member before hashing the inventory, using the same image-ID constant as the
+recipe. It rejects an existing IMAGE_ID, unsupported image ID or malformed input;
+there is no generic permission to accept generated or modified members.
+
+The corrected package-derived inventory has 2,321 entries, 81,138,486 regular-file
+bytes and the same 471,091-byte JSON size. Its SHA-256 is
+`b10eb64d60d8cfeba7de15b8533e2f7f8b38f56594bfa4abe90b4ff55ba6971b`.
+The only changed member is `usr/lib/os-release`: 400 to 445 bytes, with installed
+SHA-256 `27294876c0c569b1f50960119e09e149bc2436aaff672528931a81d4ffc79b8b`.
+The [original failed native run](../../evidence/p3/2026-10-22-boot-member-rejected/README.md)
+did not identify the failing file. This source-backed correction still requires
+a native retry; it does not retroactively prove that run's precise failure.
 These are input inventory measurements, **not generated image sizes**. Native
 assembly copies installed regular files only when their bytes match this
 inventory; vendor links are inert inventory data, never followed for copying.

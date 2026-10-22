@@ -32,6 +32,7 @@ SOURCE_FILES = ("scripts/prepare_guest_packages.py", "scripts/guest_package_inpu
 MAX_ARCHIVE = 128 << 20
 MAX_TOTAL = 512 << 20
 MAX_CONTROL = 16 << 20
+IMAGE_ID = "nib-r595-installability-candidate"
 TOOL_ENV = {"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
             "HOME": "/nonexistent", "LANG": "C", "LC_ALL": "C"}
 GIT_ENV = {**TOOL_ENV, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
@@ -262,7 +263,7 @@ Architecture=x86-64
 
 [Output]
 Format=directory
-ImageId=nib-r595-installability-candidate
+ImageId=""" + IMAGE_ID + """
 
 [Content]
 Packages=""" + packages + """
