@@ -11,7 +11,7 @@ FailureAction=poweroff
 [Service]
 Type=oneshot
 ExecStart=/run/nib-debug-boot
-TimeoutStartSec=30
+TimeoutStartSec=150
 TimeoutStopSec=2
 KillMode=control-group
 User=root

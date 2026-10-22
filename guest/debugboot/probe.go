@@ -22,7 +22,19 @@ const (
 	cmdSuffix    = " systemd.unit=nib-debug-boot.target nib.debug-boot=v1"
 )
 
+const (
+	rootCheckTimeout = 144 * time.Second
+	rootHardTimeout  = 145 * time.Second
+)
+
 var errRejected = errors.New("debug boot rejected")
+
+func probeTimeouts(staging bool) (time.Duration, time.Duration) {
+	if staging {
+		return 24 * time.Second, 25 * time.Second
+	}
+	return rootCheckTimeout, rootHardTimeout
+}
 
 type failureStage uint8
 
@@ -236,7 +248,7 @@ type rootReadObservation struct {
 }
 
 func (r rootReadObservation) record() string {
-	if r.reason < readSize || r.reason > readClose || r.bytes < 0 || r.bytes > MaxRootBytes || r.seconds < 0 || r.seconds > 25 {
+	if r.reason < readSize || r.reason > readClose || r.bytes < 0 || r.bytes > MaxRootBytes || r.seconds < 0 || r.seconds > int64(rootHardTimeout/time.Second) {
 		return failureRecord(failedRootRead)
 	}
 	// Compact fixed fields keep INITRD plus this record within the existing

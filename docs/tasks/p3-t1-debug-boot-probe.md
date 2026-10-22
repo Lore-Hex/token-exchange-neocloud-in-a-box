@@ -2,6 +2,17 @@
 
 ## Status
 
+The next separately authorized [39856626007](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39856626007),
+producer `6a15eee38c82225bc6649218829532d5ed135d63`, **failed the mapped-root
+read deadline**. Its [four original receipts](../../evidence/p3/2026-10-22-debug-boot-read-deadline/README.md)
+are byte-preserved. The fixed diagnostic records `deadline`, 171,704,320 bytes
+read and 23 whole elapsed read seconds. It identifies the loop deadline, not
+the underlying throughput bottleneck. Assembly, all five runtime startup
+checks and independent cleanup passed; root proof did not. There was no retry.
+The resulting debug-root-only budget adjustment below is implemented for a
+reviewed follow-up, not yet demonstrated by an actual boot. The initrd and all
+outer/resource/output bounds remain unchanged.
+
 The separately authorized follow-up [39851156135](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39851156135),
 producer `28f9fc01d59bc316ffdb206c8c0434cd5ad191e7`, also **failed root proof**.
 Its [four original receipts](../../evidence/p3/2026-10-22-debug-boot-root-read-failure/README.md)
@@ -9,8 +20,8 @@ are byte-preserved. The fixed failure stage is now `ROOT_READ`: the real-root
 probe reached mapped-root reading after the strict mount, device, table and
 open checks. It does not identify I/O, EOF/length, deadline or close as the
 specific cause. Zero OOM kills and a 2 GiB peak do not prove a deadline issue.
-Cleanup passed; no output cap, read verification, privilege or deadline has
-been relaxed in response.
+Cleanup passed; that diagnostic producer changed no output cap, read
+verification, privilege or deadline.
 
 The first authorized CPU-only run, [39843193309](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39843193309),
 at producer `c0900f178072a08b5cc8688638993ccfc3061ab7`, **failed root proof**.
@@ -128,16 +139,50 @@ INITRD: `NIB_DEBUG_BOOT_V1 R <reason> <bytes_read> <elapsed_seconds>` and newlin
 Reason is one of eight fixed integers: 1=size, 2=loop deadline, 3=short read,
 4=I/O error, 5=extra data, 6=missing/error EOF, 7=deadline after EOF, 8=close.
 Only canonical decimal values are allowed: bytes from zero through the existing
-1,536 MiB root bound, and whole elapsed read seconds from zero through 25.
+1,536 MiB root bound, and whole elapsed read seconds from zero through 145.
 The extra-byte EOF probe is not included in the mapped-data byte counter.
 Partial `io.ReadFull` counts are retained even when that call fails, according
 to the pinned Go 1.27.2 standard-library contract; no error string, file data
 or query text is emitted. An out-of-range observation falls back to the legacy
-fixed ROOT_READ failure. The longest record including INITRD is 61 bytes,
+fixed ROOT_READ failure. The longest record including INITRD is 62 bytes,
 within the unchanged 62-byte proof cap. Numeric diagnostics never satisfy the
 unchanged exact INITRD/PASS/EOF success grammar. A complete mapped read, extra
-EOF check, unchanged table/status rechecks and all existing deadlines remain
+EOF check, unchanged table/status rechecks and all stage-specific deadlines remain
 mandatory. This instrumentation is not a diagnosed performance fix.
+
+### Root Read Budget
+
+The original root check had a 24-second deadline, 25-second process hard kill
+and 30-second systemd timeout, identical to initrd staging. Run 39856626007
+demonstrated the loop deadline after 171,704,320 mapped bytes and 23 whole read
+seconds. It did not demonstrate an underlying throughput bottleneck or an
+optimization. The QEMU command already selects its existing `max` TCG CPU;
+there is no speculative CPU, read-size or verity-feature change.
+
+**Estimate:** the 928,968,704-byte complete GPT is an upper bound on mapped
+data. Using 24 seconds for upper rounding of the floored read duration gives
+`928968704 / 171704320 * 24 = 129.85` seconds at a constant rate. This is not
+an actual full-read duration or a guaranteed future throughput rate.
+
+Only the debug real-root check now receives 144 seconds, a 145-second process
+hard kill and a 150-second `TimeoutStartSec`. Initrd staging remains 24/25/30
+seconds. Systemd v255.4's
+[service contract](https://github.com/systemd/systemd-stable/blob/v255.4/man/systemd.service.xml)
+defines `TimeoutStartSec` for the explicit `Type=oneshot` start, and
+`TimeoutStopSec=2` for termination; `RuntimeMaxSec` is not a oneshot substitute.
+The root check has one second before its process hard kill and another five
+before the service timeout. The 150-second service limit plus its unchanged
+two-second stop budget leaves 28 seconds inside the unchanged 180-second QEMU
+ceiling. Firmware, initrd and poweroff also consume that outer budget: a slow
+boot can still exhaust it and fail, and the guest does not extend or reset it.
+The wrapper remains 900 seconds and the job remains 35 minutes.
+
+No root-read length, extra EOF, table/status recheck, clean terminal requirement,
+source gate, cleanup, privilege, memory/CPU/PID or 62-byte proof cap changes.
+Three-digit elapsed counters fit the same cap; values above 145 are rejected.
+An incomplete or expired read still cannot pass. These are fixed debug-only
+limits, not caller options or release qualification. Another actual run needs
+exact-head independent review and passing full CI plus explicit authorization.
 
 The live table check follows Linux v6.8's
 [dm-verity table/status contract](https://github.com/torvalds/linux/blob/v6.8/Documentation/admin-guide/device-mapper/verity.rst).
@@ -193,7 +238,9 @@ Enforced bounds:
 - One QEMU attempt, at most 180 seconds, 2 emulated vCPUs, 1 GiB guest RAM,
   at most 2 host CPUs and 2 GiB for the QEMU process group/cgroup, no swap.
   No retry loop or background follow-up. Guest probe runtime is separately
-  bounded to 25 seconds with a 30-second systemd service bound.
+  bounded to 145 seconds with a 150-second systemd root-service bound; initrd
+  staging remains 25 seconds with a 30-second service bound. The corresponding
+  check deadlines are 144 and 24 seconds, respectively.
 - TCG only; no KVM, VFIO, GPU, host device passthrough, NIC, user networking,
   monitor, serial console, SSH, credentials or inherited environment secrets.
   A private UNIX socket carries only fixed guest proof frames. Unknown,
