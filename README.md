@@ -42,11 +42,11 @@ onboarding steps; running the toolkit does not automatically list a provider.
 Pre-alpha. **No fully verified confidential inference service yet.** Real
 8xB200 and 8xB300 lab checks and complete DeepSeek weight downloads have run. Fresh
 eight-GPU appraisal and readiness readback have passed. DeepSeek generated real
-responses in two smoke runs, passing seven of eight cases. The latest diagnostic
-identified a case-only answer mismatch; the corrected explicit-format fixture
-still needs a hardware run ([diagnosis](docs/tasks/p2-t3-explicit-answer-case.md)).
-The overall smoke and quality gates remain failed/unproven. The lab uses AMD SEV-SNP, not the plan's Intel TDX
-deployment.
+responses in two earlier smoke runs, passing seven of eight cases. After a
+case-only mismatch was diagnosed, an explicit-format fixture passed all eight
+cases and ten requests ([evidence and limits](docs/tasks/p2-t3-functional-pass.md)).
+The overall qualification and quality gates remain blocked/unproven. The lab
+uses AMD SEV-SNP, not the plan's Intel TDX deployment.
 
 | Component | State |
 |---|---|
@@ -80,7 +80,7 @@ deployment.
 | Tau evaluation preparation | actual scripted upstream trial passed with confirmed cleanup. [Original evidence and limits](docs/tasks/p2-t3-tau-integration-evidence.md); synthetic replies and usage, not live-model quality or tau acceptance |
 | CPU-only startup diagnosis | exact-image application passes all five stages; serving imports now reach checkpoint 13 with clean guard state, then device autodetection rejects the GPU-free environment. Overall pre-serve run remains FAIL; cleanup confirmed; no inference/GPU/confidentiality acceptance ([latest run](evidence/p2/2026-10-20-cpu-opencv-runtime-9115b95/run.json), [root cause and limits](docs/tasks/p2-t3-opencv-native-loader.md#exact-image-result), [earlier Botocore observation](evidence/p2/2026-10-20-cpu-native-39467970211-1/README.md)) |
 | GPU appraisal and gated readiness | fresh eight-device appraisal PASS; nonce, measurements, certificates/revocation, secure boot, debug-disabled and local identity checks passed; readiness 0 to 1 readback and NVML shutdown verified. Not full hardware/runtime/confidential qualification ([success](evidence/p2/2026-10-20-gpu-appraisal-121447763215/run.json), [prior failure](evidence/p2/2026-10-20-gpu-appraisal-120201396352/run.json), [checkpoint](docs/tasks/p2-t3-appraisal-checkpoint.md)) |
-| Bounded DeepSeek CC functional lab | four selected B300 GPUs reached a healthy engine and ten requests; seven cases passed, logic exact-answer comparison failed; cleanup confirmed. No confidential-service or quality qualification ([latest evidence](evidence/p2/2026-10-21-b300-first-generations/run.json), [limits and diagnosis](docs/tasks/p2-t3-first-generations.md), [scope](docs/tasks/p2-t3-deepseek-lab.md)) |
+| Bounded DeepSeek CC functional lab | four selected B300 GPUs passed all eight fixed cases and ten requests, including two-turn tools; cleanup confirmed. Overall candidate remains blocked, without confidential-service or quality qualification ([evidence](evidence/p2/2026-10-22-b300-functional-pass/run.json), [limits](docs/tasks/p2-t3-functional-pass.md)) |
 | Confidential pipeline on a 1-GPU TDX VM | not started (P3) |
 | TrustedRouter generic verifier | not started (P4) |
 | Bare-metal 8×B200 confidential node | not started (P5) |
