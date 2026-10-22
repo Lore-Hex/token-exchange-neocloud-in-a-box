@@ -36,10 +36,17 @@ def success(payload, _deadline):
 
 
 class CorrectnessTests(unittest.TestCase):
-    def test_diagnostics_version_does_not_change_frozen_cases_or_acceptance(self):
-        self.assertEqual(smoke.contract()["schema"], "nib.local-correctness-contract/v2")
-        self.assertEqual(smoke.contract()["case_sha256"],
+    def test_only_logic_casing_instruction_changes_not_answers_or_acceptance(self):
+        self.assertEqual(smoke.contract()["schema"], "nib.local-correctness-contract/v3")
+        self.assertEqual(smoke.CASES[2]["prompt"],
+                         "All daxes are wugs. Item A is a dax. Is item A a wug? "
+                         "Reply with exactly one lowercase word, yes or no, without punctuation or any other text.")
+        original = copy.deepcopy(smoke.CASES)
+        original[2]["prompt"] = "All daxes are wugs. Item A is a dax. Is item A a wug? Reply only yes or no."
+        raw = json.dumps({"cases": original, "tool": smoke.TOOL}, sort_keys=True, separators=(",", ":")).encode()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(),
                          "b622ef5975f51feea1dd01c8c3d350d3c1aaf59723cba5e75c32890715d060f3")
+        self.assertNotEqual(smoke.contract()["case_sha256"], hashlib.sha256(raw).hexdigest())
         variants = (("Yes", "answer-case"), ("yes.", "answer-punctuation"),
                     ("Yes!", "answer-case-punctuation"), ("no", "answer"),
                     ("yes. private detail", "answer"), ("yes..", "answer"))
@@ -50,7 +57,7 @@ class CorrectnessTests(unittest.TestCase):
                 return success(payload, deadline)
             with self.subTest(category=category):
                 row = smoke.run(request, MODEL)
-                self.assertEqual(row["schema"], "nib.local-correctness-smoke/v2")
+                self.assertEqual(row["schema"], "nib.local-correctness-smoke/v3")
                 self.assertFalse(row["all_cases_pass"])
                 self.assertEqual(row["requests_started"], 10)
                 self.assertEqual(row["cases"][2]["failure"], category)
@@ -61,6 +68,12 @@ class CorrectnessTests(unittest.TestCase):
                 changed["all_cases_pass"] = True
                 with self.assertRaises(smoke.Rejected):
                     smoke.validate(changed)
+
+    def test_old_schema_cannot_be_reinterpreted_as_the_new_case_set(self):
+        row = smoke.run(success, MODEL)
+        row["schema"] = "nib.local-correctness-smoke/v2"
+        with self.assertRaises(smoke.Rejected):
+            smoke.validate(row)
 
     def test_eight_fixed_cases_ten_requests_no_tau_claim(self):
         call = mock.Mock(side_effect=success)

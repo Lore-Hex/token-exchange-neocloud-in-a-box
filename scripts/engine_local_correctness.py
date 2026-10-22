@@ -29,7 +29,7 @@ MAX_REQUESTS = 10
 CASES = (
     {"id": "arithmetic", "kind": "exact", "prompt": "Compute 1 + 1. Reply with the single digit only.", "answer": "2"},
     {"id": "ordering", "kind": "exact", "prompt": "Sort these integers ascending: 9, 2, 5. Reply only as comma-separated digits, with no spaces.", "answer": "2,5,9"},
-    {"id": "logic", "kind": "exact", "prompt": "All daxes are wugs. Item A is a dax. Is item A a wug? Reply only yes or no.", "answer": "yes"},
+    {"id": "logic", "kind": "exact", "prompt": "All daxes are wugs. Item A is a dax. Is item A a wug? Reply with exactly one lowercase word, yes or no, without punctuation or any other text.", "answer": "yes"},
     {"id": "extraction", "kind": "exact", "prompt": "Record: item=box; code=K7; count=4. Extract only the code, with no other text.", "answer": "K7"},
     {"id": "json-count", "kind": "json", "prompt": 'Reply only with a JSON object containing exactly count as the integer 3 and ok as the boolean true. No Markdown.', "answer": {"count": 3, "ok": True}},
     {"id": "json-record", "kind": "json", "prompt": 'Reply only with a JSON object containing exactly label as the string "north" and rank as the integer 2. No Markdown.', "answer": {"label": "north", "rank": 2}},
@@ -74,7 +74,7 @@ def strict_json(raw):
 
 def contract():
     case_bytes = json.dumps({"cases": CASES, "tool": TOOL}, sort_keys=True, separators=(",", ":")).encode()
-    return {"schema": "nib.local-correctness-contract/v2", "case_sha256": hashlib.sha256(case_bytes).hexdigest(),
+    return {"schema": "nib.local-correctness-contract/v3", "case_sha256": hashlib.sha256(case_bytes).hexdigest(),
             "source_revision": REVISION, "source_sha256": SOURCE_SHA256, "cases": 8, "requests": MAX_REQUESTS,
             "max_output_tokens": MAX_OUTPUT, "request_seconds": REQUEST_SECONDS, "total_seconds": TOTAL_SECONDS,
             "teardown_reserve_seconds": TEARDOWN_RESERVE, "temperature": 0, "reasoning_effort": "none",
@@ -163,7 +163,7 @@ def run(request, model, *, clock=time.monotonic, deadline=None):
     deadline = min(started + TOTAL_SECONDS - TEARDOWN_RESERVE,
                    deadline if deadline is not None else float("inf"))
     rows = [{"id": case["id"], "result": "not_run", "failure": "budget", "requests": []} for case in CASES]
-    result = {"schema": "nib.local-correctness-smoke/v2", "case_sha256": contract()["case_sha256"],
+    result = {"schema": "nib.local-correctness-smoke/v3", "case_sha256": contract()["case_sha256"],
               "cases": rows, "requests_started": 0, "all_cases_pass": False, "request_phase_elapsed_ms": 0,
               "tau_acceptance": False}
     cancelled = False
@@ -228,7 +228,7 @@ def run(request, model, *, clock=time.monotonic, deadline=None):
 def validate(row):
     require(type(row) is dict and set(row) == {"schema", "case_sha256", "cases", "requests_started",
                                                "all_cases_pass", "request_phase_elapsed_ms", "tau_acceptance"})
-    require(row["schema"] == "nib.local-correctness-smoke/v2" and row["case_sha256"] == contract()["case_sha256"]
+    require(row["schema"] == "nib.local-correctness-smoke/v3" and row["case_sha256"] == contract()["case_sha256"]
             and row["tau_acceptance"] is False and type(row["all_cases_pass"]) is bool
             and type(row["requests_started"]) is int and 0 <= row["requests_started"] <= MAX_REQUESTS
             and type(row["request_phase_elapsed_ms"]) is int and 0 <= row["request_phase_elapsed_ms"] <= TOTAL_SECONDS * 1000
