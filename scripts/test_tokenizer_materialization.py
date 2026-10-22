@@ -326,6 +326,36 @@ class BindingTests(unittest.TestCase):
         self.assertEqual(report["experiment"]["entry"]["checkpoints"], {"status": "eof", "last_id": 12})
         self.assertEqual(report["experiment"]["entry"]["exception_diagnostic"]["type"], "value")
 
+    def test_actual_fixed_cpu_receipt_passes_without_admission_claim(self):
+        import json
+        directory = lab_fixture.ROOT / "evidence/p2/2026-10-22-tokenizer-materialization-local-b57ad74"
+        expected = {"run.json": "c309210dcf49fbafd88db88720c7bebc1465d1e30266f68a1ae78ac30970c60d",
+                    "output.log": "421cc80f48558d56d041f83187d99d4c76a9548b0a3e4ce2f38fba3da24301af"}
+        for name, sha in expected.items():
+            self.assertEqual(hashlib.sha256((directory / name).read_bytes()).hexdigest(), sha)
+        record = json.loads((directory / "run.json").read_bytes())
+        report = json.loads((directory / "output.log").read_bytes())
+        self.assertEqual(record["git_sha"], "b57ad749c06b4a20057b8327fecaf4fe5977a0b8")
+        self.assertEqual(record["result"], report["result"])
+        self.assertEqual(report["result"], "fail")
+        self.assertEqual(record["host"]["gpus"], "none")
+        self.assertEqual(report["cleanup"], "confirmed")
+        self.assertTrue(report["entry_pass"])
+        experiment = report["experiment"]
+        self.assertTrue(experiment["adapter_verified"])
+        self.assertEqual(experiment["tokenizer_materialization"], adapter.tokenizer_adapter_identity())
+        self.assertEqual(experiment["entry"]["checkpoints"], {"status": "eof", "last_id": 16})
+        self.assertEqual(experiment["entry"]["exit_code"], 0)
+        self.assertIsNone(experiment["entry"]["exception_diagnostic"])
+        self.assertFalse(any(experiment["entry"]["state_mismatches"].values()))
+        self.assertTrue(experiment["entry"]["finder_diagnostic"]["same_identity_list"])
+        for key in ("confidential", "hardware_validated", "abi_validated", "inference_started", "deployable"):
+            self.assertIs(report[key], False)
+            self.assertIs(experiment[key], False)
+        baseline = json.loads((lab_fixture.ROOT / "evidence/p2/2026-10-22-tokenizer-continuation-local-39851d2/output.log").read_bytes())
+        for key in ("before_inventory_sha256", "after_inventory_sha256", "stages", "native_inventory_unchanged"):
+            self.assertEqual(experiment["application"][key], baseline["experiment"]["application"][key])
+
     def test_cpu_fixed_contract_preserves_application_probe_and_bounds(self):
         tool, f = self.fixture.tool, self.fixture.fixture
         original, before = tool.prepare_files("1" * 40, f.bundle, self.fixture.extra, True)

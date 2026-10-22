@@ -1,7 +1,7 @@
 # P2.T3 pinned tokenizer request materialization
 
-Status: opt-in executed-code correction and CPU controls implemented; actual
-fixed-image execution and GPU parity rerun are separate gates. Not qualification,
+Status: opt-in executed-code correction and actual local pinned-image CPU
+controls passed; the GPU parity rerun remains a separate gate. Not qualification,
 quality, confidential success, boot validation, or complete tokenizer equivalence.
 
 ## Observed baseline and primary sources
@@ -17,7 +17,7 @@ are preserved, including their failure status. This confirms the exact CPU
 request/parser/deep-copy failure, not the unretained exception on the earlier
 GPU HTTP failure. It does not execute BPE, the renderer, or HTTP serving.
 
-The separate native CPU run `39795135328` did **not** reach entry: its
+The separately reported native CPU run `39795135328` did **not** reach entry: its
 16,982 ms preflight plus 703,019 ms application exhausted the existing 720-second
 application ceiling. It is an application-timeout failure, not a tokenizer
 failure or independent confirmation of the local TypeError. No bounds change.
@@ -32,6 +32,28 @@ control supplies a JSON array with an invalid second item, allowing Pydantic to
 create its own validator iterator, as on the actual endpoint. A two-valid-item
 control additionally checks that no later tool call disappears. The server
 adapter and the four original parity inputs are unchanged by this control fix.
+
+The corrected local run at producer `b57ad749c06b4a20057b8327fecaf4fe5977a0b8`
+**passed the bounded CPU control**, with originals retained in
+[run.json](../../evidence/p2/2026-10-22-tokenizer-materialization-local-b57ad74/run.json)
+and [output.log](../../evidence/p2/2026-10-22-tokenizer-materialization-local-b57ad74/output.log).
+It reached checkpoint 16, exited 0, reported `entry_pass=true` and
+`adapter_verified=true`, no exception and no state mismatch; cleanup was
+confirmed. Preflight/application/entry took 9,225/565,022/22,382 ms, within the
+unchanged limits. The same producer's `--check-result` returned
+`record_valid=true`, `entry_pass=true`, `confidential=false` and exit 0.
+Both local runs retained the same five-stage before/after inventory digests.
+All outer evidence envelopes remain `result=fail`, `BLOCKED`, and non-confidential.
+
+The passed originals have SHA-256:
+
+| File | SHA-256 |
+|---|---|
+| `run.json` | `c309210dcf49fbafd88db88720c7bebc1465d1e30266f68a1ae78ac30970c60d` |
+| `output.log` | `421cc80f48558d56d041f83187d99d4c76a9548b0a3e4ce2f38fba3da24301af` |
+
+These are actual Linux-amd64-image controls under local OrbStack, not a native
+GitHub success, an HTTP/BPE result, GPU parity, quality or confidential proof.
 
 All upstream sources below are pinned to
 `5df63a7203cdb9328d824a27b682e77c7b9928be`:
