@@ -31,7 +31,134 @@ def symbols():
     return b"".join(name.encode() + b" U \n" for name in driver.CRYPTO_REFERENCES)
 
 
+def compressed_fixture(root):
+    binary = b"pinned decoder fixture"
+    put(root, "usr/bin/zstd", binary)
+    for name in driver.MODULES:
+        put(root, driver.MODULE_DIRECTORY + name + ".ko.zst", b"fixture " + name.encode())
+    return hashlib.sha256(binary).hexdigest()
+
+
 class DriverTests(unittest.TestCase):
+    def test_runtime_modules_decode_in_same_sandbox_then_keep_existing_elf_identity(self):
+        processes = host.base.processes
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            digest = compressed_fixture(root)
+            with mock.patch.object(driver, "ROOTFS", root), mock.patch.object(driver, "ZSTD_SHA256", digest), \
+                    mock.patch.object(processes, "execute_process_group", return_value=
+                                      subprocess.CompletedProcess([], 0, elf(), b"")) as execute:
+                rows = driver.decompress_modules(processes, {}, guard.PREFIX, root)
+            self.assertEqual([r["name"] for r in rows], list(driver.MODULES))
+            for row, call in zip(rows, execute.call_args_list):
+                compressed = b"fixture " + row["name"].encode()
+                self.assertEqual(row["sha256"], hashlib.sha256(compressed).hexdigest())
+                self.assertEqual(row["bytes"], len(compressed))
+                self.assertEqual(call.args[0][-1], "decode-" + row["name"])
+                self.assertIn("/usr/bin/setpriv", call.args[0])
+                self.assertEqual(call.kwargs, {"env": {}, "timeout": 30,
+                    "max_output_bytes": 256 << 20, "max_stderr_bytes": 2 << 20,
+                    "stdin": subprocess.DEVNULL})
+            self.assertEqual({p.name for p in (root / driver.MODULE_DIRECTORY).iterdir()},
+                             {name + ".ko" for name in driver.MODULES})
+            self.assertTrue(all(r["sha256"] == hashlib.sha256(elf()).hexdigest()
+                                for r in driver.inspect_modules(root)))
+
+    def test_runtime_decoder_commands_have_fixed_paths_and_memory_limit(self):
+        for name in driver.MODULES:
+            self.assertEqual(driver.operation("decode-" + name), ["/usr/bin/zstd", "--decompress",
+                "--stdout", "--memory=256MB", "--", "/" + driver.MODULE_DIRECTORY + name + ".ko.zst"])
+        for name in ("decode-", "decode-../../secret", "decode-other", "decode-nvidia;true"):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                driver.operation(name)
+
+    def test_runtime_decode_preflight_rejects_bad_binary_missing_compressed_and_existing_targets(self):
+        processes = host.base.processes
+        for mutation in ("decoder", "missing", "symlink", "hardlink", "preexisting", "dangling"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                digest = compressed_fixture(root)
+                packed = root / driver.MODULE_DIRECTORY / "nvidia.ko.zst"
+                target = root / driver.MODULE_DIRECTORY / "nvidia.ko"
+                if mutation == "decoder":
+                    (root / "usr/bin/zstd").write_bytes(b"unreviewed decoder")
+                elif mutation == "missing":
+                    packed.unlink()
+                elif mutation == "symlink":
+                    packed.unlink()
+                    packed.symlink_to(root / "usr/bin/zstd")
+                elif mutation == "hardlink":
+                    os.link(packed, root / "alias")
+                elif mutation == "preexisting":
+                    target.write_bytes(elf())
+                else:
+                    target.symlink_to(root / "absent")
+                with mock.patch.object(driver, "ROOTFS", root), mock.patch.object(driver, "ZSTD_SHA256", digest), \
+                        mock.patch.object(processes, "execute_process_group") as execute, \
+                        self.assertRaises((ValueError, FileNotFoundError)):
+                    driver.decompress_modules(processes, {}, guard.PREFIX, root)
+                execute.assert_not_called()
+
+    def test_runtime_decode_rejects_errors_overflow_wrong_elf_and_keeps_compressed_sources(self):
+        processes = host.base.processes
+        failures = (subprocess.CompletedProcess([], 1, b"", b"bad frame"),
+                    subprocess.CompletedProcess([], 0, elf(), b"unexpected warning"),
+                    subprocess.CompletedProcess([], 0, b"not ELF", b""),
+                    processes.OutputLimitExceeded("stdout", b"bounded binary", b""),
+                    subprocess.TimeoutExpired("decoder", 30))
+        for failure in failures:
+            with self.subTest(failure=type(failure)), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                digest = compressed_fixture(root)
+                with mock.patch.object(driver, "ROOTFS", root), mock.patch.object(driver, "ZSTD_SHA256", digest), \
+                        mock.patch.object(processes, "execute_process_group", side_effect=[failure]), \
+                        self.assertRaises((ValueError, subprocess.SubprocessError)):
+                    driver.decompress_modules(processes, {}, guard.PREFIX, root)
+                self.assertEqual({p.name for p in (root / driver.MODULE_DIRECTORY).iterdir()},
+                                 {name + ".ko.zst" for name in driver.MODULES})
+        with mock.patch.object(driver, "MAX_MODULE", 64), self.assertRaises(ValueError):
+            driver.module_identity("nvidia", elf() + b"extra")
+
+    def test_runtime_decode_detects_source_mutation_and_never_overwrites_output(self):
+        processes = host.base.processes
+        for mutation in ("source", "output"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                digest = compressed_fixture(root)
+                def mutate(*args, **kwargs):
+                    name = "nvidia.ko.zst" if mutation == "source" else "nvidia.ko"
+                    (root / driver.MODULE_DIRECTORY / name).write_bytes(b"do not overwrite")
+                    return subprocess.CompletedProcess([], 0, elf(), b"")
+                with mock.patch.object(driver, "ROOTFS", root), mock.patch.object(driver, "ZSTD_SHA256", digest), \
+                        mock.patch.object(processes, "execute_process_group", side_effect=mutate), \
+                        self.assertRaises((ValueError, FileExistsError)):
+                    driver.decompress_modules(processes, {}, guard.PREFIX, root)
+                self.assertEqual(len(list((root / driver.MODULE_DIRECTORY).glob("*.ko.zst"))), 5)
+                if mutation == "output":
+                    self.assertEqual((root / driver.MODULE_DIRECTORY / "nvidia.ko").read_bytes(), b"do not overwrite")
+
+    def test_runtime_build_decodes_before_symbols_only_when_explicit_and_never_masks_failure(self):
+        processes = host.base.processes
+        results = [subprocess.CompletedProcess([], 0, b"13.3.0\n", b""),
+                   subprocess.CompletedProcess([], 0, b"", b""),
+                   subprocess.CompletedProcess([], 0, b"", b""),
+                   subprocess.CompletedProcess([], 0, symbols(), b"")]
+        for enabled, fail in ((False, False), (True, False), (True, True)):
+            with self.subTest(enabled=enabled, fail=fail), tempfile.TemporaryDirectory() as temporary, \
+                    mock.patch.object(driver, "verify_inputs"), mock.patch.object(driver, "preserve_make_log"), \
+                    mock.patch.object(driver, "inspect_modules", return_value=[{"fixture": True}]), \
+                    mock.patch.object(driver, "decompress_modules", return_value=[{"compressed": True}]) as decode, \
+                    mock.patch.object(processes, "execute_process_group", side_effect=results) as execute:
+                if fail:
+                    decode.side_effect = ValueError("bad compression")
+                    with self.assertRaises(ValueError):
+                        driver.build(processes, Path(temporary), {}, {}, guard.PREFIX, compressed_driver=enabled)
+                    self.assertEqual(execute.call_count, 3)
+                else:
+                    report = driver.build(processes, Path(temporary), {}, {}, guard.PREFIX, compressed_driver=enabled)
+                    self.assertEqual(report["compressed_modules"], [{"compressed": True}] if enabled else None)
+                self.assertEqual(decode.call_count, int(enabled))
+
     def test_regular_file_rejects_links_special_files_and_unbounded_data(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

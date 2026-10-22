@@ -1,0 +1,11 @@
+{
+  "schema": "nib.guest-hook-review-policy/v1",
+  "scope": "fresh-directory-installation-source-review",
+  "guest_lock_sha256": "f3162aeab969aba9a99d3dc96ddeb80b7ee808b55b126762710a08269e182de8",
+  "inventory_sha256": "9d06062127bb1d74cb88b014586fad4d90b138f7b4fe0946f5228899ab8558dc",
+  "package_count": 212,
+  "control_members": 257,
+  "data_hooks": 17,
+  "installation_authorized": false,
+  "review_document": "docs/tasks/p3-t1-runtime-install.md"
+}

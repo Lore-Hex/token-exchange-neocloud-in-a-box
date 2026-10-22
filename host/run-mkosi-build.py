@@ -115,6 +115,7 @@ def main():
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--compile-driver", action="store_true")
     parser.add_argument("--install-driver", action="store_true")
+    parser.add_argument("--guest-runtime", action="store_true")
     args = parser.parse_args()
     require(not args.install_driver or args.compile_driver)
     uid, gid = identity()
@@ -133,7 +134,8 @@ def main():
             state = execute(uid, gid, ["--downloads", str(args.downloads),
                 "--archive", str(args.archive), "--output", str(args.output),
                 *(["--compile-driver"] if args.compile_driver else []),
-                *(["--install-driver"] if args.install_driver else [])])
+                *(["--install-driver"] if args.install_driver else []),
+                *(["--guest-runtime"] if args.guest_runtime else [])])
         finally:
             for signum, handler in previous.items():
                 signal.signal(signum, handler)

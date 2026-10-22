@@ -1,0 +1,20 @@
+{
+  "command": "python -I -B scripts/review_guest_hooks.py --archives PRIVATE --output PRIVATE --guest-runtime",
+  "ended_utc": "2026-10-22T04:30:48Z",
+  "execution": "software",
+  "git_sha": "735dd67074674c6ef9af320229dc8c817304c387",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "offline-package-review",
+    "provider": "local"
+  },
+  "notes": "Read-only hash recheck of reviewed public package hooks. No extraction or hook execution.",
+  "phase": "P3",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-22T04:30:36Z",
+  "task": "T1"
+}

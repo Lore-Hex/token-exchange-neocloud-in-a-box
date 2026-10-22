@@ -112,6 +112,13 @@ class HookReviewTests(unittest.TestCase):
         self.assertEqual((value["package_count"], value["control_members"], value["data_hooks"]), (145, 180, 11))
         self.assertFalse(value["installation_authorized"])
 
+    def test_runtime_policy_is_distinct_and_does_not_rewrite_original_policy(self):
+        value = json.loads((ROOT / review.RUNTIME_POLICY).read_bytes())
+        self.assertEqual(value["guest_lock_sha256"], base.digest((ROOT / review.RUNTIME_LOCK).read_bytes()))
+        self.assertEqual((value["package_count"], value["control_members"], value["data_hooks"]), (212, 257, 17))
+        self.assertFalse(value["installation_authorized"])
+        self.assertNotEqual(value["inventory_sha256"], json.loads((ROOT / review.POLICY).read_bytes())["inventory_sha256"])
+
     def test_cli_publishes_complete_content_free_evidence(self):
         lock, rows = self.inventory()
         sources = {review.LOCK: lock, review.POLICY: base.encoded(policy(lock, rows))}

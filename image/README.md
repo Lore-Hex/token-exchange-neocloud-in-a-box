@@ -27,6 +27,9 @@ extends the pinned package graph with systemd, Podman/CDI, firewall and verity
 tooling. Its real offline APT rehearsal passed for all 212 exact package versions,
 with no removals and confirmed cleanup. It cannot silently replace
 the proven kernel/driver installation input. It is not yet a bootable image.
+The explicit [runtime installer](../docs/tasks/p3-t1-runtime-install.md) reuses
+the same isolation boundary and verifies the matching APT proof and reviewed
+package-hook inventory before execution. Its actual installation proof is pending.
 
 The [measured-image decision](../docs/decisions/0004-measured-guest-image.md)
 remains authoritative: immutable release/debug outputs must differ, the UKI

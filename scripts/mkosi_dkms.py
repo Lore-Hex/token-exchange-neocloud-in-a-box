@@ -35,6 +35,8 @@ INSTALL_PINS = {
 }
 MODULE_DIRECTORY = "var/lib/dkms/nvidia/" + DRIVER + "/" + KERNEL + "/x86_64/module/"
 CRYPTO_REFERENCES = ("crypto_alloc_aead", "crypto_alloc_akcipher", "crypto_alloc_shash")
+ZSTD_SHA256 = "7c5468b370f7c47eda07281e3437fafc568f95d10420051e3aa522709f9342c5"
+MAX_MODULE = 256 << 20
 MAKE_LOGS = ("var/lib/dkms/nvidia/" + DRIVER + "/build/make.log",
              "var/lib/dkms/nvidia/" + DRIVER + "/" + KERNEL + "/x86_64/log/make.log")
 
@@ -78,6 +80,9 @@ def verify_inputs(root, controls):
 
 
 def operation(name):
+    if name in {"decode-" + module for module in MODULES}:
+        return ["/usr/bin/zstd", "--decompress", "--stdout", "--memory=256MB", "--",
+                "/" + MODULE_DIRECTORY + name.removeprefix("decode-") + ".ko.zst"]
     if name == "compiler":
         return ["/usr/bin/x86_64-linux-gnu-gcc-13", "-dumpfullversion", "-dumpversion"]
     if name == "symbols":
@@ -99,15 +104,47 @@ def command(name, prefix):
             "/usr/bin/python3.12", "-I", "-S", "-B", "/nib/dkms-worker.py", name]
 
 
+def module_identity(name, raw):
+    # ELF64 little-endian relocatable x86_64, not an executable or DSO.
+    require(type(raw) is bytes and 64 <= len(raw) <= MAX_MODULE
+            and raw[:7] == b"\x7fELF\x02\x01\x01" and raw[16:20] == b"\x01\x00\x3e\x00")
+    return {"name": name, "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+
+
 def inspect_modules(root, directory=MODULE_DIRECTORY):
-    rows = []
+    return [module_identity(name, regular(root, directory + name + ".ko", MAX_MODULE))
+            for name in MODULES]
+
+
+def decompress_modules(processes, environment, prefix, root=ROOTFS):
+    """Normalize the runtime build's ZSTD modules before the unchanged ELF checks."""
+    require(root == ROOTFS)
+    require(hashlib.sha256(regular(root, "usr/bin/zstd", 2 << 20)).hexdigest() == ZSTD_SHA256)
+    compressed = []
     for name in MODULES:
-        raw = regular(root, directory + name + ".ko", 256 << 20)
-        # ELF64 little-endian relocatable x86_64, not an executable or DSO.
-        require(len(raw) >= 64 and raw[:7] == b"\x7fELF\x02\x01\x01"
-                and raw[16:20] == b"\x01\x00\x3e\x00")
-        rows.append({"name": name, "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()})
-    return rows
+        raw = regular(root, MODULE_DIRECTORY + name + ".ko.zst", MAX_MODULE)
+        target = root / MODULE_DIRECTORY / (name + ".ko")
+        require(not target.exists() and not target.is_symlink())
+        compressed.append({"name": name, "bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()})
+    decoded = []
+    for row in compressed:
+        result = processes.execute_process_group(command("decode-" + row["name"], prefix), env=environment,
+            timeout=30, max_output_bytes=MAX_MODULE, max_stderr_bytes=2 << 20, stdin=subprocess.DEVNULL)
+        result.check_returncode()
+        require(not result.stderr)
+        decoded.append(module_identity(row["name"], result.stdout))
+        raw = regular(root, MODULE_DIRECTORY + row["name"] + ".ko.zst", MAX_MODULE)
+        require(len(raw) == row["bytes"] and hashlib.sha256(raw).hexdigest() == row["sha256"])
+        # Exclusive creation never overwrites a pre-existing file or follows a link.
+        with (root / MODULE_DIRECTORY / (row["name"] + ".ko")).open("xb") as stream:
+            stream.write(result.stdout)
+    require(inspect_modules(root) == decoded)
+    for row in compressed:
+        name = MODULE_DIRECTORY + row["name"] + ".ko.zst"
+        raw = regular(root, name, MAX_MODULE)
+        require(len(raw) == row["bytes"] and hashlib.sha256(raw).hexdigest() == row["sha256"])
+        (root / name).unlink()
+    return compressed
 
 
 def install_inputs(root, controls):
@@ -206,11 +243,13 @@ def preserve_make_log(root, output):
         (output / ("dkms-make-" + str(index) + ".log")).write_bytes(raw)
 
 
-def build(processes, output, environment, controls, prefix, root=ROOTFS, *, install_driver=False):
-    require(root == ROOTFS and type(install_driver) is bool)
+def build(processes, output, environment, controls, prefix, root=ROOTFS, *, install_driver=False,
+          compressed_driver=False):
+    require(root == ROOTFS and type(install_driver) is bool and type(compressed_driver) is bool)
     verify_inputs(root, controls)
     modules = None
     references = None
+    compressed = None
     for name in ("compiler", "add", "build", "symbols"):
         try:
             result = processes.execute_process_group(command(name, prefix), env=environment,
@@ -227,6 +266,8 @@ def build(processes, output, environment, controls, prefix, root=ROOTFS, *, inst
         if name == "compiler":
             require(result.stdout == b"13.3.0\n" and not result.stderr)
         if name == "build":
+            if compressed_driver:
+                compressed = decompress_modules(processes, environment, prefix, root)
             modules = inspect_modules(root)
         if name == "symbols":
             require(not result.stderr)
@@ -234,7 +275,8 @@ def build(processes, output, environment, controls, prefix, root=ROOTFS, *, inst
             require(inspect_modules(root) == modules)
     indexes = install(processes, output, environment, controls, prefix, modules, root) if install_driver else None
     return {"result": "pass", "kernel": KERNEL, "driver": DRIVER, "compiler": "13.3.0",
-            "modules": modules, "crypto_references": references, "crypto_linkage_verified": True,
+            "modules": modules, "compressed_modules": compressed,
+            "crypto_references": references, "crypto_linkage_verified": True,
             "installed": install_driver, "dependency_indexes": indexes, "loaded": False,
             "lkca_verified": False, "reproducibility_verified": False, "bootable": False}
 

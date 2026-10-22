@@ -26,10 +26,13 @@ ENTRY = "scripts/mkosi_build_entry.py"
 RESOURCES = "host/probe-build-resources.py"
 LAUNCHER = "host/run-mkosi-build.py"
 DKMS = "scripts/mkosi_dkms.py"
+HOOKS = "scripts/review_guest_hooks.py"
+RUNTIME_APT = "evidence/p3/2026-10-22-runtime-apt-plan/report.json"
 probe = types.SimpleNamespace(**runpy.run_path(str(ROOT / PROBE), run_name="build_probe"))
 resources = types.SimpleNamespace(**runpy.run_path(str(ROOT / RESOURCES), run_name="build_limits"))
 prep, base, tools, require = probe.prep, probe.base, probe.tools, probe.require
 mkosi = prep.mkosi
+hooks = types.SimpleNamespace(**runpy.run_path(str(ROOT / HOOKS)))
 
 
 def preflight():
@@ -55,9 +58,36 @@ def command(root, payload, output, mapped, compile_driver=False, install_driver=
         *(["--install-driver"] if install_driver else ["--compile-driver"] if compile_driver else [])]
 
 
-def prepare(downloads, source_archive, revision, sources):
+def runtime_preflight(sources, archives):
+    lock_raw = sources[hooks.RUNTIME_LOCK]
+    rehearsal = json.loads(sources[RUNTIME_APT])
+    simulation = rehearsal["simulation"]
+    plan = simulation["plan"]
+    require(rehearsal["schema"] == "nib.apt-container-run/v2"
+            and rehearsal["result"] == "pass" and rehearsal["cleanup"] == "confirmed"
+            and rehearsal["target_profile"] == "guest-runtime"
+            and simulation["schema"] == "nib.apt-simulation/v2"
+            and simulation["result"] == "pass" and simulation["stage"] == "complete"
+            and simulation["diagnostic"] is None
+            and simulation["guest_lock_sha256"] == base.digest(lock_raw)
+            and simulation["target_packages"] == plan["installed"] == plan["configured"] == 212
+            and plan["removed"] == 0
+            and type(simulation["target_packages"]) is int
+            and all(type(plan[k]) is int for k in ("installed", "configured", "removed")))
+    rows = hooks.inventory(json.loads(lock_raw), archives)
+    return hooks.validate(json.loads(sources[hooks.RUNTIME_POLICY]), lock_raw, rows)
+
+
+def prepare(downloads, source_archive, revision, sources, guest_runtime=False):
+    require(type(guest_runtime) is bool)
+    review = None
+    if guest_runtime:
+        review = runtime_preflight(sources, downloads / "archives")
     raw = base.read(source_archive, mkosi.MAX_SOURCE)
-    prepared, preparation = mkosi.prepare(downloads / "metadata", downloads / "archives", raw, revision, sources)
+    prepared, preparation = mkosi.prepare(downloads / "metadata", downloads / "archives", raw, revision, sources,
+                                           guest_runtime=guest_runtime)
+    if review is not None:
+        prepared["runtime-hook-review.json"] = base.encoded(review)
     pin = json.loads(sources[mkosi.EXTRA[1]])
     _, upstream = mkosi.verify_source(raw, pin)
     upstream[mkosi.PATCH_TARGET] = prepared["mkosi-overlay/" + mkosi.PATCH_TARGET]
@@ -92,7 +122,9 @@ def collect_diagnostics(resultdir):
     return artifacts
 
 
-def run(downloads, archive, output, revision, sources, compile_driver=False, install_driver=False):
+def run(downloads, archive, output, revision, sources, compile_driver=False, install_driver=False,
+        guest_runtime=False):
+    require(type(guest_runtime) is bool)
     require(not install_driver or compile_driver)
     require(not output.exists() and not output.is_symlink())
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -104,7 +136,9 @@ def run(downloads, archive, output, revision, sources, compile_driver=False, ins
     with tempfile.TemporaryDirectory(prefix="nib-image-build-", dir="/tmp") as temporary:
         temporary = Path(temporary).resolve()
         try:
-            prepared, preparation, payload_files, modes, links = prepare(downloads, archive, revision, sources)
+            prepared, preparation, payload_files, modes, links = prepare(downloads, archive, revision, sources, guest_runtime)
+            if guest_runtime:
+                artifacts["runtime-hook-review.json"] = prepared["runtime-hook-review.json"]
             inputs = temporary / "prepared"
             base.publish(inputs, prepared)
             files, tree_receipt = prep.assemble(inputs, revision, sources)
@@ -144,7 +178,7 @@ def run(downloads, archive, output, revision, sources, compile_driver=False, ins
             result.check_returncode()
             require(report["worker"] and report["worker"]["result"] == "pass"
                     and report["worker"]["configured_state_verified"] is True
-                    and report["worker"]["installed_packages"] == 145)
+                    and report["worker"]["installed_packages"] == (212 if guest_runtime else 145))
             if compile_driver:
                 require(report["worker"]["dkms_built"] is True
                         and report["worker"]["driver_build"]["result"] == "pass")
@@ -163,6 +197,8 @@ def run(downloads, archive, output, revision, sources, compile_driver=False, ins
     if install_driver:
         evidence["command"] += " --install-driver"
         evidence["notes"] = "Bounded offline driver build and guest-root installation; no module loading, boot, LKCA, reproducibility or hardware qualification."
+    if guest_runtime:
+        evidence["command"] += " --guest-runtime"
     artifacts.update({"run.json": base.encoded(evidence), "result.json": base.encoded(report)})
     base.publish(output, artifacts)
     return 0 if report["result"] == "pass" else 1
@@ -174,14 +210,17 @@ def main():
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--compile-driver", action="store_true")
     parser.add_argument("--install-driver", action="store_true")
+    parser.add_argument("--guest-runtime", action="store_true")
     args = parser.parse_args()
     require(not args.install_driver or args.compile_driver)
     preflight()
     tools.separate_output(args.output, (args.downloads, args.archive))
     revision, sources = tools.committed((*mkosi.EXTRA, prep.SCRIPT, prep.POLICY,
         SCRIPT, PROBE, WORKER, ENTRY, RESOURCES, LAUNCHER, probe.NATIVE, probe.OWNERSHIP,
-        probe.PID_CHECKER, probe.native.CHECKER, probe.native.WORKER, DKMS))
-    return run(args.downloads, args.archive, args.output, revision, sources, args.compile_driver, args.install_driver)
+        probe.PID_CHECKER, probe.native.CHECKER, probe.native.WORKER, DKMS,
+        *((HOOKS, hooks.RUNTIME_LOCK, hooks.RUNTIME_POLICY, RUNTIME_APT) if args.guest_runtime else ())))
+    return run(args.downloads, args.archive, args.output, revision, sources, args.compile_driver,
+               args.install_driver, args.guest_runtime)
 
 
 if __name__ == "__main__":

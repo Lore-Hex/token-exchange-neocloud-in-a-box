@@ -244,9 +244,11 @@ def build_contract(guest, revision):
     }
 
 
-def prepare(metadata, archives, source_archive, revision, sources):
+def prepare(metadata, archives, source_archive, revision, sources, *, guest_runtime=False):
+    require(type(guest_runtime) is bool)
+    guest_path, guest_scope = tools.TARGETS["guest-runtime" if guest_runtime else "guest"]
     pin, lock, guest = (json.loads(sources[p]) for p in
-                        (EXTRA[1], EXTRA[2], tools.FILES[-1]))
+                        (EXTRA[1], EXTRA[2], guest_path))
     source, members = verify_source(source_archive, pin)
     patch_pin = json.loads(sources[EXTRA[4]])
     patched = service_denial_patch(members, pin, sources[EXTRA[3]], patch_pin)
@@ -254,7 +256,7 @@ def prepare(metadata, archives, source_archive, revision, sources):
     boundary_pin = json.loads(sources[EXTRA[6]])
     patched = package_patch.apply(patched, boundary_pin)
     validate_tools_lock(lock, metadata)
-    base.inputs.check(guest, metadata)
+    base.inputs.check(guest, metadata, scope=guest_scope)
     validate_build_targets(guest)
     require(len(lock["packages"]) <= 256 and lock["archive_bytes"] <= 128 << 20)
     rows = {}
@@ -297,7 +299,7 @@ def prepare(metadata, archives, source_archive, revision, sources):
         "nib/package-worker.py": sources[EXTRA[7]],
         "nib/confinement.py": sources[EXTRA[8]],
         "mkosi-tools-inputs.json": sources[EXTRA[2]],
-        "guest-inputs.json": sources[tools.FILES[-1]],
+        "guest-inputs.json": sources[guest_path],
         "mkosi.conf.candidate": base.recipe(guest, skeleton_tree="mkosi-skeleton"),
         "build-contract.json": base.encoded(build_contract(guest, revision)),
         "maintainer-inventory.json": base.encoded({"packages": observations,
@@ -338,13 +340,16 @@ def main():
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--output", type=Path)
     mode.add_argument("--verify", type=Path)
+    parser.add_argument("--guest-runtime", action="store_true")
     args = parser.parse_args()
     if args.output:
         tools.separate_output(args.output, (args.metadata, args.archives, args.mkosi_source))
-    revision, sources = tools.committed(EXTRA)
+    revision, sources = tools.committed((*EXTRA, *((tools.TARGETS["guest-runtime"][0],)
+                                                  if args.guest_runtime else ())))
     require(sources[tools.FILES[0]] == TOOLS_SOURCE)
     raw = base.read(args.mkosi_source, MAX_SOURCE)
-    files, report = prepare(args.metadata, args.archives, raw, revision, sources)
+    files, report = prepare(args.metadata, args.archives, raw, revision, sources,
+                            guest_runtime=args.guest_runtime)
     if args.output:
         base.publish(args.output, files)
     base.verify(args.output or args.verify, files)

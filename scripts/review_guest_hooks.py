@@ -16,6 +16,8 @@ ROOT = Path(__file__).absolute().parent.parent
 SCRIPT = "scripts/review_guest_hooks.py"
 POLICY = "image/inputs/r595-ubuntu2404-hook-review.json"
 LOCK = "image/inputs/r595-ubuntu2404.json"
+RUNTIME_POLICY = "image/inputs/guest-runtime-ubuntu2404-hook-review.json"
+RUNTIME_LOCK = "image/inputs/guest-runtime-ubuntu2404.json"
 tools = types.SimpleNamespace(**runpy.run_path(str(ROOT / "scripts/prepare_guest_tools.py")))
 base, require = tools.base, tools.require
 CONTROL_NAMES = frozenset(("preinst", "postinst", "prerm", "postrm", "config", "triggers"))
@@ -95,10 +97,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archives", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--guest-runtime", action="store_true")
     args = parser.parse_args()
     tools.separate_output(args.output, (args.archives, ROOT))
-    revision, sources = tools.committed((SCRIPT, POLICY))
-    lock_raw, policy = sources[LOCK], json.loads(sources[POLICY])
+    lock_path, policy_path = (RUNTIME_LOCK, RUNTIME_POLICY) if args.guest_runtime else (LOCK, POLICY)
+    revision, sources = tools.committed((SCRIPT, policy_path, lock_path))
+    lock_raw, policy = sources[lock_path], json.loads(sources[policy_path])
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     rows = inventory(json.loads(lock_raw), args.archives)
     report = validate(policy, lock_raw, rows)
@@ -111,6 +115,8 @@ def main():
            "host": {"provider": "local", "machine": "offline-package-review", "gpus": "none",
                     "driver": None, "cuda": None},
            "notes": "Read-only hash recheck of reviewed public package hooks. No extraction or hook execution."}
+    if args.guest_runtime:
+        run["command"] += " --guest-runtime"
     base.publish(args.output, {"run.json": base.encoded(run), "result.json": base.encoded(report),
                                "inventory.json": base.encoded(rows)})
     print("Guest hook source review matches; installation remains unauthorized.")

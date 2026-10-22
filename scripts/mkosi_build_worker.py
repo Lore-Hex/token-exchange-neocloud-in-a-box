@@ -38,6 +38,15 @@ def configured(raw, expected, parser):
     return len(actual)
 
 
+def expected_packages(guest):
+    counts = {"kernel-driver-build-dependency-coverage": 145,
+              "guest-runtime-dependency-coverage": 212}
+    expected = {row["Package"]: row["Version"] for row in guest["packages"]}
+    require(guest.get("scope") in counts
+            and len(expected) == len(guest["packages"]) == counts[guest["scope"]])
+    return expected
+
+
 def installation_environment():
     # mkosi config.py calls getpass.getuser(). UID 0 exists only in the private
     # namespace, not in the extracted tools tree's intentionally absent passwd.
@@ -138,8 +147,7 @@ def main():
         processes = module("snapshot")
         inputs = module("package-inputs")
         guest = json.loads(Path("/nib/prepared/guest-inputs.json").read_bytes())
-        expected = {row["Package"]: row["Version"] for row in guest["packages"]}
-        require(len(expected) == len(guest["packages"]) == 145)
+        expected = expected_packages(guest)
         for name in ("config", "output", "workspaces", "cache", "pkgcache"):
             Path("/work", name).mkdir(mode=0o700)
         config = Path("/work/config")
@@ -158,7 +166,8 @@ def main():
             controls = {name: inputs.regular(Path("/nib/prepared/mkosi-skeleton") / name, 16384)
                         for name in driver.CONTROL_NAMES}
             report["driver_build"] = driver.build(processes, Path("/out"), installation_environment(), controls,
-                                                 guard.PREFIX, install_driver=install_driver)
+                                                 guard.PREFIX, install_driver=install_driver,
+                                                 compressed_driver="zstd" in expected)
             report["dkms_built"] = True
         report["result"] = "pass"
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
