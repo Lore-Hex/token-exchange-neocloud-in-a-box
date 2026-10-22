@@ -33,6 +33,7 @@ MAX_FILES = 4096
 MAX_TREE = 64 << 20
 MAX_ARCHIVE = 80 << 20
 CHECKOUT_SECONDS = 180
+MIN_RAM_BYTES = 1152 << 30
 ENV = {
     "PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/nonexistent",
     "LANG": "C", "LC_ALL": "C", "GIT_CONFIG_NOSYSTEM": "1",
@@ -247,7 +248,9 @@ def ram_capacity(meminfo, mountinfo, available_bytes):
                     and parts[1].isdecimal() and parts[0] not in values)
             values[parts[0]] = int(parts[1]) * 1024
     require(set(values) == {"MemTotal:", "MemAvailable:", "SwapTotal:"})
-    require(values["MemTotal:"] >= 1536 << 30 and values["MemAvailable:"] >= 1536 << 30
+    # Fixed DeepSeek pack: 510,311,045,295 bytes + 512 GiB engine cap +
+    # 128 GiB host reserve < 1152 GiB. Tests bind this to the launcher's cap.
+    require(values["MemTotal:"] >= MIN_RAM_BYTES and values["MemAvailable:"] >= MIN_RAM_BYTES
             and values["MemAvailable:"] <= values["MemTotal:"] and values["SwapTotal:"] == 0)
     mounts = []
     for line in mountinfo.splitlines():

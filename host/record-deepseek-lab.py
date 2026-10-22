@@ -42,6 +42,7 @@ SUPPORT = ("scripts/record-engine-image.py", "scripts/prepare-engine-overlay.py"
            "scripts/engine_image_diagnostic.py", "scripts/engine_python_descriptor.py", "scripts/e2e/snapshot.py")
 MAX_BYTES = 64 << 20
 MAX_SECONDS = 4800
+ENGINE_MEMORY_GIB = 512
 WATCHDOG_SETTLE_SECONDS = 40
 LABEL = "nib.deepseek-lab"
 CANCELLED = False
@@ -227,12 +228,13 @@ def create_command(name, owner, bundle, weights, contract, config):
     require(contract["operation"] in ("functional", "hardware-diagnostic", "local-correctness", "pre-serve"))
     payload = str(Path(bundle) / "payload")
     pre_serve = contract["operation"] == "pre-serve"
+    memory = str(8 if pre_serve else ENGINE_MEMORY_GIB) + "g"
     require((weights is None) == pre_serve)
     command = ["docker", "container", "create", "--name", name, "--label", LABEL + "=" + owner,
                "--pull", "never", "--platform", "linux/amd64", "--runtime", "nvidia",
                "--gpus", '"device=0,1,2,3"', "--network", "none", "--cap-drop", "ALL",
                "--security-opt", "no-new-privileges", "--pids-limit", "1024",
-               "--memory", "8g" if pre_serve else "768g", "--memory-swap", "8g" if pre_serve else "768g",
+               "--memory", memory, "--memory-swap", memory,
                "--cpus", "2" if pre_serve else "64",
                "--ipc", "private", "--shm-size", "2g", "--cgroupns", "private",
                "--restart", "no", "--log-driver", "none", "--no-healthcheck", "--user", "0:0",
@@ -278,7 +280,7 @@ def check_container(info, name, owner, bundle, weights, contract, config, image_
             and not host.get("DeviceCgroupRules") and not host.get("PortBindings") and not host.get("PublishAllPorts")
             and not host.get("PidMode") and not host.get("UTSMode") and not host.get("VolumesFrom") and not host.get("Binds")
             and host["IpcMode"] == "private" and host["ShmSize"] == 2 << 30 and host["CgroupnsMode"] == "private"
-            and host["Memory"] == host["MemorySwap"] == (8 if pre_serve else 768) << 30
+            and host["Memory"] == host["MemorySwap"] == (8 if pre_serve else ENGINE_MEMORY_GIB) << 30
             and host["NanoCpus"] == (2 if pre_serve else 64) * 1000000000
             and host["PidsLimit"] == 1024 and host["RestartPolicy"]["Name"] == "no" and host["LogConfig"]["Type"] == "none"
             and set(host["SecurityOpt"]) in ({"no-new-privileges"}, {"no-new-privileges=true"})

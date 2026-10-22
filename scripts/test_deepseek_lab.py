@@ -2646,7 +2646,8 @@ class ReportTests(unittest.TestCase):
                                        {"base_image": "pinned", "environment": {"VLLM_PLUGINS": ""}, "operation": "functional"},
                                        {"config": {"Env": ["SECRET_IMAGE_DEFAULT=unused"]}})
         for flag, value in (("--network", "none"), ("--pull", "never"), ("--ipc", "private"),
-                            ("--shm-size", "2g"), ("--memory", "768g"), ("--pids-limit", "1024")):
+                            ("--shm-size", "2g"), ("--memory", "512g"), ("--memory-swap", "512g"),
+                            ("--pids-limit", "1024")):
             self.assertEqual(args[args.index(flag) + 1], value)
         self.assertNotIn("--publish", args)
         self.assertNotIn("--privileged", args)
@@ -2683,8 +2684,8 @@ class ReportTests(unittest.TestCase):
                            "Healthcheck": {"Test": ["NONE"]}},
                 "HostConfig": {"NetworkMode": "none", "Privileged": False, "Runtime": "nvidia",
                                "ReadonlyRootfs": False, "CapDrop": ["ALL"], "IpcMode": "private",
-                               "ShmSize": 2 << 30, "CgroupnsMode": "private", "Memory": 768 << 30,
-                               "MemorySwap": 768 << 30, "NanoCpus": 64000000000, "PidsLimit": 1024,
+                               "ShmSize": 2 << 30, "CgroupnsMode": "private", "Memory": 512 << 30,
+                               "MemorySwap": 512 << 30, "NanoCpus": 64000000000, "PidsLimit": 1024,
                                "RestartPolicy": {"Name": "no"}, "LogConfig": {"Type": "none"},
                                "SecurityOpt": ["no-new-privileges"],
                                "Tmpfs": {"/cache": "rw,nosuid,nodev,exec,size=16g,mode=0700",
@@ -2695,6 +2696,12 @@ class ReportTests(unittest.TestCase):
                            {"Type": "bind", "Source": "/weights", "Destination": "/model", "RW": False}],
             }
             host.check_container(info, "owned", "owner", root, "/weights", contract, config, "image-id")
+            for key in ("Memory", "MemorySwap"):
+                for value in (0, -1, 511 << 30, 768 << 30):
+                    changed = copy.deepcopy(info)
+                    changed["HostConfig"][key] = value
+                    with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                        host.check_container(changed, "owned", "owner", root, "/weights", contract, config, "image-id")
             for path, options in (("/cache", "rw,nosuid,nodev,size=16g,mode=0700"),
                                   ("/cache", "rw,nosuid,nodev,noexec,size=16g,mode=0700"),
                                   ("/tmp", "rw,nosuid,nodev,exec,size=256m,mode=1777")):
