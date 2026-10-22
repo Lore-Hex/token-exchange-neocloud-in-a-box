@@ -19,7 +19,13 @@ class FunctionalPassEvidenceTests(unittest.TestCase):
             ("output.log", "aeb69230607ac6b97ae68724a2699cc8bac242f66509c5b089d35cc16ec0adad"),
         ))
 
-    def check_original(self, directory, producer, files):
+    def test_two_replica_eight_gpu_success_does_not_claim_qualification(self):
+        self.check_original("2026-10-22-b300-dp2-functional-pass", "080a7fe1f594b27113a015a605d29c5d0d7f674e", (
+            ("run.json", "d6fb237f015532042dd0de8cda6191dbdef1b4d35b18832be6157bb91b21af50"),
+            ("output.log", "c658d5e38c564e83a767190b48ffad33fa7662a2a8923d897102c76881dcfaf1"),
+        ), selected_gpus=8)
+
+    def check_original(self, directory, producer, files, selected_gpus=4):
         root = Path(__file__).resolve().parents[1] / "evidence/p2" / directory
         for name, digest in files:
             self.assertEqual(hashlib.sha256((root / name).read_bytes()).hexdigest(), digest)
@@ -44,7 +50,7 @@ class FunctionalPassEvidenceTests(unittest.TestCase):
         self.assertIsNone(experiment["startup"]["exception_diagnostic"])
         self.assertIsNone(experiment["startup"]["worker_exception_diagnostic"])
         self.assertEqual(experiment["hardware"]["family"], "B300")
-        self.assertEqual(experiment["hardware"]["selected_gpus"], 4)
+        self.assertEqual(experiment["hardware"]["selected_gpus"], selected_gpus)
         smoke = experiment["correctness"]
         self.assertEqual(smoke["schema"], "nib.local-correctness-smoke/v3")
         self.assertEqual(smoke["case_sha256"], "f59ae7cee2852d4259b340c1bd5e5d6aae0451bc776d303ea559162b46d649ac")
