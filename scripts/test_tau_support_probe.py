@@ -3,6 +3,7 @@
 import copy
 from pathlib import Path
 import runpy
+import subprocess
 import sys
 import tempfile
 import time
@@ -20,6 +21,29 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class SupportPolicyTests(unittest.TestCase):
+    def test_cpu_loader_works_with_only_its_exact_declared_source_closure(self):
+        code = r'''
+import pathlib,runpy,shutil,sys,tempfile
+root=pathlib.Path(sys.argv[1])
+rec=runpy.run_path(str(root/'scripts/record-tau-cpu-parity.py'))
+with tempfile.TemporaryDirectory() as temporary:
+    target=pathlib.Path(temporary).resolve()
+    for name in rec['SOURCES']:
+        output=target/name
+        output.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copyfile(root/name,output)
+    for name in ('tau_support_probe','tau_cpu_probe','tau_cpu_session','tau_preflight','tau_trial_worker'):
+        sys.modules[name]=object()
+    cpu=rec['toolkit'](target)
+    policy=sys.modules['tau_support_probe']
+    policy.validate(policy.configuration())
+    assert set(cpu.MODEL_IDS)==set(policy.MODELS)
+    assert not any(k=='tau2' or k.startswith('tau2.') or k=='litellm' for k in sys.modules)
+'''
+        result = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", code, str(ROOT)],
+                                timeout=10, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+
     def test_resource_schema_has_no_reference_or_prices_and_cannot_expand(self):
         value = policy.configuration()
         self.assertEqual(set(value["support"]), {"simulator", "evaluator"})
