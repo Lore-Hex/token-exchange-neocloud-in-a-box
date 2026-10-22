@@ -1,0 +1,74 @@
+{
+  "artifacts_verified": true,
+  "boot_verified": false,
+  "build_result": "success",
+  "confidentiality_verified": false,
+  "files": {
+    "nib.efi": {
+      "bytes": 97898496,
+      "sha256": "33d779299fcbf38b433efd0c17f062f3414d8a28a23ccb649313779a5433ddb8"
+    },
+    "root.raw": {
+      "bytes": 928989184,
+      "sha256": "e79515434586cb765ba0bac8b43fc01e75d16b900ec8df8e08444690ceae0b79"
+    }
+  },
+  "metadata_only": true,
+  "private_images_removed": true,
+  "reproducibility_verified": false,
+  "result": "pass",
+  "root_hash": "45787f5d1ee1c171179e88e5090547ee2b0f655b6f662e282a072a9226d2e131",
+  "schema": "nib.native-private-export-validation/v1",
+  "signed": false,
+  "source": {
+    "git_sha": "ad1ab45e6b96a06a5972bedfcb5d4b5f5dcf5c9c",
+    "sources": {
+      "evidence/p3/2026-10-22-runtime-apt-plan/report.json": "7163f89663ba6444ca8e18eb02de2d3822ffaac1aec9a060c52d5d85fabab911",
+      "host/build-mkosi-native.py": "26bcce6c35d6680d8aa2e603631968cb0c65c7171197087275a4323a265fd488",
+      "host/probe-build-resources.py": "2b740ef5b1ecbc87cb3a078fcbb081017f7db5c9600c9956f97cc52330ad9fdc",
+      "host/probe-mkosi-native-tools.py": "a70213ff514a39ed99fdcd241ed96f4fd01d53e9217384f7267b41a1a525a885",
+      "host/probe-mkosi-native.py": "cab4c8e62f4e65b131bcf81d14cf4285432b9daa17671b47e85f7359512607c8",
+      "host/run-mkosi-build.py": "2335ab6b28dff0328b7d891e82aed1663d61e7386709119c4370fbc2bee8f63f",
+      "host/simulate-guest-apt.py": "ed27b795459a710ce56457645be24ba6526c57662fde0641c4415865c277c38c",
+      "image/inputs/apt-tools-ubuntu2404.json": "d50d82e2f4e622a7263fdbe1dae0e5fc6b6ffa6806cf215144f0bcd31a97f6f2",
+      "image/inputs/guest-runtime-ubuntu2404-hook-review.json": "3aab538b28ece32bf6e60c6182746a9e6067542f024e47abe92a1feb0a501b39",
+      "image/inputs/guest-runtime-ubuntu2404.json": "f3162aeab969aba9a99d3dc96ddeb80b7ee808b55b126762710a08269e182de8",
+      "image/inputs/mkosi-27.1-package-boundary.json": "0621998f82305db8d706d656fb39b7143f27e14986f0e824bc6569382ad4b63f",
+      "image/inputs/mkosi-27.1-service-denial.json": "19fb0388b2dcb3ccccac510281353c589dac53516178bb52ebda1df354448bfb",
+      "image/inputs/mkosi-27.1.json": "612c3fceacd8acc34265ec2c9aa64121ab7af7a6d7fd847974981f5ca0a37d55",
+      "image/inputs/mkosi-tools-members.json": "d1d383d27ed3fec38ddfd9492945caeb5b37ff0d1341be91e2f4492166ced1da",
+      "image/inputs/mkosi-tools-ubuntu2404.json": "0ad871ad797954c2a107a196aa31e8543931cfe947fa919b24fdbcd3737d9b90",
+      "image/inputs/r595-ubuntu2404.json": "ea8a93155131f15d460f6b3c147063e672e718d027366ab6c53c4264066a8883",
+      "image/patches/mkosi-27.1-service-denial.patch": "430661f2b9fa5c96cc5e9d2cc505f91b427d1a5c7b2a1177a561322dfb1ab2dd",
+      "scripts/e2e/snapshot.py": "e73a5a1e3ddb7a6e7b20afce39f7c080a0317d78340f224b2bd95f705bccb59c",
+      "scripts/guest_apt_simulation.py": "88c2857ad32e1936d301f4d49f9c2a4ad627ef6377a276de438f8c2260fb5ad7",
+      "scripts/guest_package_inputs.py": "584e0d1dec6b02cd5983a70675ee62512f99779a0bbe49fe178ebeeeae8993a0",
+      "scripts/mkosi_appraisal_probe.py": "e18060c5dfb75d59e95e2d6b6746ac32297bfb11a76e7a1a6577f9553a96ef1e",
+      "scripts/mkosi_boot.py": "f7eefd1ff9b2001f05115fc9fa3f65e4f1282388a4e1747650b09f5d7ba86fc4",
+      "scripts/mkosi_build_entry.py": "2be921aafcc6284de748c1fb619136cf39eb0165d5cfd9598026a56d9896ad1a",
+      "scripts/mkosi_build_worker.py": "da13ccc2b120e099ac3a2eacff46c198f11ae68949d2eebc22fba26b4933fb38",
+      "scripts/mkosi_confinement.py": "6476cac8829c60d2f06f48eac320b4474bf2231cc40086c45b5f9312533a3a41",
+      "scripts/mkosi_dkms.py": "36ab60088e72770a3430ada0ac3b86c5df471a3de19ba39ce5214f1f9cb6a86a",
+      "scripts/mkosi_export.py": "b23bacbb9181e6c9ca4be17d31f390e835e5fede28628f5211d17bcd40059a85",
+      "scripts/mkosi_namespace_check.py": "5836e053fb4def73f683248e523992b4e39e3c03aff7ea7fc805382aabe2d985",
+      "scripts/mkosi_ownership.py": "7cf9acc8edd50b39816b07e2f7c5e7bcd474a092bfa478cf01431ac666aafb5f",
+      "scripts/mkosi_package_patch.py": "13dc3ffc293e066958ff6ada53ebe088952685883eaa3a097031a1d5a299a845",
+      "scripts/mkosi_package_worker.py": "b286d978da320852550d642b8284cf0e3af01301397fa20d3e3e6811b737886a",
+      "scripts/mkosi_pid_check.py": "97ebdc454c8553479308dd72a8a8f22dce8306c2597ee1e65d3248a2082233ea",
+      "scripts/mkosi_runtime_policy.py": "7078d206f4abf7eb50827741f0330ad98c07909f572c68e10399bc945f3b5a60",
+      "scripts/mkosi_tools_probe.py": "b32ac4a5582a0fb232e2dcf7d42adcbaae36a6946a4de15de133a2eac7959cc5",
+      "scripts/mkosi_verity.py": "5a1c8b2924fb4ceed7a19d7a25b0375174ae028ad56d70373aafe95e78e2d52a",
+      "scripts/pilot/export.py": "baaf98e34904b080513fdd468e83e1eb818c2e2ce69d87cf6fb6a421e7268666",
+      "scripts/prepare_guest_packages.py": "9bfbbd8a2b3cc45a0d96863d76212492c9f2ca868acfd5b7fa7613c9f2c0d6e2",
+      "scripts/prepare_guest_tools.py": "11433727d836353032f2d079e990758b1c1f69c98802135aff39e3dfd376da47",
+      "scripts/prepare_mkosi_boot.py": "d6eaa0a92e3f556bdb66497075a57ae246a7e0fa109bd7437901cddd739ce1ac",
+      "scripts/prepare_mkosi_inputs.py": "32792f0799d49994a23e40ba6ce623615cdf5bd70ee9c309da06041af1c6a078",
+      "scripts/prepare_mkosi_tools.py": "101517124099ecc116fd29763bd53d8f666eb446a080c80fb7759cd99d6c59b3",
+      "scripts/review_guest_hooks.py": "eeffac9209e6b39db893f5774af48fa030d8547e610906b1625bf8c692016e52"
+    }
+  },
+  "validator_source": {
+    ".github/workflows/mkosi-native-build.yml": "e245acc7ecb5a90bd38ab74d9a7988e1555cd6c3bb67cef8b058c4e438036708",
+    "host/validate-native-boot-export.py": "914558b377f285b2a2588a780c0cbc54e5b98f2b50f4019c7a2ff944325dd4f8"
+  }
+}
