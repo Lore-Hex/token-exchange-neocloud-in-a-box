@@ -46,7 +46,8 @@ class NativeCPUParityTests(unittest.TestCase):
         self.assertIsNone(row["runtime"])
         self.assertEqual(row["cleanup"], dict.fromkeys(("container", "image", "build_completion"), "confirmed"))
         self.assertEqual(len(row["sources"]), 21)
-        self.assertEqual(set(rec.SOURCES), set(row["sources"]) | {"scripts/tau_llama_identity.py"})
+        self.assertEqual(set(rec.SOURCES), set(row["sources"]) |
+                         {"scripts/tau_llama_identity.py", "scripts/tau_cpu_session.py"})
         for path, sha in row["sources"].items():
             self.assertEqual(hashlib.sha256(git(ROOT, "show", producer + ":" + path)).hexdigest(), sha)
         self.assertTrue(all(row[key] is False for key in ("quality_eligible", "confidential", "live_admission")))

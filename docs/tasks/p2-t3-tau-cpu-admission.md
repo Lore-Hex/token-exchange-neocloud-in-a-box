@@ -100,6 +100,10 @@ Original tau prompt/context fit and structured evaluator output also remain
 unmeasured. This change does not keep engines alive, launch models, alter Docker
 confinement, select an invented reference or authorize a GPU run.
 
+The subsequent opt-in [fresh CPU-pair session](p2-t3-tau-cpu-session.md) implements
+four original receipts and bounded held-server release. It does not remove the
+remaining namespace/UID, target-receipt, prompt-fit or reference prerequisites.
+
 ## Verification
 
 ```sh
