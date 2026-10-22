@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Synthetic session controls only; no model, Docker or live-admission proof."""
 import contextlib
+import copy
 import json
 import os
 from pathlib import Path
@@ -38,10 +39,14 @@ def packet():
 
 
 def result(held=None):
-    return {"schema": "nib.tau-cpu-session/v1", "result": "pass" if held else "fail",
+    progress = session.progress()
+    if held:
+        progress.update(substage="released", model_index=1, parity=fixtures.fixture_report())
+    return {"schema": "nib.tau-cpu-session/v2", "result": "pass" if held else "fail",
             "stage": "released" if held else "inputs", "receipts": held["receipts"] if held else {},
             "ready_sha256": held["ready_sha256"] if held else None, "acknowledged": bool(held),
-            "cleanup": "confirmed", "quality_eligible": False, "confidential": False, "live_admission": False}
+            "cleanup": "confirmed", "quality_eligible": False, "confidential": False, "live_admission": False,
+            "progress": progress, "failure": None}
 
 
 @contextlib.contextmanager
@@ -173,7 +178,7 @@ class CPUHeldSessionTests(unittest.TestCase):
             session.validate({**result(), "exception": "private content"})
 
     def test_two_owned_children_are_stopped_even_when_second_stage_or_cleanup_fails(self):
-        for failure in (None, "second-parity", "hold", "first-stop"):
+        for failure in (None, "first-local", "second-local", "endpoint", "second-parity", "receipt", "hold", "first-stop"):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temp, contextlib.ExitStack() as stack:
                 work = Path(temp)
                 pins = cpu.settings()
@@ -190,30 +195,109 @@ class CPUHeldSessionTests(unittest.TestCase):
                 previous = pilot.file_digest.side_effect
                 pilot.file_digest.side_effect = lambda p: pins["engine"]["archive_sha256"] if p is archive else previous(p)
                 processes = [mock.Mock(pid=301), mock.Mock(pid=302)]
-                endpoints = [mock.Mock(port=24001, expected={"listener_inode": 401}),
-                             mock.Mock(port=24002, expected={"listener_inode": 402})]
+                facts = {key: "d" * 64 if key.endswith("sha256") else 1 for key in session.identity.PROCESS}
+                endpoints = [mock.Mock(port=24001, expected={**facts, "listener_inode": 401}),
+                             mock.Mock(port=24002, expected={**facts, "listener_inode": 402})]
+                def compare(client, model, local, deadline, rows):
+                    rows.extend(copy.deepcopy(fixtures.fixture_report()["models"][0]["cases"]))
+                    if failure == "second-parity" and model == cpu.MODEL_IDS[1]:
+                        rows.pop()
+                        raise ValueError("private failure")
                 for process in processes:
                     process.poll.return_value = None
+                if failure == "endpoint":
+                    processes[0].poll.return_value = -4
+                    def stop(process):
+                        process.poll.return_value = -15
+                        return True
+                    pilot.stop.side_effect = stop
+                local_calls = []
+                def native(*args):
+                    local_calls.append(None)
+                    if failure == ("first-local" if len(local_calls) == 1 else "second-local"):
+                        raise ValueError("private failure")
+                    return []
                 for name, replacement in (("confinement", mock.Mock()), ("tools", lambda: (pilot, mock.Mock())),
-                        ("build", lambda *args: ("server", "helper")), ("native_tokens", mock.Mock(return_value=[])),
-                        ("endpoint", mock.Mock(side_effect=endpoints)), ("compare", mock.Mock())):
+                        ("build", lambda *args: ("server", "helper")), ("native_tokens", native),
+                        ("endpoint", mock.Mock(side_effect=PermissionError(13, "private failure")
+                                              if failure == "endpoint" else endpoints)), ("compare", compare)):
                     stack.enter_context(mock.patch.object(cpu, name, replacement))
                 popen = stack.enter_context(mock.patch.object(session.subprocess, "Popen", side_effect=processes))
-                stack.enter_context(mock.patch.object(session, "receipts", side_effect=lambda role, *args: {
-                    role + "-runtime.json": b"{}\n", role + "-tokenizer.json": b"{}\n"}))
+                def receipts(role, *args):
+                    if failure == "receipt" and role == "evaluator":
+                        raise OSError(13, "private failure", "private-path")
+                    return {role + "-runtime.json": b"{}\n", role + "-tokenizer.json": b"{}\n"}
+                stack.enter_context(mock.patch.object(session, "receipts", side_effect=receipts))
                 hold = stack.enter_context(mock.patch.object(session, "hold"))
-                if failure == "second-parity":
-                    cpu.compare.side_effect = [None, ValueError("private failure")]
                 if failure == "hold":
                     hold.side_effect = ValueError("private failure")
                 row = session.run(archive, [Weight(0, pins), Weight(1, pins)], work, PRODUCER, IMAGE)
-                self.assertEqual(popen.call_count, 2)
-                self.assertEqual(pilot.stop.call_args_list, [mock.call(processes[1]), mock.call(processes[0])])
+                spawned = 0 if failure == "first-local" else 1 if failure in ("second-local", "endpoint") else 2
+                self.assertEqual(popen.call_count, spawned)
+                self.assertEqual(pilot.stop.call_args_list, [mock.call(p) for p in reversed(processes[:spawned])])
                 self.assertEqual(row["result"], "pass" if failure is None else "fail")
                 self.assertEqual(row["cleanup"], "unknown" if failure == "first-stop" else "confirmed")
                 self.assertNotIn("private failure", json.dumps(row))
+                self.assertEqual(row["progress"]["model_index"], 0 if failure in ("first-local", "endpoint") else 1)
+                self.assertEqual([len(item["cases"]) for item in row["progress"]["parity"]["models"]],
+                                 [0] if failure in ("first-local", "endpoint") else
+                                 [4, 0 if failure == "second-local" else 3 if failure == "second-parity" else 4])
+                if failure in ("first-local", "second-local", "endpoint", "second-parity", "receipt"):
+                    self.assertFalse((work / "receipts").exists())
+                    self.assertEqual(row["receipts"], {})
+                    self.assertIsNone(row["ready_sha256"])
+                    expected = {"first-local": "local-tokenizer", "second-local": "local-tokenizer",
+                                "endpoint": "endpoint", "second-parity": "comparison", "receipt": "receipts"}
+                    self.assertEqual(row["progress"]["substage"], expected[failure])
+                    self.assertEqual(row["failure"]["server_exit"], -4 if failure == "endpoint" else None)
+                    self.assertEqual(row["failure"]["errno"], 13 if failure in ("endpoint", "receipt") else None)
                 self.assertTrue(all(call.kwargs["stdout"] == subprocess.DEVNULL
                                     and call.kwargs["stderr"] == subprocess.DEVNULL for call in popen.call_args_list))
+
+    def test_diagnostics_retain_only_fixed_source_bound_frames_and_numeric_status(self):
+        try:
+            session.release(b"private failure", "a" * 64)
+        except ValueError as error:
+            value = session.failure_diagnostics(error, -4)
+        session.validate_failure(value)
+        self.assertEqual(value["kind"], "rejected")
+        self.assertEqual(value["server_exit"], -4)
+        self.assertEqual([frame["source"] for frame in value["frames"]],
+                         ["scripts/tau_cpu_session.py", "scripts/tau_cpu_parity.py"])
+        self.assertNotIn("private failure", json.dumps(value))
+        for error, kind, number in ((OSError(13, "private failure", "private-path"), "os-error", 13),
+                                   (session.llama.worker.Abort("timeout"), "timeout", None),
+                                   (RuntimeError("private failure"), "other", None)):
+            diagnostic = session.failure_diagnostics(error, None)
+            session.validate_failure(diagnostic)
+            self.assertEqual((diagnostic["kind"], diagnostic["errno"]), (kind, number))
+            self.assertNotIn("private", json.dumps(diagnostic))
+        for change in (lambda row: row.update(kind="private failure"),
+                       lambda row: row.update(server_exit=True),
+                       lambda row: row.update(errno=4096),
+                       lambda row: row.update(frames=row["frames"] * 5),
+                       lambda row: row["frames"][0].update(source="scripts/unknown.py"),
+                       lambda row: row["frames"][0].update(source_sha256="e" * 64),
+                       lambda row: row["frames"][0].update(line=True),
+                       lambda row: row["frames"][0].update(line=100000),
+                       lambda row: row["frames"][0].update(message="private failure")):
+            altered = copy.deepcopy(value)
+            change(altered)
+            with self.assertRaises((ValueError, session.llama.worker.Abort)):
+                session.validate_failure(altered)
+
+    def test_progress_cannot_promote_partial_comparisons_to_ready_or_release(self):
+        held = {"ready_sha256": "a" * 64, "receipts": dict.fromkeys(session.FILES, "b" * 64)}
+        for change in (lambda row: row["progress"].update(substage="private failure"),
+                       lambda row: row["progress"].update(model_index=True),
+                       lambda row: row["progress"].update(model_index=0),
+                       lambda row: row["progress"]["parity"]["models"][1]["cases"].pop(),
+                       lambda row: row["progress"].update(parity=session.progress()["parity"]),
+                       lambda row: row.update(failure=session.failure_diagnostics(ValueError(), None))):
+            altered = result(held)
+            change(altered)
+            with self.assertRaises((ValueError, session.llama.worker.Abort)):
+                session.validate(altered)
 
     def test_real_pipe_relay_retains_original_bytes_and_ack_binding(self):
         value = packet()

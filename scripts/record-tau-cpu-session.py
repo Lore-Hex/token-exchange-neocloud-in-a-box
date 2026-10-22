@@ -151,9 +151,9 @@ def final_receipts(session, directory, held, image, revision, archive_sha, sourc
     require(runtime["ready_sha256"] == held["ready_sha256"] and runtime["receipts"] == held["receipts"]
             and runtime["stage"] == "released" and runtime["acknowledged"] and runtime["cleanup"] == "confirmed")
     if probe is None:
-        require(runtime["schema"] == "nib.tau-cpu-session/v1" and runtime["result"] == "pass")
+        require(runtime["schema"] == "nib.tau-cpu-session/v2" and runtime["result"] == "pass")
     else:
-        require(runtime["schema"] == "nib.tau-cpu-session/v2" and probe["scorer"] == report["scorer"]
+        require(runtime["schema"] == "nib.tau-cpu-session/v3" and probe["scorer"] == report["scorer"]
                 and runtime["probe"] == report["scorer"]["diagnostic"]
                 and report["result"] == ("pass" if runtime["result"] == report["scorer"]["result"] == "pass" else "fail"))
         probe_receipts(session, directory, probe["notice"], held, probe, deadline)

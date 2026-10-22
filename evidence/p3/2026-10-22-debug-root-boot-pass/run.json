@@ -1,0 +1,20 @@
+{
+  "command": "sudo /usr/bin/python3.10 -I -S -B host/run-debug-boot.py --downloads PRIVATE --archive PRIVATE --runtime-inputs PRIVATE --go PRIVATE",
+  "ended_utc": "2026-10-22T22:20:10Z",
+  "execution": "software",
+  "git_sha": "eed4b10ce0ffff750df345652a8db05d95297a02",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "ubuntu-22.04-x86_64",
+    "provider": "github-actions"
+  },
+  "notes": "One bounded nonconfidential TCG debug boot; JSON only after independent cleanup.",
+  "phase": "P3",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-22T22:18:26Z",
+  "task": "T1"
+}
