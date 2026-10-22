@@ -15,7 +15,6 @@ import platform
 import pwd
 import runpy
 import signal
-import shutil
 import stat
 import subprocess
 import types
@@ -152,9 +151,7 @@ def finish_export(output, uid, gid):
                 signal.setitimer(signal.ITIMER_REAL, 0)
                 signal.signal(signal.SIGALRM, previous)
         except BaseException:
-            current = os.stat(name, dir_fd=parent, follow_symlinks=False)
-            require((current.st_dev, current.st_ino) == (original.st_dev, original.st_ino))
-            shutil.rmtree(name, dir_fd=parent)
+            base.inputs.remove_flat_directory(parent, name, original)
             raise
     return export.finish(output, base, publication, native.source_identity(revision, sources))
 

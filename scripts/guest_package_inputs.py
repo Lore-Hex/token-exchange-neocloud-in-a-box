@@ -45,6 +45,33 @@ def regular(path, limit):
         os.close(fd)
 
 
+def remove_flat_directory(parent, name, original):
+    """Remove only an owned flat staging directory, including on Python 3.10.
+
+    Never follow leaf links or descend into unexpected directories. All opens,
+    unlinks and the final rmdir stay anchored to checked directory descriptors.
+    """
+    require(isinstance(name, str) and name not in ("", ".", "..") and "/" not in name
+            and stat.S_ISDIR(original.st_mode) and original.st_uid == os.getuid())
+    fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+    try:
+        current = os.fstat(fd)
+        require((current.st_dev, current.st_ino) == (original.st_dev, original.st_ino)
+                and current.st_uid == original.st_uid)
+        leaves = []
+        with os.scandir(fd) as entries:
+            for entry in entries:
+                require(len(leaves) < 16 and not entry.is_dir(follow_symlinks=False))
+                leaves.append(entry.name)
+        for leaf in leaves:
+            os.unlink(leaf, dir_fd=fd)
+        current = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        require((current.st_dev, current.st_ino) == (original.st_dev, original.st_ino))
+        os.rmdir(name, dir_fd=parent)
+    finally:
+        os.close(fd)
+
+
 def digest(data):
     return hashlib.sha256(data).hexdigest()
 

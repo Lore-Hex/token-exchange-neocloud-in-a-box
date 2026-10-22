@@ -219,7 +219,7 @@ class ExportTests(unittest.TestCase):
             self.prepare(evidence, stage, report)
             pending, final = export.paths(evidence)
             (pending / "root.raw").write_bytes(b"changed")
-            with mock.patch.object(export.shutil, "rmtree", side_effect=OSError("cleanup failed")), \
+            with mock.patch.object(base.inputs, "remove_flat_directory", side_effect=OSError("cleanup failed")), \
                     self.assertRaises(OSError): export.finish(evidence, base, publication, source)
             self.assertFalse(final.exists())
             self.assertTrue(pending.exists())  # Failure is explicit, never claimed clean.
@@ -232,6 +232,89 @@ class ExportTests(unittest.TestCase):
                     (pending / "sentinel").write_bytes(b"keep")
                     raise ValueError("fixture abort")
             self.assertEqual((pending / "sentinel").read_bytes(), b"keep")
+
+    def test_flat_cleanup_unlinks_leaf_links_and_specials_without_following(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp).resolve()
+            outside, target = parent / "outside", parent / "owned"
+            outside.mkdir()
+            (outside / "sentinel").write_bytes(b"keep")
+            target.mkdir(mode=0o700)
+            (target / "regular").write_bytes(b"remove")
+            (target / "link").symlink_to(outside, target_is_directory=True)
+            os.mkfifo(target / "fifo")
+            cwd = os.getcwd()
+            with base.directory(parent) as fd:
+                base.inputs.remove_flat_directory(fd, target.name, target.stat())
+            self.assertFalse(target.exists())
+            self.assertEqual((outside / "sentinel").read_bytes(), b"keep")
+            self.assertEqual(os.getcwd(), cwd)
+
+    def test_flat_cleanup_rejects_nested_and_excess_entries_before_unlinking(self):
+        for bad in ("nested", "excess"):
+            with self.subTest(bad=bad), tempfile.TemporaryDirectory() as tmp:
+                parent = Path(tmp).resolve()
+                target = parent / "owned"
+                target.mkdir(mode=0o700)
+                (target / "sentinel").write_bytes(b"keep")
+                if bad == "nested": (target / "unexpected").mkdir()
+                else:
+                    for i in range(16): (target / str(i)).write_bytes(b"keep")
+                with base.directory(parent) as fd, self.assertRaises(ValueError):
+                    base.inputs.remove_flat_directory(fd, target.name, target.stat())
+                self.assertEqual((target / "sentinel").read_bytes(), b"keep")
+
+    def test_flat_cleanup_rejects_replaced_or_linked_directory_and_traversal(self):
+        for bad in ("replacement", "symlink", "traversal"):
+            with self.subTest(bad=bad), tempfile.TemporaryDirectory() as tmp:
+                parent = Path(tmp).resolve()
+                target, moved = parent / "owned", parent / "moved"
+                target.mkdir(mode=0o700)
+                (target / "sentinel").write_bytes(b"keep original")
+                original = target.stat()
+                target.rename(moved)
+                if bad == "symlink": target.symlink_to(moved, target_is_directory=True)
+                else:
+                    target.mkdir(mode=0o700)
+                    (target / "sentinel").write_bytes(b"keep replacement")
+                with base.directory(parent) as fd, self.assertRaises((OSError, ValueError)):
+                    base.inputs.remove_flat_directory(fd, "../moved" if bad == "traversal" else target.name, original)
+                self.assertEqual((moved / "sentinel").read_bytes(), b"keep original")
+                if bad != "symlink": self.assertEqual((target / "sentinel").read_bytes(), b"keep replacement")
+
+    def test_flat_cleanup_checks_final_directory_identity_after_unlinks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp).resolve()
+            target, moved = parent / "owned", parent / "moved"
+            target.mkdir(mode=0o700)
+            (target / "ours").write_bytes(b"remove")
+            original, unlink = target.stat(), os.unlink
+            def replace(leaf, *, dir_fd):
+                unlink(leaf, dir_fd=dir_fd)
+                target.rename(moved)
+                target.mkdir(mode=0o700)
+                (target / "sentinel").write_bytes(b"keep")
+            with base.directory(parent) as fd, mock.patch.object(base.inputs.os, "unlink", side_effect=replace), \
+                    self.assertRaises(ValueError):
+                base.inputs.remove_flat_directory(fd, target.name, original)
+            self.assertEqual((target / "sentinel").read_bytes(), b"keep")
+            self.assertTrue(moved.exists())
+
+    def test_flat_cleanup_remains_anchored_when_parent_path_is_replaced(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            parent, moved = root / "parent", root / "moved"
+            target = parent / "owned"
+            target.mkdir(parents=True, mode=0o700)
+            (target / "ours").write_bytes(b"remove")
+            original = target.stat()
+            with base.directory(parent) as fd:
+                parent.rename(moved)
+                target.mkdir(parents=True, mode=0o700)
+                (target / "sentinel").write_bytes(b"keep")
+                base.inputs.remove_flat_directory(fd, "owned", original)
+            self.assertFalse((moved / "owned").exists())
+            self.assertEqual((target / "sentinel").read_bytes(), b"keep")
 
     def test_stream_copy_rejects_links_specials_bounds_hashes_and_parent_links(self):
         for bad in ("symlink", "hardlink", "fifo", "directory", "size", "hash", "parent", "deadline"):
@@ -473,12 +556,12 @@ class ExportTests(unittest.TestCase):
                 vp, bp = vf.supervisor(failure), bf.supervisor(failure)
                 reports, observed = {}, []
                 source = {"git_sha": "ab" * 20, "sources": {host.EXPORT: base.digest(b"fixture source")}}
-                remove = export.shutil.rmtree
+                remove = boot.shutil.rmtree
                 def cleanup(path, *args, **kwargs):
                     if failure == "cleanup" and path == boot.WORK:
                         raise OSError("fixture UKI cleanup failure")
                     return remove(path, *args, **kwargs)
-                stack.enter_context(mock.patch.object(export.shutil, "rmtree", side_effect=cleanup))
+                stack.enter_context(mock.patch.object(boot.shutil, "rmtree", side_effect=cleanup))
                 def consume_root(root):
                     self.assertEqual(vp.execute_process_group.call_count, len(verity.OPERATIONS))
                     self.assertTrue(all((verity.WORK / name).exists() for name in (verity.DATA, verity.HASH, verity.DISK)))
@@ -490,7 +573,7 @@ class ExportTests(unittest.TestCase):
                     reports["boot"] = boot.build(bp, bt.guard.PREFIX, root["root_hash"], br / "out", consume=consume_boot)
                     if failure == "late-root": (verity.WORK / verity.DISK).write_bytes(b"changed")
                 def run():
-                    with export.owned(stage, base.directory):
+                    with export.owned(stage, base.directory, base.inputs.remove_flat_directory):
                         reports["root"] = verity.build(vp, bt.guard.PREFIX, vt.dkms.regular, vr / "out",
                                                        require_boot_ids=True, consume=consume_root)
                 if failure is None:

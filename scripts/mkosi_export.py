@@ -6,7 +6,6 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
 import signal
 import stat
 import time
@@ -96,7 +95,7 @@ def copy(source, destination, expected, limit, deadline, directory):
 
 
 @contextmanager
-def owned(path, directory):
+def owned(path, directory, remove):
     """Only remove the fresh directory this context created, never a collision."""
     with directory(path.parent) as parent:
         os.mkdir(path.name, 0o700, dir_fd=parent)
@@ -105,9 +104,7 @@ def owned(path, directory):
         try:
             yield
         except BaseException:
-            current = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
-            require((original.st_dev, original.st_ino) == (current.st_dev, current.st_ino))
-            shutil.rmtree(path.name, dir_fd=parent)
+            remove(parent, path.name, original)
             raise
         finally:
             os.close(fd)
@@ -200,9 +197,7 @@ class Pending:
     def __exit__(self, kind, value, traceback):
         try:
             if kind is not None or not self.kept:
-                current = os.stat(self.path.name, dir_fd=self.fd, follow_symlinks=False)
-                require((current.st_dev, current.st_ino) == (self.original.st_dev, self.original.st_ino))
-                shutil.rmtree(self.path.name, dir_fd=self.fd)
+                self.base.inputs.remove_flat_directory(self.fd, self.path.name, self.original)
         finally:
             os.close(self.fd)
 
@@ -305,9 +300,7 @@ def finish(evidence, base, publication, source):
             os.fsync(parent)
     except BaseException:
         if original is not None and stat.S_ISDIR(original.st_mode) and original.st_uid == os.getuid():
-            current = os.stat(name, dir_fd=parent, follow_symlinks=False)
-            require((current.st_dev, current.st_ino) == (original.st_dev, original.st_ino))
-            shutil.rmtree(name, dir_fd=parent)
+            base.inputs.remove_flat_directory(parent, name, original)
         raise
     finally:
         os.close(parent)

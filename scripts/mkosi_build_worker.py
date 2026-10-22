@@ -195,7 +195,7 @@ def main():
             source = export.parsed(inputs.regular(Path("/nib/artifact-inputs.json"), 65536))
             # Keep both verified images alive in nested lifetimes; never rebuild
             # a second GPT or assemble a UKI from a different root-hash receipt.
-            with export.owned(export.STAGE, verity.directory):
+            with export.owned(export.STAGE, verity.directory, inputs.remove_flat_directory):
                 def consume_root(root):
                     nonlocal stage
                     stage = "boot-uki"

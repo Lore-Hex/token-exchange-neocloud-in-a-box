@@ -83,6 +83,18 @@ filesystem cleanup failure can leave private pending/partial files; these are
 not valid exports. There is no resume/adoption bypass. Preserve diagnostics and
 investigate residue before a new invocation with a fresh output name.
 
+Independent review found that the initial rollback used `shutil.rmtree(dir_fd=)`,
+which [Python added only in 3.11](https://docs.python.org/3.11/library/shutil.html#shutil.rmtree),
+not the pinned 3.10 host. Rollback now uses a shared helper in the already
+source-bound file-input module. It opens the exact original directory without
+following links, enumerates at most 16 flat entries, unlinks leaves relative to
+that descriptor, rechecks directory identity, and removes it relative to the
+parent descriptor. It never changes cwd or recurses into unexpected directories.
+Nested/excess entries cause an explicit cleanup failure before deletion. The
+[Python 3.10 OS interfaces](https://docs.python.org/3.10/library/os.html#files-and-directories)
+provide descriptor-based scanning and relative unlink/rmdir. Both actual 3.10
+and 3.12 interpreters must exercise rollback, including post-rename fsync failure.
+
 ## Bounds and reuse
 
 The implementation reuses the descriptor-anchored directory/read helpers and
@@ -146,3 +158,10 @@ missing/changed cleanup receipts; collisions and replacement identities;
 rename/fsync failures; explicit cleanup failure; and privilege-drop/receipt
 ordering. No test calls the actual root launcher, native package builders,
 firmware, hardware, cloud, or public release infrastructure.
+
+Also run `test_mkosi_export` with an actual Python 3.10 interpreter and the test
+PyYAML dependency available, not just a 3.10 syntax parse. The host-compatibility
+run covers successful export, resource rejection, source-audit failure,
+copy/capture failure, pre/post-rename rollback, nested/excess-entry refusal,
+directory/parent replacement and leaf-link-safe cleanup. Python 3.12 remains
+the worker/full-suite interpreter; neither runtime gate is changed.
