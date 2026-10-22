@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S scripts/record-engine-cpu-entry.py --slug tokenizer-continuation-local-39851d2 --tokenizer-continuation",
+  "ended_utc": "2026-10-22T14:31:37Z",
+  "execution": "software",
+  "git_sha": "39851d259c126ce6bf9cb696040834a4e3dc44a1",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "local-software-experiment",
+    "provider": "local"
+  },
+  "notes": "CPU-only tokenizer request/parser/normalizer diagnostic; no BPE, renderer or HTTP execution. No model/weights/GPU runtime/ports/network/credentials; serve.cmd and worker routes never invoked. Imports may probe absent CUDA or compile dependencies; cache is bounded noexec. A failure is not proof of the earlier GPU startup cause; a pass is not GPU/ABI/inference qualification. Candidate BLOCKED; confidential=false. Docker/OS/interpreter trusted. Payload SHA-256: 975ec17555273f3d2e7dac25028ff7bcac052237f3e3c6bc3d495e35e349c571",
+  "phase": "P2",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-22T14:20:09Z",
+  "task": "T3"
+}

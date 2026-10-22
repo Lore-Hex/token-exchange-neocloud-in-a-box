@@ -210,7 +210,8 @@ class BindingTests(unittest.TestCase):
             for setting in ("false", "true", "", "TRUE", "true; false"):
                 stub = 'docker() { return 0; }\npython3() { printf "%s\\n" "$@"; }\n'
                 result = subprocess.run(["bash", "-c", stub + step["run"]],
-                    cwd=fixtures.ROOT, env={**os.environ, "SLUG": "unit", "TOKENIZER_CONTINUATION": setting},
+                    cwd=fixtures.ROOT, env={**os.environ, "SLUG": "unit", "TOKENIZER_CONTINUATION": setting,
+                                           "TOKENIZER_MATERIALIZATION": "false"},
                     capture_output=True, timeout=10)
                 if setting in ("false", "true"):
                     self.assertEqual(result.returncode, 0)

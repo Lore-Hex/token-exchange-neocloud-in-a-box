@@ -7,6 +7,10 @@ on:
         description: Run the fixed tokenizer continuation CPU diagnostic instead of pre-serve entry
         type: boolean
         default: false
+      tokenizer_materialization:
+        description: Apply the pinned server after-validator correction (requires tokenizer_continuation)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -23,6 +27,7 @@ jobs:
     env:
       SLUG: cpu-native-${{ github.run_id }}-${{ github.run_attempt }}
       TOKENIZER_CONTINUATION: ${{ inputs.tokenizer_continuation }}
+      TOKENIZER_MATERIALIZATION: ${{ inputs.tokenizer_materialization }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
@@ -60,6 +65,11 @@ jobs:
             false) ;;
             *) exit 2 ;;
           esac
+          case "$TOKENIZER_MATERIALIZATION" in
+            true) test "$TOKENIZER_CONTINUATION" = true || exit 2; diagnostic_args+=(--tokenizer-materialization) ;;
+            false) ;;
+            *) exit 2 ;;
+          esac
           python3 -I -S scripts/record-engine-cpu-entry.py --slug "$SLUG" --host-kind github-actions \
             "${diagnostic_args[@]}"
       - name: Preserve original content-free evidence, including failures
@@ -80,6 +90,11 @@ jobs:
           diagnostic_args=()
           case "$TOKENIZER_CONTINUATION" in
             true) diagnostic_args+=(--tokenizer-continuation) ;;
+            false) ;;
+            *) exit 2 ;;
+          esac
+          case "$TOKENIZER_MATERIALIZATION" in
+            true) test "$TOKENIZER_CONTINUATION" = true || exit 2; diagnostic_args+=(--tokenizer-materialization) ;;
             false) ;;
             *) exit 2 ;;
           esac

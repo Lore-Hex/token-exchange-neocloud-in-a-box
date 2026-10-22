@@ -89,8 +89,9 @@ def exercise(probes, request_type, normalize, encode, parse, parse_async, checkp
 
 def run(contract, sources, lab, checkpoints, read_source):
     verify_sources(read_source, contract["paths"][-1])
+    options = lab.tokenizer_adapter_options(contract, require)
     state = lab.install_lab({"paths": contract["paths"], "stdlib_roots": contract["paths"][:2],
-                             "wrapper": "/opt/nib/python", "launcher": "/opt/nib/launch.py"},
+                             "wrapper": "/opt/nib/python", "launcher": "/opt/nib/launch.py", **options},
                             lab, checkpoint=checkpoints.bootstrap)
     checkpoints.emit(11)
     from vllm.entrypoints.serve.tokenize.protocol import TokenizeChatRequest
@@ -104,8 +105,63 @@ def run(contract, sources, lab, checkpoints, read_source):
     probes = tokenize_payloads(parity, lab.MODEL)
     require(len(probes) == 4)
     try:
-        exercise(probes, TokenizeChatRequest, _normalize_messages, encode_messages,
-                 parse_chat_messages, parse_chat_messages_async, checkpoints, state["check"], ChatCompletionRequest)
+        if options:
+            from pydantic_core import ValidationError
+            exercise_fixed(probes, TokenizeChatRequest, _normalize_messages, encode_messages,
+                           parse_chat_messages, parse_chat_messages_async, checkpoints,
+                           state["check"], ValidationError)
+            require(state["tokenizer_adapter_verified"]() == contract["tokenizer_materialization"])
+            checkpoints.emit(16)
+        else:
+            exercise(probes, TokenizeChatRequest, _normalize_messages, encode_messages,
+                     parse_chat_messages, parse_chat_messages_async, checkpoints, state["check"], ChatCompletionRequest)
     finally:
         state["check"]()
         verify_sources(read_source, contract["paths"][-1])
+
+
+def exercise_fixed(probes, request_type, normalize, encode, parse, parse_async, checkpoints, check, validation_error):
+    """Same four client payloads; schema/iteration controls execute in real Pydantic."""
+    config = types.SimpleNamespace(enable_prompt_embeds=False)
+    requests = [request_type(**copy.deepcopy(probe)) for probe in probes]
+    checkpoints.emit(12)
+    original = copy.deepcopy(probes)
+    calls = requests[3].messages[1]["tool_calls"]
+    require(type(calls) is list and len(calls) == 1 and requests[3].messages[1]["content"] is None)
+    for _ in range(2):
+        require(requests[3]._materialize_tool_calls_after() is requests[3]
+                and requests[3].messages[1]["tool_calls"] is calls)
+    # HTTP JSON supplies a list. Pydantic creates the lazy validator iterator;
+    # supplying a Python generator instead can be consumed by other union
+    # branches and does not model the endpoint input.
+    multiple = copy.deepcopy(probes[3])
+    second = copy.deepcopy(multiple["messages"][1]["tool_calls"][0])
+    second["id"] = "valid_second_call"
+    multiple["messages"][1]["tool_calls"].append(second)
+    expected_calls = copy.deepcopy(multiple["messages"][1]["tool_calls"])
+    require(request_type(**multiple).messages[1]["tool_calls"] == expected_calls)
+    invalid = copy.deepcopy(probes[3])
+    invalid["messages"][1]["tool_calls"].append({"type": "function", "id": "invalid_missing_function"})
+    try:
+        request_type(**invalid)
+    except validation_error:
+        pass
+    else:
+        require(False)
+    checkpoints.emit(13)
+    for probe, request in zip(probes, requests):
+        expected = encode(normalize(copy.deepcopy(probe["messages"])), thinking_mode="chat")
+        require(encode(normalize(request.messages), thinking_mode="chat") == expected)
+        other = request_type(**copy.deepcopy(probe))
+        sync, data, ids = parse(request.messages, config, content_format="openai")
+        asynchronous, async_data, async_ids = asyncio.run(parse_async(other.messages, config, content_format="openai"))
+        require(data is ids is async_data is async_ids is None and normalize(sync) == normalize(asynchronous))
+        for messages in (request.messages, other.messages):
+            require(encode(normalize(messages), thinking_mode="chat") == expected)
+        if probe is probes[3]:
+            require(len(request.messages[1]["tool_calls"]) == len(other.messages[1]["tool_calls"]) == 1
+                    and request.messages[1]["content"] is other.messages[1]["content"] is None)
+    checkpoints.emit(14)
+    require(probes == original)
+    check()
+    checkpoints.emit(15)

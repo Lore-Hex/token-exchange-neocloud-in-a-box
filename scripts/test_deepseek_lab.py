@@ -354,7 +354,7 @@ class BoundarySiteTests(unittest.TestCase):
 
             namespace = {"sys": fake_sys, "os": fake_os, "mp": fake_mp, "spawn": fake_spawn,
                          "state": state, "layout": {"paths": ["/sealed"], "wrapper": "/wrapper"},
-                         "PATTERN_TARGET": bootstrap.PATTERN_TARGET, "reject": reject}
+                         "PATTERN_TARGET": bootstrap.PATTERN_TARGET, "reject": reject, "adapter": None}
             exec(code, namespace)
             with self.subTest(mutation=mutation):
                 if mutation == "none":
