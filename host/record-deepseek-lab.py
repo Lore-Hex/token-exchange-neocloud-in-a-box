@@ -653,7 +653,8 @@ def main():
               "started_utc": started, "ended_utc": recorder.now(), "result": "fail",
               "execution": "hardware" if hardware_row else "software", "hardware_validated": False,
               "host": {"provider": "spheron", "machine": "approved-isolated-lab",
-                       "gpus": "four-selected-" + hardware_row["family"] if hardware_row else "unobserved",
+                       "gpus": (("eight" if parallel_size(contract) == 2 else "four") + "-selected-"
+                                + hardware_row["family"]) if hardware_row else "unobserved",
                        "driver": hardware_row["driver"] if hardware_row else None,
                        "cuda": hardware_row["cuda_driver"] if hardware_row else None},
               "command": "python3 -I -S host/record-deepseek-lab.py --run <private-bundle> --receipt-sha256 <digest> --weights <private-weights> --output <private-evidence> --deadline <approved-UTC-cutoff>",
