@@ -447,6 +447,8 @@ class BuildTests(unittest.TestCase):
             "description": "Generate and verify private EROFS/verity files (requires runtime and driver installation; no export or boot)",
             "type": "boolean", "default": False}, "boot_uki": {
             "description": "Assemble and inspect private initrd/unsigned UKI (requires verity_root; no export, signing or boot)",
+            "type": "boolean", "default": False}, "validate_export": {
+            "description": "Verify then delete private GPT/UKI; upload JSON only (requires all five build flags; no boot)",
             "type": "boolean", "default": False}}}})
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         job = workflow["jobs"]["install"]
@@ -465,13 +467,14 @@ class BuildTests(unittest.TestCase):
                                                "INSTALL_DRIVER": "${{ inputs.install_driver }}",
                                                "GUEST_RUNTIME": "${{ inputs.guest_runtime }}",
                                                "VERITY_ROOT": "${{ inputs.verity_root }}",
-                                               "BOOT_UKI": "${{ inputs.boot_uki }}"})
+                                               "BOOT_UKI": "${{ inputs.boot_uki }}",
+                                               "VALIDATE_EXPORT": "${{ inputs.validate_export }}"})
         self.assertIn('if [ "$GUEST_RUNTIME" = true ]; then args+=(--guest-runtime); fi',
                       job["steps"][2]["run"])
         self.assertIn('if [ "$COMPILE_DRIVER" = true ]; then args+=(--compile-driver); fi',
                       job["steps"][2]["run"])
         self.assertNotIn("${{", job["steps"][2]["run"])
-        self.assertEqual(job["steps"][-1]["if"], "always()")
+        self.assertEqual(job["steps"][-2]["if"], "${{ always() && !inputs.validate_export }}")
 
     def test_driver_build_is_explicit_and_does_not_change_default_namespace(self):
         with mock.patch.object(host.os, "readlink", return_value="ns:[1]"), \
