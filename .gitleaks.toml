@@ -24,12 +24,40 @@ regexes = ['''^\s*"tokenizer-adapter\.py": "060220d1bc62f13278e5a03a3a85c39ef84f
 description = "Exact public probe source hash in the original CPU receipts"
 condition = "AND"
 regexTarget = "line"
-paths = ['''(^|/)evidence/p2/2026-10-22-cpu-parity-(readiness|argv|base-inspect)-failure/output\.log$''', '''(^|/)evidence/p2/2026-10-22-cpu-parity-native-pass/output\.log$''', '''(^|/)evidence/p2/2026-10-22-cpu-session-parity-failure/output\.log$''', '''(^|/)evidence/p2/2026-10-22-cpu-session-parity-failure/pair/output\.log$''']
+paths = ['''(^|/)evidence/p2/2026-10-22-cpu-parity-(readiness|argv|base-inspect)-failure/output\.log$''', '''(^|/)evidence/p2/2026-10-22-cpu-parity-native-pass/output\.log$''', '''(^|/)evidence/p2/2026-10-22-cpu-session-parity-failure/output\.log$''', '''(^|/)evidence/p2/2026-10-22-cpu-session-parity-failure/pair/output\.log$''', '''(^|/)evidence/p2/2026-10-22-cpu-session-native-pass/(pair/)?output\.log$''']
 regexes = ['''^\s*"scripts/engine_tokenizer_parity\.py": "09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a",\s*$''']
 
 [[rules.allowlists]]
 description = "Four original Qwen CPU hashes of fixed synthetic token-ID sequences"
 condition = "AND"
 regexTarget = "line"
-paths = ['''(^|/)evidence/p2/2026-10-22-cpu-parity-native-pass/output\.log$''']
+paths = ['''(^|/)evidence/p2/2026-10-22-cpu-parity-native-pass/output\.log$''', '''(^|/)evidence/p2/2026-10-22-cpu-session-native-pass/pair/output\.log$''']
 regexes = ['''^\s*"tokens_sha256": "(1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe)"\s*$''']
+
+[[rules.allowlists]]
+description = "Exact original held-pair tokenizer receipt byte hashes"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)evidence/p2/2026-10-22-cpu-session-native-pass/(pair/)?output\.log$''']
+regexes = ['''^\s*"simulator-tokenizer\.json": "de96abc426d3e94cfbc45736e27641c1498220325c57b08306d8eaa98728300f"\s*$''', '''^\s*"evaluator-tokenizer\.json": "132e5b388cb51278d647d7e1b9627754c5bf4d2537450a749b774314423e430d",\s*$''']
+
+[[rules.allowlists]]
+description = "Fixed synthetic token-ID hashes in the two compact original tokenizer receipts"
+condition = "AND"
+regexTarget = "match"
+paths = ['''(^|/)evidence/p2/2026-10-22-cpu-session-native-pass/pair/(simulator|evaluator)-tokenizer\.json$''']
+regexes = ['''^(endpoint|independent)_tokens_sha256":"(1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe)"$''']
+
+[[rules.allowlists]]
+description = "Exact Qwen 0.6B GGUF tokenizer recipe identity in its two compact originals"
+condition = "AND"
+regexTarget = "match"
+paths = ['''(^|/)evidence/p2/2026-10-22-cpu-session-native-pass/pair/simulator-(runtime|tokenizer)\.json$''']
+regexes = ['''^tokenizer_sha256":"554324f21418252a59edb045493a143a783b499d67b8680883e310e0f2ee77d9"$''']
+
+[[rules.allowlists]]
+description = "Exact Qwen 1.7B GGUF tokenizer recipe identity in its two compact originals"
+condition = "AND"
+regexTarget = "match"
+paths = ['''(^|/)evidence/p2/2026-10-22-cpu-session-native-pass/pair/evaluator-(runtime|tokenizer)\.json$''']
+regexes = ['''^tokenizer_sha256":"604363ffa22647728e0dd56e84926ad3ca1422999e356af99628fe2535b010a8"$''']

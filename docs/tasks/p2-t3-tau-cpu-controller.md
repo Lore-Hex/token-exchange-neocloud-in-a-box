@@ -1,7 +1,8 @@
 # P2.T3: Native CPU Pair Controller
 
-Status: implemented with synthetic pipe tests; **no concurrent model execution
-or tau result is claimed**. This is the executable owner for the
+Status: [native held-pair readiness/release PASS](../../evidence/p2/2026-10-22-cpu-session-native-pass/README.md),
+with both servers stopped and no tau, live-admission or quality result. The
+earlier parity-stage failure remains unexplained. This is the executable owner for the
 [fresh CPU session](p2-t3-tau-cpu-session.md), not a general RPC framework or a
 conversion of [historical parity](../../evidence/p2/2026-10-22-cpu-parity-native-pass/README.md).
 

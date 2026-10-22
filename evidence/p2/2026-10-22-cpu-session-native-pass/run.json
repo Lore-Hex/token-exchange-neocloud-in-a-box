@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S -B scripts/record-tau-cpu-session.py --archive PRIVATE --model-06 PRIVATE --model-17 PRIVATE --cmake-wheel PRIVATE --output PRIVATE",
+  "ended_utc": "2026-10-22T23:24:51Z",
+  "execution": "software",
+  "git_sha": "b04f5e4ec2b0fd0b1ac24710fc259247bad2a039",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "native-cpu-controller",
+    "provider": "github-actions"
+  },
+  "notes": "Held CPU pair readiness/release only; no tau, live admission, quality or confidentiality.",
+  "phase": "P2",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-22T23:20:44Z",
+  "task": "T3"
+}
