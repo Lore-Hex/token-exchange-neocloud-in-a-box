@@ -195,8 +195,10 @@ def main():
                 **({"require_boot_ids": True} if boot_uki else {}))
         if boot_uki:
             stage = "boot-uki"
+            report["boot_input_diagnostics"] = {}
             report["boot_uki"] = module("boot-uki").build(
-                processes, module("confinement").PREFIX, report["verity_root"]["root_hash"])
+                processes, module("confinement").PREFIX, report["verity_root"]["root_hash"],
+                diagnostics=report["boot_input_diagnostics"])
         report["result"] = "pass"
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         report["failure_frames"] = failure_diagnostics(exc)

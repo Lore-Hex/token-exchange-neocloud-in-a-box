@@ -87,11 +87,14 @@ def path_name(name):
     return name
 
 
-def read(path, limit):
+def read(path, limit, *, observation=None):
     with directory(path.parent) as fd:
         source = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
         with os.fdopen(source, "rb") as stream:
             before = os.fstat(stream.fileno())
+            if observation is not None:
+                observation.update(regular=stat.S_ISREG(before.st_mode), links=before.st_nlink,
+                                   bytes=before.st_size)
             require(stat.S_ISREG(before.st_mode) and before.st_nlink == 1 and 0 <= before.st_size <= limit)
             raw = stream.read(limit + 1)
             after = os.fstat(stream.fileno())
@@ -157,7 +160,7 @@ def inventory():
     return members, identity(raw)
 
 
-def assemble(members):
+def assemble(members, diagnostics=None):
     tree = WORK / "tree"
     tree.mkdir(mode=0o700)
     for name, row in sorted(members.items(), key=lambda item: (item[0].count("/"), item[0])):
@@ -170,9 +173,16 @@ def assemble(members):
                 # Links are inert archive entries, never followed during assembly.
                 os.symlink(row["target"], target.name, dir_fd=fd)
             else:
-                raw = read(ROOTFS / name, row["bytes"])
+                if diagnostics is not None:
+                    diagnostics.clear()
+                    diagnostics.update(member=name, expected_bytes=row["bytes"],
+                                       expected_sha256=row["sha256"], observed={})
+                raw = read(ROOTFS / name, row["bytes"],
+                           observation=diagnostics["observed"] if diagnostics is not None else None)
                 require(identity(raw) == {k: row[k] for k in ("bytes", "sha256")})
                 write(target, raw, row["mode"])
+    if diagnostics is not None:
+        diagnostics.clear()
     # mkosi ecf7f570 configure_initrd: PID1 symlink and initrd-release marker.
     for name in ("etc", "etc/systemd", "etc/systemd/system", "etc/systemd/journald.conf.d",
                  "dev", "proc", "sys", "run", "tmp", "sysroot"):
@@ -466,14 +476,14 @@ def check_cpio(raw, expected):
         actual[name] = row
 
 
-def build(processes, prefix, root_hash, output=Path("/out")):
+def build(processes, prefix, root_hash, output=Path("/out"), *, diagnostics=None):
     line = cmdline(root_hash)
     tools = verify_tools()
     members, inputs = inventory()
     with directory(WORK.parent) as fd:
         os.mkdir(WORK.name, 0o700, dir_fd=fd)
     try:
-        assemble(members)
+        assemble(members, diagnostics)
         before = snapshot()
         execute(processes, prefix, "depmod", output)
         after = snapshot()
