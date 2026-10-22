@@ -931,7 +931,11 @@ class ContractTests(unittest.TestCase):
     def test_native_workflow_is_manual_main_only_and_rechecks_failure_artifacts(self):
         workflow = yaml.load((ROOT / ".github/workflows/engine-cpu-entry.yml").read_text(),
                              Loader=yaml.BaseLoader)
-        self.assertEqual(workflow["on"], {"workflow_dispatch": ""})
+        self.assertEqual(set(workflow["on"]), {"workflow_dispatch"})
+        inputs = workflow["on"]["workflow_dispatch"]["inputs"]
+        self.assertEqual(set(inputs), {"tokenizer_continuation"})
+        self.assertEqual(inputs["tokenizer_continuation"]["type"], "boolean")
+        self.assertEqual(inputs["tokenizer_continuation"]["default"], "false")
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         self.assertEqual(workflow["concurrency"]["cancel-in-progress"], "false")
         self.assertEqual(set(workflow["jobs"]), {"diagnostic"})
@@ -948,8 +952,8 @@ class ContractTests(unittest.TestCase):
             "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
         ])
         self.assertEqual(steps[3]["run"], "python3 -I -S host/pull-lab-image.py")
-        self.assertEqual(steps[4]["run"],
-                         'python3 -I -S scripts/record-engine-cpu-entry.py --slug "$SLUG" --host-kind github-actions')
+        self.assertIn('python3 -I -S scripts/record-engine-cpu-entry.py --slug "$SLUG" --host-kind github-actions',
+                      steps[4]["run"])
         self.assertEqual(steps[4]["continue-on-error"], "true")
         self.assertEqual(steps[5]["if"], "always()")
         self.assertEqual(steps[5]["with"]["retention-days"], "7")

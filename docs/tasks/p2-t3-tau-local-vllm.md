@@ -82,9 +82,10 @@ content-free errors/accounting. They do not execute vLLM.
 - The manifest remains `quality_eligible=false`. This module cannot produce
   scored-comparison evidence or silently turn the benchmark into a
   non-thinking evaluation.
-- Container-worker wiring, content-free run recording, independent simulator
-  and reference deployment/approval, tokenizer parity tests, GPU runs and the
-  complete evaluation are still required. The public CLI continues to expose
-  only the original closed-network scripted integration operation.
+- [The explicit live runner](p2-t3-tau-live-runner.md) now supplies container-worker
+  wiring and content-free run recording using this session. Actual reviewed
+  deployment/runtime/tokenizer receipts, independent role deployment/approval,
+  GPU runs and the complete evaluation remain required. The original CLI still
+  exposes only the closed-network scripted integration operation.
 - This is local lab HTTP, never public or confidential transport. No ports
   are opened or published by this change; no production routing is modified.

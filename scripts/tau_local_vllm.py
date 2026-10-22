@@ -50,6 +50,9 @@ class LocalVllm:
         require(remaining <= transport.MAX_WAIT_SECONDS)
         return remaining
 
+    def connect(self, sock, deadline):
+        sock.connect(("127.0.0.1", self.port))
+
     def post(self, path, body, deadline):
         require(path in ("/tokenize", "/v1/chat/completions"))
         require(threading.current_thread() is threading.main_thread())
@@ -61,12 +64,12 @@ class LocalVllm:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.set_inheritable(False)
             sock.settimeout(self.remaining(deadline))
-            sock.connect(("127.0.0.1", self.port))
-            connection = http.client.HTTPConnection("127.0.0.1", self.port)
-            connection.sock = sock
             # SIGALRM enforces the whole operation, including slow header/chunk
             # reads. Socket timeouts alone would restart on each incoming byte.
             with worker.alarm(deadline, self.clock):
+                self.connect(sock, deadline)
+                connection = http.client.HTTPConnection("127.0.0.1", self.port)
+                connection.sock = sock
                 sock.settimeout(self.remaining(deadline))
                 connection.request("POST", path, body=raw, headers={
                     "Content-Type": "application/json", "Accept": "application/json",

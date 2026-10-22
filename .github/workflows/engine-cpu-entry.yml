@@ -2,6 +2,11 @@ name: Native CPU engine entry
 
 on:
   workflow_dispatch:
+    inputs:
+      tokenizer_continuation:
+        description: Run the fixed tokenizer continuation CPU diagnostic instead of pre-serve entry
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -17,6 +22,7 @@ jobs:
     timeout-minutes: 45
     env:
       SLUG: cpu-native-${{ github.run_id }}-${{ github.run_attempt }}
+      TOKENIZER_CONTINUATION: ${{ inputs.tokenizer_continuation }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
@@ -47,7 +53,15 @@ jobs:
       - name: Record bounded CPU-only entry
         id: record
         continue-on-error: true
-        run: python3 -I -S scripts/record-engine-cpu-entry.py --slug "$SLUG" --host-kind github-actions
+        run: |
+          diagnostic_args=()
+          case "$TOKENIZER_CONTINUATION" in
+            true) diagnostic_args+=(--tokenizer-continuation) ;;
+            false) ;;
+            *) exit 2 ;;
+          esac
+          python3 -I -S scripts/record-engine-cpu-entry.py --slug "$SLUG" --host-kind github-actions \
+            "${diagnostic_args[@]}"
       - name: Preserve original content-free evidence, including failures
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
@@ -63,4 +77,11 @@ jobs:
           test -z "$remaining" || exit 1
           set -- evidence/p2/*-"$SLUG"
           test "$#" -eq 1
-          python3 -I -S scripts/record-engine-cpu-entry.py --check-result "$1" --host-kind github-actions
+          diagnostic_args=()
+          case "$TOKENIZER_CONTINUATION" in
+            true) diagnostic_args+=(--tokenizer-continuation) ;;
+            false) ;;
+            *) exit 2 ;;
+          esac
+          python3 -I -S scripts/record-engine-cpu-entry.py --check-result "$1" --host-kind github-actions \
+            "${diagnostic_args[@]}"

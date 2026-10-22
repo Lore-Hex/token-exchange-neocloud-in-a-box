@@ -74,14 +74,20 @@ def load(name, expected=None, *, modules=None):
     return module
 
 
-def parent_driver(toolkit):
+def parent_driver(toolkit, *, live_local=False):
     # Compile the exact verified closure, never timestamp-valid .pyc files or
     # preexisting same-name modules from an ambient import path.
     modules = {}
-    for name in ("tau_preflight", "tau_trial_worker", "tau_aggregate", "tau_transport", "tau_pipe_driver"):
+    names = ("tau_preflight", "tau_trial_worker", "tau_aggregate", "tau_transport")
+    if live_local:
+        names += ("tau_local_vllm", "tau_live_identity")
+    for name in (*names, "tau_pipe_driver"):
         path = "scripts/" + name + ".py"
         modules[name] = load(path, toolkit["files"][path], modules=modules)
-    return modules["tau_pipe_driver"]
+    driver = modules["tau_pipe_driver"]
+    if live_local:
+        driver.live = modules["tau_live_identity"]
+    return driver
 
 
 runtime = load("scripts/tau_runtime.py", RUNTIME_SHA)
@@ -114,13 +120,17 @@ def check_image(image):
     return selected
 
 
-def identity(deadline, parent_pipe=False):
+def identity(deadline, parent_pipe=False, *, live_local=False):
+    require(not live_local or parent_pipe)
     names = (SCRIPT, WORKER, "scripts/tau_runtime.py", "scripts/tau_aggregate.py",
              runtime.CATALOG, "host/probe.py", "scripts/test_tau_trial.py", "scripts/e2e/pins.json",
              "schemas/evidence.schema.json", "schemas/common.schema.json")
     if parent_pipe:
         names += ("scripts/tau_transport.py", "scripts/tau_pipe_trial.py", "scripts/tau_pipe_driver.py",
                   "scripts/test_tau_pipe_driver.py")
+    if live_local:
+        names += ("scripts/tau_live_trial.py", "scripts/tau_live_identity.py", "scripts/tau_local_vllm.py",
+                  "scripts/test_tau_live_trial.py", "scripts/test_tau_local_vllm.py")
     result = tau.committed_identity(deadline)
     for start in range(0, len(names), 4):
         item = tau.committed_identity(deadline, extra_files=names[start:start + 4])
@@ -162,8 +172,10 @@ def add_wheel(files, owners, raw, package, expected, deadline):
     require(len(files) <= worker.MAX_FILES and sum(map(len, files.values())) <= worker.MAX_PAYLOAD)
 
 
-def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, deadline, *, parent_pipe=False):
-    toolkit = identity(deadline, parent_pipe)
+def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, deadline, *, parent_pipe=False,
+            live_binding=None):
+    toolkit = (identity(deadline, parent_pipe, live_local=True) if live_binding is not None
+               else identity(deadline, parent_pipe))
     pins_raw = runtime.read_file(ROOT / tau.PINS, 1 << 20, deadline)
     require(tau.digest(pins_raw) == tau.PINS_SHA)
     pins = tau.json_value(pins_raw)
@@ -197,6 +209,9 @@ def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, de
                "source_files": len(source_rows), "root_mode": catalog["root"]["mode"],
                "dependencies_installed": False, "upstream_executed": False, "live_transport": False}
     files["inputs.json"] = tau.encoded(receipt)
+    if live_binding is not None:
+        require(parent_pipe)
+        files["live-binding.json"] = tau.encoded(live_binding)
     contract = {"schema": "nib.tau-scripted-plan/v1", "image": runtime.TARGET["image"],
                 "platform": runtime.TARGET["platform"], "manifest_sha256": manifest_sha,
                 "selection": chosen, "environment": ENVIRONMENT, "seconds": SECONDS,
@@ -233,7 +248,8 @@ def publish(destination, files):
             os.fchmod(fd, 0o555)
 
 
-def validate_plan(payload, sha, toolkit, deadline, *, parent_pipe=False):
+def validate_plan(payload, sha, toolkit, deadline, *, parent_pipe=False, live_local=False):
+    require(not live_local or parent_pipe)
     with runtime.directory(payload.parent) as parent:
         info = os.fstat(parent)
         require(info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700)
@@ -250,6 +266,7 @@ def validate_plan(payload, sha, toolkit, deadline, *, parent_pipe=False):
             and plan["seconds"] == SECONDS and plan["producer"]["git_sha"] == toolkit["git_sha"]
             and plan["producer"]["adapter_sha256"] == toolkit["files"][WORKER])
     require(not parent_pipe or plan["transport"] == "scripted-parent-pipe")
+    require(("live-binding.json" in plan["files"]) is live_local)
     for name, expected in toolkit["files"].items():
         require(plan["files"][name]["sha256"] == expected)
     worker.verify_tree(payload, plan["files"], deadline)
@@ -310,12 +327,14 @@ def check_container(info, name, owner, payload, sha, selected_manifest, *, paren
             and host["Tmpfs"] == {"/scratch": "rw,nosuid,nodev,noexec,size=256m,mode=0700,uid=65534,gid=65534"})
 
 
-def check_result(value, plan, manifest):
+def check_result(value, plan, manifest, *, live_local=False):
     require(type(value) is dict and set(value) == {"schema", "stage", "completed", "report", "accounting",
             "quality_accepted", "confidential", "live_transport", "token_usage", "upstream_executed"}
-            and value["schema"] == "nib.tau-scripted-trial/v1" and value["stage"] in ("verification", "trial", "completed")
-            and value["token_usage"] == "synthetic-not-tokenized"
-            and all(value[key] is False for key in ("quality_accepted", "confidential", "live_transport")))
+            and value["schema"] == ("nib.tau-live-trial/v1" if live_local else "nib.tau-scripted-trial/v1")
+            and value["stage"] in ("verification", "trial", "completed")
+            and value["token_usage"] == ("engine-reported" if live_local else "synthetic-not-tokenized")
+            and value["live_transport"] is live_local
+            and all(value[key] is False for key in ("quality_accepted", "confidential")))
     require(type(value["completed"]) is bool and type(value["upstream_executed"]) is bool)
     if not value["completed"]:
         require(value["stage"] != "completed" and value["report"] is value["accounting"] is None)
@@ -323,7 +342,8 @@ def check_result(value, plan, manifest):
     require(value["stage"] == "completed")
     report = value["report"]
     aggregate.validate_report(report, manifest, plan["manifest_sha256"], plan["selection"]["role"])
-    require(report["kind"] == "synthetic-fixture" and report["producer"] == plan["producer"]
+    require(report["kind"] == ("declared-unverified" if live_local else "synthetic-fixture")
+            and report["producer"] == plan["producer"]
             and len(report["trials"]) == 1
             and report["binding"] == aggregate.expected_binding(manifest, plan["selection"]["role"]))
     row = report["trials"][0]
@@ -351,10 +371,19 @@ def check_result(value, plan, manifest):
                 and accounting["role_requests"]["simulator"] > 0)
 
 
-def run(payload, sha, destination, socket, *, parent_pipe=False):
+def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment=None):
     deadline = time.monotonic() + 60
-    toolkit = identity(deadline, parent_pipe)
-    plan, manifest = validate_plan(payload, sha, toolkit, deadline, parent_pipe=parent_pipe)
+    live_local = live_deployment is not None
+    toolkit = (identity(deadline, parent_pipe, live_local=True) if live_local else identity(deadline, parent_pipe))
+    options = {"parent_pipe": parent_pipe, **({"live_local": True} if live_local else {})}
+    plan, manifest = validate_plan(payload, sha, toolkit, deadline, **options)
+    deployment = driver = None
+    if live_local:
+        driver = parent_driver(toolkit, live_local=True)
+        deployment = driver.live.Deployment(*live_deployment, manifest, deadline)
+        require(tau.json_value(runtime.read_file(payload / "live-binding.json", 1 << 20, deadline))
+                == deployment.binding)
+        deployment.check(deadline)
     require(payload.is_absolute() and not any(c in str(payload) for c in (",", "\n", "\r")))
     require(socket.is_absolute() and stat.S_ISSOCK(socket.stat().st_mode))
     require(not destination.exists())
@@ -395,20 +424,23 @@ def run(payload, sha, destination, socket, *, parent_pipe=False):
             create_unknown = False
             stage = "trial"
             if parent_pipe:
-                observed = parent_driver(toolkit).run_process(
+                observed = (driver or parent_driver(toolkit)).run_process(
                     [docker, "--host", "unix://" + str(socket), "--config", private,
                      "start", "--attach", "--interactive", name], env, payload, plan, manifest,
-                    min(operation_deadline, time.monotonic() + worker.SECONDS))
+                    min(operation_deadline, time.monotonic() + worker.SECONDS),
+                    **({"deployment": deployment} if live_local else {}))
             else:
                 raw = command("start", "--attach", name, seconds=SECONDS, limit=16384)
                 observed = tau.json_value(raw)
-            check_result(observed, plan, manifest)
+            check_result(observed, plan, manifest, **({"live_local": True} if live_local else {}))
             # Preserve validated accounting even if the later container check fails.
             result = observed
             terminal = tau.json_value(command("inspect", name))[0]
             check_container(terminal, name, owner, payload, sha, selected_manifest, parent_pipe=parent_pipe)
             require(terminal["State"]["Running"] is False and terminal["State"]["OOMKilled"] is False
                     and terminal["State"]["ExitCode"] == 0)
+            if deployment is not None:
+                deployment.check(operation_deadline)
             stage = "completed"
         except BaseException:
             pass
@@ -425,15 +457,25 @@ def run(payload, sha, destination, socket, *, parent_pipe=False):
             except Exception:
                 cleaned = False
             signal.signal(signal.SIGTERM, old)
-    record = {"schema": "nib.tau-scripted-run/v1", "toolkit": toolkit, "plan_sha256": sha,
+    record = {"schema": "nib.tau-live-run/v1" if live_local else "nib.tau-scripted-run/v1",
+              "toolkit": toolkit, "plan_sha256": sha,
               "image": plan["image"], "platform": plan["platform"], "execution": "software",
               "started_utc": started, "ended_utc": now(),
               "stage": stage, "cleanup_confirmed": cleaned, "diagnostic": result,
               "cleanup": "create-completion-unknown" if create_unknown else "confirmed" if cleaned else "failed",
               "result": "pass" if stage == "completed" and cleaned and result and result["completed"]
                         and result["report"]["trials"][0]["status"] == "evaluated" else "fail",
-              "confidential": False, "quality_accepted": False, "live_transport": False}
+              "confidential": False, "quality_accepted": False, "live_transport": live_local}
     envelope = evidence_record(toolkit["git_sha"], sha, started, record, parent_pipe=parent_pipe)
+    if live_local:
+        record["deployment"] = deployment.binding
+        envelope.update(command="python3 -I -S -B scripts/tau_live_trial.py run --payload PRIVATE "
+            "--plan-sha256 " + sha + " --docker-socket PRIVATE --output PRIVATE --deployment PRIVATE "
+            "--deployment-sha256 " + deployment.binding["deployment_sha256"],
+            host={"provider": "local", "machine": "isolated-scorer-with-local-engines",
+                  "gpus": "unobserved", "driver": None, "cuda": None},
+            notes="Explicit local live single-trial smoke. Engine-reported usage, no quality or confidential "
+                  "acceptance. Private deployment receipts are operator-authenticated inputs, not attestation.")
     publish_evidence(destination, {"run.json": tau.encoded(envelope), "output.log": tau.encoded(record)})
     print(tau.encoded({"result": record["result"], "cleanup_confirmed": cleaned}).decode(), end="")
     return 0 if record["result"] == "pass" else 1
