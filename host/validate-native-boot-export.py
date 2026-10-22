@@ -159,16 +159,19 @@ def validate(evidence, destination, source, validator_source, build_result, expo
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-result", required=True, choices=("success", "failure", "cancelled", "skipped"))
+    parser.add_argument("--guest-network", action="store_true")
     args = parser.parse_args()
     native.probe.native.preflight()
-    # Use existing committed-source gates unchanged, including the fixed 42-file
-    # build closure. Audit this verifier/workflow separately, not in the worker.
+    # Audit the explicitly selected fixed profile, never adopt a profile from
+    # the artifact. The verifier/workflow remain outside the worker closure.
     export, _ = base.helper("export_verification_alarm", native.EXPORT)
     with export.deadline_alarm():
-        revision, sources = native.committed_sources(True, True, True, True)
+        revision, sources = native.committed_sources(True, True, True, True,
+            **({"guest_network": True} if args.guest_network else {}))
         validator_source = committed_validator(revision)
         export, publication = native.export_helpers(sources)
-    result = validate(EVIDENCE, METADATA, native.source_identity(revision, sources),
+    result = validate(EVIDENCE, METADATA, native.source_identity(revision, sources,
+                      **({"guest_network": True} if args.guest_network else {})),
                       validator_source, args.build_result, export, publication)
     # Only these fixed values reach the workflow. Exit zero means metadata is
     # safe to upload, not that export passed; the workflow separately checks it.

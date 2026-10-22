@@ -8,6 +8,10 @@ against a kernel firewall. No development-host firewall was touched. GPU,
 weights and engine release backends still deny startup; a successful network
 oneshot cannot start inference or establish confidentiality.
 
+An explicit optional native composition/export/debug-consumer path is now
+implemented and tested with synthetic processes and temporary image trees.
+That is not evidence that the optional image builds or that its gate runs.
+
 This slice applies and reads back the existing firewall candidate. It is not
 interface/address configuration, connectivity qualification or a deployable
 dual-stack network profile. In particular, the existing policy has no ICMP or
@@ -89,17 +93,88 @@ Source inspected 2026-10-22:
   firewall synchronization target and before all existing nib gates. It uses
   explicit early-boot/shutdown ordering, with no automatic unit enablement.
 
+The composition uses the existing tools/runtime `systemd 255.4-1ubuntu8.18`
+package, archive SHA-256
+`ba37e7dc1e33690d94a1063543d27f9b17c013a20791c3315b2423fbf9e7ae7b`.
+Its regular `usr/bin/systemd-sysusers` member was inspected without execution:
+68,224 bytes, mode 0755, SHA-256
+`f2f07333c751d6a05206e6c5b65df05f7d50d98293d6356d4a6b3c8b4f91301a`.
+The pinned Ubuntu [source descriptor](https://snapshot.ubuntu.com/ubuntu/20261020T000000Z/pool/main/s/systemd/systemd_255.4-1ubuntu8.18.dsc)
+names the inspected original archive (`systemd_255.4.orig.tar.gz`, 14,952,427
+bytes, SHA-256 `96e75bd08c57ad401677456fb88ef54a9f05bb1695693013bc6ecce839640fd5`)
+and Debian patch archive (273,272 bytes, SHA-256
+`ec3ce620c3e072d34bbeaf9a4155cd91b5bee94eb412071bf81182f230ae2657`).
+Those hashes were checked; no patch targets either source file below.
+
+- [sysusers.c at v255.4](https://github.com/systemd/systemd-stable/blob/v255.4/src/sysusers/sysusers.c):
+  source-archive lines 581-620 read `SOURCE_DATE_EPOCH` and derive shadow
+  last-change days; line 668 assigns the new entry. Lines 1994 and 2322-2329
+  select the explicit positional configuration. Member SHA-256
+  `0d9e3c6bff03fc3faa849667022f5cdd9f1c2f986685ac06d83e9174b375393b`.
+- [fileio.c at v255.4](https://github.com/systemd/systemd-stable/blob/v255.4/src/basic/fileio.c):
+  source-archive lines 1081-1132, `search_and_open_internal`, opens absolute
+  configuration paths unchanged. `--root` does **not** prefix those arguments.
+  Member SHA-256 `3c32bd995c14f648f445d872ec9a8b4a7f59f36debdc4743762855a6a65f879e`.
+  The initial WIP assumption that `/etc/sysusers.d/nib.conf` was root-relative
+  was incorrect. The corrected fixed argument is
+  `/work/output/rootfs/etc/sysusers.d/nib.conf`, with
+  `--root=/work/output/rootfs` for the account databases.
+- [sysusers.d at v255.4](https://github.com/systemd/systemd-stable/blob/v255.4/man/sysusers.d.xml):
+  `u` creates a disabled user and matching group. The fixed declaration uses
+  automatic unused IDs, `/nonexistent` and `/usr/sbin/nologin`. Post-command
+  validation requires those values, locked shadow entries, the fixed epoch
+  and unchanged existing accounts. The command receives no credentials or
+  inherited environment. Only output byte counts are retained.
+
 These public source/package identities are not claims that a guest ran.
 
-## Next Integration
+## Optional Image Path
 
-Compose the source-bound static helper, protected explicit config, `nib`
-account and units into the private root **before** verity generation. Keep
-the same root-hash/source binding through UKI verification and export; do not
-regenerate or patch a verified root afterward. Preserve default native builds
-without this opt-in composition. Only a separately reviewed, bounded guest
-execution can prove the NET_ADMIN capability, kernel module closure, atomic
-installation and actual readback. Routing, conntrack initialization and IPv6
-neighbor discovery remain explicit qualification gaps. Only an attested front
-door may eventually listen off loopback; engine/gpu/weights readiness remains
-unavailable, not simulated into success.
+`host/run-mkosi-build.py --guest-network --go ABSOLUTE_COMPILER` requires all
+existing runtime/driver/verity/UKI/private-export flags. The unprivileged child
+compiles all four release helpers with observed Go 1.27.2, Linux amd64 v1,
+CGO off, no module proxy/sumdb/workspace, a fresh private cache and a shared
+120-second deadline. Compiler bytes are hashed before/after; dependency
+enumeration permits only the standard library and the exact local guest
+packages. Compiler identity is **observed, not authenticated**.
+
+Default preparation keeps the existing 42-file profile and command unchanged.
+The opt-in `guest-network/v1` profile requires that exact set plus 26 enumerated
+sources, including every imported guest package, embedded policy, unit and
+configuration byte. Two existing bounded audits must agree on commit and
+overlap. Missing, extra, duplicate, mixed-profile and changed producer inputs
+reject. No generic source-count or output limit is increased.
+
+The worker copies and rehashes four helpers and ten fixed data files, creates
+the `nib` account with the pinned tool, and enables only the network unit.
+All destinations are fixed; collisions, symlink parents, hardlinks, writable
+parents, changed files and malformed account databases reject. Composition
+precedes verity: UKI and private export retain the same verified root bytes,
+root hash and complete source profile. Failure never reaches image staging.
+Whole-workspace cleanup and independent resource checks remain mandatory.
+
+The optional root-probe and networkd drop-ins use `Requires`, `After` and
+`BindsTo`, not ordering alone. Other request-serving gates retain their own
+dependencies and fail-closed backends; no engine/node activation is added.
+An empty egress list is deny-all preparation, not attestation readiness.
+
+## Next Real Run
+
+After final independent review, green checks, merge and separate run approval,
+the existing `debug-boot.yml` accepts `debug_boot=true, guest_network=true`.
+Both default false. The selected profile propagates through build, independent
+producer capture, debug consumer and unused-export cleanup. A default consumer
+rejects a network-profile bundle. The root probe cannot emit success until the
+required network oneshot succeeds; merely installing its unit is insufficient.
+
+The existing hosted Ubuntu 22.04, CPU-only/no-NIC/no-GPU execution and bounds
+remain: 35-minute job, 600-second native generation, 900-second debug wrapper,
+180-second QEMU, two CPUs, 2 GiB debug memory, swap zero and 128 PIDs. Only the
+existing fixed JSON files can upload after independent cleanup. No serial,
+firewall output or unsigned image is published. No run has been dispatched
+for this profile.
+
+Real NET_ADMIN delivery, kernel module loading, atomic installation and nft
+JSON readback remain unproven. Routing, conntrack initialization and IPv6
+neighbor discovery remain qualification gaps. Only an attested front door may
+eventually listen off loopback; engine/GPU/weights readiness remains unavailable.

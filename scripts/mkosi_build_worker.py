@@ -10,7 +10,7 @@ import sys
 import types
 
 STAGES = ("preflight", "namespaces", "pid", "ownership", "configuration", "installation", "inventory", "driver-build",
-          "runtime-policy", "appraisal-cli", "verity-root", "boot-uki")
+          "runtime-policy", "appraisal-cli", "guest-network", "verity-root", "boot-uki")
 COMMAND = ["/usr/bin/python3.12", "-I", "-S", "-B", "/nib/mkosi-entry.py",
            "--directory=/work/config", "--tools-tree=/", "--output=rootfs",
            "--output-directory=/work/output", "--workspace-directory=/work/workspaces",
@@ -93,7 +93,7 @@ def failure_diagnostics(error):
     names = {__file__: "build-worker", "/nib/snapshot.py": "process-supervisor",
              "/nib/dkms-worker.py": "driver-worker", "/nib/runtime-policy.py": "runtime-policy",
              "/nib/appraisal-probe.py": "appraisal-probe", "/nib/verity-root.py": "verity-root",
-             "/nib/boot-uki.py": "boot-uki"}
+             "/nib/boot-uki.py": "boot-uki", "/nib/guest-network.py": "guest-network"}
     frames = []
     traceback = error.__traceback__
     while traceback is not None:
@@ -129,6 +129,8 @@ def process_states(proc=Path("/proc")):
 
 
 def options(arguments):
+    if arguments == ["--install-driver", "--verity-root", "--boot-uki", "--stage-boot", "--guest-network"]:
+        arguments = arguments[:-1]
     require(arguments in ([], ["--compile-driver"], ["--install-driver"],
                           ["--install-driver", "--verity-root"],
                           ["--install-driver", "--verity-root", "--boot-uki"],
@@ -145,9 +147,10 @@ def main():
               "dkms_built": False, "reproducibility_verified": False, "bootable": False, "deployable": False}
     try:
         compile_driver, install_driver, verity_root, boot_uki, stage_boot = options(sys.argv[6:])
+        guest_network = "--guest-network" in sys.argv[6:]
         require(sys.platform == "linux" and sys.version_info[:2] == (3, 12)
                 and sys.flags.isolated and sys.flags.no_site and sys.flags.dont_write_bytecode
-                and 6 <= len(sys.argv) <= 10 and os.geteuid() == os.getegid() == 0)
+                and 6 <= len(sys.argv) <= (11 if guest_network else 10) and os.geteuid() == os.getegid() == 0)
         stage = "namespaces"
         module("namespace-check").check(sys.argv[1:5])
         stage = "pid"
@@ -193,6 +196,13 @@ def main():
             stage = "verity-root"
             verity, boot, export = module("verity-root"), module("boot-uki"), module("boot-export")
             source = export.parsed(inputs.regular(Path("/nib/artifact-inputs.json"), 65536))
+            export.source_identity(source)
+            require((source.get("profile") == export.NETWORK_PROFILE) is guest_network)
+            if guest_network:
+                stage = "guest-network"
+                report["guest_network"] = module("guest-network").compose(
+                    processes, export, verity.directory, source, module("confinement").PREFIX)
+                stage = "verity-root"
             # Keep both verified images alive in nested lifetimes; never rebuild
             # a second GPT or assemble a UKI from a different root-hash receipt.
             with export.owned(export.STAGE, verity.directory, inputs.remove_flat_directory):

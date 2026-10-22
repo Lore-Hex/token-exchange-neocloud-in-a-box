@@ -7,6 +7,10 @@ on:
         description: One nonconfidential TCG root-switch probe; delete all images and upload JSON only
         type: boolean
         default: false
+      guest_network:
+        description: Compose the fixed deny-all guest network gate and require its success before the root probe
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -54,22 +58,35 @@ jobs:
       - name: Generate one fresh private native export
         id: build
         timeout-minutes: 11
+        env:
+          GUEST_NETWORK: ${{ inputs.guest_network }}
         run: |
+          network_args=()
+          case "$GUEST_NETWORK" in
+            true) network_args=(--guest-network --go "$(readlink -f "$(command -v go)")") ;;
+            false) ;;
+            *) exit 1 ;;
+          esac
           timeout --signal=TERM --kill-after=30s 600s \
             sudo -- /usr/bin/python3.10 -I -S -B host/run-mkosi-build.py \
             --downloads "$PWD/build/native-install/inputs" \
             --archive "$PWD/build/native-install/source.tar.gz" \
             --output "$PWD/build/native-install/evidence" \
-            --guest-runtime --compile-driver --install-driver --verity-root --boot-uki --export-boot
+            --guest-runtime --compile-driver --install-driver --verity-root --boot-uki --export-boot \
+            "${network_args[@]}"
       - name: Assemble debug UKI, boot once, and delete private images
         id: debug
         timeout-minutes: 18
+        env:
+          GUEST_NETWORK: ${{ inputs.guest_network }}
         run: |
+          network_args=()
+          case "$GUEST_NETWORK" in true) network_args=(--guest-network) ;; false) ;; *) exit 1 ;; esac
           compiler="$(readlink -f "$(command -v go)")"
           result="$(sudo -- /usr/bin/python3.10 -I -S -B host/run-debug-boot.py \
             --downloads "$PWD/build/native-install/inputs" \
             --archive "$PWD/build/native-install/source.tar.gz" \
-            --runtime-inputs "$PWD/build/debug-boot/runtime-inputs" --go "$compiler")"
+            --runtime-inputs "$PWD/build/debug-boot/runtime-inputs" --go "$compiler" "${network_args[@]}")"
           case "$result" in pass|fail) ;; *) exit 1 ;; esac
           printf 'metadata_ready=true\n' >> "$GITHUB_OUTPUT"
           test "$result" = pass
@@ -79,9 +96,12 @@ jobs:
         timeout-minutes: 5
         env:
           BUILD_RESULT: ${{ steps.build.outcome }}
+          GUEST_NETWORK: ${{ inputs.guest_network }}
         run: |
+          network_args=()
+          case "$GUEST_NETWORK" in true) network_args=(--guest-network) ;; false) ;; *) exit 1 ;; esac
           result="$(/usr/bin/python3.10 -I -S -B host/validate-native-boot-export.py \
-            --build-result "$BUILD_RESULT")"
+            --build-result "$BUILD_RESULT" "${network_args[@]}")"
           case "$result" in pass|fail) ;; *) exit 1 ;; esac
           printf 'metadata_ready=true\n' >> "$GITHUB_OUTPUT"
       - name: Preserve fixed debug metadata only after verified cleanup

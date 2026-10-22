@@ -14,6 +14,52 @@ FILES = {"root.raw": 1568 << 20, "nib.efi": 256 << 20}
 STAGE = Path("/out/boot-stage")
 TIMEOUT = 120
 MAX_JSON = 65536
+NETWORK_PROFILE = "guest-network/v1"
+# A second explicit profile, not a generic increase of the original 42-file
+# bound. Native preparation and every consumer must audit this exact union.
+NETWORK_BASE = frozenset("""
+evidence/p3/2026-10-22-runtime-apt-plan/report.json
+host/build-mkosi-native.py host/probe-build-resources.py host/probe-mkosi-native-tools.py
+host/probe-mkosi-native.py host/run-mkosi-build.py host/simulate-guest-apt.py
+image/inputs/apt-tools-ubuntu2404.json image/inputs/guest-runtime-ubuntu2404-hook-review.json
+image/inputs/guest-runtime-ubuntu2404.json image/inputs/mkosi-27.1-package-boundary.json
+image/inputs/mkosi-27.1-service-denial.json image/inputs/mkosi-27.1.json
+image/inputs/mkosi-tools-members.json image/inputs/mkosi-tools-ubuntu2404.json
+image/inputs/r595-ubuntu2404.json image/patches/mkosi-27.1-service-denial.patch
+scripts/e2e/snapshot.py scripts/guest_apt_simulation.py scripts/guest_package_inputs.py
+scripts/mkosi_appraisal_probe.py scripts/mkosi_boot.py scripts/mkosi_build_entry.py
+scripts/mkosi_build_worker.py scripts/mkosi_confinement.py scripts/mkosi_dkms.py
+scripts/mkosi_export.py scripts/mkosi_namespace_check.py scripts/mkosi_ownership.py
+scripts/mkosi_package_patch.py scripts/mkosi_package_worker.py scripts/mkosi_pid_check.py
+scripts/mkosi_runtime_policy.py scripts/mkosi_tools_probe.py scripts/mkosi_verity.py
+scripts/pilot/export.py scripts/prepare_guest_packages.py scripts/prepare_guest_tools.py
+scripts/prepare_mkosi_boot.py scripts/prepare_mkosi_inputs.py scripts/prepare_mkosi_tools.py
+scripts/review_guest_hooks.py
+""".split())
+NETWORK_EXTRA = (
+    "scripts/mkosi_guest_network.py", "go.mod", "go.sum",
+    *("guest/cmd/nib-" + name + "/main.go" for name in ("network", "gpu-gate", "weights", "engine")),
+    *("guest/internal/service/" + name for name in ("cli.go", "backend_release.go", "network_release.go",
+        "network_linux.go", "network_exec_unix.go", "network_other.go")),
+    "guest/nftables/policy.go", "guest/nftables/readback.go", "guest/nftables/nib.nft",
+    *("guest/systemd/nib-" + name for name in ("network.service", "gpu-gate.service", "weights.service",
+        "engine.service", "node.target", "failclosed.target")),
+    "guest/network/network.json", "guest/network/nib.conf", "guest/network/debug-boot.conf",
+    "guest/network/networkd.conf",
+)
+NETWORK_ROLES = ("network", "gpu-gate", "weights", "engine")
+NETWORK_HELPERS = {"usr/libexec/nib-" + role: "network/nib-" + role for role in NETWORK_ROLES}
+NETWORK_DATA = {
+    **{"usr/lib/systemd/system/nib-" + name: "guest/systemd/nib-" + name for name in
+       ("network.service", "gpu-gate.service", "weights.service", "engine.service", "node.target", "failclosed.target")},
+    "etc/nib/network.json": "guest/network/network.json",
+    "etc/sysusers.d/nib.conf": "guest/network/nib.conf",
+    "etc/systemd/system/nib-debug-boot.service.d/20-nib-network.conf": "guest/network/debug-boot.conf",
+    "etc/systemd/system/systemd-networkd.service.d/20-nib-network.conf": "guest/network/networkd.conf",
+}
+NETWORK_LINKS = {"etc/systemd/system/multi-user.target.wants/nib-network.service":
+                 "/usr/lib/systemd/system/nib-network.service"}
+NETWORK_DATABASES = {"etc/passwd": 7, "etc/group": 4, "etc/shadow": 9, "etc/gshadow": 4}
 
 
 def require(value):
@@ -111,13 +157,59 @@ def owned(path, directory, remove):
 
 
 def source_identity(value):
-    require(type(value) is dict and set(value) == {"git_sha", "sources"}
-            and type(value["git_sha"]) is str and re.fullmatch("[0-9a-f]{40}", value["git_sha"])
-            and type(value["sources"]) is dict and 0 < len(value["sources"]) <= 42)
+    require(type(value) is dict and type(value.get("sources")) is dict)
+    if "profile" in value:
+        require(set(value) == {"git_sha", "sources", "profile"} and value["profile"] == NETWORK_PROFILE
+                and len(NETWORK_BASE) == 42 and len(set(NETWORK_EXTRA)) == len(NETWORK_EXTRA)
+                and not NETWORK_BASE.intersection(NETWORK_EXTRA)
+                and set(value["sources"]) == NETWORK_BASE.union(NETWORK_EXTRA))
+    else:
+        require(set(value) == {"git_sha", "sources"} and 0 < len(value["sources"]) <= 42)
+    require(type(value["git_sha"]) is str and re.fullmatch("[0-9a-f]{40}", value["git_sha"]))
     for name, digest in value["sources"].items():
         require(type(name) is str and re.fullmatch(r"[A-Za-z0-9_./-]+", name)
                 and not name.startswith("/") and all(p not in ("", ".", "..") for p in name.split("/"))
                 and type(digest) is str and re.fullmatch("[0-9a-f]{64}", digest))
+
+
+def network_sources(sources):
+    return {p: raw for p, raw in sources.items()
+            if p in ("go.mod", "go.sum", "guest/nftables/nib.nft") or p.endswith(".go")}
+
+
+def network_inputs(value, source):
+    source_identity(source)
+    require(source.get("profile") == NETWORK_PROFILE and type(value) is dict
+            and set(value) == {"schema", "source", "compiler", "files"}
+            and value["schema"] == "nib.guest-network-inputs/v1" and value["source"] == source)
+    compiler = value["compiler"]
+    require(type(compiler) is dict and set(compiler) == {"version", "compiler_sha256", "compiler_authenticated", "source_hashes"}
+            and compiler["version"] == "go1.27.2" and compiler["compiler_authenticated"] is False
+            and compiler["source_hashes"] == network_sources(source["sources"]))
+    file_identity({"bytes": 1, "sha256": compiler["compiler_sha256"]}, 1)
+    require(type(value["files"]) is dict and set(value["files"]) == set(NETWORK_HELPERS) | set(NETWORK_DATA))
+    for name, row in value["files"].items():
+        file_identity(row, 8 << 20 if name in NETWORK_HELPERS else 16384)
+        if name in NETWORK_DATA:
+            require(row["sha256"] == source["sources"][NETWORK_DATA[name]])
+
+
+def network_proof(value, source):
+    require(type(value) is dict and set(value) == {"schema", "result", "inputs", "account", "databases", "links",
+            "sysusers_stdout_bytes", "sysusers_stderr_bytes", "services_started", "network_verified", "confidentiality_verified"}
+            and value["schema"] == "nib.guest-network-composition/v1" and value["result"] == "pass"
+            and all(value[k] is False for k in ("services_started", "network_verified", "confidentiality_verified"))
+            and value["links"] == NETWORK_LINKS)
+    network_inputs(value["inputs"], source)
+    account = value["account"]
+    require(type(account) is dict and set(account) == {"name", "uid", "gid", "login_disabled"}
+            and account["name"] == "nib" and account["login_disabled"] is True
+            and all(type(account[k]) is int and 0 < account[k] < 65534 for k in ("uid", "gid"))
+            and type(value["databases"]) is dict and set(value["databases"]) == set(NETWORK_DATABASES))
+    for row in value["databases"].values():
+        file_identity(row, 65536)
+    for name in ("sysusers_stdout_bytes", "sysusers_stderr_bytes"):
+        require(type(value[name]) is int and 0 <= value[name] <= 65536)
 
 
 def stage(verity, boot, source, directory):
@@ -146,6 +238,10 @@ def validate_proof(report, source):
             and report["payload_removed"] is True and report["process_cleanup_confirmed"] is True
             and report["bootable"] is False and report["deployable"] is False)
     worker = report["worker"]
+    if source.get("profile") == NETWORK_PROFILE:
+        network_proof(worker.get("guest_network"), source)
+    else:
+        require("guest_network" not in worker)
     require(worker["schema"] == "nib.mkosi-install-worker/v1" and worker["result"] == "pass"
             and worker["stage"] == "boot-uki" and worker["bootable"] is False and worker["deployable"] is False
             and worker["configured_state_verified"] is True and type(worker["installed_packages"]) is int
