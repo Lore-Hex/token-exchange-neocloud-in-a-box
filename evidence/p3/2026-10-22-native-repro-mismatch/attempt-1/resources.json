@@ -1,0 +1,18 @@
+{
+  "child_exit_code": 0,
+  "empty_verified": true,
+  "group_removed": true,
+  "limits": {
+    "cpu.max": "200000 100000",
+    "memory.max": "8589934592",
+    "memory.oom.group": "1",
+    "memory.swap.max": "0",
+    "pids.max": "256"
+  },
+  "limits_read_back": true,
+  "memory_peak_bytes": 7616069632,
+  "oom_kill": 0,
+  "populated_before_cleanup": 0,
+  "result": "pass",
+  "schema": "nib.mkosi-build-resources/v1"
+}
