@@ -55,3 +55,6 @@ reduction and a second exec, checking the real kernel capability fields both
 before and after exec. It passed on October 22, 2026. This is local software
 validation, not the pinned Ubuntu guest ABI or GPU proof. The native installation
 workflow still has to pass the actual appraiser probe.
+
+The separately opt-in [private EROFS/verity stage](p3-t1-verity-root.md) runs only
+after this probe succeeds; it does not turn CLI loading into attestation proof.

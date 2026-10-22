@@ -10,7 +10,7 @@ import sys
 import types
 
 STAGES = ("preflight", "namespaces", "pid", "ownership", "configuration", "installation", "inventory", "driver-build",
-          "runtime-policy", "appraisal-cli")
+          "runtime-policy", "appraisal-cli", "verity-root")
 COMMAND = ["/usr/bin/python3.12", "-I", "-S", "-B", "/nib/mkosi-entry.py",
            "--directory=/work/config", "--tools-tree=/", "--output=rootfs",
            "--output-directory=/work/output", "--workspace-directory=/work/workspaces",
@@ -92,7 +92,7 @@ def failure_diagnostics(error):
     """Identify our failing operation, never exception text, locals or paths."""
     names = {__file__: "build-worker", "/nib/snapshot.py": "process-supervisor",
              "/nib/dkms-worker.py": "driver-worker", "/nib/runtime-policy.py": "runtime-policy",
-             "/nib/appraisal-probe.py": "appraisal-probe"}
+             "/nib/appraisal-probe.py": "appraisal-probe", "/nib/verity-root.py": "verity-root"}
     frames = []
     traceback = error.__traceback__
     while traceback is not None:
@@ -127,6 +127,12 @@ def process_states(proc=Path("/proc")):
     return counts
 
 
+def options(arguments):
+    require(arguments in ([], ["--compile-driver"], ["--install-driver"],
+                          ["--install-driver", "--verity-root"]))
+    return bool(arguments), "--install-driver" in arguments, "--verity-root" in arguments
+
+
 def main():
     stage = "preflight"
     report = {"schema": "nib.mkosi-install-worker/v1", "result": "fail", "stage": stage,
@@ -134,11 +140,10 @@ def main():
               "package_installation_executed": False, "configured_state_verified": False,
               "dkms_built": False, "reproducibility_verified": False, "bootable": False, "deployable": False}
     try:
-        install_driver = len(sys.argv) == 7 and sys.argv[-1] == "--install-driver"
-        compile_driver = install_driver or (len(sys.argv) == 7 and sys.argv[-1] == "--compile-driver")
+        compile_driver, install_driver, verity_root = options(sys.argv[6:])
         require(sys.platform == "linux" and sys.version_info[:2] == (3, 12)
                 and sys.flags.isolated and sys.flags.no_site and sys.flags.dont_write_bytecode
-                and (len(sys.argv) == 6 or compile_driver) and os.geteuid() == os.getegid() == 0)
+                and 6 <= len(sys.argv) <= 8 and os.geteuid() == os.getegid() == 0)
         stage = "namespaces"
         module("namespace-check").check(sys.argv[1:5])
         stage = "pid"
@@ -150,6 +155,7 @@ def main():
         inputs = module("package-inputs")
         guest = json.loads(Path("/nib/prepared/guest-inputs.json").read_bytes())
         expected = expected_packages(guest)
+        require(not verity_root or guest["scope"] == "guest-runtime-dependency-coverage")
         for name in ("config", "output", "workspaces", "cache", "pkgcache"):
             Path("/work", name).mkdir(mode=0o700)
         config = Path("/work/config")
@@ -176,6 +182,10 @@ def main():
             report["runtime_policy"] = module("runtime-policy").apply()
             stage = "appraisal-cli"
             report["appraisal_cli"] = module("appraisal-probe").probe(
+                processes, module("confinement").PREFIX, module("dkms-worker").regular)
+        if verity_root:
+            stage = "verity-root"
+            report["verity_root"] = module("verity-root").build(
                 processes, module("confinement").PREFIX, module("dkms-worker").regular)
         report["result"] = "pass"
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:

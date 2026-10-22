@@ -15,6 +15,12 @@ on:
         description: Install the reviewed 212-package runtime candidate instead of the kernel-only candidate
         type: boolean
         default: false
+      verity_root:
+        description: >-
+          Generate and verify private EROFS/verity files
+          (requires runtime and driver installation; no export or boot)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -60,6 +66,7 @@ jobs:
           COMPILE_DRIVER: ${{ inputs.compile_driver }}
           INSTALL_DRIVER: ${{ inputs.install_driver }}
           GUEST_RUNTIME: ${{ inputs.guest_runtime }}
+          VERITY_ROOT: ${{ inputs.verity_root }}
         run: |
           args=()
           if [ "$GUEST_RUNTIME" = true ]; then args+=(--guest-runtime); fi
@@ -67,6 +74,12 @@ jobs:
           if [ "$INSTALL_DRIVER" = true ]; then
             test "$COMPILE_DRIVER" = true
             args+=(--install-driver)
+          fi
+          if [ "$VERITY_ROOT" = true ]; then
+            test "$GUEST_RUNTIME" = true
+            test "$INSTALL_DRIVER" = true
+            test "$COMPILE_DRIVER" = true
+            args+=(--verity-root)
           fi
           sudo -- /usr/bin/python3.10 -I -S -B host/run-mkosi-build.py \
             --downloads "$PWD/build/native-install/inputs" \
