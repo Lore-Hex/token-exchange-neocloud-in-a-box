@@ -38,31 +38,47 @@ printf 'Secret scanner rejected a token retained only in Git history.\n'
 
 # A known synthetic hash is exempt only at its exact evidence field and path.
 # An unrelated value in the same field must still be detected.
-for receipt in tool-protocol-fail fixed-pass; do
+# Random hex can contain default stopwords (for example "dead") or fall below
+# the generic rule's entropy threshold. Hash a fixed public fixture instead.
+unknown=$(printf %s nib-scanner-boundary-positive-control-v1 | openssl dgst -sha256 | awk '{print $NF}')
+for receipt in tool-protocol-fail fixed-pass runtime-pass runtime-adapter-source runtime-parity-source; do
   evidence_path="evidence/p2/2026-10-22-tokenizer-parity-$receipt/output.log"
+  field=tokens_sha256
+  known=9d6bde6f28006680e5d37e06d816356d782004f1e8dbabf46d42e81b088afc16
+  suffix=''
+  case "$receipt" in
+    runtime-adapter-source)
+      evidence_path=evidence/p2/2026-10-22-tokenizer-parity-runtime-pass/input-contract.json
+      field=tokenizer-adapter.py
+      known=060220d1bc62f13278e5a03a3a85c39ef84f528ada2a9e39ab0c62a4a7c09960
+      suffix=,
+      ;;
+    runtime-parity-source)
+      evidence_path=evidence/p2/2026-10-22-tokenizer-parity-runtime-pass/input-contract.json
+      field=tokenizer-parity.py
+      known=09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a
+      ;;
+  esac
   mkdir -p "$tmp/receipt/$(dirname "$evidence_path")"
-  printf '            "tokens_sha256": "%s"\n' \
-    9d6bde6f28006680e5d37e06d816356d782004f1e8dbabf46d42e81b088afc16 \
-    > "$tmp/receipt/$evidence_path"
+  printf '            "%s": "%s"%s\n' "$field" "$known" "$suffix" > "$tmp/receipt/$evidence_path"
   "$root/build/gitleaks" dir --config "$root/.gitleaks.toml" --redact --no-banner \
     --exit-code 42 "$tmp/receipt" > "$tmp/receipt-scan.log" 2>&1
-  printf '            "tokens_sha256": "%s"\n' "$(openssl rand -hex 32)" \
+  printf '            "%s": "%s"%s\n' "$field" "$unknown" "$suffix" \
     > "$tmp/receipt/$evidence_path"
   status=0
   "$root/build/gitleaks" dir --config "$root/.gitleaks.toml" --redact --no-banner \
     --exit-code 42 "$tmp/receipt" > "$tmp/receipt-scan.log" 2>&1 || status=$?
   if [[ "$status" != 42 ]]; then
-    printf 'Synthetic-hash exception escaped its exact value boundary.\n' >&2
+    printf 'Synthetic-hash exception escaped its exact value boundary (%s).\n' "$receipt" >&2
     exit 1
   fi
   printf 'Secret scanner still detects unknown values in the hash receipt field.\n'
   for boundary in path field; do
     target="$tmp/receipt/$evidence_path"
-    name=tokens_sha256
+    name=$field
     if [[ "$boundary" == path ]]; then target="$tmp/receipt/other.log"; fi
     if [[ "$boundary" == field ]]; then name=api_key; fi
-    printf '            "%s": "%s"\n' "$name" \
-      9d6bde6f28006680e5d37e06d816356d782004f1e8dbabf46d42e81b088afc16 > "$target"
+    printf '            "%s": "%s"%s\n' "$name" "$known" "$suffix" > "$target"
     status=0
     "$root/build/gitleaks" dir --config "$root/.gitleaks.toml" --redact --no-banner \
       --exit-code 42 "$target" > "$tmp/receipt-scan.log" 2>&1 || status=$?
