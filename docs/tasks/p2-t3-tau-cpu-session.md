@@ -103,6 +103,18 @@ also confirmed. The outer report conservatively leaves producer cleanup
 `unknown` because it did not admit a successful producer. These reports are
 not rewritten to reconcile that distinction.
 
+The outer original `run.json` also omitted required nullable `driver` and `cuda`
+host fields. Repository schema validation caught that recorder bug before this
+evidence could pass CI. Its exact bytes are therefore retained as
+`controller-run.json`, not accepted schema-valid run evidence; the valid original
+inner `pair/run.json` retains its name. No corrected historical wrapper is
+invented. The archived outer `run.json` SHA-256 is
+`ac2587d04ced83db71f05535c41e68868a3f9b3a5dd7fe709def9d56597db4cb`.
+A Go regression calls `ValidateEvidence` on both originals: the outer remains
+rejected and the inner remains accepted. Future controller envelopes reuse the existing complete host recipe
+for both unverified and verified states. This metadata-only correction does not
+explain the separate runtime failure and does not alter preflight or execution.
+
 The old `parity` stage covered the native helper, launch, ownership, health,
 comparisons, rehashing and receipt construction. It retained no model index,
 comparison rows or exception classification. It therefore proves neither a
@@ -122,7 +134,8 @@ not runtime/tokenizer receipts and cannot produce READY or successful release.
 No original v1 artifact is promoted to v2.
 
 The standalone parity worker, probes, pilot, kernel/socket guards, Dockerfile,
-recorder/controller and workflow remain byte-identical. Source closure remains
+parity recorder and workflow remain byte-identical. Only the controller's host
+metadata construction changes in addition to the session diagnostics. Source closure remains
 23 worker files / 27 controller files; diagnostic sources are already in it.
 The v2 diagnostic path has only synthetic regression coverage until a separately
 reviewed, green-CI, explicitly approved native attempt. No retry was performed.

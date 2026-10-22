@@ -45,6 +45,17 @@ def ready(directory):
 
 
 class CPUControllerTests(unittest.TestCase):
+    def test_preflight_and_verified_envelopes_have_complete_evidence_host_schema(self):
+        schema = json.loads((ROOT / "schemas/evidence.schema.json").read_bytes())["$defs"]["host"]
+        for verified in (False, True):
+            host = control.evidence_host(verified)
+            self.assertEqual(set(host), set(schema["required"]))
+            self.assertEqual(host, {"provider": "github-actions" if verified else "unverified",
+                "machine": "native-cpu-controller" if verified else "unverified",
+                "gpus": "none", "driver": None, "cuda": None})
+        for value in (None, 1, "true"):
+            with self.assertRaises(ValueError): control.evidence_host(value)
+
     def test_preflight_rejects_non_native_non_main_and_insufficient_resources(self):
         environment = {"GITHUB_ACTIONS": "true", "RUNNER_ENVIRONMENT": "github-hosted",
                        "GITHUB_REF": "refs/heads/main"}

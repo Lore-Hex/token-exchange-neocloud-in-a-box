@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent
 EVIDENCE = ROOT / "evidence/p2/2026-10-22-cpu-session-parity-failure"
 PRODUCER = "ea1de780008a7f81b1e54d2df3012c437f109830"
 HASHES = {
-    "run.json": "ac2587d04ced83db71f05535c41e68868a3f9b3a5dd7fe709def9d56597db4cb",
+    "controller-run.json": "ac2587d04ced83db71f05535c41e68868a3f9b3a5dd7fe709def9d56597db4cb",
     "output.log": "49a69f155630fc3cffef5a807d90db959a2b0919f3b99bd9672b8b9ac9ad07f6",
     "pair/run.json": "4d5502ab87123f4ef82895c74449c514db7d1ca10cfc72f76b77a1a66ca6ecfd",
     "pair/output.log": "37e4176ada74c59a4a7eb9d661720cc9527248352a7524f506fa8284101093e6",
@@ -29,7 +29,7 @@ class CPUSessionEvidenceTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(raw).hexdigest(), sha)
             row = json.loads(raw)
             self.assertEqual((row["git_sha"], row["result"]), (PRODUCER, "fail"))
-        outer, pair = (json.loads((EVIDENCE / name).read_bytes()) for name in ("run.json", "pair/run.json"))
+        outer, pair = (json.loads((EVIDENCE / name).read_bytes()) for name in ("controller-run.json", "pair/run.json"))
         self.assertEqual((outer["started_utc"], pair["started_utc"], outer["ended_utc"], pair["ended_utc"]),
                          ("2026-10-22T22:36:07Z", "2026-10-22T22:36:08Z",
                           "2026-10-22T22:41:29Z", "2026-10-22T22:41:29Z"))
@@ -37,6 +37,8 @@ class CPUSessionEvidenceTests(unittest.TestCase):
             self.assertEqual(record["execution"], "software")
             self.assertFalse(record["hardware_validated"])
             self.assertEqual(record["host"]["gpus"], "none")
+        self.assertEqual(set(outer["host"]), {"provider", "machine", "gpus"})
+        self.assertEqual(set(pair["host"]), {"provider", "machine", "gpus", "driver", "cuda"})
 
     def test_exact_historical_producer_closures(self):
         source = git(ROOT, "show", PRODUCER + ":scripts/record-tau-cpu-parity.py")
