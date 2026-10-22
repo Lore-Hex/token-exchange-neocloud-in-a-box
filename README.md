@@ -42,8 +42,10 @@ onboarding steps; running the toolkit does not automatically list a provider.
 Pre-alpha. **No fully verified confidential inference service yet.** Real
 8xB200 and 8xB300 lab checks and complete DeepSeek weight downloads have run. Fresh
 eight-GPU appraisal and readiness readback have passed. DeepSeek generated real
-responses in a smoke run, passing seven of eight cases; the overall smoke and
-quality gates remain failed/unproven. The lab uses AMD SEV-SNP, not the plan's Intel TDX
+responses in two smoke runs, passing seven of eight cases. The latest diagnostic
+identified a case-only answer mismatch; the corrected explicit-format fixture
+still needs a hardware run ([diagnosis](docs/tasks/p2-t3-explicit-answer-case.md)).
+The overall smoke and quality gates remain failed/unproven. The lab uses AMD SEV-SNP, not the plan's Intel TDX
 deployment.
 
 | Component | State |
