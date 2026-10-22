@@ -242,6 +242,15 @@ def deadline_alarm():
         signal.signal(signal.SIGALRM, previous)
 
 
+def validate_resources(resources):
+    require(resources["schema"] == "nib.mkosi-build-resources/v1" and resources["result"] == "pass"
+            and type(resources["child_exit_code"]) is int and resources["child_exit_code"] == 0
+            and type(resources["oom_kill"]) is int and resources["oom_kill"] == 0
+            and all(resources[k] is True for k in ("limits_read_back", "empty_verified", "group_removed"))
+            and resources["limits"] == {"memory.max": str(8 << 30), "memory.swap.max": "0",
+                "memory.oom.group": "1", "pids.max": "256", "cpu.max": "200000 100000"})
+
+
 def finish(evidence, base, publication, source):
     """Called only as the unprivileged runner, after the root receipt is durable."""
     pending, destination = paths(evidence)
@@ -263,12 +272,7 @@ def finish(evidence, base, publication, source):
                     and run["hardware_validated"] is False)
             receipts["resources.json"] = base.read(evidence.with_name(evidence.name + "-resources.json"), MAX_JSON)
             resources = parsed(receipts["resources.json"])
-            require(resources["schema"] == "nib.mkosi-build-resources/v1" and resources["result"] == "pass"
-                    and type(resources["child_exit_code"]) is int and resources["child_exit_code"] == 0
-                    and type(resources["oom_kill"]) is int and resources["oom_kill"] == 0
-                    and all(resources[k] is True for k in ("limits_read_back", "empty_verified", "group_removed"))
-                    and resources["limits"] == {"memory.max": str(8 << 30), "memory.swap.max": "0",
-                        "memory.oom.group": "1", "pids.max": "256", "cpu.max": "200000 100000"})
+            validate_resources(resources)
             for leaf, limit in FILES.items():
                 info = os.stat(leaf, dir_fd=fd, follow_symlinks=False)
                 require(stat.S_IMODE(info.st_mode) == 0o600)
