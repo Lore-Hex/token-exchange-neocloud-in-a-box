@@ -53,3 +53,8 @@ the image stage, before creation. Its
 is retained unchanged. The successful retry used the already configured
 OrbStack daemon; no Docker settings, security policy or model/network access
 was changed.
+
+After the terminal-deadline fixes, producer `e5911ab` repeated the same isolated
+task with a newly source-bound payload. The [rerun evidence](../../evidence/p2/2026-10-22-tau-pipe-deadline-pass/run.json)
+again records four scripted calls and confirmed cleanup. Both successful runs
+retain their original bytes and remain synthetic transport results only.

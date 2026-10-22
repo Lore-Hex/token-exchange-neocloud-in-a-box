@@ -144,18 +144,24 @@ class PipeDriverTests(unittest.TestCase):
             popen.assert_not_called()
 
     def test_original_container_proof_keeps_synthetic_qualification_limits(self):
-        for directory, hashes, expected in (
+        for directory, hashes, expected, revision in (
             ("2026-10-22-tau-pipe-pass", (
                 "a7024be4f2ecfe423372a22ac8ff2eb38a2de5756e071cdbedbfa24422d0719c",
-                "351156097b00c249e8938e9f2e6c0d499d28cb52b7c0569fd674c94e53095cc7"), "pass"),
+                "351156097b00c249e8938e9f2e6c0d499d28cb52b7c0569fd674c94e53095cc7"), "pass",
+                "6eb14845a39a0f2f219217624d0f04d99af509a6"),
+            ("2026-10-22-tau-pipe-deadline-pass", (
+                "be8956e486df991450490a785988cf3cacd3ddd30ff17ff05393732edb009f7f",
+                "4584c4c097822a01073df4dd709bd60d8eef5d6373e1dbe33605acb8b479b442"), "pass",
+                "e5911ab0b5856151de7186b58008960d96239dc2"),
             ("2026-10-22-tau-pipe-daemon-unavailable", (
                 "73ee334b16b09620aa5d9fa8e73b701de26400892745507ec22a3f5a628b33e9",
-                "641798551de15f56b82b1da41b13af5b215cd08079584429182eddbfd95fa2d0"), "fail")):
+                "641798551de15f56b82b1da41b13af5b215cd08079584429182eddbfd95fa2d0"), "fail",
+                "6eb14845a39a0f2f219217624d0f04d99af509a6")):
             root = ROOT / "evidence/p2" / directory
             raw = [(root / name).read_bytes() for name in ("run.json", "output.log")]
             self.assertEqual(tuple(hashlib.sha256(value).hexdigest() for value in raw), hashes)
             envelope, record = map(json.loads, raw)
-            self.assertEqual(envelope["git_sha"], "6eb14845a39a0f2f219217624d0f04d99af509a6")
+            self.assertEqual(envelope["git_sha"], revision)
             self.assertEqual(envelope["result"], expected)
             self.assertEqual(record["result"], expected)
             self.assertFalse(envelope["hardware_validated"])
