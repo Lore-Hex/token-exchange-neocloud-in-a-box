@@ -26,6 +26,10 @@ FAILURES.update({(b"" if stage == "INITRD_STAGE" else INITRD)
                  for stage in FAILURE_STAGES})
 RECORDS = (EXPECTED, *FAILURES)
 MAX_PROOF_BYTES = max(map(len, RECORDS))
+ROOT_READ_PREFIX = INITRD + b"NIB_DEBUG_BOOT_V1 R "
+ROOT_READ_REASONS = {1: "size", 2: "deadline", 3: "short-read", 4: "io",
+                     5: "extra-data", 6: "eof", 7: "late-eof", 8: "close"}
+MAX_ROOT_BYTES = 1536 << 20
 SOCKET = Path("/work/proof.sock")
 QEMU = "/runtime/usr/bin/qemu-system-x86_64"
 LOADER = "/runtime/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
@@ -91,6 +95,34 @@ def startups(execute, observations):
     return observations
 
 
+def root_read_frame(raw):
+    """Recognize only bounded canonical counters, including partial prefixes."""
+    if ROOT_READ_PREFIX.startswith(raw):
+        return True, None
+    if not raw.startswith(ROOT_READ_PREFIX):
+        return False, None
+    body = raw[len(ROOT_READ_PREFIX):]
+    complete = body.endswith(b"\n")
+    fields = (body[:-1] if complete else body).split(b" ")
+    if len(fields) > 3:
+        return False, None
+    values = []
+    for i, field in enumerate(fields):
+        if not field:
+            return not complete and i == len(fields) - 1, None
+        if not field.isdigit() or (len(field) > 1 and field.startswith(b"0")) or len(field) > (1, 10, 2)[i]:
+            return False, None
+        value = int(field)
+        if (i == 0 and value not in ROOT_READ_REASONS) or value > (8, MAX_ROOT_BYTES, 25)[i]:
+            return False, None
+        values.append(value)
+    if not complete:
+        return True, None
+    if len(values) != 3:
+        return False, None
+    return True, {"reason": ROOT_READ_REASONS[values[0]], "bytes_read": values[1], "elapsed_seconds": values[2]}
+
+
 def receive(listener, stop, deadline, state):
     """Only fixed protocol prefixes are retained; never report arbitrary bytes."""
     connection = None
@@ -121,17 +153,20 @@ def receive(listener, stop, deadline, state):
             if not chunk:
                 eof = True
                 state["complete"] = raw == EXPECTED
-                if raw not in RECORDS:
+                if raw not in RECORDS and root_read_frame(raw)[1] is None:
                     state["protocol_error"] = "incomplete"
                 break
             raw += chunk
-            if not any(record.startswith(raw) for record in RECORDS):
+            root_prefix, root_read = root_read_frame(raw)
+            if not any(record.startswith(raw) for record in RECORDS) and not root_prefix:
                 state["protocol_error"] = "invalid-frame"
                 raise ValueError("debug-proof-rejected")
             state["initrd"] = raw.startswith(INITRD)
             state["root"] = raw == EXPECTED
             if raw in FAILURES:
                 state["guest_failure"] = FAILURES[raw]
+            if root_read is not None:
+                state.update(guest_failure="ROOT_READ", root_read=root_read)
     except (OSError, ValueError):
         state["complete"] = False
     finally:

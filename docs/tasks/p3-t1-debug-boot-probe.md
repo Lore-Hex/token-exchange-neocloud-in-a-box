@@ -2,6 +2,16 @@
 
 ## Status
 
+The separately authorized follow-up [39851156135](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39851156135),
+producer `28f9fc01d59bc316ffdb206c8c0434cd5ad191e7`, also **failed root proof**.
+Its [four original receipts](../../evidence/p3/2026-10-22-debug-boot-root-read-failure/README.md)
+are byte-preserved. The fixed failure stage is now `ROOT_READ`: the real-root
+probe reached mapped-root reading after the strict mount, device, table and
+open checks. It does not identify I/O, EOF/length, deadline or close as the
+specific cause. Zero OOM kills and a 2 GiB peak do not prove a deadline issue.
+Cleanup passed; no output cap, read verification, privilege or deadline has
+been relaxed in response.
+
 The first authorized CPU-only run, [39843193309](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/39843193309),
 at producer `c0900f178072a08b5cc8688638993ccfc3061ab7`, **failed root proof**.
 Native export, debug UKI assembly and all five pinned QEMU startup checks passed.
@@ -112,6 +122,22 @@ the existing process-output caps remain unchanged. Unknown, out-of-order,
 extended, duplicated or truncated frames never pass. Early failure before
 opening the proof port can still produce no stage code; absence is not success
 and does not justify guessing a cause.
+
+The root-read diagnostic refinement uses one compact failure-only record after
+INITRD: `NIB_DEBUG_BOOT_V1 R <reason> <bytes_read> <elapsed_seconds>` and newline.
+Reason is one of eight fixed integers: 1=size, 2=loop deadline, 3=short read,
+4=I/O error, 5=extra data, 6=missing/error EOF, 7=deadline after EOF, 8=close.
+Only canonical decimal values are allowed: bytes from zero through the existing
+1,536 MiB root bound, and whole elapsed read seconds from zero through 25.
+The extra-byte EOF probe is not included in the mapped-data byte counter.
+Partial `io.ReadFull` counts are retained even when that call fails, according
+to the pinned Go 1.27.2 standard-library contract; no error string, file data
+or query text is emitted. An out-of-range observation falls back to the legacy
+fixed ROOT_READ failure. The longest record including INITRD is 61 bytes,
+within the unchanged 62-byte proof cap. Numeric diagnostics never satisfy the
+unchanged exact INITRD/PASS/EOF success grammar. A complete mapped read, extra
+EOF check, unchanged table/status rechecks and all existing deadlines remain
+mandatory. This instrumentation is not a diagnosed performance fix.
 
 The live table check follows Linux v6.8's
 [dm-verity table/status contract](https://github.com/torvalds/linux/blob/v6.8/Documentation/admin-guide/device-mapper/verity.rst).
