@@ -131,7 +131,7 @@ func query(ctx context.Context, operation string) ([]byte, error) {
 	return execute(ctx, dmsetup, operation, "root")
 }
 
-func check(ctx context.Context, deadline time.Time, stage *failureStage) error {
+func check(ctx context.Context, deadline time.Time, stage *failureStage, read *rootReadObservation) error {
 	*stage = failedInitrdMarker
 	if _, err := os.Lstat("/etc/initrd-release"); !os.IsNotExist(err) {
 		return errRejected
@@ -176,8 +176,11 @@ func check(ctx context.Context, deadline time.Time, stage *failureStage) error {
 		return err
 	}
 	*stage = failedRootRead
-	err = readAllRoot(root, m.bytes, deadline)
+	*read, err = readAllRoot(root, m.bytes, deadline)
 	closeErr := root.Close()
+	if err == nil && closeErr != nil {
+		read.reason = readClose
+	}
 	if err != nil || closeErr != nil {
 		return errRejected
 	}
@@ -276,14 +279,18 @@ func Run() int {
 	}
 	defer output.Close()
 	stage := failedInitrd
+	var read rootReadObservation
 	record, result := FailRecord, 1
 	if staging && stageInitrd() == nil {
 		record, result = InitrdRecord, 0
-	} else if !staging && check(ctx, deadline, &stage) == nil {
+	} else if !staging && check(ctx, deadline, &stage, &read) == nil {
 		record, result = PassRecord, 0
 	}
 	if result != 0 {
 		record = failureRecord(stage)
+		if stage == failedRootRead {
+			record = read.record()
+		}
 	}
 	n, err := output.Write([]byte(record))
 	if err != nil || n != len(record) {

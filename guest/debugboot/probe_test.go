@@ -4,6 +4,8 @@ package debugboot
 import (
 	"bytes"
 	"errors"
+	"io"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -114,20 +116,83 @@ func (brokenReader) Read([]byte) (int, error) { return 0, errors.New("do not exp
 
 func TestFullBoundedRootRead(t *testing.T) {
 	deadline := time.Now().Add(time.Second)
-	if err := readAllRoot(bytes.NewReader(make([]byte, 8192)), 8192, deadline); err != nil {
+	observed, err := readAllRoot(bytes.NewReader(make([]byte, 8192)), 8192, deadline)
+	if err != nil || observed.reason != readOK || observed.bytes != 8192 {
 		t.Fatal(err)
 	}
 	for _, size := range []int64{-1, 0, 4095, 4097, MaxRootBytes + 4096} {
-		if readAllRoot(bytes.NewReader(nil), size, deadline) == nil {
+		observed, err := readAllRoot(bytes.NewReader(nil), size, deadline)
+		if err == nil || observed.reason != readSize || observed.bytes != 0 {
 			t.Fatal("invalid size accepted")
 		}
 	}
 	for _, n := range []int{0, 4095, 4097} {
-		if readAllRoot(bytes.NewReader(make([]byte, n)), 4096, deadline) == nil {
+		observed, err := readAllRoot(bytes.NewReader(make([]byte, n)), 4096, deadline)
+		want := readShort
+		if n > 4096 {
+			want = readExtra
+		}
+		if err == nil || observed.reason != want || observed.bytes != min(int64(n), 4096) {
 			t.Fatal("truncated or excess device accepted")
 		}
 	}
-	if readAllRoot(brokenReader{}, 4096, deadline) == nil || readAllRoot(bytes.NewReader(make([]byte, 4096)), 4096, time.Now().Add(-time.Second)) == nil {
+	observed, err = readAllRoot(brokenReader{}, 4096, deadline)
+	if err == nil || observed.reason != readIO || observed.bytes != 0 {
+		t.Fatal("read failure accepted")
+	}
+	observed, err = readAllRoot(bytes.NewReader(make([]byte, 4096)), 4096, time.Now().Add(-time.Second))
+	if err == nil || observed.reason != readDeadline || observed.bytes != 0 {
 		t.Fatal("read failure or timeout accepted")
+	}
+}
+
+type readFunc func([]byte) (int, error)
+
+func (f readFunc) Read(p []byte) (int, error) { return f(p) }
+
+func TestRootReadPartialCountAndMandatoryEOF(t *testing.T) {
+	deadline := time.Now().Add(time.Second)
+	observed, err := readAllRoot(bytes.NewReader(make([]byte, 65536+7)), 65536+4096, deadline)
+	if err == nil || observed.reason != readShort || observed.bytes != 65536+7 {
+		t.Fatal("partial read count was lost")
+	}
+	observed, err = readAllRoot(readFunc(func(p []byte) (int, error) {
+		return copy(p, []byte{0, 0, 0}), errors.New("private-canary")
+	}), 4096, deadline)
+	if err == nil || observed.reason != readIO || observed.bytes != 3 || strings.Contains(observed.record(), "private-canary") {
+		t.Fatal("partial I/O failure lost or exposed")
+	}
+	for _, ending := range []error{nil, errors.New("private-canary")} {
+		input := bytes.NewReader(make([]byte, 4096))
+		observed, err := readAllRoot(readFunc(func(p []byte) (int, error) {
+			n, err := input.Read(p)
+			if err == io.EOF {
+				return 0, ending
+			}
+			return n, err
+		}), 4096, deadline)
+		if err == nil || observed.reason != readEOF || observed.bytes != 4096 {
+			t.Fatal("missing EOF accepted")
+		}
+	}
+}
+
+func TestRootReadRecordFitsExistingProofBound(t *testing.T) {
+	for reason := readSize; reason <= readClose; reason++ {
+		for _, count := range []int64{0, 3, MaxRootBytes} {
+			for _, seconds := range []int64{0, 25} {
+				r := rootReadObservation{reason, count, seconds}
+				want := "NIB_DEBUG_BOOT_V1 R " + strconv.Itoa(int(reason)) + " " + strconv.FormatInt(count, 10) + " " + strconv.FormatInt(seconds, 10) + "\n"
+				if r.record() != want || len(InitrdRecord+r.record()) > 62 {
+					t.Fatal("changed diagnostic grammar or proof bound")
+				}
+			}
+		}
+	}
+	for _, r := range []rootReadObservation{{readOK, 0, 0}, {readClose + 1, 0, 0},
+		{readSize, -1, 0}, {readSize, MaxRootBytes + 1, 0}, {readSize, 0, -1}, {readSize, 0, 26}} {
+		if r.record() != failureRecord(failedRootRead) {
+			t.Fatal("out-of-range diagnostic accepted")
+		}
 	}
 }
