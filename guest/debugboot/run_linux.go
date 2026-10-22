@@ -257,9 +257,10 @@ func Run() int {
 		return 1
 	}
 	// Also terminate blocked device reads; systemd supplies the outer kill bound.
-	timer := time.AfterFunc(25*time.Second, func() { os.Exit(1) })
+	checkTimeout, hardTimeout := probeTimeouts(staging)
+	timer := time.AfterFunc(hardTimeout, func() { os.Exit(1) })
 	defer timer.Stop()
-	deadline := time.Now().Add(24 * time.Second)
+	deadline := time.Now().Add(checkTimeout)
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
 	raw, err := readBounded("/proc/cmdline", 4096)

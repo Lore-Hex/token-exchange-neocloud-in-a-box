@@ -24,6 +24,14 @@ READ_HASHES = {
     "validation.json": "afa21d099f290f5aeef626cf1993efe47ee34602f24ada4ff7dd3d5d07442426",
     "worker.json": "316631a11cde36f13e0aa64b9b49fd4903d3012c2792ac0856e66652a6a11513",
 }
+DEADLINE_EVIDENCE = ROOT / "evidence/p3/2026-10-22-debug-boot-read-deadline"
+DEADLINE_PRODUCER = "6a15eee38c82225bc6649218829532d5ed135d63"
+DEADLINE_HASHES = {
+    "resources.json": "79c693cd69881c42c85f67a69e172cafd28ccb9cef1bedf9038078d13f580ab4",
+    "run.json": "4cfb1c10a347b6b11b879a212ba9304d0a5d9ac3b9f548729ace1187f729c293",
+    "validation.json": "afa21d099f290f5aeef626cf1993efe47ee34602f24ada4ff7dd3d5d07442426",
+    "worker.json": "24eb7213e29613be604781d84e398eab90ac307f68025fe0d57905969047b524",
+}
 
 
 def receipt(name, directory=EVIDENCE):
@@ -109,6 +117,49 @@ class RootReadFailureEvidenceTests(unittest.TestCase):
             self.assertEqual(worker[label]["git_sha"], READ_PRODUCER)
             for name, digest in worker[label]["sources"].items():
                 self.assertEqual(hashlib.sha256(git(ROOT, "show", READ_PRODUCER + ":" + name)).hexdigest(), digest)
+
+
+class RootReadDeadlineEvidenceTests(unittest.TestCase):
+    def test_deadline_failure_originals_are_byte_preserved(self):
+        self.assertEqual({p.name for p in DEADLINE_EVIDENCE.iterdir()},
+                         set(DEADLINE_HASHES) | {"README.md", "output.log"})
+        for name, digest in DEADLINE_HASHES.items():
+            self.assertEqual(hashlib.sha256((DEADLINE_EVIDENCE / name).read_bytes()).hexdigest(), digest)
+        self.assertEqual((DEADLINE_EVIDENCE / "output.log").read_bytes(),
+                         (DEADLINE_EVIDENCE / "validation.json").read_bytes())
+        self.assertEqual(producer((DEADLINE_EVIDENCE / "run.json").read_bytes()), DEADLINE_PRODUCER)
+        run = receipt("run.json", DEADLINE_EVIDENCE)
+        self.assertEqual((run["result"], run["started_utc"], run["ended_utc"]),
+                         ("fail", "2026-10-22T21:29:41Z", "2026-10-22T21:31:43Z"))
+
+    def test_deadline_classification_is_not_a_complete_root_proof(self):
+        worker = receipt("worker.json", DEADLINE_EVIDENCE)
+        self.assertEqual(worker["assembly"]["result"], "pass")
+        self.assertEqual(len(worker["qemu"]["startup_checks"]), 5)
+        self.assertTrue(all(item["result"] == "pass" for item in worker["qemu"]["startup_checks"]))
+        self.assertEqual(worker["qemu"]["proof"], {"initrd": True, "root": False, "complete": False,
+            "guest_failure": "ROOT_READ", "protocol_error": None,
+            "root_read": {"reason": "deadline", "bytes_read": 171704320, "elapsed_seconds": 23}})
+        self.assertEqual(worker["input_files"]["root.raw"]["bytes"], 928968704)
+        self.assertEqual(worker["qemu"]["terminal"], {"exit_code": 0, "failure_kind": None,
+            "process_group_cleaned": True, "stderr_bytes": 0, "stdout_bytes": 0})
+        for value in (worker, worker["qemu"], receipt("validation.json", DEADLINE_EVIDENCE)):
+            self.assertEqual(value["result"], "fail")
+            self.assertFalse(value["boot_verified"] or value["confidentiality_verified"])
+
+    def test_deadline_failure_cleanup_and_exact_source_closure(self):
+        state = receipt("resources.json", DEADLINE_EVIDENCE)
+        worker = receipt("worker.json", DEADLINE_EVIDENCE)
+        for key in ("empty_verified", "group_removed", "limits_read_back"):
+            self.assertTrue(state[key])
+        self.assertEqual((state["child_exit_code"], state["oom_kill"]), (1, 0))
+        self.assertTrue(receipt("validation.json", DEADLINE_EVIDENCE)["private_images_removed"])
+        self.assertFalse(worker["private_work_removed"])
+        for label in ("source", "debug_source"):
+            self.assertEqual(state["producer"][label], worker[label])
+            self.assertEqual(worker[label]["git_sha"], DEADLINE_PRODUCER)
+            for name, digest in worker[label]["sources"].items():
+                self.assertEqual(hashlib.sha256(git(ROOT, "show", DEADLINE_PRODUCER + ":" + name)).hexdigest(), digest)
 
 
 if __name__ == "__main__":

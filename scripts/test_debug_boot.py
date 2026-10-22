@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Local contracts/failure tests; no namespace, cgroup or QEMU execution."""
 from contextlib import contextmanager
+import configparser
 import copy
 import json
 import os
@@ -44,10 +45,15 @@ class QemuTests(unittest.TestCase):
     def test_root_read_counters_fit_unchanged_cap_and_never_pass(self):
         self.assertEqual(qemu.MAX_PROOF_BYTES, 62)
         self.assertEqual(qemu.MAX_ROOT_BYTES, 1536 << 20)
+        longest = qemu.ROOT_READ_PREFIX + f"8 {qemu.MAX_ROOT_BYTES} 145\n".encode("ascii")
+        self.assertEqual(len(longest), qemu.MAX_PROOF_BYTES)
+        self.assertEqual(qemu.root_read_frame(longest + b"x"), (False, None))
         self.assertEqual(qemu.ROOT_READ_REASONS, {1: "size", 2: "deadline", 3: "short-read", 4: "io",
             5: "extra-data", 6: "eof", 7: "late-eof", 8: "close"})
         for code, reason in qemu.ROOT_READ_REASONS.items():
-            for count, seconds in ((0, 0), (3, 1), (qemu.MAX_ROOT_BYTES, 25)):
+            for count, seconds in ((0, 0), (3, 1), (qemu.MAX_ROOT_BYTES, 25),
+                                   (qemu.MAX_ROOT_BYTES, 26), (qemu.MAX_ROOT_BYTES, 99),
+                                   (qemu.MAX_ROOT_BYTES, 100), (qemu.MAX_ROOT_BYTES, 145)):
                 raw = qemu.ROOT_READ_PREFIX + f"{code} {count} {seconds}\n".encode("ascii")
                 self.assertLessEqual(len(raw), 62)
                 for split in range(1, len(raw)):
@@ -65,7 +71,7 @@ class QemuTests(unittest.TestCase):
 
     def test_root_read_rejects_unknown_noncanonical_and_excess_fields(self):
         for body in (b"0 0 0\n", b"9 0 0\n", b"01 0 0\n", b"1 00 0\n", b"1 0 00\n",
-                     b"1 -1 0\n", b"1 +1 0\n", b"1 1610612737 0\n", b"1 0 26\n",
+                     b"1 -1 0\n", b"1 +1 0\n", b"1 1610612737 0\n", b"1 0 146\n", b"1 0 1000\n",
                      b"1 0 0 extra\n", b"1 0 0\nprivate-canary", b"1  0 0\n", b"1 0 0\r\n",
                      b"1 99999999999 0\n", b"1 0 private-canary\n", b"1 0 0\n\n"):
             raw = qemu.ROOT_READ_PREFIX + body
@@ -121,9 +127,24 @@ class QemuTests(unittest.TestCase):
         self.assertLessEqual(qemu.MAX_PROOF_BYTES, 128)
         self.assertEqual(qemu.TIMEOUT, 180)
         service = (ROOT / "guest/debugboot/nib-debug-boot.service").read_text()
-        for directive in ("CapabilityBoundingSet=CAP_SYS_ADMIN\n", "TimeoutStartSec=30\n",
+        for directive in ("CapabilityBoundingSet=CAP_SYS_ADMIN\n", "TimeoutStartSec=150\n",
                           "MemoryMax=64M\n", "StandardOutput=null\n", "StandardError=null\n"):
             self.assertIn(directive, service)
+
+    def test_root_budget_keeps_initrd_and_outer_ceilings(self):
+        units = []
+        for name in ("nib-debug-boot-stage.service", "nib-debug-boot.service"):
+            config = configparser.ConfigParser(interpolation=None)
+            config.read_string((ROOT / "guest/debugboot" / name).read_text())
+            units.append((config.getint("Service", "TimeoutStartSec"), config.getint("Service", "TimeoutStopSec")))
+        self.assertEqual(units, [(30, 2), (150, 2)])
+        self.assertEqual(qemu.MAX_ROOT_READ_SECONDS, 145)
+        self.assertEqual(units[1][0] - qemu.MAX_ROOT_READ_SECONDS, 5)
+        self.assertEqual(qemu.TIMEOUT - sum(units[1]), 28)
+        self.assertEqual(qemu.TIMEOUT, 180)
+        self.assertEqual(wrapper.TIMEOUT, 900)
+        workflow = yaml.safe_load((ROOT / ".github/workflows/debug-boot.yml").read_text())
+        self.assertEqual(workflow["jobs"]["boot"]["timeout-minutes"], 35)
 
     def test_recognized_failures_survive_every_fragment_boundary_but_never_pass(self):
         for raw, stage in qemu.FAILURES.items():

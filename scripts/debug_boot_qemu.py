@@ -30,6 +30,7 @@ ROOT_READ_PREFIX = INITRD + b"NIB_DEBUG_BOOT_V1 R "
 ROOT_READ_REASONS = {1: "size", 2: "deadline", 3: "short-read", 4: "io",
                      5: "extra-data", 6: "eof", 7: "late-eof", 8: "close"}
 MAX_ROOT_BYTES = 1536 << 20
+MAX_ROOT_READ_SECONDS = 145
 SOCKET = Path("/work/proof.sock")
 QEMU = "/runtime/usr/bin/qemu-system-x86_64"
 LOADER = "/runtime/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
@@ -110,10 +111,10 @@ def root_read_frame(raw):
     for i, field in enumerate(fields):
         if not field:
             return not complete and i == len(fields) - 1, None
-        if not field.isdigit() or (len(field) > 1 and field.startswith(b"0")) or len(field) > (1, 10, 2)[i]:
+        if not field.isdigit() or (len(field) > 1 and field.startswith(b"0")) or len(field) > (1, 10, 3)[i]:
             return False, None
         value = int(field)
-        if (i == 0 and value not in ROOT_READ_REASONS) or value > (8, MAX_ROOT_BYTES, 25)[i]:
+        if (i == 0 and value not in ROOT_READ_REASONS) or value > (8, MAX_ROOT_BYTES, MAX_ROOT_READ_SECONDS)[i]:
             return False, None
         values.append(value)
     if not complete:

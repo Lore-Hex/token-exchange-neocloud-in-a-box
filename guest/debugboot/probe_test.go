@@ -178,9 +178,13 @@ func TestRootReadPartialCountAndMandatoryEOF(t *testing.T) {
 }
 
 func TestRootReadRecordFitsExistingProofBound(t *testing.T) {
+	longest := rootReadObservation{readClose, MaxRootBytes, 145}
+	if len(InitrdRecord+longest.record()) != 62 {
+		t.Fatal("maximum diagnostic no longer matches the existing proof cap")
+	}
 	for reason := readSize; reason <= readClose; reason++ {
 		for _, count := range []int64{0, 3, MaxRootBytes} {
-			for _, seconds := range []int64{0, 25} {
+			for _, seconds := range []int64{0, 25, 26, 99, 100, 145} {
 				r := rootReadObservation{reason, count, seconds}
 				want := "NIB_DEBUG_BOOT_V1 R " + strconv.Itoa(int(reason)) + " " + strconv.FormatInt(count, 10) + " " + strconv.FormatInt(seconds, 10) + "\n"
 				if r.record() != want || len(InitrdRecord+r.record()) > 62 {
@@ -190,9 +194,29 @@ func TestRootReadRecordFitsExistingProofBound(t *testing.T) {
 		}
 	}
 	for _, r := range []rootReadObservation{{readOK, 0, 0}, {readClose + 1, 0, 0},
-		{readSize, -1, 0}, {readSize, MaxRootBytes + 1, 0}, {readSize, 0, -1}, {readSize, 0, 26}} {
+		{readSize, -1, 0}, {readSize, MaxRootBytes + 1, 0}, {readSize, 0, -1}, {readSize, 0, 146}} {
 		if r.record() != failureRecord(failedRootRead) {
 			t.Fatal("out-of-range diagnostic accepted")
 		}
+	}
+}
+
+func TestProbeTimeoutsKeepInitrdAndOuterHeadroom(t *testing.T) {
+	for _, tc := range []struct {
+		staging              bool
+		check, hard, service time.Duration
+	}{{true, 24 * time.Second, 25 * time.Second, 30 * time.Second},
+		{false, 144 * time.Second, 145 * time.Second, 150 * time.Second}} {
+		check, hard := probeTimeouts(tc.staging)
+		if check != tc.check || hard != tc.hard || hard-check != time.Second || tc.service-hard != 5*time.Second {
+			t.Fatal("changed stage-specific deadline or termination headroom")
+		}
+		if tc.service+2*time.Second >= 180*time.Second {
+			t.Fatal("service cleanup consumes the QEMU ceiling")
+		}
+	}
+	observed, err := readAllRoot(bytes.NewReader(make([]byte, 4096)), 8192, time.Now().Add(rootCheckTimeout))
+	if err == nil || observed.reason != readShort || observed.bytes != 4096 {
+		t.Fatal("larger budget promoted a partial root read")
 	}
 }
