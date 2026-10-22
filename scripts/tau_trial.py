@@ -80,7 +80,8 @@ def parent_driver(toolkit, *, live_local=False):
     modules = {}
     names = ("tau_preflight", "tau_trial_worker", "tau_aggregate", "tau_transport")
     if live_local:
-        names += ("tau_local_vllm", "tau_live_identity")
+        names += ("tau_local_vllm", "tau_local_llama", "engine_tokenizer_parity",
+                  "tau_llama_identity", "tau_live_identity")
     for name in (*names, "tau_pipe_driver"):
         path = "scripts/" + name + ".py"
         modules[name] = load(path, toolkit["files"][path], modules=modules)
@@ -131,7 +132,10 @@ def identity(deadline, parent_pipe=False, *, live_local=False):
     if live_local:
         names += ("scripts/tau_live_trial.py", "scripts/tau_live_identity.py", "scripts/tau_local_vllm.py",
                   "scripts/test_tau_live_trial.py", "scripts/test_tau_local_vllm.py",
-                  "scripts/test_tau_selected_target.py")
+                  "scripts/test_tau_selected_target.py", "scripts/tau_local_llama.py",
+                  "scripts/tau_llama_identity.py", "scripts/engine_tokenizer_parity.py",
+                  "scripts/tau_cpu_support_models.json", "scripts/tau_cpu_parity.cpp",
+                  "scripts/test_tau_cpu_admission.py")
     result = tau.committed_identity(deadline)
     for start in range(0, len(names), 4):
         item = tau.committed_identity(deadline, extra_files=names[start:start + 4])

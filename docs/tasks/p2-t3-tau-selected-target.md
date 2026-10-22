@@ -95,10 +95,12 @@ on 2026-10-22. It is a proposed pin, not an admitted or downloaded model here.
 
 The [explicit CPU transport](p2-t3-tau-cpu-framing.md) now implements and tests the
 pinned render/tokenize/chat protocol without enabling live admission.
-Next bounded implementation: verify that second model's complete selected-file
-inventory, reuse the pilot's CPU-only launcher, and add an explicitly pinned
-llama.cpp transport/receipt kind with independent full-template token parity.
-Current live admission is vLLM-only; the pilot's pinned
+The CPU producer verifies the second model's complete selected-file inventory
+and reuses the pilot's CPU-only launcher. Actual two-model parity and fresh live
+receipt production remain prerequisites for admitting these support roles.
+Legacy v1/v2 admission is vLLM-only; the separate
+[mixed-runtime v3 consumer](p2-t3-tau-cpu-admission.md) requires actual fresh CPU
+receipts and does not supply their producer or lifecycle. The pilot's pinned
 [text-tokenization API](https://github.com/ggml-org/llama.cpp/blob/620d2225cc436ab0b001e3200e590e3b286ef9ab/tools/server/README.md)
 is not the
 vLLM chat-tokenization contract. Do not pretend compatibility or weaken the

@@ -2,8 +2,9 @@
 
 Status: explicit llama.cpp adapter tested against synthetic local HTTP. No model,
 GPU, tau trial, independent tokenizer measurement or confidential execution was
-performed by this change. The current live tau runner remains vLLM-only; this
-library cannot admit these CPU candidates or manufacture runtime receipts.
+performed by this change. This library does not manufacture runtime receipts.
+The later [explicit v3 admission](p2-t3-tau-cpu-admission.md) consumes fresh
+measured proof for CPU support roles; legacy v1/v2 remain vLLM-only.
 
 The [selected-target plan](p2-t3-tau-selected-target.md) needs distinct simulator
 and evaluator models while DeepSeek occupies its GPU allocation. This step adds
@@ -83,11 +84,12 @@ vLLM/session/accounting tests. CPU tests cover render/generate identity, full
 tool history, tokenizer flags, malformed responses, exact model and usage checks,
 context overflow, deadlines, media rejection and closed endpoint paths.
 
-Next: a committed bounded CPU-only producer must verify the selected GGUF files,
-independently render and tokenize full histories, start/observe/stop both actual
-engines, measure resource limits and test structured evaluator output. Only then
-add an explicit reviewed runtime kind to live admission and integrate with the
-owned DeepSeek namespace. No score or complete tau run is claimed here.
+Before actual admission: a committed bounded CPU-only producer must verify the
+selected GGUF files, independently render and tokenize full histories, start/observe/stop both actual
+engines, measure resource limits and test structured evaluator output. The
+explicit runtime-kind consumer is implemented separately; original live receipts
+and integration with the owned DeepSeek namespace remain pending. No score or
+complete tau run is claimed here.
 
 The [CPU parity producer](p2-t3-tau-cpu-parity.md) implements the next bounded
 measurement path; actual two-model results and live admission remain separate.

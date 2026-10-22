@@ -246,7 +246,8 @@ class AdmissionTests(unittest.TestCase):
 
     def test_source_closure_ignores_ambient_modules_and_binds_new_helpers(self):
         names = ("tau_preflight", "tau_trial_worker", "tau_aggregate", "tau_transport",
-                 "tau_local_vllm", "tau_live_identity", "tau_pipe_driver")
+                 "tau_local_vllm", "tau_local_llama", "engine_tokenizer_parity",
+                 "tau_llama_identity", "tau_live_identity", "tau_pipe_driver")
         files = {"scripts/" + name + ".py": tau.digest((ROOT / "scripts" / (name + ".py")).read_bytes())
                  for name in names}
         with mock.patch.dict(sys.modules, {name: object() for name in names}):

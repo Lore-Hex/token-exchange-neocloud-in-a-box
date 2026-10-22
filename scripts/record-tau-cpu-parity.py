@@ -32,7 +32,7 @@ SOURCES = (SCRIPT, SNAPSHOT, "scripts/e2e/exercise.py", "scripts/pilot/run.py",
            "scripts/tau_cpu_parity.py", "scripts/tau_cpu_parity.cpp", "scripts/tau_cpu_parity.cmake",
            "scripts/tau_cpu_parity.Dockerfile", "scripts/tau_cpu_support_models.json",
            "scripts/engine_tokenizer_parity.py", "scripts/tau_live_identity.py",
-           "scripts/tau_local_llama.py", "scripts/tau_local_vllm.py", "scripts/tau_transport.py",
+           "scripts/tau_local_llama.py", "scripts/tau_llama_identity.py", "scripts/tau_local_vllm.py", "scripts/tau_transport.py",
            "scripts/tau_preflight.py", "scripts/tau_trial_worker.py",
            "scripts/prepare-tau-cpu-parity-native.py", ".github/workflows/tau-cpu-parity-native.yml")
 BOOTSTRAP = Path(__file__).read_bytes()
@@ -58,7 +58,7 @@ def toolkit(root):
     # This path is private and freshly extracted, with no ignored bytecode.
     # Order the explicit source closure instead of importing ambient modules.
     for name in ("engine_tokenizer_parity", "tau_preflight", "tau_trial_worker", "tau_transport",
-                 "tau_local_vllm", "tau_local_llama", "tau_live_identity", "tau_cpu_parity"):
+                 "tau_local_vllm", "tau_local_llama", "tau_llama_identity", "tau_live_identity", "tau_cpu_parity"):
         sys.modules[name] = load(root / "scripts" / (name + ".py"), name)
     return sys.modules["tau_cpu_parity"]
 
