@@ -130,7 +130,8 @@ def identity(deadline, parent_pipe=False, *, live_local=False):
                   "scripts/test_tau_pipe_driver.py")
     if live_local:
         names += ("scripts/tau_live_trial.py", "scripts/tau_live_identity.py", "scripts/tau_local_vllm.py",
-                  "scripts/test_tau_live_trial.py", "scripts/test_tau_local_vllm.py")
+                  "scripts/test_tau_live_trial.py", "scripts/test_tau_local_vllm.py",
+                  "scripts/test_tau_selected_target.py")
     result = tau.committed_identity(deadline)
     for start in range(0, len(names), 4):
         item = tau.committed_identity(deadline, extra_files=names[start:start + 4])
@@ -381,6 +382,7 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
     if live_local:
         driver = parent_driver(toolkit, live_local=True)
         deployment = driver.live.Deployment(*live_deployment, manifest, deadline)
+        deployment.require_target(plan["selection"]["role"])
         require(tau.json_value(runtime.read_file(payload / "live-binding.json", 1 << 20, deadline))
                 == deployment.binding)
         deployment.check(deadline)

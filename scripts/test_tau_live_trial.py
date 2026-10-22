@@ -27,18 +27,22 @@ ROOT = Path(__file__).resolve().parent.parent
 CANARY = "private-prompt-canary-do-not-retain"
 
 
-def fixture_documents(ports=None):
+def fixture_documents(ports=None, *, selected_target=None):
     benchmark = fixtures.fixtures.manifest()
     for role in ("simulator", "evaluator"):
         benchmark["settings"]["roles"][role]["revision"] = "c" * 40
     manifest = driver.scripted_manifest(benchmark)
     deployment = {"schema": "nib.tau-local-deployment/v1", "expires_unix": int(time.time()) + 600,
                   "manifest": manifest, "roles": {}}
+    if selected_target is not None:
+        deployment.update(schema="nib.tau-local-deployment/v2", selected_target=selected_target)
     documents = {"deployment.json": deployment}
     producer = {"git_sha": "a" * 40, "script": "scripts/synthetic_fixture.py", "source_sha256": "b" * 64}
     for index, role in enumerate(tau.ROLES):
         framing = manifest["framing"][role]
         framing.update(served_model="synthetic-" + role, context_tokens=4096)
+        if selected_target is not None and role not in live.local.trial_roles(selected_target):
+            continue
         port = ports[role] if ports else 20000 + index
         serving = copy.deepcopy(benchmark["settings"]["serving"]["candidate"])
         serving["tokenizer_sha256"] = framing["tokenizer_sha256"]
@@ -72,7 +76,7 @@ def fixture_documents(ports=None):
 
 def write_bundle(root, documents):
     # Tests deliberately manufacture fixtures, never admissible measurement evidence.
-    for role in tau.ROLES:
+    for role in documents["deployment.json"]["roles"]:
         runtime_sha = tau.digest(tau.encoded(documents[role + "-runtime.json"]))
         documents[role + "-tokenizer.json"]["runtime_receipt_sha256"] = runtime_sha
         documents["deployment.json"]["roles"][role].update(runtime_sha256=runtime_sha,
@@ -83,8 +87,8 @@ def write_bundle(root, documents):
     return tau.digest(tau.encoded(documents["deployment.json"]))
 
 
-def plan_for(benchmark):
-    return {"transport": "scripted-parent-pipe", "selection": fixtures.chosen(benchmark),
+def plan_for(benchmark, role="candidate"):
+    return {"transport": "scripted-parent-pipe", "selection": {**fixtures.chosen(benchmark), "role": role},
             "manifest_sha256": tau.digest(tau.encoded(benchmark)), "producer": fixtures.producer(),
             "image": runner.runtime.TARGET["image"], "platform": "linux/amd64"}
 
@@ -366,26 +370,27 @@ class KernelBindingTests(unittest.TestCase):
 
 
 class LivePipeTests(unittest.TestCase):
-    def exercise(self, failure=None):
+    def exercise(self, failure=None, *, selected_target=None):
         with contextlib.ExitStack() as stack:
+            target = selected_target or "candidate"
             ports, requests = {}, {}
-            for role in tau.ROLES:
+            for role in live.local.trial_roles(target) if selected_target else tau.ROLES:
                 response = http.completion("synthetic-" + role)
                 if role == "evaluator":
                     response["choices"][0]["message"]["content"] = '{"results":[]}'
-                if role == "candidate" and failure == "unknown-usage":
+                if role == target and failure == "unknown-usage":
                     response["usage"] = None
-                if role == "candidate" and failure == "truncated":
+                if role == target and failure == "truncated":
                     response["choices"][0]["finish_reason"] = "length"
                 ports[role], requests[role] = stack.enter_context(http.endpoint([http.counted(), response]))
             root = Path(stack.enter_context(tempfile.TemporaryDirectory())).resolve()
-            benchmark, docs = fixture_documents(ports)
+            benchmark, docs = fixture_documents(ports, selected_target=selected_target)
             sha = write_bundle(root, docs)
             # Only these test fixtures replace provenance/kernel measurements.
             stack.enter_context(mock.patch.object(live, "source_receipt"))
             stack.enter_context(mock.patch.object(live.Endpoint, "check"))
             deployment = live.Deployment(root / "deployment.json", sha, benchmark, time.monotonic() + 5)
-            plan = plan_for(benchmark)
+            plan = plan_for(benchmark, target)
             task_payload(root, plan)
             child = pipes.CHILD.replace("('agent', 'simulator')", "('agent', 'simulator', 'evaluator')")
             if failure == "child-exit":
@@ -396,7 +401,10 @@ class LivePipeTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 runner.check_result(result, plan, benchmark)
             self.assertNotIn("canary", tau.encoded(result).decode())
-            self.assertEqual(requests["reference"], [])
+            if selected_target:
+                self.assertNotIn("reference" if target == "candidate" else "candidate", requests)
+            else:
+                self.assertEqual(requests["reference"], [])
             self.assertFalse(result["quality_accepted"] or result["confidential"])
             self.assertTrue(result["live_transport"])
             self.assertEqual(result["token_usage"], "engine-reported")
@@ -430,19 +438,20 @@ class LivePipeTests(unittest.TestCase):
         self.assertEqual((row["status"], row["requests"], row["usage"]["total_tokens"]), ("protocol_error", 3, 24))
 
     def test_fake_docker_lifecycle_retains_live_counts_after_terminal_failures(self):
-        for failure in (None, "exit", "oom", "inspect", "identity", "cleanup", "endpoint-drift"):
-            with self.subTest(failure=failure), contextlib.ExitStack() as stack:
+        for selected_target, failure in ((target, failure) for target in (None, "reference")
+                for failure in (None, "exit", "oom", "inspect", "identity", "cleanup", "endpoint-drift")):
+            with self.subTest(selected_target=selected_target, failure=failure), contextlib.ExitStack() as stack:
                 ports = {}
-                for role in tau.ROLES:
+                for role in live.local.trial_roles(selected_target) if selected_target else tau.ROLES:
                     ports[role], _ = stack.enter_context(http.endpoint([
                         http.counted(), http.completion("synthetic-" + role)]))
                 root = Path(stack.enter_context(tempfile.TemporaryDirectory())).resolve()
-                benchmark, docs = fixture_documents(ports)
+                benchmark, docs = fixture_documents(ports, selected_target=selected_target)
                 sha = write_bundle(root, docs)
                 stack.enter_context(mock.patch.object(live, "source_receipt"))
                 stack.enter_context(mock.patch.object(live.Endpoint, "check"))
                 deployment = live.Deployment(root / "deployment.json", sha, benchmark, time.monotonic() + 5)
-                plan = plan_for(benchmark)
+                plan = plan_for(benchmark, selected_target or "candidate")
                 task_payload(root, plan)
                 (root / "live-binding.json").write_bytes(tau.encoded(deployment.binding))
                 sock = stack.enter_context(socket.socket(socket.AF_UNIX))
@@ -507,6 +516,8 @@ class LivePipeTests(unittest.TestCase):
                 self.assertEqual((row["requests"], row["usage"]["total_tokens"]), (2, 16))
                 self.assertEqual(record["result"], "pass" if failure is None else "fail")
                 self.assertEqual(record["schema"], "nib.tau-live-run/v1")
+                self.assertEqual(record["deployment"], deployment.binding)
+                self.assertEqual(record["diagnostic"]["report"]["role"], selected_target or "candidate")
                 self.assertIn("scripts/tau_live_trial.py run", envelope["command"])
                 self.assertIn("--deployment-sha256 " + sha, envelope["command"])
                 self.assertFalse(record["quality_accepted"] or envelope["hardware_validated"])
