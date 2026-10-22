@@ -35,5 +35,15 @@ __pycache__/
 node_modules/
 .DS_Store
 
+# Terraform local state, credentials/inputs and saved plans; retain the lockfile.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+crash.log
+crash.*.log
+
 # Local agent state
 .claude/
