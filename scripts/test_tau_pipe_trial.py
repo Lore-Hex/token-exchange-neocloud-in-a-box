@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Real local pipe/fork tests with synthetic replies, never a model benchmark."""
 
+import contextlib
 import json
 import os
 import threading
@@ -213,6 +214,28 @@ class TrialTests(unittest.TestCase):
                 with mock.patch.object(proxy, "finish") as finish:
                     trial.execute(None, self.manifest, {}, proxy, run=mock.Mock(side_effect=exc))
                 finish.assert_called_once_with(expected, None)
+
+    def test_parent_late_deadline_failure_never_publishes_evaluated_result(self):
+        self.complete()
+        @contextlib.contextmanager
+        def expires_on_exit(*args):
+            yield
+            raise worker.Abort("timeout")
+        with mock.patch.object(worker, "alarm", expires_on_exit), self.assertRaises(worker.Abort) as caught:
+            self.exchange(lambda: self.child.finish("evaluated", 1.0))
+        self.assertEqual(caught.exception.status, "timeout")
+        self.assertIsNone(self.parent.result)
+        self.assertEqual(self.parent.bridge.failed, "timeout")
+        self.assertEqual(self.parent.bridge.usage()["total_tokens"], 4)
+
+    def test_worker_late_deadline_failure_drops_reward(self):
+        @contextlib.contextmanager
+        def expires_on_exit(*args):
+            yield
+            raise worker.Abort("timeout")
+        with mock.patch.object(worker, "alarm", expires_on_exit), mock.patch.object(self.child, "finish") as finish:
+            trial.execute(None, self.manifest, {}, self.child, run=lambda *args: 1.0)
+        finish.assert_called_once_with("timeout", None)
 
 
 if __name__ == "__main__":

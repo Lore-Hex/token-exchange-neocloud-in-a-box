@@ -29,6 +29,8 @@ def execute(root, manifest, selection, proxy, *, run=worker.run_upstream, clock=
         outcome = "cancelled"
     except BaseException:
         pass
+    if outcome != "evaluated":
+        reward = None
     # Transport failures are already authoritative in the parent. A closed
     # channel cannot be reused to turn that failure into a successful trial.
     proxy.finish(outcome, reward)

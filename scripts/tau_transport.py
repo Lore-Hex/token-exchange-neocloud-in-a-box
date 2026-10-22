@@ -367,22 +367,25 @@ class ParentSession:
             with worker.alarm(deadline, self.bridge.clock):
                 packet = self.channel.receive(deadline)
                 if type(packet) is dict and packet.get("kind") == "finished":
-                    self.accept_result(packet, deadline)
-                    return True
-                require(type(packet) is dict and set(packet) == {"schema", "kind", "sequence", "role", "arguments"}
-                        and packet["schema"] == SCHEMA and packet["kind"] == "completion"
-                        and type(packet["sequence"]) is int and packet["sequence"] == self.sequence + 1
-                        and packet["role"] in ALIASES)
-                role, body = request_body(self.manifest, self.role, packet["role"], packet["arguments"])
-                record = self.prepare_record(role, body, deadline)
-                check_bounds(record["bounds"], self.manifest, self.manifest_sha, role, body)
-                self.current = body, record
-                response = self.bridge.complete(model=ALIASES[packet["role"]], messages=body["messages"],
-                                                tools=body.get("tools"), num_retries=0, stream=False)
-                self.channel.send({"schema": SCHEMA, "kind": "response", "sequence": packet["sequence"],
-                                   "response": response}, self.response_deadline)
-                self.sequence += 1
-                return False
+                    accepted = self.accept_result(packet, deadline)
+                else:
+                    require(type(packet) is dict and set(packet) == {"schema", "kind", "sequence", "role", "arguments"}
+                            and packet["schema"] == SCHEMA and packet["kind"] == "completion"
+                            and type(packet["sequence"]) is int and packet["sequence"] == self.sequence + 1
+                            and packet["role"] in ALIASES)
+                    role, body = request_body(self.manifest, self.role, packet["role"], packet["arguments"])
+                    record = self.prepare_record(role, body, deadline)
+                    check_bounds(record["bounds"], self.manifest, self.manifest_sha, role, body)
+                    self.current = body, record
+                    response = self.bridge.complete(model=ALIASES[packet["role"]], messages=body["messages"],
+                                                    tools=body.get("tools"), num_retries=0, stream=False)
+                    self.channel.send({"schema": SCHEMA, "kind": "response", "sequence": packet["sequence"],
+                                       "response": response}, self.response_deadline)
+                    self.sequence += 1
+                    return False
+            # Publish only after the alarm's final deadline check also passes.
+            self.sequence, self.result = accepted
+            return True
         except BaseException as exc:
             self.channel.close()
             try:
@@ -415,7 +418,7 @@ class ParentSession:
                   "requests": self.bridge.budget.requests, "usage": self.bridge.usage(),
                   "role_requests": dict(self.bridge.counts)}
         self.channel.send({"schema": SCHEMA, "kind": "accepted", "sequence": packet["sequence"]}, deadline)
-        self.sequence, self.result = packet["sequence"], result
+        return packet["sequence"], result
 
     def close(self):
         self.channel.close()
