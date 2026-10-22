@@ -38,3 +38,18 @@ The preparation and run commands are the existing
 [single-trial commands](p2-t3-tau-single-trial.md), with `--parent-pipe` on both.
 Any actual container run must retain its original success or failure artifact;
 unit/subprocess tests alone do not establish upstream execution.
+
+## Actual container result
+
+Producer `6eb1484` ran the real pinned upstream airline task `0` on
+2026-10-22 06:45:31-06:45:43 UTC through the pipe path. The
+[original evidence](../../evidence/p2/2026-10-22-tau-pipe-pass/run.json) records
+four scripted calls, an evaluated outcome and confirmed container cleanup.
+The reported reward is from scripted responses, **not a model quality score**.
+
+The preceding attempt used an inactive Docker Desktop socket and failed at
+the image stage, before creation. Its
+[failure evidence](../../evidence/p2/2026-10-22-tau-pipe-daemon-unavailable/run.json)
+is retained unchanged. The successful retry used the already configured
+OrbStack daemon; no Docker settings, security policy or model/network access
+was changed.

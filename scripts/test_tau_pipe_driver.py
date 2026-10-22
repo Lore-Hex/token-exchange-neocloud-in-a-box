@@ -2,6 +2,8 @@
 """Synthetic subprocess IPC and container-policy controls; no upstream calls."""
 
 import copy
+import hashlib
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -140,6 +142,34 @@ class PipeDriverTests(unittest.TestCase):
                 with self.assertRaises(worker.Abort):
                     driver.run_process([], {}, Path("/not-read"), plan, self.manifest, deadline)
             popen.assert_not_called()
+
+    def test_original_container_proof_keeps_synthetic_qualification_limits(self):
+        for directory, hashes, expected in (
+            ("2026-10-22-tau-pipe-pass", (
+                "a7024be4f2ecfe423372a22ac8ff2eb38a2de5756e071cdbedbfa24422d0719c",
+                "351156097b00c249e8938e9f2e6c0d499d28cb52b7c0569fd674c94e53095cc7"), "pass"),
+            ("2026-10-22-tau-pipe-daemon-unavailable", (
+                "73ee334b16b09620aa5d9fa8e73b701de26400892745507ec22a3f5a628b33e9",
+                "641798551de15f56b82b1da41b13af5b215cd08079584429182eddbfd95fa2d0"), "fail")):
+            root = ROOT / "evidence/p2" / directory
+            raw = [(root / name).read_bytes() for name in ("run.json", "output.log")]
+            self.assertEqual(tuple(hashlib.sha256(value).hexdigest() for value in raw), hashes)
+            envelope, record = map(json.loads, raw)
+            self.assertEqual(envelope["git_sha"], "6eb14845a39a0f2f219217624d0f04d99af509a6")
+            self.assertEqual(envelope["result"], expected)
+            self.assertEqual(record["result"], expected)
+            self.assertFalse(envelope["hardware_validated"])
+            for key in ("confidential", "quality_accepted", "live_transport"):
+                self.assertFalse(record[key])
+            if expected == "pass":
+                self.assertEqual(record["cleanup"], "confirmed")
+                self.assertTrue(record["diagnostic"]["upstream_executed"])
+                self.assertEqual(record["diagnostic"]["token_usage"], "synthetic-not-tokenized")
+                self.assertEqual(record["diagnostic"]["report"]["kind"], "synthetic-fixture")
+                self.assertEqual(record["diagnostic"]["report"]["trials"][0]["requests"], 4)
+            else:
+                self.assertEqual(record["stage"], "image")
+                self.assertIsNone(record["diagnostic"])
 
 
 if __name__ == "__main__":
