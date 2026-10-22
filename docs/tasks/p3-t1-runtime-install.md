@@ -86,3 +86,11 @@ Primary source inputs are the exact signed-index package records in the
 authenticated-index evidence, and the pinned mkosi source/patches already
 reviewed for [native installation](p3-t1-mkosi-build-inputs.md). No upstream
 hook source is copied into this Apache-2.0 repository.
+
+The committed checker passed against all real pinned archives at producer
+`735dd67074674c6ef9af320229dc8c817304c387`. Unmodified
+[run](../../evidence/p3/2026-10-22-runtime-hook-review/run.json),
+[result](../../evidence/p3/2026-10-22-runtime-hook-review/result.json) and
+[inventory](../../evidence/p3/2026-10-22-runtime-hook-review/inventory.json)
+are preserved. This records a hash recheck of the source review, not package
+execution or independent approval of the changes.
