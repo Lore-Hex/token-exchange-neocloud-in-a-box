@@ -403,11 +403,12 @@ def run(payload, sha, destination, socket, *, parent_pipe=False):
                 raw = command("start", "--attach", name, seconds=SECONDS, limit=16384)
                 observed = tau.json_value(raw)
             check_result(observed, plan, manifest)
+            # Preserve validated accounting even if the later container check fails.
+            result = observed
             terminal = tau.json_value(command("inspect", name))[0]
             check_container(terminal, name, owner, payload, sha, selected_manifest, parent_pipe=parent_pipe)
             require(terminal["State"]["Running"] is False and terminal["State"]["OOMKilled"] is False
                     and terminal["State"]["ExitCode"] == 0)
-            result = observed
             stage = "completed"
         except BaseException:
             pass
@@ -429,7 +430,7 @@ def run(payload, sha, destination, socket, *, parent_pipe=False):
               "started_utc": started, "ended_utc": now(),
               "stage": stage, "cleanup_confirmed": cleaned, "diagnostic": result,
               "cleanup": "create-completion-unknown" if create_unknown else "confirmed" if cleaned else "failed",
-              "result": "pass" if cleaned and result and result["completed"]
+              "result": "pass" if stage == "completed" and cleaned and result and result["completed"]
                         and result["report"]["trials"][0]["status"] == "evaluated" else "fail",
               "confidential": False, "quality_accepted": False, "live_transport": False}
     envelope = evidence_record(toolkit["git_sha"], sha, started, record, parent_pipe=parent_pipe)
