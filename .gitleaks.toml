@@ -21,8 +21,15 @@ paths = ['''(^|/)evidence/p2/2026-10-22-(tokenizer-parity-runtime-pass|provider-
 regexes = ['''^\s*"tokenizer-adapter\.py": "060220d1bc62f13278e5a03a3a85c39ef84f528ada2a9e39ab0c62a4a7c09960",\s*$''', '''^\s*"tokenizer-parity\.py": "09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a"\s*$''']
 
 [[rules.allowlists]]
-description = "Exact public probe source hash in the original CPU failures"
+description = "Exact public probe source hash in the original CPU receipts"
 condition = "AND"
 regexTarget = "line"
-paths = ['''(^|/)evidence/p2/2026-10-22-cpu-parity-(readiness|argv|base-inspect)-failure/output\.log$''']
+paths = ['''(^|/)evidence/p2/2026-10-22-cpu-parity-(readiness|argv|base-inspect)-failure/output\.log$''', '''(^|/)evidence/p2/2026-10-22-cpu-parity-native-pass/output\.log$''']
 regexes = ['''^\s*"scripts/engine_tokenizer_parity\.py": "09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a",\s*$''']
+
+[[rules.allowlists]]
+description = "Four original Qwen CPU hashes of fixed synthetic token-ID sequences"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)evidence/p2/2026-10-22-cpu-parity-native-pass/output\.log$''']
+regexes = ['''^\s*"tokens_sha256": "(1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe)"\s*$''']
