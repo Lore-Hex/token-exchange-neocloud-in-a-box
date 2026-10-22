@@ -279,6 +279,20 @@ def execute(source, env, snapshot, inputs, directory, report, deadline, *, probe
         require(probe["scorer"]["result"] == "pass" and probe["scorer"]["cleanup"] == "confirmed")
 
 
+def evidence_record(revision, probe_sha=None):
+    require(rec.re.fullmatch("[0-9a-f]{40}", revision))
+    record = {"schema": "nib.evidence/v1", "phase": "P2", "task": "T3", "git_sha": revision,
+              "command": "python3 -I -S -B scripts/record-tau-cpu-session.py --archive PRIVATE --model-06 PRIVATE --model-17 PRIVATE --cmake-wheel PRIVATE --output PRIVATE",
+              "started_utc": rec.now(), "ended_utc": rec.now(), "result": "fail",
+              "execution": "software", "hardware_validated": False, "host": evidence_host(False),
+              "notes": "Held CPU pair readiness/release only; no tau, live admission, quality or confidentiality."}
+    if probe_sha is not None:
+        require(rec.re.fullmatch("[0-9a-f]{64}", probe_sha))
+        record["command"] += " --probe-payload PRIVATE --probe-plan-sha256 " + probe_sha
+        record["notes"] = "Fixed original tau CPU prompt-fit only; scripted target, no full tau, live admission, quality or confidentiality."
+    return record
+
+
 def main():
     class Parser(argparse.ArgumentParser):
         def error(self, message):
@@ -327,16 +341,9 @@ def main():
                       "stage": "preflight", "runtime_context": None, "ready": None,
                       "producer_receipts": {}, "cleanup": {"process_group": "not-started", "producer": "not-started"},
                       "live_admission": False, "quality_eligible": False, "confidential": False}
-            record = {"schema": "nib.evidence/v1", "phase": "P2", "task": "T3", "git_sha": revision,
-                      "command": "python3 -I -S -B scripts/record-tau-cpu-session.py --archive PRIVATE --model-06 PRIVATE --model-17 PRIVATE --cmake-wheel PRIVATE --output PRIVATE",
-                      "started_utc": rec.now(), "ended_utc": rec.now(), "result": "fail",
-                      "execution": "software", "hardware_validated": False,
-                      "host": evidence_host(False),
-                      "notes": "Held CPU pair readiness/release only; no tau, live admission, quality or confidentiality."}
+            record = evidence_record(revision, args.probe_plan_sha256 if probing else None)
             if probing:
                 report.update(schema="nib.tau-cpu-probe-controller/v1", probe=None, scorer_receipts={})
-                record["command"] += " --probe-payload PRIVATE --probe-plan-sha256 " + args.probe_plan_sha256
-                record["notes"] = "Fixed original tau CPU prompt-fit only; scripted target, no full tau, live admission, quality or confidentiality."
             rec.write(fd, "run.json", record)
             try:
                 report["runtime_context"] = preflight()

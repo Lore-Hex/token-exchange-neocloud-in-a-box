@@ -45,6 +45,28 @@ def setup(directory, *, failed=False):
 
 
 class ProbeControllerTests(unittest.TestCase):
+    def test_actual_offline_schema_checks_controller_and_scorer_envelopes(self):
+        recorder = trial.module("record-engine-image.py")
+        revision = recorder.checker.git(control_tests.ROOT, "rev-parse", "HEAD").decode().strip()
+        with tempfile.TemporaryDirectory(dir="/private/tmp" if sys.platform == "darwin" else None) as temp:
+            root = Path(temp).resolve()
+            env = recorder.offline_environment(root / "control")
+            binary, _ = recorder.build_validator(control_tests.ROOT, revision, root, env)
+            for mode in ("default", "probe"):
+                for verified in (False, True):
+                    record = control.evidence_record(revision, "b" * 64 if mode == "probe" else None)
+                    record["host"] = control.evidence_host(verified)
+                    destination = root / (mode + str(verified))
+                    recorder.publish_evidence(record, {"result": "fail"}, binary,
+                        root / ("validate-" + mode + str(verified)), destination, env)
+                    self.assertEqual(json.loads((destination / "run.json").read_bytes()), record)
+            private = root / "pair"
+            private.mkdir(mode=0o700)
+            _, _, _, scorer = setup(private, failed=True)
+            scorer["toolkit"]["git_sha"] = revision
+            record = trial.runner.probe_evidence_record(scorer)
+            recorder.publish_evidence(record, scorer, binary, root / "validate-scorer", root / "scorer", env)
+
     def test_relay_keeps_original_cpu_report_and_waits_for_second_bound_frame(self):
         f = control_tests.fixtures
         for failed in (False, True):

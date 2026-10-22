@@ -164,6 +164,13 @@ def execute(source, work, env, snapshot, inputs, report, home, *, session_fd=Non
                 max_output_bytes=1024, max_stderr_bytes=1024)
             require(result.returncode == 0 and not result.stderr
                     and re.fullmatch(rb"sha256:[0-9a-f]{64} linux/amd64\s*", result.stdout))
+        if probe is not None:
+            result = snapshot.execute_process_group(["docker", "image", "inspect", runner.runtime.TARGET["image"]],
+                env=env, timeout=15, max_output_bytes=65536, max_stderr_bytes=1024)
+            require(result.returncode == 0 and not result.stderr)
+            images = json.loads(result.stdout)
+            require(type(images) is list and len(images) == 1)
+            runner.check_probe_image(images[0])
         report["stage"] = "toolchain"
         build_started = True
         iid = work / "image-id"

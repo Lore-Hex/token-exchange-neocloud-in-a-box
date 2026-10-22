@@ -60,6 +60,27 @@ installer, downloaded executable or upstream import runs. The existing offline
 source/wheel verifier and sealed payload publisher are reused. No new dependency
 or network exception is introduced.
 
+The [actual hosted runner image](https://github.com/actions/runner-images/blob/ubuntu24/20261012.334/images/ubuntu/Ubuntu2404-Readme.md)
+ships Docker 28.0.4. Its [image-inspect CLI](https://github.com/docker/cli/blob/v28.0.4/cli/command/image/inspect.go)
+has no `--platform` flag, and its [classic store](https://github.com/moby/moby/blob/v28.0.4/daemon/images/image_inspect.go)
+returns a config digest without an OCI descriptor. Probe mode therefore uses
+one explicit classic-store profile, not a fallback or a change to the ordinary
+Docker 29 scorer. Before CPU build/start and again before scorer creation it
+requires the exact image config ID, canonical index RepoDigest and linux/amd64;
+container checks bind the same config ID and keep every confinement check.
+An unexpected descriptor/store profile fails closed.
+
+Read-only public registry verification of the existing pinned Python image
+established this immutable chain (not a runtime measurement):
+
+- Index `4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2`, 6546 bytes.
+- Linux/amd64 manifest `6e13e65c55e33adf203d77ee371cf8bf5d81bd4902ef07565721f46bf44917af`, 1752 bytes.
+- Config `64d91f7b885eed272bba87909446b12ff408d4aaa5f1a0e9ca787bbea1a020b9`, 5676 bytes.
+
+The index and manifest response bytes were SHA-256 checked against their pins;
+the config identity is their authenticated descriptor, not a guessed image ID.
+No image version, image contents, daemon setting or dependency pin was changed.
+
 With private pinned inputs, the same setup is directly callable:
 
 ```sh

@@ -97,6 +97,8 @@ aggregate = load("scripts/tau_aggregate.py")
 worker = load(WORKER)
 probe = load("host/probe.py")
 IMAGE_DIGEST = runtime.TARGET["image"].split("@")[1]
+PROBE_MANIFEST = "sha256:6e13e65c55e33adf203d77ee371cf8bf5d81bd4902ef07565721f46bf44917af"
+PROBE_CONFIG = "sha256:64d91f7b885eed272bba87909446b12ff408d4aaa5f1a0e9ca787bbea1a020b9"
 
 
 def manifest_identity(descriptor):
@@ -119,6 +121,19 @@ def check_image(image):
             and any(type(item) is str and item in references for item in image["RepoDigests"])
             and not image["Config"].get("Volumes"))
     return selected
+
+
+def check_probe_image(image):
+    # Fixed Docker 28 classic-store profile, not a fallback for the ordinary
+    # descriptor path. The exact OCI index -> manifest -> config chain and
+    # Moby source semantics are documented in p2-t3-tau-cpu-prompt-fit.md.
+    references = {name + "@" + IMAGE_DIGEST for name in ("python", "library/python", "docker.io/library/python")}
+    require(image["Id"] == PROBE_CONFIG and image["Os"] == "linux" and image["Architecture"] == "amd64"
+            and image.get("Variant") in (None, "") and image.get("Descriptor") is None
+            and not image.get("Manifests") and not image["Config"].get("Volumes")
+            and type(image["RepoDigests"]) is list
+            and any(type(item) is str and item in references for item in image["RepoDigests"]))
+    return {"manifest": PROBE_MANIFEST, "config": PROBE_CONFIG, "platform": "linux/amd64"}
 
 
 def identity(deadline, parent_pipe=False, *, live_local=False, support_probe=False):
@@ -335,13 +350,19 @@ def create_command(name, owner, payload, sha, *, parent_pipe=False):
             *(["--parent-pipe"] if parent_pipe else [])]
 
 
-def check_container(info, name, owner, payload, sha, selected_manifest, *, parent_pipe=False):
+def check_container(info, name, owner, payload, sha, selected_manifest, *, parent_pipe=False, support_probe=False):
     cfg, host = info["Config"], info["HostConfig"]
     command = create_command(name, owner, payload, sha, parent_pipe=parent_pipe)
     # Moby containerd keeps the outer index in Image, not the selected manifest.
     # See the exact daemon/CLI source chain in p2-t3-tau-single-trial.md.
-    require(info["Image"] == IMAGE_DIGEST and info["Platform"] == "linux"
-            and manifest_identity(info["ImageManifestDescriptor"]) == selected_manifest)
+    if support_probe:
+        require(parent_pipe and selected_manifest == {"manifest": PROBE_MANIFEST, "config": PROBE_CONFIG,
+                                                      "platform": "linux/amd64"}
+                and info["Image"] == PROBE_CONFIG and info["Platform"] == "linux"
+                and info.get("ImageManifestDescriptor") is None)
+    else:
+        require(info["Image"] == IMAGE_DIGEST and info["Platform"] == "linux"
+                and manifest_identity(info["ImageManifestDescriptor"]) == selected_manifest)
     require(info["Name"] == "/" + name
             and cfg["Image"] == runtime.TARGET["image"] and cfg["Labels"].get(LABEL) == owner
             and cfg["Entrypoint"] == ["/usr/bin/env"]
@@ -452,17 +473,18 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
             raise KeyboardInterrupt
         signal.signal(signal.SIGTERM, cancelled)
         try:
-            rows = tau.json_value(command("image", "inspect", "--platform", plan["platform"],
-                                          runtime.TARGET["image"]))
+            inspect_args = [] if support_probe is not None else ["--platform", plan["platform"]]
+            rows = tau.json_value(command("image", "inspect", *inspect_args, runtime.TARGET["image"]))
             require(type(rows) is list and len(rows) == 1)
-            selected_manifest = check_image(rows[0])
+            selected_manifest = check_probe_image(rows[0]) if support_probe is not None else check_image(rows[0])
+            inspection = {"parent_pipe": parent_pipe, **({"support_probe": True} if support_probe is not None else {})}
             stage = "create"
             # Killing the bounded client cannot cancel an in-flight daemon create.
             # Only the exact owned-container inspection establishes completion.
             create_unknown = True
             command(*create_command(name, owner, payload, sha, parent_pipe=parent_pipe))
             info = tau.json_value(command("inspect", name))[0]
-            check_container(info, name, owner, payload, sha, selected_manifest, parent_pipe=parent_pipe)
+            check_container(info, name, owner, payload, sha, selected_manifest, **inspection)
             create_unknown = False
             stage = "trial"
             if support_probe is not None:
@@ -488,7 +510,7 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
             # Preserve validated accounting even if the later container check fails.
             result = observed
             terminal = tau.json_value(command("inspect", name))[0]
-            check_container(terminal, name, owner, payload, sha, selected_manifest, parent_pipe=parent_pipe)
+            check_container(terminal, name, owner, payload, sha, selected_manifest, **inspection)
             require(terminal["State"]["Running"] is False and terminal["State"]["OOMKilled"] is False
                     and terminal["State"]["ExitCode"] == 0)
             if deployment is not None:

@@ -21,6 +21,50 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class SupportPolicyTests(unittest.TestCase):
+    def test_fixed_docker28_profile_preserves_pins_and_all_container_confinement(self):
+        runner = trial.runner
+        image = trial.image_inspection()
+        del image["Descriptor"]
+        image["Id"] = runner.PROBE_CONFIG
+        selected = runner.check_probe_image(image)
+        self.assertEqual(selected, {"manifest": "sha256:6e13e65c55e33adf203d77ee371cf8bf5d81bd4902ef07565721f46bf44917af",
+            "config": "sha256:64d91f7b885eed272bba87909446b12ff408d4aaa5f1a0e9ca787bbea1a020b9", "platform": "linux/amd64"})
+        for mutate in (lambda r: r.update(Id=runner.PROBE_MANIFEST), lambda r: r.update(Id=runner.IMAGE_DIGEST),
+                       lambda r: r.update(Id="sha256:" + "f" * 64), lambda r: r.update(Os="windows"),
+                       lambda r: r.update(Architecture="arm64"), lambda r: r.update(Variant="v8"),
+                       lambda r: r.update(RepoDigests=["python@" + runner.PROBE_MANIFEST]),
+                       lambda r: r.update(RepoDigests=["unapproved@" + runner.IMAGE_DIGEST]),
+                       lambda r: r.update(RepoDigests=["python@sha256:" + "f" * 64]),
+                       lambda r: r.update(RepoDigests=[]), lambda r: r.update(Descriptor=trial.selected_manifest()),
+                       lambda r: r.update(Manifests=[{}]), lambda r: r["Config"].update(Volumes={"/private": {}})):
+            row = copy.deepcopy(image)
+            mutate(row)
+            with self.assertRaises((ValueError, KeyError)): runner.check_probe_image(row)
+        args = ("fixed", "a" * 32, Path("/private/payload"), "b" * 64)
+        info = trial.LifecycleTests().info(runner.create_command(*args, parent_pipe=True))
+        info.update(Image=runner.PROBE_CONFIG)
+        del info["ImageManifestDescriptor"]
+        info["Config"]["OpenStdin"] = True
+        runner.check_container(info, *args, selected, parent_pipe=True, support_probe=True)
+        for mutate in (lambda r: r.update(Image=runner.IMAGE_DIGEST), lambda r: r.update(Image=runner.PROBE_MANIFEST),
+                       lambda r: r.update(Image="sha256:" + "e" * 64), lambda r: r.update(Platform="windows"),
+                       lambda r: r.update(ImageManifestDescriptor=trial.selected_manifest()),
+                       lambda r: r["Config"].update(Image="python:latest"), lambda r: r["Config"].update(User="0"),
+                       lambda r: r["HostConfig"].update(NetworkMode="host"),
+                       lambda r: r["HostConfig"].update(Privileged=True), lambda r: r["HostConfig"].update(CapDrop=[]),
+                       lambda r: r["HostConfig"].update(Memory=8 << 30),
+                       lambda r: r["HostConfig"].update(DeviceRequests=[{}]), lambda r: r["Mounts"][0].update(RW=True)):
+            row = copy.deepcopy(info)
+            mutate(row)
+            with self.assertRaises((ValueError, KeyError)):
+                runner.check_container(row, *args, selected, parent_pipe=True, support_probe=True)
+        for field in ("manifest", "config", "platform"):
+            with self.assertRaises(ValueError):
+                runner.check_container(info, *args, {**selected, field: "wrong"}, parent_pipe=True, support_probe=True)
+        with self.assertRaises((ValueError, KeyError)):
+            runner.check_container(info, *args, selected, parent_pipe=True)
+        self.assertEqual(runner.check_image(trial.image_inspection()), trial.selected_manifest())
+
     def test_cpu_loader_works_with_only_its_exact_declared_source_closure(self):
         code = r'''
 import pathlib,runpy,shutil,sys,tempfile
