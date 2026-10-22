@@ -227,6 +227,29 @@ class PreparationTests(unittest.TestCase):
               mock.patch.object(tool, "validate_build_targets")):
             return tool.prepare(self.metadata, self.archives, self.raw, "a" * 40, self.sources)
 
+    def test_runtime_target_uses_only_explicit_lock_and_scope(self):
+        path, scope = tool.tools.TARGETS["guest-runtime"]
+        runtime = {**self.lock, "scope": scope}
+        self.sources[path] = tool.base.encoded(runtime)
+        with mock.patch.object(tool, "validate_tools_lock"), mock.patch.object(tool.base.inputs, "check") as check, \
+                mock.patch.object(tool, "validate_build_targets"):
+            ordinary, _ = tool.prepare(self.metadata, self.archives, self.raw, "a" * 40, self.sources)
+            check.assert_called_once_with(self.lock, self.metadata, scope=tool.tools.TARGETS["guest"][1])
+            check.reset_mock()
+            files, report = tool.prepare(self.metadata, self.archives, self.raw, "a" * 40, self.sources,
+                                          guest_runtime=True)
+            check.assert_called_once_with(runtime, self.metadata, scope=scope)
+            del self.sources[path]
+            with self.assertRaises(KeyError):
+                tool.prepare(self.metadata, self.archives, self.raw, "a" * 40, self.sources, guest_runtime=True)
+            with self.assertRaises(ValueError):
+                tool.prepare(self.metadata, self.archives, self.raw, "a" * 40, self.sources, guest_runtime="true")
+        self.assertEqual(ordinary["guest-inputs.json"], self.sources[tool.tools.FILES[-1]])
+        self.assertEqual(files["guest-inputs.json"], tool.base.encoded(runtime))
+        self.assertEqual(files["mkosi.conf.candidate"], tool.base.recipe(runtime, skeleton_tree="mkosi-skeleton"))
+        for name in ("packages_executed", "image_built", "bootable", "deployable"):
+            self.assertFalse(report[name])
+
     def test_real_writer_verifier_deterministic_and_no_execution_claims(self):
         files, report = self.prepare()
         self.assertEqual((files, report), self.prepare())
@@ -408,7 +431,7 @@ class BindingTests(unittest.TestCase):
                 self.assertEqual(set(old), set(tool.tools.FILES))
                 self.assertEqual(set(new), set(paths))
                 for extra in (("../private",), ("/private",), ("-option",), ["not-tuple"],
-                              (tool.EXTRA[0],) * 25):
+                              (tool.EXTRA[0],) * 29):
                     with self.subTest(extra=extra), self.assertRaises(ValueError):
                         tool.tools.committed(extra)
                 (root / tool.EXTRA[1]).write_bytes(b"uncommitted")

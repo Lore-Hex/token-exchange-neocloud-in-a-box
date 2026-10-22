@@ -11,6 +11,10 @@ on:
         description: Install verified driver modules into the private guest root (requires compile_driver; never loads)
         type: boolean
         default: false
+      guest_runtime:
+        description: Install the reviewed 212-package runtime candidate instead of the kernel-only candidate
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -30,6 +34,8 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - name: Fetch and authenticate fixed public inputs without installing
+        env:
+          GUEST_RUNTIME: ${{ inputs.guest_runtime }}
         run: |
           test "$RUNNER_ENVIRONMENT" = github-hosted
           mkdir -p -m 700 build/native-install
@@ -44,15 +50,19 @@ jobs:
             --output build/native-install/metadata.tar.gz
           printf '%s  %s\n' 54def86b7b37b3b5178782965e499f0242a98f36bc7828105f112005576663a7 \
             build/native-install/metadata.tar.gz | sha256sum --check --strict
-          /usr/bin/python3.10 -I -S -B scripts/fetch_mkosi_tools.py --include-guest \
+          target=--include-guest
+          if [ "$GUEST_RUNTIME" = true ]; then target=--guest-runtime; fi
+          /usr/bin/python3.10 -I -S -B scripts/fetch_mkosi_tools.py "$target" \
             --metadata-archive "$PWD/build/native-install/metadata.tar.gz" \
             --output "$PWD/build/native-install/inputs" > build/native-install/input-fetch.log
       - name: Install only in the resource-bounded offline namespace
         env:
           COMPILE_DRIVER: ${{ inputs.compile_driver }}
           INSTALL_DRIVER: ${{ inputs.install_driver }}
+          GUEST_RUNTIME: ${{ inputs.guest_runtime }}
         run: |
           args=()
+          if [ "$GUEST_RUNTIME" = true ]; then args+=(--guest-runtime); fi
           if [ "$COMPILE_DRIVER" = true ]; then args+=(--compile-driver); fi
           if [ "$INSTALL_DRIVER" = true ]; then
             test "$COMPILE_DRIVER" = true

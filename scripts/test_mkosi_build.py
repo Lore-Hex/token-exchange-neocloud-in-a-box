@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Offline installer contracts; never run package hooks or alter host cgroups."""
 import ast
+import copy
 from contextlib import contextmanager
 import getpass
 import json
@@ -342,12 +343,72 @@ class BuildTests(unittest.TestCase):
                      "scripts/mkosi_package_worker.py", "scripts/mkosi_confinement.py", host.DKMS):
             self.assertIn(name, paths)
 
+    def test_runtime_source_closure_includes_lock_review_and_matching_apt_proof(self):
+        with mock.patch.object(host, "preflight"), mock.patch.object(host.tools, "separate_output"), \
+                mock.patch.object(host.tools, "committed", return_value=("a" * 40, {})) as committed, \
+                mock.patch.object(host, "run", return_value=1) as run, \
+                mock.patch.object(host.sys, "argv", ["host", "--downloads", "/downloads", "--archive", "/archive",
+                                                    "--output", "/output", "--guest-runtime"]):
+            self.assertEqual(host.main(), 1)
+        paths = committed.call_args.args[0]
+        self.assertLessEqual(len(paths), 28)
+        for name in (host.HOOKS, host.hooks.RUNTIME_LOCK, host.hooks.RUNTIME_POLICY, host.RUNTIME_APT):
+            self.assertIn(name, paths)
+        self.assertIs(run.call_args.args[-1], True)
+
+    def test_worker_accepts_only_the_two_fixed_source_bound_closures(self):
+        for path in (host.hooks.LOCK, host.hooks.RUNTIME_LOCK):
+            guest = json.loads((ROOT / path).read_bytes())
+            expected = worker.expected_packages(guest)
+            self.assertEqual(expected, {r["Package"]: r["Version"] for r in guest["packages"]})
+            for mutate in (lambda p: p.update(scope="unknown"), lambda p: p["packages"].pop(),
+                           lambda p: p["packages"].append(p["packages"][0])):
+                bad = copy.deepcopy(guest)
+                mutate(bad)
+                with self.assertRaises(ValueError):
+                    worker.expected_packages(bad)
+
+    def test_runtime_preflight_rechecks_both_evidence_and_hook_inventory_before_execution(self):
+        sources = {name: (ROOT / name).read_bytes() for name in
+                   (host.hooks.RUNTIME_LOCK, host.hooks.RUNTIME_POLICY, host.RUNTIME_APT)}
+        rows = [{"fixture": "not executed"}]
+        with mock.patch.object(host.hooks, "inventory", return_value=rows) as inventory, \
+                mock.patch.object(host.hooks, "validate", return_value={"result": "pass"}) as validate:
+            self.assertEqual(host.runtime_preflight(sources, Path("/archives")), {"result": "pass"})
+        self.assertEqual(inventory.call_args.args[1], Path("/archives"))
+        self.assertEqual(validate.call_args.args[1:], (sources[host.hooks.RUNTIME_LOCK], rows))
+        mutations = (
+            lambda p: p.update(result="fail"), lambda p: p.update(cleanup="unknown"),
+            lambda p: p.update(target_profile="guest"), lambda p: p["simulation"].update(result="fail"),
+            lambda p: p["simulation"].update(guest_lock_sha256="0" * 64),
+            lambda p: p["simulation"].update(diagnostic="unresolved-package"),
+            lambda p: p["simulation"]["plan"].update(removed=1),
+            lambda p: p["simulation"]["plan"].update(removed=False),
+            lambda p: p["simulation"]["plan"].update(configured=211),
+            lambda p: p["simulation"]["plan"].update(installed=212.0),
+        )
+        for mutate in mutations:
+            proof = json.loads(sources[host.RUNTIME_APT])
+            mutate(proof)
+            bad = {**sources, host.RUNTIME_APT: json.dumps(proof).encode()}
+            with mock.patch.object(host.hooks, "inventory") as inventory, self.assertRaises(ValueError):
+                host.runtime_preflight(bad, Path("/archives"))
+            inventory.assert_not_called()
+        with mock.patch.object(host.hooks, "inventory", return_value=rows), \
+                mock.patch.object(host.hooks, "validate", side_effect=ValueError("changed hook")), \
+                mock.patch.object(host.base.processes, "execute_process_group") as execute, \
+                self.assertRaises(ValueError):
+            host.prepare(Path("/inputs"), Path("/archive"), "a" * 40, sources, True)
+        execute.assert_not_called()
+
     def test_workflow_manual_main_only_without_credentials_in_build(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/mkosi-native-build.yml").read_text())
         self.assertEqual(workflow[True], {"workflow_dispatch": {"inputs": {"compile_driver": {
             "description": "Compile the pinned NVIDIA driver after installation (no loading or boot)",
             "type": "boolean", "default": False}, "install_driver": {
             "description": "Install verified driver modules into the private guest root (requires compile_driver; never loads)",
+            "type": "boolean", "default": False}, "guest_runtime": {
+            "description": "Install the reviewed 212-package runtime candidate instead of the kernel-only candidate",
             "type": "boolean", "default": False}}}})
         self.assertEqual(workflow["permissions"], {"contents": "read"})
         job = workflow["jobs"]["install"]
@@ -359,9 +420,14 @@ class BuildTests(unittest.TestCase):
         self.assertIn("54def86b7b37b3b5178782965e499f0242a98f36bc7828105f112005576663a7", fetch)
         self.assertIn("--metadata-archive", fetch)
         self.assertIn("--include-guest", fetch)
+        self.assertIn('if [ "$GUEST_RUNTIME" = true ]; then target=--guest-runtime; fi', fetch)
+        self.assertEqual(job["steps"][1]["env"], {"GUEST_RUNTIME": "${{ inputs.guest_runtime }}"})
         self.assertIn("host/run-mkosi-build.py", job["steps"][2]["run"])
         self.assertEqual(job["steps"][2]["env"], {"COMPILE_DRIVER": "${{ inputs.compile_driver }}",
-                                               "INSTALL_DRIVER": "${{ inputs.install_driver }}"})
+                                               "INSTALL_DRIVER": "${{ inputs.install_driver }}",
+                                               "GUEST_RUNTIME": "${{ inputs.guest_runtime }}"})
+        self.assertIn('if [ "$GUEST_RUNTIME" = true ]; then args+=(--guest-runtime); fi',
+                      job["steps"][2]["run"])
         self.assertIn('if [ "$COMPILE_DRIVER" = true ]; then args+=(--compile-driver); fi',
                       job["steps"][2]["run"])
         self.assertNotIn("${{", job["steps"][2]["run"])
