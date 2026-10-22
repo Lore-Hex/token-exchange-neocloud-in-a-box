@@ -8,6 +8,7 @@ if __name__ == "__main__" and not (sys.flags.isolated and sys.flags.no_site and 
     sys.exit("Use python3 -I -S -B scripts/tau_trial.py")
 
 import argparse
+import builtins
 import datetime
 import hashlib
 import io
@@ -45,7 +46,7 @@ def require(value):
         raise ValueError("tau trial rejected")
 
 
-def load(name, expected=None):
+def load(name, expected=None, *, modules=None):
     path = ROOT / name
     # Only own committed helpers; upstream code is never loaded in the host.
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
@@ -62,8 +63,25 @@ def load(name, expected=None):
     require(expected is None or hashlib.sha256(raw).hexdigest() == expected)
     module = types.ModuleType(name)
     module.__file__ = str(path)
+    if modules is not None:
+        def source_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name in modules:
+                require(level == 0)
+                return modules[name]
+            return builtins.__import__(name, globals, locals, fromlist, level)
+        module.__dict__["__builtins__"] = {**vars(builtins), "__import__": source_import}
     exec(compile(raw, str(path), "exec", dont_inherit=True), module.__dict__)
     return module
+
+
+def parent_driver(toolkit):
+    # Compile the exact verified closure, never timestamp-valid .pyc files or
+    # preexisting same-name modules from an ambient import path.
+    modules = {}
+    for name in ("tau_preflight", "tau_trial_worker", "tau_aggregate", "tau_transport", "tau_pipe_driver"):
+        path = "scripts/" + name + ".py"
+        modules[name] = load(path, toolkit["files"][path], modules=modules)
+    return modules["tau_pipe_driver"]
 
 
 runtime = load("scripts/tau_runtime.py", RUNTIME_SHA)
@@ -96,10 +114,13 @@ def check_image(image):
     return selected
 
 
-def identity(deadline):
+def identity(deadline, parent_pipe=False):
     names = (SCRIPT, WORKER, "scripts/tau_runtime.py", "scripts/tau_aggregate.py",
              runtime.CATALOG, "host/probe.py", "scripts/test_tau_trial.py", "scripts/e2e/pins.json",
              "schemas/evidence.schema.json", "schemas/common.schema.json")
+    if parent_pipe:
+        names += ("scripts/tau_transport.py", "scripts/tau_pipe_trial.py", "scripts/tau_pipe_driver.py",
+                  "scripts/test_tau_pipe_driver.py")
     result = tau.committed_identity(deadline)
     for start in range(0, len(names), 4):
         item = tau.committed_identity(deadline, extra_files=names[start:start + 4])
@@ -141,8 +162,8 @@ def add_wheel(files, owners, raw, package, expected, deadline):
     require(len(files) <= worker.MAX_FILES and sum(map(len, files.values())) <= worker.MAX_PAYLOAD)
 
 
-def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, deadline):
-    toolkit = identity(deadline)
+def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, deadline, *, parent_pipe=False):
+    toolkit = identity(deadline, parent_pipe)
     pins_raw = runtime.read_file(ROOT / tau.PINS, 1 << 20, deadline)
     require(tau.digest(pins_raw) == tau.PINS_SHA)
     pins = tau.json_value(pins_raw)
@@ -183,6 +204,8 @@ def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, de
                              "runtime_receipt_sha256": tau.digest(files["inputs.json"])},
                 "files": {name: {"bytes": len(data), "sha256": tau.digest(data)}
                           for name, data in sorted(files.items())}}
+    if parent_pipe:
+        contract["transport"] = "scripted-parent-pipe"
     files["trial.json"] = tau.encoded(contract)
     require(len(files["trial.json"]) <= 4 << 20 and time.monotonic() < deadline)
     return files, contract
@@ -210,19 +233,23 @@ def publish(destination, files):
             os.fchmod(fd, 0o555)
 
 
-def validate_plan(payload, sha, toolkit, deadline):
+def validate_plan(payload, sha, toolkit, deadline, *, parent_pipe=False):
     with runtime.directory(payload.parent) as parent:
         info = os.fstat(parent)
         require(info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700)
     raw = runtime.read_file(payload / "trial.json", 4 << 20, deadline)
     require(tau.digest(raw) == sha)
     plan = tau.json_value(raw)
-    require(type(plan) is dict and set(plan) == {"schema", "image", "platform", "manifest_sha256",
-            "selection", "environment", "seconds", "producer", "files"}
+    expected_keys = {"schema", "image", "platform", "manifest_sha256",
+                     "selection", "environment", "seconds", "producer", "files"}
+    if parent_pipe:
+        expected_keys.add("transport")
+    require(type(plan) is dict and set(plan) == expected_keys
             and plan["schema"] == "nib.tau-scripted-plan/v1" and plan["image"] == runtime.TARGET["image"]
             and plan["platform"] == runtime.TARGET["platform"] and plan["environment"] == ENVIRONMENT
             and plan["seconds"] == SECONDS and plan["producer"]["git_sha"] == toolkit["git_sha"]
             and plan["producer"]["adapter_sha256"] == toolkit["files"][WORKER])
+    require(not parent_pipe or plan["transport"] == "scripted-parent-pipe")
     for name, expected in toolkit["files"].items():
         require(plan["files"][name]["sha256"] == expected)
     worker.verify_tree(payload, plan["files"], deadline)
@@ -237,8 +264,9 @@ def validate_plan(payload, sha, toolkit, deadline):
     return plan, manifest
 
 
-def create_command(name, owner, payload, sha):
-    return ["create", "--name", name, "--label", LABEL + "=" + owner, "--pull", "never",
+def create_command(name, owner, payload, sha, *, parent_pipe=False):
+    return ["create", *(["--interactive"] if parent_pipe else []),
+            "--name", name, "--label", LABEL + "=" + owner, "--pull", "never",
             "--platform", "linux/amd64", "--runtime", "runc", "--user", "65534:65534",
             "--network", "none", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--memory", "4g", "--memory-swap", "4g", "--cpus", "2", "--pids-limit", "64",
@@ -248,12 +276,13 @@ def create_command(name, owner, payload, sha):
             "--tmpfs", "/scratch:rw,nosuid,nodev,noexec,size=256m,mode=0700,uid=65534,gid=65534",
             "--entrypoint", "/usr/bin/env", runtime.TARGET["image"], "-i",
             *[key + "=" + value for key, value in sorted(ENVIRONMENT.items())],
-            "/usr/local/bin/python3", "-I", "-S", "-B", "/opt/nib/" + WORKER, sha]
+            "/usr/local/bin/python3", "-I", "-S", "-B", "/opt/nib/" + WORKER, sha,
+            *(["--parent-pipe"] if parent_pipe else [])]
 
 
-def check_container(info, name, owner, payload, sha, selected_manifest):
+def check_container(info, name, owner, payload, sha, selected_manifest, *, parent_pipe=False):
     cfg, host = info["Config"], info["HostConfig"]
-    command = create_command(name, owner, payload, sha)
+    command = create_command(name, owner, payload, sha, parent_pipe=parent_pipe)
     # Moby containerd keeps the outer index in Image, not the selected manifest.
     # See the exact daemon/CLI source chain in p2-t3-tau-single-trial.md.
     require(info["Image"] == IMAGE_DIGEST and info["Platform"] == "linux"
@@ -263,7 +292,8 @@ def check_container(info, name, owner, payload, sha, selected_manifest):
             and cfg["Entrypoint"] == ["/usr/bin/env"]
             and cfg["Cmd"] == command[command.index(runtime.TARGET["image"]) + 1:]
             and cfg["User"] == "65534:65534" and cfg["WorkingDir"] == "/scratch"
-            and cfg["Healthcheck"]["Test"] == ["NONE"] and not cfg["Tty"] and not cfg["OpenStdin"])
+            and cfg["Healthcheck"]["Test"] == ["NONE"] and not cfg["Tty"]
+            and cfg["OpenStdin"] is parent_pipe)
     require(host["NetworkMode"] == "none" and host["ReadonlyRootfs"] is True
             and host["Runtime"] == "runc" and host["CapDrop"] == ["ALL"] and not host["Privileged"]
             and not host.get("CapAdd") and not host.get("Devices") and not host.get("DeviceRequests")
@@ -290,7 +320,7 @@ def check_result(value, plan, manifest):
     if not value["completed"]:
         require(value["stage"] != "completed" and value["report"] is value["accounting"] is None)
         return
-    require(value["stage"] == "completed" and value["upstream_executed"] is True)
+    require(value["stage"] == "completed")
     report = value["report"]
     aggregate.validate_report(report, manifest, plan["manifest_sha256"], plan["selection"]["role"])
     require(report["kind"] == "synthetic-fixture" and report["producer"] == plan["producer"]
@@ -317,14 +347,14 @@ def check_result(value, plan, manifest):
         require(row["usage"]["total_tokens"] == accounting["reserved_tokens"]
                 and row["usage"]["cost_usd"] == accounting["reserved_cost_usd"])
     if row["status"] == "evaluated":
-        require(accounting["usage_known"] and accounting["role_requests"]["agent"] > 0
+        require(value["upstream_executed"] and accounting["usage_known"] and accounting["role_requests"]["agent"] > 0
                 and accounting["role_requests"]["simulator"] > 0)
 
 
-def run(payload, sha, destination, socket):
+def run(payload, sha, destination, socket, *, parent_pipe=False):
     deadline = time.monotonic() + 60
-    toolkit = identity(deadline)
-    plan, manifest = validate_plan(payload, sha, toolkit, deadline)
+    toolkit = identity(deadline, parent_pipe)
+    plan, manifest = validate_plan(payload, sha, toolkit, deadline, parent_pipe=parent_pipe)
     require(payload.is_absolute() and not any(c in str(payload) for c in (",", "\n", "\r")))
     require(socket.is_absolute() and stat.S_ISSOCK(socket.stat().st_mode))
     require(not destination.exists())
@@ -359,21 +389,28 @@ def run(payload, sha, destination, socket):
             # Killing the bounded client cannot cancel an in-flight daemon create.
             # Only the exact owned-container inspection establishes completion.
             create_unknown = True
-            command(*create_command(name, owner, payload, sha))
+            command(*create_command(name, owner, payload, sha, parent_pipe=parent_pipe))
             info = tau.json_value(command("inspect", name))[0]
-            check_container(info, name, owner, payload, sha, selected_manifest)
+            check_container(info, name, owner, payload, sha, selected_manifest, parent_pipe=parent_pipe)
             create_unknown = False
             stage = "trial"
-            raw = command("start", "--attach", name, seconds=SECONDS, limit=16384)
-            observed = tau.json_value(raw)
+            if parent_pipe:
+                observed = parent_driver(toolkit).run_process(
+                    [docker, "--host", "unix://" + str(socket), "--config", private,
+                     "start", "--attach", "--interactive", name], env, payload, plan, manifest,
+                    min(operation_deadline, time.monotonic() + worker.SECONDS))
+            else:
+                raw = command("start", "--attach", name, seconds=SECONDS, limit=16384)
+                observed = tau.json_value(raw)
             check_result(observed, plan, manifest)
+            # Preserve validated accounting even if the later container check fails.
+            result = observed
             terminal = tau.json_value(command("inspect", name))[0]
-            check_container(terminal, name, owner, payload, sha, selected_manifest)
+            check_container(terminal, name, owner, payload, sha, selected_manifest, parent_pipe=parent_pipe)
             require(terminal["State"]["Running"] is False and terminal["State"]["OOMKilled"] is False
                     and terminal["State"]["ExitCode"] == 0)
-            result = observed
             stage = "completed"
-        except (Exception, KeyboardInterrupt):
+        except BaseException:
             pass
         finally:
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
@@ -393,10 +430,10 @@ def run(payload, sha, destination, socket):
               "started_utc": started, "ended_utc": now(),
               "stage": stage, "cleanup_confirmed": cleaned, "diagnostic": result,
               "cleanup": "create-completion-unknown" if create_unknown else "confirmed" if cleaned else "failed",
-              "result": "pass" if cleaned and result and result["completed"]
+              "result": "pass" if stage == "completed" and cleaned and result and result["completed"]
                         and result["report"]["trials"][0]["status"] == "evaluated" else "fail",
               "confidential": False, "quality_accepted": False, "live_transport": False}
-    envelope = evidence_record(toolkit["git_sha"], sha, started, record)
+    envelope = evidence_record(toolkit["git_sha"], sha, started, record, parent_pipe=parent_pipe)
     publish_evidence(destination, {"run.json": tau.encoded(envelope), "output.log": tau.encoded(record)})
     print(tau.encoded({"result": record["result"], "cleanup_confirmed": cleaned}).decode(), end="")
     return 0 if record["result"] == "pass" else 1
@@ -406,10 +443,11 @@ def now():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def evidence_record(revision, sha, started, record):
+def evidence_record(revision, sha, started, record, *, parent_pipe=False):
     return {"schema": "nib.evidence/v1", "phase": "P2", "task": "T3", "git_sha": revision,
                 "command": "python3 -I -S -B scripts/tau_trial.py run --payload PRIVATE "
-                           "--plan-sha256 " + sha + " --docker-socket PRIVATE --output PRIVATE",
+                           "--plan-sha256 " + sha + " --docker-socket PRIVATE --output PRIVATE"
+                           + (" --parent-pipe" if parent_pipe else ""),
                 "started_utc": started, "ended_utc": record["ended_utc"],
                 "host": {"provider": "local", "machine": "isolated-linux-amd64-container",
                          "gpus": "none", "driver": None, "cuda": None},
@@ -445,20 +483,23 @@ def main():
     for name in ("source-archive", "wheelhouse", "manifest", "manifest-sha256", "domain", "task-id", "role", "output"):
         prep.add_argument("--" + name, required=True)
     prep.add_argument("--trial", required=True, type=int)
+    prep.add_argument("--parent-pipe", action="store_true")
     execution = sub.add_parser("run")
     for name in ("payload", "plan-sha256", "docker-socket", "output"):
         execution.add_argument("--" + name, required=True)
+    execution.add_argument("--parent-pipe", action="store_true")
     args = parser.parse_args()
     if args.operation == "prepare":
         files, plan = prepare(Path(args.source_archive), Path(args.wheelhouse), Path(args.manifest),
                               args.manifest_sha256, {key: getattr(args, key) for key in
                                                     ("domain", "task_id", "trial", "role")},
-                              time.monotonic() + runtime.SECONDS)
+                              time.monotonic() + runtime.SECONDS, parent_pipe=args.parent_pipe)
         publish(Path(args.output), files)
         print(tau.encoded({"plan_sha256": tau.digest(files["trial.json"]), "upstream_executed": False,
                           "live_transport": False}).decode(), end="")
         return 0
-    return run(Path(args.payload), args.plan_sha256, Path(args.output), Path(args.docker_socket))
+    return run(Path(args.payload), args.plan_sha256, Path(args.output), Path(args.docker_socket),
+               parent_pipe=args.parent_pipe)
 
 
 if __name__ == "__main__":

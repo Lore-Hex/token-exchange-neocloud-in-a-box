@@ -384,6 +384,10 @@ def main():
     # upstream exceptions on stdout/stderr go to /dev/null, never Docker logs.
     report_fd = os.dup(1)
     os.set_inheritable(report_fd, False)
+    parent_pipe = len(sys.argv) == 3 and sys.argv[2] == "--parent-pipe"
+    input_fd = os.dup(0) if parent_pipe else None
+    if input_fd is not None:
+        os.set_inheritable(input_fd, False)
     with open(os.devnull, "r+b", buffering=0) as sink:
         for fd in (0, 1, 2):
             os.dup2(sink.fileno(), fd)
@@ -395,11 +399,12 @@ def main():
             require(sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode
                     and sys.version_info[:3] == (3, 12, 13) and sys.platform == "linux"
                     and os.uname().machine == "x86_64" and os.confstr("CS_GNU_LIBC_VERSION") == "glibc 2.36"
-                    and len(sys.argv) == 2 and len(sys.argv[1]) == 64)
+                    and len(sys.argv) == (3 if parent_pipe else 2) and len(sys.argv[1]) == 64)
             root = Path("/opt/nib")
             raw = read(root / "trial.json", 4 << 20)
             require(digest(raw) == sys.argv[1])
             contract = decode(raw)
+            require(contract.get("transport") == ("scripted-parent-pipe" if parent_pipe else None))
             verify_tree(root, contract["files"], time.monotonic() + 60)
             tau = load(root, "scripts/tau_preflight.py")
             aggregate = load(root, "scripts/tau_aggregate.py")
@@ -410,11 +415,30 @@ def main():
             sys.path.extend([str(root / "upstream/src"), str(root / "packages")])
             sys.addaudithook(deny_external)
             result["stage"], result["upstream_executed"] = "trial", True
+            if parent_pipe:
+                # These helper bytes were verified above; no ambient module
+                # search path or network access is introduced.
+                sys.path.insert(0, str(root / "scripts"))
+                import tau_transport
+                import tau_pipe_trial
+                channel = tau_transport.Channel(input_fd, report_fd)
+                input_fd = report_fd = None  # Channel now owns both duplicates.
+                try:
+                    proxy = tau_transport.WorkerProxy(channel, time.monotonic() + SECONDS)
+                    tau_pipe_trial.execute(root, manifest, contract["selection"], proxy)
+                finally:
+                    channel.close()
+                return 0
             report, accounting = evaluate(tau, aggregate, manifest, contract["selection"],
                                           contract["producer"], root=root)
         result.update(stage="completed", completed=True, report=report, accounting=accounting)
     except BaseException:
         pass
+    if parent_pipe:
+        for fd in (input_fd, report_fd):
+            if fd is not None:
+                os.close(fd)
+        return 1
     try:
         raw = encoded(result)
         require(len(raw) <= 16384)

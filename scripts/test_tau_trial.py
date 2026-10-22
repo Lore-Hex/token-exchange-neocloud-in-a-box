@@ -681,6 +681,9 @@ class LifecycleTests(unittest.TestCase):
     def test_terminal_manifest_drift_cannot_pass_after_valid_creation(self):
         self.exercise_lifecycle(("terminal_descriptor",))
 
+    def test_terminal_failures_preserve_validated_accounting_without_passing(self):
+        self.exercise_lifecycle(("terminal_exit", "terminal_inspect", "terminal_descriptor"))
+
     def test_selected_manifest_checks_all_identity_fields_without_assuming_annotations(self):
         image = image_inspection()
         image["Descriptor"]["annotations"] = {"public-build-label": "ignored"}
@@ -768,7 +771,11 @@ class LifecycleTests(unittest.TestCase):
                         state["inspections"] += 1
                         if failure == "inspect_timeout":
                             raise TimeoutError(CANARY)
+                        if failure == "terminal_inspect" and state["inspections"] == 2:
+                            raise TimeoutError(CANARY)
                         info = copy.deepcopy(state["info"])
+                        if failure == "terminal_exit" and state["inspections"] == 2:
+                            info["State"]["ExitCode"] = 9
                         if failure == "policy":
                             info["HostConfig"]["NetworkMode"] = "bridge"
                         if failure == "oom":
@@ -845,6 +852,11 @@ class LifecycleTests(unittest.TestCase):
                     self.assertFalse(any(args[0] == "start" for args in calls))
                 if failure == "output":
                     self.assertIsNone(summary["diagnostic"])
+                if failure in ("terminal_exit", "terminal_inspect", "terminal_descriptor"):
+                    self.assertEqual(summary["stage"], "trial")
+                    self.assertEqual(summary["result"], "fail")
+                    self.assertEqual(summary["diagnostic"], result)
+                    self.assertGreater(summary["diagnostic"]["report"]["trials"][0]["requests"], 0)
 
     def test_inspect_rejects_every_critical_container_policy_mutation(self):
         args = runner.create_command("fixed", "a" * 32, Path("/private/payload"), "b" * 64)
