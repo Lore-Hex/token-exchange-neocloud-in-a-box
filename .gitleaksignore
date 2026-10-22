@@ -4,12 +4,3 @@
 # this file, these variable names, other commits, or future credential findings.
 dd3095d8acecfb3bc9081faf4a86801c03bc8a2a:scripts/tau_preflight.py:generic-api-key:31
 dd3095d8acecfb3bc9081faf4a86801c03bc8a2a:scripts/tau_preflight.py:generic-api-key:32
-# Original fixed-synthetic token-ID sequence SHA-256s, not API credentials.
-# The exact receipt bytes are hash-bound in test_parity_prerequisite_evidence.py.
-636b756e0ddba67847010f7830f48c3f8ce6b846:evidence/p2/2026-10-22-tokenizer-parity-tool-protocol-fail/output.log:generic-api-key:100
-636b756e0ddba67847010f7830f48c3f8ce6b846:evidence/p2/2026-10-22-tokenizer-parity-tool-protocol-fail/output.log:generic-api-key:106
-636b756e0ddba67847010f7830f48c3f8ce6b846:evidence/p2/2026-10-22-tokenizer-parity-tool-protocol-fail/output.log:generic-api-key:118
-636b756e0ddba67847010f7830f48c3f8ce6b846:evidence/p2/2026-10-22-tokenizer-parity-tool-protocol-fail/output.log:generic-api-key:124
-636b756e0ddba67847010f7830f48c3f8ce6b846:evidence/p2/2026-10-22-tokenizer-parity-tool-protocol-fail/output.log:generic-api-key:136
-636b756e0ddba67847010f7830f48c3f8ce6b846:evidence/p2/2026-10-22-tokenizer-parity-tool-protocol-fail/output.log:generic-api-key:142
-636b756e0ddba67847010f7830f48c3f8ce6b846:evidence/p2/2026-10-22-tokenizer-parity-tool-protocol-fail/output.log:generic-api-key:154
