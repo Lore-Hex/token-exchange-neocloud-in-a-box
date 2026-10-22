@@ -1,0 +1,1 @@
+{"expected_bytes": 1042, "expected_sha256": "c7535331fbb183c802c3bf4b6b210872dcc12d0421b3212b3c4b940f2c59ed3a", "failure": "process-exit", "input_kind": "archive", "package_execution": false, "result": "fail", "returncode": 28, "schema": "nib.input-fetch-failure/v1"}
