@@ -124,7 +124,7 @@ def execute(source, work, env, snapshot, inputs, report, home):
         report["base_images"] = {key: bases[key] for key in ("go_image", "python_image")}
         # Fail before building if either immutable base is not already local.
         for base in report["base_images"].values():
-            result = snapshot.execute_process_group(["docker", "image", "inspect", "--format",
+            result = snapshot.execute_process_group(["docker", "image", "inspect", "--platform", "linux/amd64", "--format",
                 "{{.Id}} {{.Os}}/{{.Architecture}}", base], env=env, timeout=15, max_output_bytes=1024)
             require(result.returncode == 0 and re.fullmatch(rb"sha256:[0-9a-f]{64} linux/amd64\s*", result.stdout))
         report["stage"] = "toolchain"

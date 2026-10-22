@@ -82,7 +82,10 @@ missing final output, a pending receipt or failure cannot be interpreted as pass
 
 Use a committed, independently reviewed head and coordinate CPU/memory availability
 with the GPU run owner. Both base images and the exact CMake wheel must already
-exist locally. No launch was performed while implementing this producer.
+exist locally. Cache inspection explicitly selects `linux/amd64` using Docker
+API 1.49+ [image inspection](https://docs.docker.com/reference/cli/docker/image/inspect/);
+a cached arm64 variant cannot satisfy the prerequisite. No launch was performed
+while implementing this producer.
 
 ```sh
 python3 -I -S -B scripts/record-tau-cpu-parity.py \
