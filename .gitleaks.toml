@@ -10,14 +10,14 @@ id = "generic-api-key"
 description = "Four original hashes of fixed synthetic token-ID sequences"
 condition = "AND"
 regexTarget = "line"
-paths = ['''(^|/)evidence/p2/2026-10-22-tokenizer-parity-(tool-protocol-fail|fixed-pass|runtime-pass)/output\.log$''']
+paths = ['''(^|/)evidence/p2/2026-10-22-(tokenizer-parity-(tool-protocol-fail|fixed-pass|runtime-pass)|provider-conformance-pass)/output\.log$''']
 regexes = ['''^\s*"tokens_sha256": "(9d6bde6f28006680e5d37e06d816356d782004f1e8dbabf46d42e81b088afc16|c7b86dad075d1d51e4bf9aec664d9ce392e5d04a63babe717ab9354ec0b56032|6ddfa5e6dbf2f45b8efc1e2ebda65f1f79c39b1a4ec8a7fce8e77fc5a0add7d5|4e5eb88296779609b1ef81a335894e3ef5c284a94a8ceb1607421414c43c9cbe)"\s*$''']
 
 [[rules.allowlists]]
 description = "Two exact public tokenizer source hashes in the original input contract"
 condition = "AND"
 regexTarget = "line"
-paths = ['''(^|/)evidence/p2/2026-10-22-tokenizer-parity-runtime-pass/input-contract\.json$''']
+paths = ['''(^|/)evidence/p2/2026-10-22-(tokenizer-parity-runtime-pass|provider-conformance-pass)/input-contract\.json$''']
 regexes = ['''^\s*"tokenizer-adapter\.py": "060220d1bc62f13278e5a03a3a85c39ef84f528ada2a9e39ab0c62a4a7c09960",\s*$''', '''^\s*"tokenizer-parity\.py": "09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a"\s*$''']
 
 [[rules.allowlists]]

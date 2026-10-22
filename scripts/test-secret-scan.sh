@@ -41,12 +41,26 @@ printf 'Secret scanner rejected a token retained only in Git history.\n'
 # Random hex can contain default stopwords (for example "dead") or fall below
 # the generic rule's entropy threshold. Hash a fixed public fixture instead.
 unknown=$(printf %s nib-scanner-boundary-positive-control-v1 | openssl dgst -sha256 | awk '{print $NF}')
-for receipt in tool-protocol-fail fixed-pass runtime-pass runtime-adapter-source runtime-parity-source cpu-readiness-source cpu-argv-source cpu-base-inspect-source; do
+for receipt in tool-protocol-fail fixed-pass runtime-pass runtime-adapter-source runtime-parity-source cpu-readiness-source cpu-argv-source cpu-base-inspect-source provider-result provider-adapter-source provider-parity-source; do
   evidence_path="evidence/p2/2026-10-22-tokenizer-parity-$receipt/output.log"
   field=tokens_sha256
   known=9d6bde6f28006680e5d37e06d816356d782004f1e8dbabf46d42e81b088afc16
   suffix=''
   case "$receipt" in
+    provider-result)
+      evidence_path=evidence/p2/2026-10-22-provider-conformance-pass/output.log
+      ;;
+    provider-adapter-source)
+      evidence_path=evidence/p2/2026-10-22-provider-conformance-pass/input-contract.json
+      field=tokenizer-adapter.py
+      known=060220d1bc62f13278e5a03a3a85c39ef84f528ada2a9e39ab0c62a4a7c09960
+      suffix=,
+      ;;
+    provider-parity-source)
+      evidence_path=evidence/p2/2026-10-22-provider-conformance-pass/input-contract.json
+      field=tokenizer-parity.py
+      known=09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a
+      ;;
     runtime-adapter-source)
       evidence_path=evidence/p2/2026-10-22-tokenizer-parity-runtime-pass/input-contract.json
       field=tokenizer-adapter.py
