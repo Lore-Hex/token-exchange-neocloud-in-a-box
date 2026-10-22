@@ -70,7 +70,46 @@ def originals(session, directory, held, producer, deadline):
     return image
 
 
-def final_receipts(session, directory, held, image, revision, archive_sha, sources, deadline):
+def probe_receipts(session, directory, notice, held, probe, deadline):
+    """Bind the fixed second frame to original private scorer files, not text."""
+    session.identity.keys(notice, ("schema", "ready_sha256", "plan_sha256", "scorer_sha256",
+                                   "result", "cleanup", "diagnostic"))
+    require(notice["schema"] == "nib.tau-cpu-probe-held/v1"
+            and notice["ready_sha256"] == held["ready_sha256"] and notice["plan_sha256"] == probe["sha"])
+    documents = {}
+    hashes = {}
+    for name in ("run.json", "output.log"):
+        raw = session.identity.private_read(directory / "scorer" / name, deadline)
+        require(len(raw) <= 65536)
+        documents[name], hashes[name] = session.llama.worker.decode(raw), rec.digest(raw)
+    row = documents["output.log"]
+    session.identity.keys(row, ("schema", "toolkit", "plan_sha256", "cpu_ready_sha256", "image", "platform",
+        "started_utc", "ended_utc", "result", "stage", "cleanup", "diagnostic",
+        "quality_eligible", "confidential", "live_admission"))
+    require(row["schema"] == "nib.tau-cpu-probe-scorer/v1" and row["toolkit"] == probe["toolkit"]
+            and row["plan_sha256"] == probe["sha"] and row["cpu_ready_sha256"] == held["ready_sha256"]
+            and row["image"] == probe["plan"]["image"] and row["platform"] == probe["plan"]["platform"]
+            and row["result"] in ("pass", "fail") and row["stage"] in ("image", "create", "trial", "completed")
+            and row["cleanup"] in ("confirmed", "failed", "create-completion-unknown")
+            and all(row[key] is False for key in ("quality_eligible", "confidential", "live_admission")))
+    for key in ("started_utc", "ended_utc"):
+        require(type(row[key]) is str and len(row[key]) == 20 and row[key].isascii()
+                and rec.datetime.datetime.strptime(row[key], "%Y-%m-%dT%H:%M:%SZ").strftime("%Y-%m-%dT%H:%M:%SZ") == row[key])
+    require(row["started_utc"] <= row["ended_utc"])
+    if row["diagnostic"] is not None:
+        sys.modules["tau_cpu_probe"].validate(row["diagnostic"])
+        require(row["diagnostic"]["plan_sha256"] == probe["sha"]
+                and row["diagnostic"]["selection"] == probe["plan"]["selection"])
+    require(row["result"] != "pass" or row["stage"] == "completed" and row["cleanup"] == "confirmed"
+            and row["diagnostic"] is not None and row["diagnostic"]["result"] == "pass")
+    require(notice["scorer_sha256"] == rec.digest(session.tau.encoded(row))
+            and all(notice[key] == row[key] for key in ("result", "cleanup", "diagnostic"))
+            and documents["run.json"] == probe["runner"].probe_evidence_record(row))
+    probe["scorer"], probe["receipts"] = row, hashes
+    return row
+
+
+def final_receipts(session, directory, held, image, revision, archive_sha, sources, deadline, *, probe=None):
     result = {}
     for name in ("run.json", "output.log"):
         raw = session.identity.private_read(directory / name, deadline)
@@ -82,11 +121,13 @@ def final_receipts(session, directory, held, image, revision, archive_sha, sourc
         "ended_utc", "result", "execution", "hardware_validated", "host", "notes"))
     require(record["schema"] == "nib.evidence/v1" and record["git_sha"] == revision
             and record["phase"] == "P2" and record["task"] == "T3"
-            and record["result"] == "pass" and record["execution"] == "software"
+            and record["result"] in (("pass", "fail") if probe is not None else ("pass",)) and record["execution"] == "software"
             and record["hardware_validated"] is False
             and record["host"] == rec.host("local")
-            and record["command"] == "python3 -I -S -B scripts/record-tau-cpu-parity.py --archive PRIVATE --model-06 PRIVATE --model-17 PRIVATE --cmake-wheel PRIVATE --output PRIVATE --session"
-            and record["notes"] == "Fresh held CPU-pair receipts only. No target, tau trial, quality, live admission or confidential claim.")
+            and record["command"] == "python3 -I -S -B scripts/record-tau-cpu-parity.py --archive PRIVATE --model-06 PRIVATE --model-17 PRIVATE --cmake-wheel PRIVATE --output PRIVATE"
+                + (" --probe-payload PRIVATE --probe-plan-sha256 " + probe["sha"] if probe is not None else " --session")
+            and record["notes"] == ("Fixed original tau CPU support probe with scripted target only. No full tau trial, target quality, live admission or confidential claim."
+                if probe is not None else "Fresh held CPU-pair receipts only. No target, tau trial, quality, live admission or confidential claim."))
     for key in ("started_utc", "ended_utc"):
         value = record[key]
         require(type(value) is str and len(value) == 20 and value.isascii()
@@ -94,9 +135,10 @@ def final_receipts(session, directory, held, image, revision, archive_sha, sourc
     require(record["started_utc"] <= record["ended_utc"])
     session.identity.keys(report, ("schema", "result", "stage", "git_sha", "source_archive_sha256",
         "runtime", "context_sha256", "sources", "base_images", "image_id", "cleanup",
-        "quality_eligible", "confidential", "live_admission"))
-    require(report["schema"] == "nib.tau-cpu-session-run/v1" and report["result"] == "pass"
-            and report["stage"] == "complete" and report["git_sha"] == revision
+        "quality_eligible", "confidential", "live_admission") + (("scorer",) if probe is not None else ()))
+    require(report["schema"] == ("nib.tau-cpu-probe-run/v1" if probe is not None else "nib.tau-cpu-session-run/v1")
+            and report["result"] == record["result"]
+            and report["stage"] == ("complete" if record["result"] == "pass" else "runtime") and report["git_sha"] == revision
             and report["source_archive_sha256"] == archive_sha
             and report["sources"] == {name: sources[name] for name in rec.SOURCES}
             and report["image_id"] == "sha256:" + image
@@ -106,19 +148,26 @@ def final_receipts(session, directory, held, image, revision, archive_sha, sourc
     pins = json.loads((session.cpu.ROOT / "scripts/e2e/pins.json").read_bytes())
     require(report["base_images"] == {key: pins[key] for key in ("go_image", "python_image")})
     runtime = session.validate(report["runtime"])
-    require(runtime["result"] == "pass" and runtime["ready_sha256"] == held["ready_sha256"]
-            and runtime["receipts"] == held["receipts"])
+    require(runtime["ready_sha256"] == held["ready_sha256"] and runtime["receipts"] == held["receipts"]
+            and runtime["stage"] == "released" and runtime["acknowledged"] and runtime["cleanup"] == "confirmed")
+    if probe is None:
+        require(runtime["schema"] == "nib.tau-cpu-session/v1" and runtime["result"] == "pass")
+    else:
+        require(runtime["schema"] == "nib.tau-cpu-session/v2" and probe["scorer"] == report["scorer"]
+                and runtime["probe"] == report["scorer"]["diagnostic"]
+                and report["result"] == ("pass" if runtime["result"] == report["scorer"]["result"] == "pass" else "fail"))
+        probe_receipts(session, directory, probe["notice"], held, probe, deadline)
     for name, sha in held["receipts"].items():
         require(rec.digest(session.identity.private_read(directory / name, deadline)) == sha)
     return {name: pair[1] for name, pair in result.items()}
 
 
-def supervise(argv, env, snapshot, session, directory, producer, report, deadline):
+def supervise(argv, env, snapshot, session, directory, producer, report, deadline, *, probe=None):
     process = subprocess.Popen(argv, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, bufsize=0, start_new_session=True)
     output, error = bytearray(), bytearray()
     held, image = None, None
-    completed, total = False, 0
+    completed, total, released = False, 0, False
     try:
         with selectors.DefaultSelector() as selector:
             selector.register(process.stdout, selectors.EVENT_READ, output)
@@ -132,27 +181,44 @@ def supervise(argv, env, snapshot, session, directory, producer, report, deadlin
                         continue
                     key.data.extend(block)
                     total += len(block)
-                    require(total <= 5120 and len(error) <= 1024 and len(output) <= 4096)
+                    require(total <= (21504 if probe is not None else 5120) and len(error) <= 1024
+                            and len(output) <= (16384 if probe is not None and held is not None else 4096))
                     if key.data is output and b"\n" in output:
-                        require(held is None and output.startswith(session.READY)
-                                and output.endswith(b"\n") and output.count(b"\n") == 1
-                                and process.poll() is None)
-                        raw = bytes(output[len(session.READY):-1])
-                        held = session.llama.worker.decode(raw)
-                        require(session.probes.encoded(held) == raw)
-                        report["stage"] = "ready-validation"
-                        image = originals(session, directory, held, producer, deadline)
+                        require(output.endswith(b"\n") and output.count(b"\n") == 1
+                                and process.poll() is None and not released)
+                        if held is None:
+                            require(output.startswith(session.READY))
+                            raw = bytes(output[len(session.READY):-1])
+                            held = session.llama.worker.decode(raw)
+                            require(session.probes.encoded(held) == raw)
+                            report["stage"] = "ready-validation"
+                            image = originals(session, directory, held, producer, deadline)
+                            report["ready"] = held
+                            if probe is not None:
+                                report["stage"] = "probe"
+                                output.clear()
+                                continue
+                        else:
+                            require(probe is not None and output.startswith(b"NIB-TAU-CPU-PROBE "))
+                            raw = bytes(output[len(b"NIB-TAU-CPU-PROBE "):-1])
+                            notice = session.llama.worker.decode(raw)
+                            require(session.probes.encoded(notice) == raw)
+                            probe_receipts(session, directory, notice, held, probe, deadline)
+                            probe["notice"] = notice
+                            report["probe"] = notice
                         require(process.poll() is None and not error)
-                        report["ready"] = held
                         ack = session.DONE + session.probes.encoded(
                             {"ready_sha256": held["ready_sha256"], "released": True}) + b"\n"
                         session.send(process.stdin.fileno(), ack, min(deadline, time.monotonic() + 5))
                         process.stdin.close()
+                        released = True
                         report["stage"] = "release"
                         output.clear()
-            require(process.wait(timeout=max(0.01, deadline - time.monotonic())) == 0
-                    and held is not None and not output
-                    and bytes(error) == b"CPU session: pass; no qualification claim.\n")
+            code = process.wait(timeout=max(0.01, deadline - time.monotonic()))
+            require(code in ((0, 1) if probe is not None else (0,)) and held is not None and released and not output
+                    and bytes(error) == b"CPU session: " + (b"pass" if code == 0 else b"fail") + b"; no qualification claim.\n")
+            if probe is not None:
+                probe["exit_code"] = code
             completed = True
             return held, image
     finally:
@@ -174,7 +240,7 @@ def supervise(argv, env, snapshot, session, directory, producer, report, deadlin
                     stream.close()
 
 
-def execute(source, env, snapshot, inputs, directory, report, deadline):
+def execute(source, env, snapshot, inputs, directory, report, deadline, *, probe=None):
     cpu = rec.toolkit(source)
     session = sys.modules["tau_cpu_session"]
     producer = {"git_sha": report["git_sha"], "script": rec.SCRIPT,
@@ -182,15 +248,29 @@ def execute(source, env, snapshot, inputs, directory, report, deadline):
     command = [sys.executable, "-I", "-S", "-B", str(source / rec.SCRIPT)]
     for flag, path in zip(("archive", "model-06", "model-17", "cmake-wheel"), inputs):
         command += ["--" + flag, str(path)]
-    command += ["--output", str(directory / "pair"), "--session"]
+    command += ["--output", str(directory / "pair")]
+    if probe is None:
+        command += ["--session"]
+    else:
+        runner = rec.load(source / "scripts/tau_trial.py", "cpu_controller_probe")
+        toolkit = runner.identity(min(deadline, time.monotonic() + 60), parent_pipe=True, support_probe=True)
+        plan, _ = runner.validate_plan(probe["payload"], probe["sha"], toolkit,
+            min(deadline, time.monotonic() + 60), parent_pipe=True, support_probe=True)
+        probe.update(runner=runner, toolkit=toolkit, plan=plan)
+        command += ["--probe-payload", str(probe["payload"]), "--probe-plan-sha256", probe["sha"]]
     require(cpu.TOTAL_SECONDS == 1800 and time.monotonic() < deadline)
     report["stage"] = "producer"
     report["cleanup"] = {"process_group": "unknown", "producer": "unknown"}
-    held, image = supervise(command, env, snapshot, session, directory / "pair", producer, report, deadline)
+    options = {"probe": probe} if probe is not None else {}
+    held, image = supervise(command, env, snapshot, session, directory / "pair", producer, report, deadline, **options)
     report["stage"] = "final-validation"
     report["producer_receipts"] = final_receipts(session, directory / "pair", held, image,
-        report["git_sha"], report["source_archive_sha256"], report["sources"], deadline)
+        report["git_sha"], report["source_archive_sha256"], report["sources"], deadline, **options)
     report["cleanup"]["producer"] = "confirmed"
+    if probe is not None:
+        report["scorer_receipts"] = probe["receipts"]
+        require((probe["exit_code"] == 0) == (probe["scorer"]["result"] == "pass"))
+        require(probe["scorer"]["result"] == "pass" and probe["scorer"]["cleanup"] == "confirmed")
 
 
 def main():
@@ -200,7 +280,12 @@ def main():
     parser = Parser(description=__doc__)
     for name in ("archive", "model-06", "model-17", "cmake-wheel", "output"):
         parser.add_argument("--" + name, type=Path, required=True)
+    parser.add_argument("--probe-payload", type=Path)
+    parser.add_argument("--probe-plan-sha256")
     args = parser.parse_args()
+    probing = args.probe_payload is not None or args.probe_plan_sha256 is not None
+    require(not probing or args.probe_payload is not None and type(args.probe_plan_sha256) is str
+            and rec.re.fullmatch("[0-9a-f]{64}", args.probe_plan_sha256))
     os.umask(0o077)
     deadline = time.monotonic() + SECONDS
     raw = (ROOT / rec.SNAPSHOT).read_bytes()
@@ -228,6 +313,9 @@ def main():
         try:
             sources = {name: rec.digest((source / name).read_bytes()) for name in
                        (*rec.SOURCES, SCRIPT, WORKFLOW, "scripts/pilot/export.py", "scripts/e2e/run.py")}
+            if probing:
+                sources["scripts/prepare-tau-cpu-probe-native.py"] = rec.digest(
+                    (source / "scripts/prepare-tau-cpu-probe-native.py").read_bytes())
             report = {"schema": "nib.tau-cpu-controller/v1", "git_sha": revision,
                       "source_archive_sha256": archive_sha, "sources": sources, "result": "fail",
                       "stage": "preflight", "runtime_context": None, "ready": None,
@@ -239,13 +327,18 @@ def main():
                       "execution": "software", "hardware_validated": False,
                       "host": {"provider": "unverified", "machine": "unverified", "gpus": "none"},
                       "notes": "Held CPU pair readiness/release only; no tau, live admission, quality or confidentiality."}
+            if probing:
+                report.update(schema="nib.tau-cpu-probe-controller/v1", probe=None, scorer_receipts={})
+                record["command"] += " --probe-payload PRIVATE --probe-plan-sha256 " + args.probe_plan_sha256
+                record["notes"] = "Fixed original tau CPU prompt-fit only; scripted target, no full tau, live admission, quality or confidentiality."
             rec.write(fd, "run.json", record)
             try:
                 report["runtime_context"] = preflight()
                 record["host"] = {"provider": "github-actions", "machine": "native-cpu-controller", "gpus": "none"}
                 execute(source, env, snapshot,
                         [p.absolute() for p in (args.archive, args.model_06, args.model_17, args.cmake_wheel)],
-                        directory, report, deadline)
+                        directory, report, deadline,
+                        **({"probe": {"payload": args.probe_payload.absolute(), "sha": args.probe_plan_sha256}} if probing else {}))
                 snapshot.validate_snapshot(source, files)
                 require(time.monotonic() < deadline)
                 report.update(result="pass", stage="complete")

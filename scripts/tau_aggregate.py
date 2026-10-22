@@ -21,7 +21,7 @@ import time
 import types
 
 ROOT = Path(__file__).absolute().parent.parent
-PREFLIGHT_SHA = "37a6c53c31f78f952ca8abf47ee96f166feaaf1a83cf8171c76caa72637caeec"
+PREFLIGHT_SHA = "c38f9876dbdeb78663f9ffab5d39a28c6d87c7b298215d6179ff079072822704"
 METRICS_SHA = "136b5ebcc0c115b5817a4f6d6b485a871aba199ddedf56458f35f339569a54dc"
 BASE_COUNTS = {"airline": 50, "retail": 114, "telecom": 114}
 STATUSES = ("evaluated", "infrastructure_error", "timeout", "truncated", "protocol_error",

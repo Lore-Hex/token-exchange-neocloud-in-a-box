@@ -2,6 +2,11 @@ name: Native CPU support pair lifecycle
 
 on:
   workflow_dispatch:
+    inputs:
+      support_probe:
+        description: Fixed original tau CPU prompt-fit probe (no target or quality claim)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -28,21 +33,35 @@ jobs:
           mkdir -m 700 -p build/tau-cpu-session
       - name: Prepare existing immutable public inputs
         timeout-minutes: 17
+        env:
+          SUPPORT_PROBE: ${{ inputs.support_probe }}
         run: |
           python3 -I -S -B scripts/prepare-tau-cpu-parity-native.py \
             --output "$PWD/build/tau-cpu-session/inputs"
+          if [ "$SUPPORT_PROBE" = true ]; then
+            python3 -I -S -B scripts/prepare-tau-cpu-probe-native.py \
+              --output "$PWD/build/tau-cpu-session/probe-inputs"
+          fi
       - name: Record fresh pair readiness and bound release
         id: record
         continue-on-error: true
         timeout-minutes: 40
+        env:
+          SUPPORT_PROBE: ${{ inputs.support_probe }}
         run: |
           inputs="$PWD/build/tau-cpu-session/inputs"
+          probe_args=()
+          if [ "$SUPPORT_PROBE" = true ]; then
+            probe="$PWD/build/tau-cpu-session/probe-inputs"
+            plan_sha=$(jq -er '.plan_sha256' "$probe/setup.json")
+            probe_args=(--probe-payload "$probe/payload" --probe-plan-sha256 "$plan_sha")
+          fi
           python3 -I -S -B scripts/record-tau-cpu-session.py \
             --archive "$inputs/llama.tar.gz" \
             --model-06 "$inputs/0.gguf" \
             --model-17 "$inputs/1.gguf" \
             --cmake-wheel "$inputs/cmake-3.31.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl" \
-            --output "$PWD/build/tau-cpu-session/proof"
+            --output "$PWD/build/tau-cpu-session/proof" "${probe_args[@]}"
       - name: Preserve only original metadata receipts, including failure
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
@@ -58,6 +77,17 @@ jobs:
             build/tau-cpu-session/proof/pair/evaluator-runtime.json
             build/tau-cpu-session/proof/pair/evaluator-tokenizer.json
           if-no-files-found: error
+          retention-days: 7
+      - name: Preserve only original probe metadata
+        if: always() && inputs.support_probe
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: tau-cpu-support-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/tau-cpu-session/probe-inputs/setup.json
+            build/tau-cpu-session/proof/pair/scorer/run.json
+            build/tau-cpu-session/proof/pair/scorer/output.log
+          if-no-files-found: warn
           retention-days: 7
       - name: Require terminal controller success
         if: always()

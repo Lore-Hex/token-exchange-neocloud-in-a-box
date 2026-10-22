@@ -165,10 +165,15 @@ def alarm(deadline, clock=time.monotonic):
 
 class Bridge:
     """Serial all-role accounting. Scripted usage is not a tokenizer measurement."""
-    def __init__(self, tau, config, role, transport, clock=time.monotonic):
+    def __init__(self, tau, config, role, transport, clock=time.monotonic, *, support_probe=False):
         require(role in ("candidate", "reference"))
         self.tau, self.role, self.transport, self.clock = tau, role, transport, clock
-        self.budget = tau.Budget(config, clock=clock)
+        if support_probe:
+            import tau_support_probe
+            require(role == "candidate")
+            self.budget = tau_support_probe.ResourceBudget(config, clock=clock)
+        else:
+            self.budget = tau.Budget(config, clock=clock)
         self.budget.begin_trial()
         self.failed = None
         self.usage_known = True
@@ -281,7 +286,7 @@ def deny_external(event, args):
         raise Abort("protocol_error")
 
 
-def run_upstream(root, manifest, selection, bridge):
+def configure_upstream(bridge):
     # Called only by the container entry after verification. No upstream import at
     # module scope: unit tests exercise the bridge without importing dependencies.
     import logging
@@ -294,11 +299,7 @@ def run_upstream(root, manifest, selection, bridge):
                  "_async_success_callback", "_async_failure_callback", "service_callback"):
         setattr(litellm, name, [])
     from tau2.utils import llm_utils
-    from tau2.runner.batch import run_single_task
-    from tau2.runner.helpers import get_tasks
-    from tau2.data_model.simulation import TextRunConfig
     from tau2.evaluator import evaluator_nl_assertions
-    from tau2.evaluator.evaluator import EvaluationType
     from litellm import ModelResponse
     llm_utils.set_llm_log_dir(None)
     llm_utils._write_llm_log = lambda *args, **kwargs: None
@@ -310,6 +311,50 @@ def run_upstream(root, manifest, selection, bridge):
     llm_utils.completion_cost = lambda *args, **kwargs: 0.0
     evaluator_nl_assertions.DEFAULT_LLM_NL_ASSERTIONS = "nib-scripted-evaluator"
     evaluator_nl_assertions.DEFAULT_LLM_NL_ASSERTIONS_ARGS = {"temperature": 0, "num_retries": 0}
+
+
+def run_support_probe(root, manifest, selection, bridge):
+    """Two original upstream steps, then its evaluator; never a quality trial."""
+    import tau_support_probe
+    tau_support_probe.validate(manifest)
+    require(selection == tau_support_probe.SELECTION)
+    configure_upstream(bridge)
+    from tau2.runner.helpers import get_tasks
+    from tau2.runner.build import build_text_orchestrator
+    from tau2.data_model.simulation import TextRunConfig
+    from tau2.evaluator.evaluator_nl_assertions import NLAssertionsEvaluator
+    from tau2.utils import llm_utils
+    task = get_tasks("retail", task_split_name="base", task_ids=["2"], num_tasks=1)[0]
+    require(task.initial_state is None and task.user_tools is None and task.evaluation_criteria is not None)
+    bridge.assertions = list(task.evaluation_criteria.nl_assertions or [])
+    require(len(bridge.assertions) == 1)
+    args = {"temperature": 0, "num_retries": 0}
+    config = TextRunConfig(
+        domain="retail", task_set_name="retail", task_split_name="base", task_ids=["2"], num_tasks=1,
+        llm_agent="nib-scripted-agent", llm_args_agent=args, llm_user="nib-scripted-simulator", llm_args_user=args,
+        agent="llm_agent", user="user_simulator", num_trials=1, max_concurrency=1, max_steps=2, max_errors=1,
+        timeout=min(SECONDS, manifest["limits"]["trial_seconds"]),
+        max_retries=0, hallucination_retries=0, auto_review=False, auto_resume=False,
+        verbose_logs=False, seed=selection["seed"], save_to=None)
+    try:
+        orchestrator = build_text_orchestrator(config, task, seed=selection["seed"])
+        orchestrator.initialize()
+        orchestrator.step()  # Original simulator rendering and parser, actual CPU reply.
+        require(not orchestrator.done)
+        orchestrator.step()  # The parent supplies only the existing scripted agent reply.
+        reward = NLAssertionsEvaluator.calculate_reward(task, orchestrator.get_messages())
+        return float(reward.reward)
+    finally:
+        llm_utils.set_llm_log_dir(None)
+
+
+def run_upstream(root, manifest, selection, bridge):
+    configure_upstream(bridge)
+    from tau2.runner.batch import run_single_task
+    from tau2.runner.helpers import get_tasks
+    from tau2.data_model.simulation import TextRunConfig
+    from tau2.evaluator.evaluator import EvaluationType
+    from tau2.utils import llm_utils
     task = get_tasks(selection["domain"], task_split_name="base",
                      task_ids=[selection["task_id"]], num_tasks=1)[0]
     bridge.assertions = list(task.evaluation_criteria.nl_assertions or []) if task.evaluation_criteria else []
@@ -405,12 +450,20 @@ def main():
             require(digest(raw) == sys.argv[1])
             contract = decode(raw)
             require(contract.get("transport") == ("scripted-parent-pipe" if parent_pipe else None))
+            require("support_probe" not in contract or parent_pipe and contract["support_probe"] is True)
             verify_tree(root, contract["files"], time.monotonic() + 60)
             tau = load(root, "scripts/tau_preflight.py")
             aggregate = load(root, "scripts/tau_aggregate.py")
             manifest = decode(read(root / "manifest.json", 1 << 20))
             pins = decode(read(root / tau.PINS, 1 << 20))
-            aggregate.validate_manifest(manifest, contract["manifest_sha256"], pins)
+            if contract.get("support_probe") is True:
+                sys.modules["tau_preflight"] = tau
+                policy = load(root, "scripts/tau_support_probe.py")
+                sys.modules["tau_support_probe"] = policy
+                policy.validate(manifest, contract["manifest_sha256"])
+                require(contract["selection"] == policy.SELECTION)
+            else:
+                aggregate.validate_manifest(manifest, contract["manifest_sha256"], pins)
             sys.path[:] = [p for p in sys.path if p and "site-packages" not in p]
             sys.path.extend([str(root / "upstream/src"), str(root / "packages")])
             sys.addaudithook(deny_external)
@@ -425,7 +478,11 @@ def main():
                 input_fd = report_fd = None  # Channel now owns both duplicates.
                 try:
                     proxy = tau_transport.WorkerProxy(channel, time.monotonic() + SECONDS)
-                    tau_pipe_trial.execute(root, manifest, contract["selection"], proxy)
+                    if contract.get("support_probe") is True:
+                        tau_pipe_trial.execute(root, manifest, contract["selection"], proxy, run=run_support_probe)
+                    else:
+                        require("support_probe" not in contract)
+                        tau_pipe_trial.execute(root, manifest, contract["selection"], proxy)
                 finally:
                     channel.close()
                 return 0

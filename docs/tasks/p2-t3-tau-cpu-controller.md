@@ -39,7 +39,7 @@ current producer, readiness-frame digest, immutable built-image ID and fresh
 expiry must agree. It does not re-encode or manufacture receipt files, use a
 historical producer, or claim container PIDs are host-visible.
 
-Only after this validation does the owner send one bound `NIB-TAU-CPU-DONE`
+In the default mode, only after this validation does the owner send one bound `NIB-TAU-CPU-DONE`
 release and close its input pipe. There is no trial request or successful
 evaluation acknowledgement. The final original producer report must bind the
 same source archive, source files, image, readiness digest and four receipt
@@ -68,7 +68,9 @@ no-follow. No pre-existing receipt is overwritten or relabeled.
 Independent final-head review and all hosted checks are required before any
 separately approved actual run. A first held-pair run would measure functional
 concurrent readiness only. Original pinned tau prompt/context fit and evaluator
-structured-output checks remain a separate task, with the existing 4096/256
-bounds and no truncation. No target is launched here; the UID/PID/network
+structured-output checks have a separate explicit
+[fixed support-probe mode](p2-t3-tau-cpu-prompt-fit.md), with the existing 4096/256
+bounds and no truncation. Its manual input defaults false; no actual probe pass
+is implied. No target is launched here; the UID/PID/network
 context mismatch with the current UID-0 GPU owner remains explicit. No tau,
 quality, live-admission, confidentiality or full-acceptance claim is enabled.

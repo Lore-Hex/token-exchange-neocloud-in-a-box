@@ -54,8 +54,9 @@ def release(raw, ready_sha):
     return value
 
 
-def hold(raw, owned, processes, deadline, read_fd=0, write_fd=1):
-    send(write_fd, READY + raw + b"\n", min(deadline, time.monotonic() + 5))
+def hold(raw, owned, processes, deadline, read_fd=0, write_fd=1, *, announce=True):
+    if announce:
+        send(write_fd, READY + raw + b"\n", min(deadline, time.monotonic() + 5))
     data = bytearray()
     while True:
         require(time.monotonic() < deadline and all(p.poll() is None for p in processes))
@@ -108,11 +109,13 @@ def receipts(role, model, endpoint, rows, producer, image_sha, helper_sha, deadl
     return {role + "-runtime.json": raw, role + "-tokenizer.json": tau.encoded(tokenizer)}
 
 
-def run(archive, models, work, producer, image_sha, *, read_fd=0, write_fd=1):
+def run(archive, models, work, producer, image_sha, *, read_fd=0, write_fd=1, probe=None):
     deadline = time.monotonic() + cpu.TOTAL_SECONDS - RESERVE
     report = {"schema": "nib.tau-cpu-session/v1", "result": "fail", "stage": "inputs",
               "receipts": {}, "ready_sha256": None, "acknowledged": False,
               "cleanup": "unknown", "quality_eligible": False, "confidential": False, "live_admission": False}
+    if probe is not None:
+        report.update(schema="nib.tau-cpu-session/v2", probe=None)
     processes, owned, originals = [], [], {}
     pilot = None
     try:
@@ -173,8 +176,21 @@ def run(archive, models, work, producer, image_sha, *, read_fd=0, write_fd=1):
             require(len(raw) <= 32768)
             report.update(stage="hold", receipts={name: tau.digest(originals[name]) for name in FILES},
                           ready_sha256=tau.digest(raw))
-            hold(raw, owned, processes, deadline, read_fd, write_fd)
-            report.update(result="pass", stage="released", acknowledged=True)
+            if probe is not None:
+                import tau_cpu_probe
+                send(write_fd, READY + raw + b"\n", min(deadline, time.monotonic() + 5))
+                report["probe"] = tau_cpu_probe.execute(probe, dict(zip(ROLES, owned)),
+                    {role: llama.worker.decode(originals[role + "-runtime.json"]) for role in ROLES},
+                    processes, os.dup(read_fd), os.dup(write_fd), min(deadline, time.monotonic() + tau_cpu_probe.SECONDS))
+                # Model responses go only to the isolated scorer's pipe. The
+                # separate fixed metadata frame lets the host handle failures.
+                send(2, tau_cpu_probe.REPORT + probes.encoded(report["probe"]) + b"\n",
+                     min(deadline, time.monotonic() + 5))
+                hold(raw, owned, processes, deadline, read_fd, write_fd, announce=False)
+            else:
+                hold(raw, owned, processes, deadline, read_fd, write_fd)
+            report.update(result="pass" if probe is None or report["probe"]["result"] == "pass" else "fail",
+                          stage="released", acknowledged=True)
     except BaseException:
         report["result"] = "fail"
     finally:
@@ -192,9 +208,11 @@ def run(archive, models, work, producer, image_sha, *, read_fd=0, write_fd=1):
 
 
 def validate(row):
+    probing = type(row) is dict and row.get("schema") == "nib.tau-cpu-session/v2"
     identity.keys(row, ("schema", "result", "stage", "receipts", "ready_sha256", "acknowledged",
-                        "cleanup", "quality_eligible", "confidential", "live_admission"))
-    require(row["schema"] == "nib.tau-cpu-session/v1" and row["result"] in ("pass", "fail")
+                        "cleanup", "quality_eligible", "confidential", "live_admission") + (("probe",) if probing else ()))
+    require(row["schema"] == ("nib.tau-cpu-session/v2" if probing else "nib.tau-cpu-session/v1")
+            and row["result"] in ("pass", "fail")
             and row["stage"] in ("inputs", "build", "parity", "hold", "released")
             and type(row["acknowledged"]) is bool and row["cleanup"] in ("confirmed", "unknown")
             and all(row[key] is False for key in ("quality_eligible", "confidential", "live_admission")))
@@ -207,6 +225,11 @@ def validate(row):
     if row["result"] == "pass":
         require(row["stage"] == "released" and row["acknowledged"] and row["cleanup"] == "confirmed"
                 and row["ready_sha256"] is not None)
+    if probing:
+        import tau_cpu_probe
+        if row["probe"] is not None:
+            tau_cpu_probe.validate(row["probe"])
+        require(row["result"] != "pass" or row["probe"] is not None and row["probe"]["result"] == "pass")
     return row
 
 
@@ -253,7 +276,7 @@ def accept(raw, producer, image_sha, deadline):
                        "receipts": {name: tau.digest(originals[name]) for name in FILES}}
 
 
-def relay(argv, env, snapshot, producer, image_sha, output_fd, *, read_fd=0, write_fd=1):
+def relay(argv, env, snapshot, producer, image_sha, output_fd, *, read_fd=0, write_fd=1, probe=None):
     """A private controller pipe, never an HTTP endpoint or arbitrary command."""
     require(all(stat.S_ISFIFO(os.fstat(fd).st_mode) for fd in (read_fd, write_fd)))
     deadline = time.monotonic() + cpu.TOTAL_SECONDS
@@ -300,6 +323,23 @@ def relay(argv, env, snapshot, producer, image_sha, output_fd, *, read_fd=0, wri
                             os.fsync(output_fd)
                             send(write_fd, READY + probes.encoded(held) + b"\n", min(deadline, time.monotonic() + 5))
                             output.clear()
+                            if probe is not None:
+                                runner = cpu.module(cpu.ROOT / "scripts/tau_trial.py", "cpu_probe_runner")
+                                selector.unregister(process.stdout)
+                                selector.unregister(process.stderr)
+                                probe["record"] = runner.run(probe["payload"], probe["sha"], probe["output"], probe["socket"],
+                                    parent_pipe=True, support_probe={"process": process,
+                                        "ready_sha256": held["ready_sha256"], "controller_fd": read_fd})
+                                selector.register(process.stdout, selectors.EVENT_READ, "output")
+                                selector.register(process.stderr, selectors.EVENT_READ, "error")
+                                notice = {"schema": "nib.tau-cpu-probe-held/v1", "ready_sha256": held["ready_sha256"],
+                                    "plan_sha256": probe["sha"], "scorer_sha256": tau.digest(tau.encoded(probe["record"])),
+                                    "result": probe["record"]["result"], "cleanup": probe["record"]["cleanup"],
+                                    "diagnostic": probe["record"]["diagnostic"]}
+                                raw_notice = probes.encoded(notice)
+                                require(len(raw_notice) <= 16384)
+                                send(write_fd, b"NIB-TAU-CPU-PROBE " + raw_notice + b"\n", min(deadline, time.monotonic() + 5))
+                            break  # The fixed probe may have consumed readiness from other selected FDs.
             code = process.wait(timeout=max(0.01, deadline - time.monotonic()))
             result = validate(llama.worker.decode(bytes(output)))
             require(code in (0, 1) and (code == 0) == (result["result"] == "pass"))
@@ -308,6 +348,9 @@ def relay(argv, env, snapshot, producer, image_sha, output_fd, *, read_fd=0, wri
             else:
                 require(result["ready_sha256"] is None and not result["receipts"])
             require(not result["acknowledged"] or acknowledged)
+            require((result["schema"] == "nib.tau-cpu-session/v2") is (probe is not None))
+            if probe is not None and probe["record"] is not None:
+                require(result["probe"] == probe["record"]["diagnostic"])
             return result
     finally:
         if not process.stdin.closed:
