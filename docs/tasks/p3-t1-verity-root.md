@@ -173,6 +173,11 @@ are required before any reproducibility claim; kernel/UKI/boot are subsequent
 increments. Do not accept this newly generated root hash as an authenticated
 release measurement merely because userspace verification succeeded.
 
+The subsequent optional [private initrd/UKI stage](p3-t1-initrd-uki.md) now
+implements unsigned assembly and inspection after this stage, still without
+native execution, export or boot proof. Its separate opt-in also checks the
+root-hash-derived partition UUIDs needed by systemd's initrd discovery.
+
 Focused tests, from `scripts/`, using the existing Python 3.12 check environment:
 
 ```sh

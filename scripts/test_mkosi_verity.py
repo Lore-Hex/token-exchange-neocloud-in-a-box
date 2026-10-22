@@ -358,7 +358,7 @@ class VerityTests(unittest.TestCase):
             with self.assertRaises(ValueError): host.command(*args, True, False, True)
         for args, expected in (([], (False, False, False)), (["--compile-driver"], (True, False, False)),
                 (["--install-driver"], (True, True, False)), (["--install-driver", "--verity-root"], (True, True, True))):
-            self.assertEqual(worker.options(args), expected)
+            self.assertEqual(worker.options(args), (*expected, False))
         for args in (["--verity-root"], ["--compile-driver", "--verity-root"],
                      ["--verity-root", "--install-driver"], ["--install-driver", "--verity-root", "bad"]):
             with self.assertRaises(ValueError): worker.options(args)
@@ -378,7 +378,7 @@ class VerityTests(unittest.TestCase):
                     mock.patch.object(host, "run", return_value=0) as run, mock.patch.object(host.sys, "argv", argv + opt):
                 self.assertEqual(host.main(), 0)
                 captures.append(committed.call_args.args[0])
-                self.assertEqual(run.call_args.kwargs, {"verity_root": bool(opt)})
+                self.assertEqual(run.call_args.kwargs, {"verity_root": bool(opt), "boot_uki": False})
         self.assertEqual(captures[1], (*captures[0], host.VERITY))
         self.assertEqual(len(captures[1]), 30)
         self.assertEqual(len(set(captures[1]) | set(host.tools.FILES)), 38)
