@@ -80,11 +80,12 @@ the usual eight correctness cases ran. The enclosing lab remains `BLOCKED`,
 
 ## Evidence boundary
 
-Implemented and tested with synthetic interfaces only; no hardware parity
-result is claimed. Unit tests do not execute the real tokenizer or engine.
-An independently reviewed final head, green CI and an explicitly authorized
-hardware run with original artifacts are still required. No GPU/cloud run,
-push or publication is authorized by this change.
+The authorized eight-B300 run on 2026-10-22 passed text, system and tools
+comparisons, then failed at the tool-continuation `/tokenize` protocol step.
+The engine stopped and owned-container cleanup was confirmed. See the
+[original evidence and limits](p2-t3-replacement-parity-evidence.md).
+No all-case parity pass is claimed. Unit tests use synthetic interfaces and do
+not execute the real tokenizer or engine.
 
 Even a hardware pass proves only four fixed non-thinking text/tool probes on
 one selected runtime. It is not universal tokenizer equivalence, an independent
