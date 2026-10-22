@@ -17,6 +17,44 @@ FILES = tuple(role + "-" + kind + ".json" for role in ROLES for kind in ("runtim
 READY = b"NIB-TAU-CPU-READY "
 DONE = b"NIB-TAU-CPU-DONE "
 RESERVE = 60
+SUBSTAGES = ("inputs", "build", "local-tokenizer", "launch", "endpoint", "health",
+             "comparison", "rehash", "receipts", "pair-check", "publish", "hold", "released")
+FAILURE_SOURCES = cpu.FAILURE_SOURCES + ("scripts/tau_cpu_session.py", "scripts/tau_llama_identity.py",
+                                      "scripts/tau_preflight.py", "scripts/tau_trial_worker.py")
+
+
+def failure_diagnostics(error, server_exit):
+    value = cpu.failure_diagnostics(error, server_exit)
+    if isinstance(error, llama.worker.Abort) and error.status == "timeout":
+        value["kind"] = "timeout"
+    names = {str(cpu.ROOT / name): name for name in FAILURE_SOURCES}
+    frames, trace = [], error.__traceback__
+    while trace is not None:
+        source = names.get(trace.tb_frame.f_code.co_filename)
+        if source is not None:
+            frames.append({"source": source, "line": trace.tb_lineno,
+                           "source_sha256": tau.digest((cpu.ROOT / source).read_bytes())})
+            frames = frames[-8:]
+        trace = trace.tb_next
+    return {**value, "frames": frames}
+
+
+def validate_failure(value):
+    identity.keys(value, ("kind", "errno", "server_exit", "frames"))
+    cpu.validate_failure({**value, "frames": []})
+    require(type(value["frames"]) is list and len(value["frames"]) <= 8)
+    for frame in value["frames"]:
+        identity.keys(frame, ("source", "line", "source_sha256"))
+        require(frame["source"] in FAILURE_SOURCES and type(frame["line"]) is int)
+        raw = (cpu.ROOT / frame["source"]).read_bytes()
+        require(0 < frame["line"] <= raw.count(b"\n") + 1 and frame["source_sha256"] == tau.digest(raw))
+
+
+def progress():
+    return {"substage": "inputs", "model_index": None, "parity": {
+        "schema": "nib.tau-cpu-parity/v1", "result": "fail", "stage": "inputs",
+        "engine_revision": llama.REVISION, "models": [], "binaries": {}, "failure": None,
+        "quality_eligible": False, "confidential": False, "live_admission": False}}
 
 
 def write_exact(fd, name, raw):
@@ -110,11 +148,13 @@ def receipts(role, model, endpoint, rows, producer, image_sha, helper_sha, deadl
 
 def run(archive, models, work, producer, image_sha, *, read_fd=0, write_fd=1):
     deadline = time.monotonic() + cpu.TOTAL_SECONDS - RESERVE
-    report = {"schema": "nib.tau-cpu-session/v1", "result": "fail", "stage": "inputs",
+    report = {"schema": "nib.tau-cpu-session/v2", "result": "fail", "stage": "inputs",
               "receipts": {}, "ready_sha256": None, "acknowledged": False,
-              "cleanup": "unknown", "quality_eligible": False, "confidential": False, "live_admission": False}
+              "cleanup": "unknown", "quality_eligible": False, "confidential": False, "live_admission": False,
+              "progress": progress(), "failure": None}
+    checkpoint, parity = report["progress"], report["progress"]["parity"]
     processes, owned, originals = [], [], {}
-    pilot = None
+    pilot, process = None, None
     try:
         with llama.worker.alarm(deadline):
             cpu.confinement()
@@ -130,12 +170,22 @@ def run(archive, models, work, producer, image_sha, *, read_fd=0, write_fd=1):
                 require(weight.stat().st_size == pins["models"][model]["bytes"]
                         and pilot.file_digest(weight) == pins["models"][model]["sha256"])
             report["stage"] = "build"
+            checkpoint["substage"] = parity["stage"] = "build"
             server, helper = cpu.build(pilot, archive, work, env)
             server_sha, helper_sha = pilot.file_digest(server), pilot.file_digest(helper)
-            for role, model, weight in zip(ROLES, cpu.MODEL_IDS, models):
+            parity["binaries"] = {"server": server_sha, "helper": helper_sha}
+            for index, (role, model, weight) in enumerate(zip(ROLES, cpu.MODEL_IDS, models)):
+                process = None
+                checkpoint.update(model_index=index, substage="local-tokenizer")
+                parity["stage"] = "local-tokenizer"
+                item = {"model": model, "weight_sha256": pins["models"][model]["sha256"],
+                        "result": "fail", "ready_ms": None, "cases": [], "process": None,
+                        "owner_socket_checked": False}
+                parity["models"].append(item)
                 until = min(deadline, time.monotonic() + cpu.MODEL_SECONDS)
                 report["stage"] = "parity"
                 local = cpu.native_tokens(helper, weight, env, snapshot, min(until, time.monotonic() + 60))
+                checkpoint["substage"] = "launch"
                 port = pilot.free_port()
                 argv = pilot.engine_command(server, weight, model, port, "unused")
                 require(argv[-2:] == ["--api-key-file", "unused"])
@@ -143,20 +193,34 @@ def run(archive, models, work, producer, image_sha, *, read_fd=0, write_fd=1):
                 process = subprocess.Popen(argv, env=env, cwd=work, stdin=subprocess.DEVNULL,
                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 processes.append(process)
-                ready_until = min(until, time.monotonic() + 90)
+                started = time.monotonic()
+                ready_until = min(until, started + 90)
+                checkpoint["substage"], parity["stage"] = "endpoint", "readiness"
                 endpoint = cpu.endpoint(process, port, server_sha, argv, ready_until)
                 owned.append(endpoint)
+                checkpoint["substage"] = "health"
                 with llama.worker.alarm(ready_until):
                     pilot.ready(process, port, "/health")
-                rows = []
+                item.update(process=endpoint.expected, ready_ms=int((time.monotonic() - started) * 1000),
+                            owner_socket_checked=True)
+                checkpoint["substage"] = parity["stage"] = "comparison"
+                rows = item["cases"]
                 cpu.compare(cpu.MeasuredClient(port, model, endpoint), model, local, until, rows)
+                checkpoint["substage"] = "rehash"
                 require(pilot.file_digest(weight) == pins["models"][model]["sha256"]
                         and pilot.file_digest(helper) == helper_sha)
+                if len(rows) == 4 and all(row["result"] == "pass" for row in rows):
+                    item["result"] = "pass"
+                checkpoint["substage"] = "receipts"
                 originals.update(receipts(role, model, endpoint, rows, producer, image_sha, helper_sha, until))
+            parity.update(result="pass", stage="complete")
+            cpu.validate(parity)
+            checkpoint["substage"] = "pair-check"
             require(len({p.pid for p in processes}) == 2 and len({e.port for e in owned}) == 2
                     and len({e.expected["listener_inode"] for e in owned}) == 2)
             for endpoint in owned:
                 endpoint.check(deadline)
+            checkpoint["substage"] = "publish"
             directory = work / "receipts"
             directory.mkdir(mode=0o700)
             fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -173,10 +237,13 @@ def run(archive, models, work, producer, image_sha, *, read_fd=0, write_fd=1):
             require(len(raw) <= 32768)
             report.update(stage="hold", receipts={name: tau.digest(originals[name]) for name in FILES},
                           ready_sha256=tau.digest(raw))
+            checkpoint["substage"] = "hold"
             hold(raw, owned, processes, deadline, read_fd, write_fd)
             report.update(result="pass", stage="released", acknowledged=True)
-    except BaseException:
+            checkpoint["substage"] = "released"
+    except BaseException as error:
         report["result"] = "fail"
+        report["failure"] = failure_diagnostics(error, None if process is None else process.poll())
     finally:
         stopped = True
         for process in reversed(processes):
@@ -193,20 +260,31 @@ def run(archive, models, work, producer, image_sha, *, read_fd=0, write_fd=1):
 
 def validate(row):
     identity.keys(row, ("schema", "result", "stage", "receipts", "ready_sha256", "acknowledged",
-                        "cleanup", "quality_eligible", "confidential", "live_admission"))
-    require(row["schema"] == "nib.tau-cpu-session/v1" and row["result"] in ("pass", "fail")
+                        "cleanup", "quality_eligible", "confidential", "live_admission", "progress", "failure"))
+    require(row["schema"] == "nib.tau-cpu-session/v2" and row["result"] in ("pass", "fail")
             and row["stage"] in ("inputs", "build", "parity", "hold", "released")
             and type(row["acknowledged"]) is bool and row["cleanup"] in ("confirmed", "unknown")
             and all(row[key] is False for key in ("quality_eligible", "confidential", "live_admission")))
+    checkpoint = row["progress"]
+    identity.keys(checkpoint, ("substage", "model_index", "parity"))
+    require(checkpoint["substage"] in SUBSTAGES)
+    cpu.validate(checkpoint["parity"])
+    count = len(checkpoint["parity"]["models"])
+    require((count == 0 and checkpoint["model_index"] is None) or
+            (count > 0 and type(checkpoint["model_index"]) is int and checkpoint["model_index"] == count - 1))
+    if row["failure"] is not None:
+        require(row["result"] == "fail")
+        validate_failure(row["failure"])
     require(type(row["receipts"]) is dict and set(row["receipts"]) in (set(), set(FILES)))
     for sha in row["receipts"].values():
         tau.sha(sha)
     if row["ready_sha256"] is not None:
         tau.sha(row["ready_sha256"])
-        require(set(row["receipts"]) == set(FILES))
+        require(set(row["receipts"]) == set(FILES) and checkpoint["parity"]["result"] == "pass")
     if row["result"] == "pass":
         require(row["stage"] == "released" and row["acknowledged"] and row["cleanup"] == "confirmed"
-                and row["ready_sha256"] is not None)
+                and row["ready_sha256"] is not None and checkpoint["substage"] == "released"
+                and row["failure"] is None)
     return row
 
 

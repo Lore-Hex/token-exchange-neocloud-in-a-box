@@ -29,6 +29,12 @@ exec(compile(Path(rec.__file__).read_bytes(), rec.__file__, "exec", dont_inherit
 require = rec.require
 
 
+def evidence_host(verified):
+    require(type(verified) is bool)
+    return {**rec.host("local"), "provider": "github-actions" if verified else "unverified",
+            "machine": "native-cpu-controller" if verified else "unverified"}
+
+
 def preflight():
     rec.host("github-actions")
     require(os.environ.get("GITHUB_REF") == "refs/heads/main")
@@ -237,12 +243,12 @@ def main():
                       "command": "python3 -I -S -B scripts/record-tau-cpu-session.py --archive PRIVATE --model-06 PRIVATE --model-17 PRIVATE --cmake-wheel PRIVATE --output PRIVATE",
                       "started_utc": rec.now(), "ended_utc": rec.now(), "result": "fail",
                       "execution": "software", "hardware_validated": False,
-                      "host": {"provider": "unverified", "machine": "unverified", "gpus": "none"},
+                      "host": evidence_host(False),
                       "notes": "Held CPU pair readiness/release only; no tau, live admission, quality or confidentiality."}
             rec.write(fd, "run.json", record)
             try:
                 report["runtime_context"] = preflight()
-                record["host"] = {"provider": "github-actions", "machine": "native-cpu-controller", "gpus": "none"}
+                record["host"] = evidence_host(True)
                 execute(source, env, snapshot,
                         [p.absolute() for p in (args.archive, args.model_06, args.model_17, args.cmake_wheel)],
                         directory, report, deadline)
