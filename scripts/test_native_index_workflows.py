@@ -15,8 +15,8 @@ class NativeIndexWorkflowTests(unittest.TestCase):
     def test_install_preserves_fetch_diagnostic_even_before_worker_exists(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/mkosi-native-build.yml").read_text())
         steps = workflow["jobs"]["install"]["steps"]
-        self.assertIn('> build/native-install/input-fetch.log', steps[1]["run"])
-        self.assertNotIn("|| true", steps[1]["run"])
+        self.assertIn('> build/native-install/input-fetch.log', steps[2]["run"])
+        self.assertNotIn("|| true", steps[2]["run"])
         self.assertIs(workflow[True]["workflow_dispatch"]["inputs"]["validate_export"]["default"], False)
         uploads = [step for step in steps if step.get("uses", "").startswith("actions/upload-artifact@")]
         self.assertEqual(len(uploads), 2)
@@ -37,7 +37,7 @@ class NativeIndexWorkflowTests(unittest.TestCase):
             with self.subTest(workflow=name):
                 workflow = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
                 self.assertEqual(workflow["permissions"], {"contents": "read"})
-                fetch = workflow["jobs"][job]["steps"][1]["run"]
+                fetch = workflow["jobs"][job]["steps"][2 if job == "install" else 1]["run"]
                 self.assertIn("build-input-indexes-20261020/metadata.tar.gz", fetch)
                 self.assertIn("--max-filesize 23847293", fetch)
                 self.assertIn("54def86b7b37b3b5178782965e499f0242a98f36bc7828105f112005576663a7", fetch)

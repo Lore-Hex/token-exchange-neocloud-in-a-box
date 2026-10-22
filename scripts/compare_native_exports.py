@@ -63,11 +63,14 @@ def read(directory):
         return {name: files.read_at(fd, name, export.MAX_JSON) for name in NAMES}
 
 
-def compare(left_raws, right_raws):
+def compare(left_raws, right_raws, *, expected_source=None):
     left, right = validate(left_raws), validate(right_raws)
     a, b = left["manifest.json"], right["manifest.json"]
     require(a["source"] == b["source"]
             and left["validation.json"]["validator_source"] == right["validation.json"]["validator_source"])
+    if expected_source is not None:
+        require(type(expected_source) is str and re.fullmatch(r"[0-9a-f]{40}", expected_source)
+                and a["source"]["git_sha"] == expected_source)
     # A copied receipt is not a second build. Independence of the actual hosts
     # still requires reviewing the CI job identities outside this offline tool.
     arun, brun = left["run.json"], right["run.json"]
@@ -87,8 +90,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("left", type=Path)
     parser.add_argument("right", type=Path)
+    parser.add_argument("--expected-source", help="Require this exact producer commit, for CI source binding")
     args = parser.parse_args()
-    report = compare(read(args.left.absolute()), read(args.right.absolute()))
+    report = compare(read(args.left.absolute()), read(args.right.absolute()), expected_source=args.expected_source)
     sys.stdout.buffer.write(export.encoded(report))
     return 0 if report["result"] == "pass" else 1
 

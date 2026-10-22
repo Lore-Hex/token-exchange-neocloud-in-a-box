@@ -28,9 +28,12 @@ After installer/driver children exit, before generating EROFS, discard only:
   describes this build accelerator and binds entries to inode, ctime, size and
   device. It is not the runtime loader's `/etc/ld.so.cache`, which stays intact.
 
-The second and third paths are source-backed nondeterminism candidates, not yet
-individually proven causes in the actual pair. A fresh repeat-build comparison
-is still required; matching diagnostics alone cannot prove image identity.
+The first diagnostic pair did not identify the second and third paths
+individually. The subsequent [repeat build](../../evidence/p3/2026-10-22-native-root-finalization/README.md)
+records different hashes for all three discarded artifacts and identical final
+root GPT, verity root and unsigned UKI hashes. This establishes the narrow fix
+for that same-day pair, not independent necessity of each removal or general
+cross-day/cross-platform reproducibility.
 
 No recursive deletion, arbitrary glob, package database cleanup, source-pin
 change or verification relaxation is introduced. Only these three fixed leaf
@@ -45,6 +48,7 @@ not an operation on a running workload.
 Synthetic tests cover the exact deletion scope, preservation of runtime state,
 empty/missing files, size limits, FIFOs, directories, symlink parents/leaves,
 hard links, identity changes, removal failures and content-free receipts.
-Full tests, review and two fresh native builds are required before any claim
-that this fixes reproducibility. No boot, signing or confidential qualification
+The fix passed full tests, independent review and two fresh same-commit native
+builds. Original receipts and comparison replay tests retain the exact evidence
+and false qualification flags. No boot, signing or confidential qualification
 is granted by finalization.

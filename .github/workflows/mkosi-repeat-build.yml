@@ -1,0 +1,69 @@
+name: Compare two clean native builds
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bounded-native-repeat-build
+  cancel-in-progress: false
+
+jobs:
+  first:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/mkosi-native-build.yml
+    with:
+      compile_driver: true
+      install_driver: true
+      guest_runtime: true
+      verity_root: true
+      boot_uki: true
+      validate_export: true
+      artifact_slot: first
+  second:
+    needs: first
+    uses: ./.github/workflows/mkosi-native-build.yml
+    with:
+      compile_driver: true
+      install_driver: true
+      guest_runtime: true
+      verity_root: true
+      boot_uki: true
+      validate_export: true
+      artifact_slot: second
+  compare:
+    needs: [first, second]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Download only this attempt's two metadata artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for slot in first second; do
+            gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+              --name "native-mkosi-export-validation-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$slot" \
+              --dir "build/native-repeat/$slot"
+          done
+      - name: Compare source-bound receipts without granting other qualifications
+        run: |
+          env -i PATH=/usr/bin:/bin LANG=C /usr/bin/python3 -s -S -B scripts/compare_native_exports.py \
+            --expected-source "$GITHUB_SHA" build/native-repeat/first build/native-repeat/second \
+            > build/native-repeat/comparison.json
+      - name: Preserve comparison, including a mismatched-image failure
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: native-repeat-comparison-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/native-repeat/comparison.json
+          if-no-files-found: error
+          retention-days: 7

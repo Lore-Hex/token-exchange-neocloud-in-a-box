@@ -87,9 +87,10 @@ func port() (*os.File, error) {
 	return openDevice("/dev/"+selected, dev, true, syscall.O_WRONLY)
 }
 
-func liveRoot() (device, error) {
+func liveRoot(stage *failureStage) (device, error) {
 	var mounts [2]device
 	for i, path := range []string{"/proc/1/mountinfo", "/proc/self/mountinfo"} {
+		*stage = []failureStage{failedPID1Mount, failedSelfMount}[i]
 		raw, err := readBounded(path, 65536)
 		if err != nil {
 			return device{}, err
@@ -99,13 +100,18 @@ func liveRoot() (device, error) {
 			return device{}, err
 		}
 	}
+	*stage = failedMountMatch
 	if mounts[0] != mounts[1] {
 		return device{}, errRejected
 	}
 	dev := mounts[0]
-	for path, expected := range map[string]string{"dm/name": "root\n", "dm/suspended": "0\n", "ro": "1\n"} {
-		raw, err := readBounded("/sys/dev/block/"+dev.String()+"/"+path, 32)
-		if err != nil || string(raw) != expected {
+	for _, check := range []struct {
+		path, expected string
+		stage          failureStage
+	}{{"dm/name", "root\n", failedDMName}, {"dm/suspended", "0\n", failedDMSuspended}, {"ro", "1\n", failedDMReadonly}} {
+		*stage = check.stage
+		raw, err := readBounded("/sys/dev/block/"+dev.String()+"/"+check.path, 32)
+		if err != nil || string(raw) != check.expected {
 			return device{}, errRejected
 		}
 	}
@@ -125,16 +131,22 @@ func query(ctx context.Context, operation string) ([]byte, error) {
 	return execute(ctx, dmsetup, operation, "root")
 }
 
-func check(ctx context.Context, deadline time.Time) error {
+func check(ctx context.Context, deadline time.Time, stage *failureStage) error {
+	*stage = failedInitrdMarker
 	if _, err := os.Lstat("/etc/initrd-release"); !os.IsNotExist(err) {
 		return errRejected
 	}
-	for path, want := range map[string]string{"/proc/sys/kernel/osrelease": Kernel + "\n", "/proc/1/comm": "systemd\n"} {
-		raw, err := readBounded(path, 128)
-		if err != nil || string(raw) != want {
+	for _, check := range []struct {
+		path, expected string
+		stage          failureStage
+	}{{"/proc/sys/kernel/osrelease", Kernel + "\n", failedKernel}, {"/proc/1/comm", "systemd\n", failedPID1}} {
+		*stage = check.stage
+		raw, err := readBounded(check.path, 128)
+		if err != nil || string(raw) != check.expected {
 			return errRejected
 		}
 	}
+	*stage = failedCmdline
 	raw, err := readBounded("/proc/cmdline", 4096)
 	if err != nil {
 		return err
@@ -143,38 +155,56 @@ func check(ctx context.Context, deadline time.Time) error {
 	if err != nil {
 		return err
 	}
-	dev, err := liveRoot()
+	dev, err := liveRoot(stage)
 	if err != nil {
 		return err
 	}
+	*stage = failedTableQuery
 	before, err := query(ctx, "table")
 	if err != nil {
 		return err
 	}
+	*stage = failedTableFormat
 	m, err := table(before, hash)
 	if err != nil || m.data == dev || m.hashes == dev {
 		return errRejected
 	}
 	// Read every mapped data byte. V alone only covers checks performed so far.
+	*stage = failedRootOpen
 	root, err := openDevice("/dev/dm-"+strconv.FormatUint(dev.minor, 10), dev, false, syscall.O_RDONLY)
 	if err != nil {
 		return err
 	}
+	*stage = failedRootRead
 	err = readAllRoot(root, m.bytes, deadline)
 	closeErr := root.Close()
 	if err != nil || closeErr != nil {
 		return errRejected
 	}
+	*stage = failedTableRecheck
 	after, err := query(ctx, "table")
 	if err != nil || !bytes.Equal(before, after) {
 		return errRejected
 	}
+	*stage = failedStatusQuery
 	status, err := query(ctx, "status")
-	if err != nil || !validStatus(status, m) {
+	if err != nil {
 		return errRejected
 	}
-	current, err := liveRoot()
-	if err != nil || current != dev || !time.Now().Before(deadline) {
+	*stage = failedStatusFormat
+	if !validStatus(status, m) {
+		return errRejected
+	}
+	current, err := liveRoot(stage)
+	if err != nil {
+		return err
+	}
+	*stage = failedMountMatch
+	if current != dev {
+		return errRejected
+	}
+	*stage = failedDeadline
+	if !time.Now().Before(deadline) {
 		return errRejected
 	}
 	return nil
@@ -245,11 +275,15 @@ func Run() int {
 		return 1
 	}
 	defer output.Close()
+	stage := failedInitrd
 	record, result := FailRecord, 1
 	if staging && stageInitrd() == nil {
 		record, result = InitrdRecord, 0
-	} else if !staging && check(ctx, deadline) == nil {
+	} else if !staging && check(ctx, deadline, &stage) == nil {
 		record, result = PassRecord, 0
+	}
+	if result != 0 {
+		record = failureRecord(stage)
 	}
 	n, err := output.Write([]byte(record))
 	if err != nil || n != len(record) {
