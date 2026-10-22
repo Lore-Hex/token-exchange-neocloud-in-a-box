@@ -1,0 +1,106 @@
+name: Bounded CPU-only debug boot
+
+on:
+  workflow_dispatch:
+    inputs:
+      debug_boot:
+        description: One nonconfidential TCG root-switch probe; delete all images and upload JSON only
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bounded-cpu-debug-boot
+  cancel-in-progress: false
+
+jobs:
+  boot:
+    if: github.ref == 'refs/heads/main' && inputs.debug_boot
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff  # v5
+        with:
+          go-version: '1.27.2'
+          cache: false
+      - name: Fetch only authenticated public inputs
+        timeout-minutes: 12
+        run: |
+          test "$RUNNER_ENVIRONMENT" = github-hosted
+          umask 077
+          mkdir -p -m 700 build/native-install build/debug-boot
+          curl --disable --fail --silent --show-error --proto '=https' --tlsv1.2 \
+            --max-time 60 --max-filesize 473225 \
+            https://codeload.github.com/systemd/mkosi/tar.gz/ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b \
+            --output build/native-install/source.tar.gz
+          release=https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/releases/download
+          curl --disable --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --tlsv1.2 \
+            --max-time 120 --max-filesize 23847293 \
+            "$release/build-input-indexes-20261020/metadata.tar.gz" \
+            --output build/native-install/metadata.tar.gz
+          printf '%s  %s\n' 54def86b7b37b3b5178782965e499f0242a98f36bc7828105f112005576663a7 \
+            build/native-install/metadata.tar.gz | sha256sum --check --strict
+          /usr/bin/python3.10 -I -S -B scripts/fetch_mkosi_tools.py --guest-runtime \
+            --metadata-archive "$PWD/build/native-install/metadata.tar.gz" \
+            --output "$PWD/build/native-install/inputs" > build/native-install/input-fetch.log
+          /usr/bin/python3.10 -I -S -B scripts/fetch_debug_boot_runtime.py \
+            --output "$PWD/build/debug-boot/runtime-inputs"
+      - name: Generate one fresh private native export
+        id: build
+        timeout-minutes: 11
+        run: |
+          timeout --signal=TERM --kill-after=30s 600s \
+            sudo -- /usr/bin/python3.10 -I -S -B host/run-mkosi-build.py \
+            --downloads "$PWD/build/native-install/inputs" \
+            --archive "$PWD/build/native-install/source.tar.gz" \
+            --output "$PWD/build/native-install/evidence" \
+            --guest-runtime --compile-driver --install-driver --verity-root --boot-uki --export-boot
+      - name: Assemble debug UKI, boot once, and delete private images
+        id: debug
+        timeout-minutes: 18
+        run: |
+          compiler="$(readlink -f "$(command -v go)")"
+          result="$(sudo -- /usr/bin/python3.10 -I -S -B host/run-debug-boot.py \
+            --downloads "$PWD/build/native-install/inputs" \
+            --archive "$PWD/build/native-install/source.tar.gz" \
+            --runtime-inputs "$PWD/build/debug-boot/runtime-inputs" --go "$compiler")"
+          case "$result" in pass|fail) ;; *) exit 1 ;; esac
+          printf 'metadata_ready=true\n' >> "$GITHUB_OUTPUT"
+          test "$result" = pass
+      - name: Discard native export if debug worker never started
+        id: unused_export
+        if: ${{ always() && steps.debug.outcome == 'skipped' }}
+        timeout-minutes: 5
+        env:
+          BUILD_RESULT: ${{ steps.build.outcome }}
+        run: |
+          result="$(/usr/bin/python3.10 -I -S -B host/validate-native-boot-export.py \
+            --build-result "$BUILD_RESULT")"
+          case "$result" in pass|fail) ;; *) exit 1 ;; esac
+          printf 'metadata_ready=true\n' >> "$GITHUB_OUTPUT"
+      - name: Preserve fixed debug metadata only after verified cleanup
+        if: ${{ always() && steps.debug.outputs.metadata_ready == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: native-debug-boot-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            build/debug-boot/metadata/validation.json
+            build/debug-boot/metadata/resources.json
+            build/debug-boot/metadata/worker.json
+            build/debug-boot/metadata/run.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Preserve unused-export cleanup metadata only
+        if: ${{ always() && steps.unused_export.outputs.metadata_ready == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: unused-debug-export-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/native-install/export-validation/validation.json
+          if-no-files-found: error
+          retention-days: 7

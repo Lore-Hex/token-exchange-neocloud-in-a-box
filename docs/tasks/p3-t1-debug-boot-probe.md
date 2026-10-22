@@ -2,12 +2,11 @@
 
 ## Status
 
-Implementation in progress, not a boot receipt. The separately tagged guest
-probe and offline runtime preparer are implemented and tested locally. The
-debug UKI assembler, confined host launcher, final source binding and actual
-QEMU execution remain pending. No remote operation is authorized by merely
-preparing these files. Do not dispatch an improvised command to bypass those
-missing pieces.
+Implemented with local unit/fake-process tests, not a boot receipt. The
+separately tagged guest probe, offline runtime preparer, debug UKI assembler,
+confined host launcher, resource/cleanup wrapper and opt-in workflow are present.
+Actual pinned runtime startup and QEMU boot remain unverified. Final-head
+independent review and green checks precede the one-shot execution below.
 
 This experiment is not a TDX, GPU CC, complete guest-service, release,
 reproducibility or post-mount-tamper qualification. The existing installed root
@@ -15,7 +14,12 @@ does not contain the complete inference/trcs service composition. A successful
 future probe would establish only that this measured debug UKI entered the
 initrd, switched to the expected read-only EROFS/dm-verity root, read every mapped
 data block successfully, observed a valid unchanged verity table/status, and
-powered off within the host deadline.
+powered off within the host deadline. It does not prove GCP GPU compatibility:
+Google's [supported configurations](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/supported-configurations)
+(checked 2026-10-22, page updated 2026-10-20) restrict official A3 GPU support to
+`ubuntu-2204-lts` and `cos-tdx-113-lts`, explicitly excluding other TDX-tagged
+images. The A3 zones remain `us-central1-a`, `us-east5-a`, `europe-west4-c`.
+General custom-CVM-image permission does not establish custom GPU-image support.
 
 ## Exact Inputs
 
@@ -45,6 +49,19 @@ The preparer's executable/member hashes include the actual QEMU ELF, its
 dynamic loader, the unshare/setpriv executables and OVMF CODE/VARS. Successful
 offline reconstruction does **not** assert that their shared-library runtime
 has started; fixed binary startup checks are still required inside confinement.
+The QEMU worker invokes the authenticated Jammy loader with an explicit library
+path and `QEMU_MODULE_DIR`, as defined by QEMU v6.2.0
+[util/module.c](https://github.com/qemu/qemu/blob/v6.2.0/util/module.c).
+It requires the exact version family and the TCG, block-size, virtserialport and
+q35 properties in bounded help results before starting the guest. Missing
+runtime linkage or options fail closed; no fallback to a host binary occurs.
+
+The static probe uses Go `1.27.2`, stdlib only, `CGO_ENABLED=0`, private caches,
+no network proxy/sumdb, no build VCS metadata and only audited source copies.
+The host compiler's hash is recorded, not authenticated by this experiment;
+`compiler_authenticated` is explicitly false. The exact resulting ELF digest
+is bound to the independently inspected debug UKI. Host kernel/Python/toolchain
+trust is not converted into a release or attestation claim.
 
 ## Debug Image Contract
 
@@ -86,18 +103,42 @@ with the retained Spheron GPU job. A later Spheron execution needs a separate,
 reviewed lab-host launcher; do not weaken the native builder's gate or touch
 the running GPU container, namespace, devices, ports or cgroup.
 
-Before execution, commit the complete launcher and fill in its exact SHA and
-literal invocation here. Review the final head and the source/runtime receipt
-checks. **That invocation does not exist yet; this plan is not run-ready.**
+The [opt-in workflow](../../.github/workflows/debug-boot.yml) runs only on main,
+with `debug_boot=true`. After final-head review/green checks and merge, the
+coordinator must record the exact merged SHA and dispatch once:
 
-Intended bounds, to be enforced and tested in that launcher before execution:
+```sh
+gh workflow run debug-boot.yml --ref main -f debug_boot=true
+```
+
+Confirm the resulting run's `headSha` equals that reviewed merged SHA before
+treating it as the intended run. This document is a run plan, not a dispatch
+authorization or evidence that the command has run. The committed workflow
+generates the private export, then invokes exactly:
+
+```sh
+sudo -- /usr/bin/python3.10 -I -S -B host/run-debug-boot.py \
+  --downloads "$PWD/build/native-install/inputs" \
+  --archive "$PWD/build/native-install/source.tar.gz" \
+  --runtime-inputs "$PWD/build/debug-boot/runtime-inputs" \
+  --go "$(readlink -f "$(command -v go)")"
+```
+
+Enforced bounds:
 
 - One fresh native build with all five build stages plus private export. The
   previous successful export deleted its image bytes, so its metadata cannot
   substitute for a fresh bundle. Do not regenerate an image from metadata.
 - Preparation and fresh native generation: retain existing individual stage,
-  stream, package, memory and PID bounds. An outer 20-minute one-shot budget
-  covers the entire experiment; expiry stops work and enters cleanup.
+  stream, package, memory and PID bounds. Native generation has a new outer
+  600-second TERM deadline with 30 seconds before forced termination; its
+  existing internal limits are unchanged. Debug preparation/assembly/boot
+  together have a 900-second independent-wrapper deadline, followed by cgroup
+  cleanup and at most 120 seconds for private image deletion/metadata emission.
+  The workflow's 35-minute outer ceiling covers public input preparation and
+  both stages, instead of the earlier unimplemented 20-minute estimate.
+  **Estimate:** normally 10-20 minutes total, based on the prior roughly
+  six-minute native generation plus bounded preparation/boot. One attempt only.
 - One QEMU attempt, at most 180 seconds, 2 emulated vCPUs, 1 GiB guest RAM,
   at most 2 host CPUs and 2 GiB for the QEMU process group/cgroup, no swap.
   No retry loop or background follow-up. Guest probe runtime is separately
@@ -106,6 +147,11 @@ Intended bounds, to be enforced and tested in that launcher before execution:
   monitor, serial console, SSH, credentials or inherited environment secrets.
   A private UNIX socket carries only fixed guest proof frames. Unknown,
   truncated, duplicated or extra frames fail; process exit 0 alone never passes.
+  The fixed Python bootstrap checks namespace/mapping ownership first, then
+  re-execs through pinned `setpriv` while it can still drop the bounding set.
+  Before parsing boot inputs or starting QEMU, it checks all five capability
+  sets are zero, requires no-new-privileges and installs the existing syscall
+  filter with its expected capability mask narrowed to zero.
 - Original GPT is read-only with 4096-byte logical/physical block size.
   Firmware CODE is read-only; VARS is a fresh private full copy. No ESP is
   required for the direct UKI path used by pinned mkosi
@@ -120,10 +166,27 @@ Intended bounds, to be enforced and tested in that launcher before execution:
   never authorizes artifact upload. Only reviewed JSON/fixed protocol output
   may leave the runner, never binaries or arbitrary console output.
 
+The root wrapper only creates its own fresh cgroup, launches the existing
+privilege-drop trampoline and independently kills/reaps that group. It drops
+privileges irreversibly before deleting the exact owned private tree and input
+bundle. A missing/invalid worker receipt cannot pass. A valid fixed diagnostic
+is retained on nonzero exit or timeout, but overall pass additionally requires
+terminal success, protocol completion, zero OOM kills and proven cleanup.
+Only `validation.json`, `resources.json`, `worker.json`, `run.json` become
+uploadable after deletion. If debug never starts, the existing private-export
+validator removes the unused bundle and permits only its cleanup JSON. Unknown
+cleanup leaves upload unauthorized, including cancellation/forced-kill cases.
+
+The original 42-file native source gate is unchanged. Debug helpers, static
+probe sources/units, runtime lock and one fixed workflow are checked against
+the same HEAD in a separate source closure. The original export is full-copied
+and rehashed, and the immutable inputs are rehashed again after QEMU. The debug
+assembler reuses the full existing PE inspection and GNU-cpio verification;
+the original root, salt, epoch and normal CLI/workflow behavior are unchanged.
+
 Unknown runtime/device-help results, source identities, image hashes or
-confinement facts block the boot. The next runnable step is to implement the
-debug UKI builder and launcher against these inputs, not to assert that the
-already-passing native assembly constituted a boot.
+confinement facts block the boot. The next actual step is the reviewed one-shot
+workflow above, not an improvised command on the retained GPU host.
 
 ## Local Checks
 
@@ -134,8 +197,12 @@ private caches:
 GOCACHE=/private/tmp/nib-go-cache GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go test -race -count=1 ./guest/debugboot
 GOCACHE=/private/tmp/nib-go-cache GOPROXY=off GOSUMDB=off GOTOOLCHAIN=local go vet ./guest/debugboot
 python3 -I -S -B -m unittest discover -s scripts -p test_debug_boot_runtime.py -v
+UV_CACHE_DIR=/private/tmp/nib-uv-cache uv run --project tools --frozen --offline python -B -m unittest discover -s scripts -p test_debug_boot.py -v
 ```
 
 These are unit/process/fake-input checks and a static cross-build, not a live
-guest run. No full-suite, final-head independent review or hardware-success
-claim is made for this unfinished branch.
+guest run. Coverage includes protocol EOF/duplicate/truncation, queued-frame
+drain, nonzero exit/timeout diagnostics, OOM and cleanup failures, directory
+replacement, source mutation, assembler failures, readonly namespace arguments
+and metadata-only workflow paths. Full-suite and independent-review results
+belong to the exact PR head, not an assumed boot-success claim.
