@@ -2,8 +2,8 @@
 
 The committed `host/cache-public-weights.py` producer at
 `a6c9d95a8c1286c0751d974003bddd33a0d1650b` emitted this single JSON receipt.
-It is retained byte-for-byte as both `run.json` and `output.log`, without
-inventing a different evidence envelope. The producer's source/supervisor
+It is retained byte-for-byte as both `receipt.json` and `output.log`, without
+mislabeling it as the repository's `run.json` evidence envelope. The producer's source/supervisor
 hashes and UTC interval are inside the original receipt.
 
 All 83 files, 510,311,045,295 bytes, passed source hashing, copying and

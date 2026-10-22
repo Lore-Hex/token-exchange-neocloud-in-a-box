@@ -47,7 +47,7 @@ class ParityPrerequisiteEvidenceTests(unittest.TestCase):
 
     def test_restore_verified_every_file_and_kept_the_source(self):
         directory = ROOT / "2026-10-22-replacement-cache-restore"
-        raw = (directory / "run.json").read_bytes()
+        raw = (directory / "receipt.json").read_bytes()
         self.assertEqual(raw, (directory / "output.log").read_bytes())
         self.assertEqual(hashlib.sha256(raw).hexdigest(),
                          "acead24f95a6bb5427e37078f6b3ea03901fe5fc4adf23e42a0fe084fa7160c1")

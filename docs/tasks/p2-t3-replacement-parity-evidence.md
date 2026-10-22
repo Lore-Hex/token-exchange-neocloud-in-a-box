@@ -5,7 +5,7 @@
 The approved replacement eight-B300 lab retained its read-only public weight
 cache and restored all 83 files (510,311,045,295 bytes) into private working
 storage. Source and destination hashes matched the pinned manifest. The
-[restore receipt](../../evidence/p2/2026-10-22-replacement-cache-restore/run.json)
+[restore receipt](../../evidence/p2/2026-10-22-replacement-cache-restore/receipt.json)
 is the original single JSON emitted by committed producer
 `a6c9d95a8c1286c0751d974003bddd33a0d1650b`, also retained as `output.log`.
 Its worker completed; its narrower cleanup scope is not full process-group
