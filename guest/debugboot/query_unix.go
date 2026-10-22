@@ -13,13 +13,14 @@ import (
 	"time"
 )
 
-type boundedOutput struct{ bytes.Buffer }
+// Do not embed Buffer: its promoted ReadFrom lets io.Copy bypass Write's cap.
+type boundedOutput struct{ buffer bytes.Buffer }
 
 func (b *boundedOutput) Write(p []byte) (int, error) {
-	if len(p) > 4096-b.Len() {
+	if len(p) > 4096-b.buffer.Len() {
 		return 0, errRejected
 	}
-	return b.Buffer.Write(p)
+	return b.buffer.Write(p)
 }
 
 // Only the pinned dmsetup's single-device, read-only table/status operations
@@ -39,10 +40,10 @@ func execute(ctx context.Context, executable string, args ...string) ([]byte, er
 	}
 	err := cmd.Wait()
 	cleanup := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	if cleanup != syscall.ESRCH || err != nil || ctx.Err() != nil || stderr.Len() != 0 {
+	if cleanup != syscall.ESRCH || err != nil || ctx.Err() != nil || stderr.buffer.Len() != 0 {
 		return nil, errRejected
 	}
-	return stdout.Bytes(), nil
+	return stdout.buffer.Bytes(), nil
 }
 
 func readBounded(path string, limit int64) ([]byte, error) {

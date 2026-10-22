@@ -327,6 +327,14 @@ replacement, source mutation, assembler failures, readonly namespace arguments
 and metadata-only workflow paths. Full-suite and independent-review results
 belong to the exact PR head, not an assumed boot-success claim.
 
+The read-only `dmsetup` query helper keeps stdout and stderr behind a named
+buffer, not an embedded `bytes.Buffer`: embedding promotes `ReadFrom`, allowing
+`io.Copy` in `os/exec` to bypass the 4096-byte `Write` limit. Regression tests
+exercise both the reader-only copy path and finite subprocess output at 4095,
+4096, 4097 and 65537 bytes. Overflow returns no output; the original timeout,
+process-group cleanup and stderr rejection remain unchanged. This is a
+software correction, not a new boot result or a change to historical evidence.
+
 Failure-diagnostic regressions exercise every fixed failure frame at every
 fragment boundary, rejection of arbitrary/extra bytes, missing EOF, and clean
 QEMU exit with a guest failure. Original-receipt tests verify the four hashes,
