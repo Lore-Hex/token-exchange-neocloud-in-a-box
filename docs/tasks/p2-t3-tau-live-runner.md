@@ -52,6 +52,11 @@ lab run, a fixture, `/v1/models`, an engine version string or localhost reachabi
 into a receipt. Unknown producer commits, missing receipts or binding mismatches
 are rejected. No live run is authorized by the commands below alone.
 
+The separate [single-engine observation increment](p2-t3-tau-runtime-observation.md)
+adds an opt-in owned-process/listener and cgroup snapshot inside the existing lab.
+It is not one of these admission receipts, does not keep engines alive and does
+not establish the four-role topology or GPU-sharing capacity.
+
 At execution, Linux procfs must expose each admitted API process in the parent's
 network namespace and UID. Four distinct PIDs, listening socket inodes and IPv4
 ports are required. Simulator and evaluator model identifiers must differ from
