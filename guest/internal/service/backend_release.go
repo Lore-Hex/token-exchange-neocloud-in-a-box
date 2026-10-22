@@ -9,8 +9,11 @@ import (
 	"io"
 )
 
-func runBackend(context.Context, string, string, io.Writer) error {
-	// Do not read fixtures, execute tools, mount disks, change firewall rules,
-	// enable GPU readiness, or open a listener without real implementations.
+func runBackend(ctx context.Context, role, path string, _ io.Writer) error {
+	if role == "network" {
+		return runNetwork(ctx, path)
+	}
+	// GPU, weights and engine remain unavailable; network success cannot
+	// appraise hardware, mount weights, start inference or open a listener.
 	return errors.New("real guest backends unavailable")
 }

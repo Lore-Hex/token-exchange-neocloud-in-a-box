@@ -123,7 +123,7 @@ def export_preflight(output, uid):
             raise ValueError("private-boot-export-collision")
 
 
-def finish_export(output, uid, gid):
+def finish_export(output, uid, gid, guest_network=False):
     # No root file copying/publication. All cgroup work and the durable
     # independent resource receipt precede this irreversible privilege drop.
     os.setgroups([])
@@ -145,7 +145,8 @@ def finish_export(output, uid, gid):
             signal.setitimer(signal.ITIMER_REAL, 120)
             try:
                 native, _ = base.helper("native_boot_export", "host/build-mkosi-native.py")
-                revision, sources = native.committed_sources(True, True, True, True)
+                revision, sources = native.committed_sources(True, True, True, True,
+                    **({"guest_network": True} if guest_network else {}))
                 export, publication = native.export_helpers(sources)
             finally:
                 signal.setitimer(signal.ITIMER_REAL, 0)
@@ -153,7 +154,8 @@ def finish_export(output, uid, gid):
         except BaseException:
             base.inputs.remove_flat_directory(parent, name, original)
             raise
-    return export.finish(output, base, publication, native.source_identity(revision, sources))
+    return export.finish(output, base, publication, native.source_identity(revision, sources,
+        **({"guest_network": True} if guest_network else {})))
 
 
 def main():
@@ -167,11 +169,17 @@ def main():
     parser.add_argument("--boot-uki", action="store_true")
     parser.add_argument("--export-boot", action="store_true",
                         help="publish a private OUTPUT-boot GPT/UKI bundle after all build/cleanup checks")
+    parser.add_argument("--guest-network", action="store_true",
+                        help="compose source-bound guest helpers with empty egress; requires private boot export")
+    parser.add_argument("--go", type=Path, help="absolute Go 1.27.2 compiler path, observed not authenticated")
     args = parser.parse_args()
     require(not args.install_driver or args.compile_driver)
     require(not args.verity_root or (args.guest_runtime and args.install_driver))
     require(not args.boot_uki or args.verity_root)
     require(not args.export_boot or args.boot_uki)
+    require(not args.guest_network or args.export_boot)
+    require((args.go is not None) is args.guest_network)
+    require(args.go is None or (args.go.is_absolute() and ".." not in args.go.parts))
     uid, gid = identity()
     require(all(path.is_absolute() and ".." not in path.parts
                 for path in (args.downloads, args.archive, args.output)))
@@ -194,7 +202,8 @@ def main():
                 *(["--guest-runtime"] if args.guest_runtime else []),
                 *(["--verity-root"] if args.verity_root else []),
                 *(["--boot-uki"] if args.boot_uki else []),
-                *(["--stage-boot"] if args.export_boot else [])])
+                *(["--stage-boot"] if args.export_boot else []),
+                *(["--guest-network", "--go", str(args.go)] if args.guest_network else [])])
         finally:
             for signum, handler in previous.items():
                 signal.signal(signum, handler)
@@ -203,7 +212,7 @@ def main():
     if args.export_boot:
         # finish also rejects a failed resource receipt and removes pending
         # artifacts. Its final no-replace rename is the only publication point.
-        finish_export(args.output, uid, gid)
+        finish_export(args.output, uid, gid, **({"guest_network": True} if args.guest_network else {}))
     print("Bounded native installation: " + state["result"])
     return 0 if state["result"] == "pass" else 1
 

@@ -33,6 +33,7 @@ BOOT = "scripts/mkosi_boot.py"
 BOOT_PREP = "scripts/prepare_mkosi_boot.py"
 EXPORT = "scripts/mkosi_export.py"
 PUBLICATION = "scripts/pilot/export.py"
+NETWORK = "scripts/mkosi_guest_network.py"
 HOOKS = "scripts/review_guest_hooks.py"
 RUNTIME_APT = "evidence/p3/2026-10-22-runtime-apt-plan/report.json"
 probe = types.SimpleNamespace(**runpy.run_path(str(ROOT / PROBE), run_name="build_probe"))
@@ -53,11 +54,12 @@ def preflight():
 
 
 def command(root, payload, output, mapped, compile_driver=False, install_driver=False, verity_root=False,
-            boot_uki=False, stage_boot=False):
+            boot_uki=False, stage_boot=False, guest_network=False):
     require(not install_driver or compile_driver)
     require(type(verity_root) is bool and (not verity_root or install_driver))
     require(type(boot_uki) is bool and (not boot_uki or verity_root))
     require(type(stage_boot) is bool and (not stage_boot or boot_uki))
+    require(type(guest_network) is bool and (not guest_network or stage_boot))
     before = [os.readlink("/proc/self/ns/" + name) for name in ("user", "mnt", "net", "ipc", "pid")]
     return [*probe.ownership.prefix(root, mapped), probe.native.PYTHON, "-I", "-S", "-B",
         str(payload / "mkosi-sandbox.py"), "--ro-bind", str(root), "/",
@@ -68,7 +70,7 @@ def command(root, payload, output, mapped, compile_driver=False, install_driver=
         "/usr/bin/python3.12", "-I", "-S", "-B", "/nib/build-worker.py", *before,
         *(["--install-driver"] if install_driver else ["--compile-driver"] if compile_driver else []),
         *(["--verity-root"] if verity_root else []), *(["--boot-uki"] if boot_uki else []),
-        *(["--stage-boot"] if stage_boot else [])]
+        *(["--stage-boot"] if stage_boot else []), *(["--guest-network"] if guest_network else [])]
 
 
 def export_helpers(sources):
@@ -81,8 +83,14 @@ def export_helpers(sources):
     return result
 
 
-def source_identity(revision, sources):
-    return {"git_sha": revision, "sources": {name: base.digest(raw) for name, raw in sources.items()}}
+def source_identity(revision, sources, guest_network=False):
+    value = {"git_sha": revision, "sources": {name: base.digest(raw) for name, raw in sources.items()}}
+    require(type(guest_network) is bool and (NETWORK in sources) is guest_network)
+    if guest_network:
+        export, _ = export_helpers(sources)
+        value["profile"] = export.NETWORK_PROFILE
+        export.source_identity(value)
+    return value
 
 
 def runtime_preflight(sources, archives):
@@ -106,11 +114,12 @@ def runtime_preflight(sources, archives):
 
 
 def prepare(downloads, source_archive, revision, sources, guest_runtime=False, verity_root=False,
-            boot_uki=False, stage_boot=False):
+            boot_uki=False, stage_boot=False, guest_network=False):
     require(type(guest_runtime) is bool)
     require(type(verity_root) is bool and (not verity_root or guest_runtime))
     require(type(boot_uki) is bool and (not boot_uki or verity_root))
     require(type(stage_boot) is bool and (not stage_boot or boot_uki))
+    require(type(guest_network) is bool and (not guest_network or stage_boot))
     review = None
     if guest_runtime:
         review = runtime_preflight(sources, downloads / "archives")
@@ -150,7 +159,7 @@ def prepare(downloads, source_archive, revision, sources, guest_runtime=False, v
             downloads / "archives", sources[hooks.RUNTIME_LOCK], tools)
     if stage_boot:
         payload["boot-export.py"] = sources[EXPORT]
-        payload["artifact-inputs.json"] = base.encoded(source_identity(revision, sources))
+        payload["artifact-inputs.json"] = base.encoded(source_identity(revision, sources, guest_network))
     modes = {"upstream/" + name: 0o555 if row["mode"] == "100755" else 0o444
              for name, row in pin["source_files"].items() if row["mode"] != "120000"}
     return prepared, preparation, payload, modes, links
@@ -185,24 +194,31 @@ def collect_diagnostics(resultdir, verity_root=False, boot_uki=False):
 
 
 def run(downloads, archive, output, revision, sources, compile_driver=False, install_driver=False,
-        guest_runtime=False, verity_root=False, boot_uki=False, stage_boot=False):
+        guest_runtime=False, verity_root=False, boot_uki=False, stage_boot=False, guest_network=False, go=None):
     require(type(stage_boot) is bool and (not stage_boot or (boot_uki and verity_root and guest_runtime
                                                           and install_driver and compile_driver)))
+    require(type(guest_network) is bool and (not guest_network or stage_boot)
+            and (go is not None) is guest_network)
+    network_options = {"guest_network": True, "go": go} if guest_network else {}
     if stage_boot:
         export, publication = export_helpers(sources)
         with export.Pending(output, base, publication) as pending:
             return run_build(downloads, archive, output, revision, sources, compile_driver, install_driver,
-                             guest_runtime, verity_root, boot_uki, pending)
+                             guest_runtime, verity_root, boot_uki, pending, **network_options)
     return run_build(downloads, archive, output, revision, sources, compile_driver, install_driver,
                      guest_runtime, verity_root, boot_uki)
 
 
 def run_build(downloads, archive, output, revision, sources, compile_driver=False, install_driver=False,
-              guest_runtime=False, verity_root=False, boot_uki=False, pending=None):
+              guest_runtime=False, verity_root=False, boot_uki=False, pending=None, guest_network=False, go=None):
     require(type(guest_runtime) is bool)
     require(not install_driver or compile_driver)
     require(type(verity_root) is bool and (not verity_root or (guest_runtime and install_driver)))
     require(type(boot_uki) is bool and (not boot_uki or verity_root))
+    require(type(guest_network) is bool and (not guest_network or pending is not None)
+            and (go is not None) is guest_network)
+    source = source_identity(revision, sources, guest_network)
+    network_options = {"guest_network": True} if guest_network else {}
     require(not output.exists() and not output.is_symlink())
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     report = {"schema": "nib.mkosi-installation/v1", "git_sha": revision, "result": "fail",
@@ -215,7 +231,16 @@ def run_build(downloads, archive, output, revision, sources, compile_driver=Fals
         try:
             prepared, preparation, payload_files, modes, links = prepare(
                 downloads, archive, revision, sources, guest_runtime, verity_root, boot_uki,
-                **({"stage_boot": True} if pending is not None else {}))
+                **({"stage_boot": True} if pending is not None else {}), **network_options)
+            if guest_network:
+                report["stage"] = "guest-helper-compilation"
+                helper = types.ModuleType("bound_guest_network")
+                exec(compile(sources[NETWORK], NETWORK, "exec", dont_inherit=True), helper.__dict__)
+                export, _ = export_helpers(sources)
+                network_payload, network_inputs = helper.compile_helpers(
+                    go, temporary / "guest-build", sources, source, base, export)
+                require(not set(payload_files).intersection(network_payload))
+                payload_files.update(network_payload)
             if guest_runtime:
                 artifacts["runtime-hook-review.json"] = prepared["runtime-hook-review.json"]
             inputs = temporary / "prepared"
@@ -244,7 +269,7 @@ def run_build(downloads, archive, output, revision, sources, compile_driver=Fals
                           tools_receipt_sha256=base.digest(files["receipt.json"]))
             result = base.processes.execute_process_group(command(
                 root, payload, resultdir, mapped, compile_driver, install_driver, verity_root, boot_uki,
-                **({"stage_boot": True} if pending is not None else {})),
+                **({"stage_boot": True} if pending is not None else {}), **network_options),
                 env={**probe.native.worker.ENV, "RUNNER_ENVIRONMENT": "github-hosted"},
                 timeout=1900, max_output_bytes=2 << 20, stdin=subprocess.DEVNULL)
             report["process_cleanup_confirmed"] = True
@@ -279,10 +304,16 @@ def run_build(downloads, archive, output, revision, sources, compile_driver=Fals
                         and all(boot[k] is True for k in ("archive_checked", "sections_checked", "private_images_removed"))
                         and all(boot[k] is False for k in ("signed", "images_exported", "boot_verified",
                                                          "reproducibility_verified", "confidentiality_verified")))
+            if guest_network:
+                composition = report["worker"]["guest_network"]
+                export.network_proof(composition, source)
+                require(composition["inputs"] == network_inputs)
+            else:
+                require("guest_network" not in report["worker"])
             report.update(result="pass", stage="complete")
             if pending is not None:
                 staged = report["worker"]["artifact_stage"]
-                require(staged["source"] == source_identity(revision, sources))
+                require(staged["source"] == source)
                 pending.capture(resultdir / "boot-stage", staged)
         except (OSError, ValueError, KeyError, TypeError, tarfile.TarError, subprocess.SubprocessError) as exc:
             report["result"] = "fail"
@@ -315,6 +346,9 @@ def run_build(downloads, archive, output, revision, sources, compile_driver=Fals
     if pending is not None:
         evidence["command"] += " --export-boot"
         evidence["notes"] = "Verified GPT and unsigned UKI staged privately; final publication requires independent resource cleanup. No boot, signing, LKCA, reproducibility or confidentiality proof."
+    if guest_network:
+        evidence["command"] += " --guest-network --go PRIVATE"
+        evidence["notes"] += " Source-bound guest helpers and deny-all network configuration installed, not executed. Compiler observed, not authenticated."
     artifacts.update({"run.json": base.encoded(evidence), "result.json": base.encoded(report)})
     base.publish(output, artifacts)
     if pending is not None and report["result"] == "pass":
@@ -322,13 +356,23 @@ def run_build(downloads, archive, output, revision, sources, compile_driver=Fals
     return 0 if report["result"] == "pass" else 1
 
 
-def committed_sources(guest_runtime=False, verity_root=False, boot_uki=False, stage_boot=False):
-    return tools.committed((*mkosi.EXTRA, prep.SCRIPT, prep.POLICY,
+def committed_sources(guest_runtime=False, verity_root=False, boot_uki=False, stage_boot=False, guest_network=False):
+    require(type(guest_network) is bool and (not guest_network or all((guest_runtime, verity_root, boot_uki, stage_boot))))
+    revision, sources = tools.committed((*mkosi.EXTRA, prep.SCRIPT, prep.POLICY,
         SCRIPT, PROBE, WORKER, ENTRY, RESOURCES, LAUNCHER, probe.NATIVE, probe.OWNERSHIP,
         probe.PID_CHECKER, probe.native.CHECKER, probe.native.WORKER, DKMS,
         *((HOOKS, hooks.RUNTIME_LOCK, hooks.RUNTIME_POLICY, RUNTIME_APT, RUNTIME_POLICY, APPRAISAL)
           if guest_runtime else ()), *((VERITY,) if verity_root else ()),
         *((BOOT, BOOT_PREP) if boot_uki else ()), *((EXPORT, PUBLICATION) if stage_boot else ())))
+    if guest_network:
+        export, _ = export_helpers(sources)
+        require(set(sources) == export.NETWORK_BASE)
+        second_revision, extra = tools.committed(export.NETWORK_EXTRA)
+        require(second_revision == revision and set(extra) == set(tools.FILES) | set(export.NETWORK_EXTRA)
+                and all(sources[p] == extra[p] for p in set(sources).intersection(extra)))
+        sources = {**sources, **extra}
+        export.source_identity(source_identity(revision, sources, True))
+    return revision, sources
 
 
 def main():
@@ -341,17 +385,23 @@ def main():
     parser.add_argument("--verity-root", action="store_true")
     parser.add_argument("--boot-uki", action="store_true")
     parser.add_argument("--stage-boot", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--guest-network", action="store_true")
+    parser.add_argument("--go", type=Path)
     args = parser.parse_args()
     require(not args.install_driver or args.compile_driver)
     require(not args.verity_root or (args.guest_runtime and args.install_driver))
     require(not args.boot_uki or args.verity_root)
     require(not args.stage_boot or args.boot_uki)
+    require(not args.guest_network or args.stage_boot)
+    require((args.go is not None) is args.guest_network)
     preflight()
     tools.separate_output(args.output, (args.downloads, args.archive))
-    revision, sources = committed_sources(args.guest_runtime, args.verity_root, args.boot_uki, args.stage_boot)
+    revision, sources = committed_sources(args.guest_runtime, args.verity_root, args.boot_uki, args.stage_boot,
+                                         **({"guest_network": True} if args.guest_network else {}))
     return run(args.downloads, args.archive, args.output, revision, sources, args.compile_driver,
                args.install_driver, args.guest_runtime, verity_root=args.verity_root, boot_uki=args.boot_uki,
-               **({"stage_boot": True} if args.stage_boot else {}))
+               **({"stage_boot": True} if args.stage_boot else {}),
+               **({"guest_network": True, "go": args.go} if args.guest_network else {}))
 
 
 if __name__ == "__main__":

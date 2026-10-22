@@ -51,8 +51,9 @@ def workflow_source(revision):
     return raw
 
 
-def committed():
-    revision, sources = native.committed_sources(True, True, True, True)
+def committed(guest_network=False):
+    revision, sources = native.committed_sources(True, True, True, True,
+        **({"guest_network": True} if guest_network else {}))
     other, debug = tools.committed(EXTRA)
     require(other == revision and debug[SCRIPT] == SELF and debug[runtime.SCRIPT] == RUNTIME_SOURCE
             and debug[validator.SCRIPT] == VALIDATOR_SOURCE)
@@ -165,9 +166,9 @@ def execute_worker(command, output, name, timeout):
     return value, result is not None and result.returncode == 0 and not result.stdout and not result.stderr
 
 
-def run(downloads, archive, runtime_inputs, go, revision, sources, debug):
+def run(downloads, archive, runtime_inputs, go, revision, sources, debug, guest_network=False):
     report = {"schema": "nib.debug-boot/v1", "result": "fail", "stage": "source",
-              "source": native.source_identity(revision, sources), "debug_source": native.source_identity(revision, debug),
+              "source": native.source_identity(revision, sources, guest_network), "debug_source": native.source_identity(revision, debug),
               "boot_verified": False, "confidentiality_verified": False, "private_work_removed": False}
     export, _publication = native.export_helpers(sources)
     _, bundle = export.paths(EVIDENCE)
@@ -260,21 +261,24 @@ def run(downloads, archive, runtime_inputs, go, revision, sources, debug):
 
 
 def main():
-    if sys.argv[1:] == ["--source-only"]:
+    if sys.argv[1:] in (["--source-only"], ["--source-only", "--guest-network"]):
+        guest_network = "--guest-network" in sys.argv[1:]
         native.probe.native.preflight()
-        revision, sources, debug = committed()
-        print(json.dumps({"schema": "nib.debug-producer/v1", "source": native.source_identity(revision, sources),
+        revision, sources, debug = committed(**({"guest_network": True} if guest_network else {}))
+        print(json.dumps({"schema": "nib.debug-producer/v1", "source": native.source_identity(revision, sources, guest_network),
                           "debug_source": native.source_identity(revision, debug)}, sort_keys=True))
         return 0
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("downloads", "archive", "runtime-inputs", "go"):
         parser.add_argument("--" + name, type=Path, required=True)
+    parser.add_argument("--guest-network", action="store_true")
     args = parser.parse_args()
     preflight()
     safe_directory(STAGE)
     require(all(path.is_absolute() and ".." not in path.parts for path in (args.downloads, args.archive, args.runtime_inputs, args.go)))
-    revision, sources, debug = committed()
-    report = run(args.downloads, args.archive, args.runtime_inputs, args.go, revision, sources, debug)
+    network_options = {"guest_network": True} if args.guest_network else {}
+    revision, sources, debug = committed(**network_options)
+    report = run(args.downloads, args.archive, args.runtime_inputs, args.go, revision, sources, debug, **network_options)
     with base.directory(RESULT.parent) as fd:
         target = os.open(RESULT.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
         with os.fdopen(target, "wb") as stream:

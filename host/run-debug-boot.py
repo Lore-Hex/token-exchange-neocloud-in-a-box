@@ -33,11 +33,13 @@ SCRIPT = "host/run-debug-boot.py"
 SELF = base.read(ROOT / SCRIPT, 1 << 20)
 
 
-def capture_producer(uid, gid):
+def capture_producer(uid, gid, guest_network=False):
     # Audit as the runner, before launching any image/QEMU worker. Never invoke
     # Git or honor repository configuration as root, and retain this result in
     # the independent parent even when the later worker is killed.
-    args = ["/usr/bin/python3.10", "-I", "-S", "-B", str(ROOT / "host/debug-boot.py"), "--source-only"]
+    require(type(guest_network) is bool)
+    args = ["/usr/bin/python3.10", "-I", "-S", "-B", str(ROOT / "host/debug-boot.py"), "--source-only",
+            *(["--guest-network"] if guest_network else [])]
     child = subprocess.Popen(args, user=uid, group=gid, extra_groups=[], cwd=ROOT,
         env={"PATH": "/usr/bin:/bin", "HOME": "/nonexistent", "LANG": "C", "LC_ALL": "C",
              "RUNNER_ENVIRONMENT": "github-hosted"},
@@ -49,6 +51,7 @@ def capture_producer(uid, gid):
         base.processes.cleanup_process_group(child)
     value = json.loads(raw)
     require(set(value) == {"schema", "source", "debug_source"} and value["schema"] == "nib.debug-producer/v1")
+    require(value["source"].get("profile") == ("guest-network/v1" if guest_network else None))
     revision = value["source"]["git_sha"]
     require(type(revision) is str and re.fullmatch("[0-9a-f]{40}", revision) and revision != "0" * 40
             and value["debug_source"]["git_sha"] == revision
@@ -144,6 +147,9 @@ def finish(state, private, bundle, started, producer):
            "host": {"provider": "github-actions", "machine": "ubuntu-22.04-x86_64",
                     "gpus": "none", "driver": None, "cuda": None},
            "hardware_validated": False, "notes": "One bounded nonconfidential TCG debug boot; JSON only after independent cleanup."}
+    if producer["source"].get("profile") == "guest-network/v1":
+        run["command"] += " --guest-network"
+        run["notes"] += " Source-bound network service is a required root-probe dependency; no connectivity or confidential-service qualification."
     files = {"validation.json": base.encoded(result), "resources.json": base.encoded({**state, "producer": producer}),
              "worker.json": worker_raw, "run.json": base.encoded(run)}
     base.publish(DIRECTORY / "metadata", files)
@@ -155,6 +161,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("downloads", "archive", "runtime-inputs", "go"):
         parser.add_argument("--" + name, required=True, type=Path)
+    parser.add_argument("--guest-network", action="store_true")
     args = parser.parse_args()
     uid, gid = build.identity()  # Existing hosted Ubuntu 22.04 gate, unchanged.
     require(all(p.is_absolute() and ".." not in p.parts for p in (args.downloads, args.archive, args.runtime_inputs, args.go)))
@@ -162,7 +169,7 @@ def main():
     bundle = owned(BUNDLE, uid)
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     began = time.monotonic()
-    producer = capture_producer(uid, gid)
+    producer = capture_producer(uid, gid, **({"guest_network": True} if args.guest_network else {}))
     with base.directory(DIRECTORY) as fd:
         for name in ("private", "metadata", "worker.json", "resources.json"):
             require(not os.path.lexists(DIRECTORY / name))
@@ -175,7 +182,8 @@ def main():
         previous = {s: signal.signal(s, cancel) for s in (signal.SIGINT, signal.SIGTERM)}
         try:
             state = execute(uid, gid, ["--downloads", str(args.downloads), "--archive", str(args.archive),
-                                      "--runtime-inputs", str(args.runtime_inputs), "--go", str(args.go)],
+                                      "--runtime-inputs", str(args.runtime_inputs), "--go", str(args.go),
+                                      *(["--guest-network"] if args.guest_network else [])],
                             TIMEOUT - (time.monotonic() - began))
             # The cgroup has finished its independent cleanup. Cancellation
             # must not interrupt the subsequent owned-image deletion halfway.
