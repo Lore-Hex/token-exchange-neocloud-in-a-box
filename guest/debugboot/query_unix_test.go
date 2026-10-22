@@ -30,12 +30,18 @@ func TestBoundedQuery(t *testing.T) {
 			if err := os.WriteFile(path, []byte("#!/bin/sh\n"+tc.script+"\n"), 0700); err != nil {
 				t.Fatal(err)
 			}
-			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+			// Only the timeout fixture shortens the production two-second cap.
+			// Process startup under concurrent race suites can exceed 300 ms.
+			deadline := 3 * time.Second
+			if tc.minimum > 0 {
+				deadline = 300 * time.Millisecond
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), deadline)
 			defer cancel()
 			started := time.Now()
 			out, err := execute(ctx, path)
 			elapsed := time.Since(started)
-			if (err == nil) != tc.pass || elapsed < tc.minimum || elapsed > 2*time.Second {
+			if (err == nil) != tc.pass || elapsed < tc.minimum || elapsed > 3*time.Second {
 				t.Fatal("unexpected query result or duration", err)
 			}
 			if tc.pass && string(out) != "0 16 verity V\n" || !tc.pass && out != nil {

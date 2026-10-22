@@ -176,6 +176,13 @@ Only `validation.json`, `resources.json`, `worker.json`, `run.json` become
 uploadable after deletion. If debug never starts, the existing private-export
 validator removes the unused bundle and permits only its cleanup JSON. Unknown
 cleanup leaves upload unauthorized, including cancellation/forced-kill cases.
+Before launching the worker, the independent parent captures the exact audited
+producer through a separate bounded unprivileged source-only process. That
+audit consumes the same 900-second budget, not an additional worker allowance.
+Both successful and killed/missing-worker outcomes emit the standard
+`nib.evidence/v1` envelope with phase/task, UTC times and host context. Producer
+identity never depends on a surviving worker receipt. Valid worker failure
+JSON is preserved byte-for-byte; source mismatch cannot pass.
 
 The original 42-file native source gate is unchanged. Debug helpers, static
 probe sources/units, runtime lock and one fixed workflow are checked against

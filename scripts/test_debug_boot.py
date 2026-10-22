@@ -22,6 +22,7 @@ import mkosi_boot as boot
 import mkosi_confinement as guard
 import fetch_debug_boot_runtime as fetch
 from test_mkosi_boot import fixture_cpio
+from test_evidence_history import producer as evidence_producer
 
 ROOT = Path(__file__).absolute().parent.parent
 
@@ -35,6 +36,8 @@ def load(path):
 
 host = load("host/debug-boot.py")
 wrapper = load("host/run-debug-boot.py")
+PRODUCER = {"schema": "nib.debug-producer/v1", "source": {"git_sha": "a" * 40, "sources": {}},
+            "debug_source": {"git_sha": "a" * 40, "sources": {wrapper.SCRIPT: wrapper.base.digest(wrapper.SELF)}}}
 
 
 class QemuTests(unittest.TestCase):
@@ -245,6 +248,29 @@ class UkiTests(unittest.TestCase):
 
 
 class LifecycleTests(unittest.TestCase):
+    def test_independent_producer_audit_runs_unprivileged_and_bounds_both_streams(self):
+        for bad in (None, "exit", "stderr", "sha", "self", "timeout"):
+            value = copy.deepcopy(PRODUCER)
+            if bad == "sha": value["source"]["git_sha"] = None
+            if bad == "self": value["debug_source"]["sources"][wrapper.SCRIPT] = "b" * 64
+            child = mock.Mock(returncode=1 if bad == "exit" else 0)
+            output = {"return_value": (json.dumps(value).encode(), b"diagnostic" if bad == "stderr" else b"")}
+            if bad == "timeout": output = {"side_effect": subprocess.TimeoutExpired([], 120)}
+            with self.subTest(bad=bad), mock.patch.object(wrapper.subprocess, "Popen", return_value=child) as popen, \
+                 mock.patch.object(wrapper.base.processes, "bounded_output", **output) as bounded, \
+                 mock.patch.object(wrapper.base.processes, "cleanup_process_group") as cleanup:
+                if bad is None:
+                    self.assertEqual(wrapper.capture_producer(1001, 1002), PRODUCER)
+                else:
+                    with self.assertRaises((ValueError, subprocess.SubprocessError)):
+                        wrapper.capture_producer(1001, 1002)
+            cleanup.assert_called_once_with(child)
+            self.assertEqual(popen.call_args.args[0][-1], "--source-only")
+            self.assertEqual(popen.call_args.kwargs["user"], 1001)
+            self.assertEqual(popen.call_args.kwargs["group"], 1002)
+            self.assertEqual(popen.call_args.kwargs["extra_groups"], [])
+            self.assertEqual(bounded.call_args.args[2:], (120, None, 65536, 65536))
+
     def test_execute_checks_exit_oom_limits_and_independent_cleanup(self):
         for bad in (None, "exit", "timeout", "cancel", "oom", "limits", "empty", "removed"):
             @contextmanager
@@ -309,15 +335,58 @@ class LifecycleTests(unittest.TestCase):
                 (private / "nested/image").write_bytes(b"image bytes")
                 (bundle / "root.raw").write_bytes(b"original image")
                 report = {"schema": "nib.debug-boot/v1", "result": "fail" if failed else "pass", "stage": "complete",
-                          "boot_verified": not failed, "confidentiality_verified": False}
+                          "boot_verified": not failed, "confidentiality_verified": False,
+                          "source": PRODUCER["source"], "debug_source": PRODUCER["debug_source"]}
                 (root / "worker.json").write_text(json.dumps(report))
                 state = {"result": report["result"], "empty_verified": True, "group_removed": True}
                 with mock.patch.object(wrapper, "DIRECTORY", root), mock.patch.object(wrapper, "PRIVATE", private), \
                      mock.patch.object(wrapper, "BUNDLE", bundle):
-                    outcome = wrapper.finish(state, private.stat(), bundle.stat(), "2026-10-22T00:00:00Z")
+                    outcome = wrapper.finish(state, private.stat(), bundle.stat(), "2026-10-22T00:00:00Z", PRODUCER)
                 self.assertEqual(outcome, report["result"])
                 self.assertFalse(private.exists()); self.assertFalse(bundle.exists())
                 self.assertEqual({p.name for p in (root / "metadata").iterdir()}, {"validation.json", "resources.json", "worker.json", "run.json"})
+                self.assertEqual(evidence_producer((root / "metadata/run.json").read_bytes()), "a" * 40)
+
+    def test_success_missing_and_killed_worker_envelopes_pass_repository_validator(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            fixture = Path(temporary).resolve()
+            for outcome in ("pass", "missing", "killed", "source-mismatch"):
+                root = fixture / outcome
+                root.mkdir(mode=0o700)
+                private, bundle = root / "private", root / "bundle"
+                private.mkdir(mode=0o700); bundle.mkdir(mode=0o700)
+                report = {"schema": "nib.debug-boot/v1", "result": "pass", "stage": "complete", "boot_verified": True,
+                          "confidentiality_verified": False, "source": PRODUCER["source"], "debug_source": PRODUCER["debug_source"]}
+                if outcome == "killed":
+                    report.update(result="fail", stage="boot", boot_verified=False, qemu={"proof": {"initrd": True, "root": False}})
+                if outcome == "source-mismatch": report["source"] = {"git_sha": "b" * 40, "sources": {}}
+                raw = json.dumps(report, separators=(",", ":")).encode() + b"\n"
+                if outcome != "missing": (root / "worker.json").write_bytes(raw)
+                state = {"result": "fail" if outcome in ("missing", "killed") else "pass", "child_exit_code": -9 if outcome == "killed" else 0,
+                         "empty_verified": True, "group_removed": True, "oom_kill": 0}
+                with mock.patch.object(wrapper, "DIRECTORY", root), mock.patch.object(wrapper, "PRIVATE", private), \
+                     mock.patch.object(wrapper, "BUNDLE", bundle):
+                    result = wrapper.finish(state, private.stat(), bundle.stat(), "2026-10-22T00:00:00Z", PRODUCER)
+                self.assertEqual(result, "pass" if outcome == "pass" else "fail")
+                record = (root / "metadata/run.json").read_bytes()
+                self.assertEqual(evidence_producer(record), "a" * 40)
+                run = json.loads(record)
+                self.assertEqual(run["result"], result)
+                self.assertEqual((run["phase"], run["task"], run["execution"]), ("P3", "T1", "software"))
+                self.assertFalse(run["hardware_validated"])
+                self.assertEqual(json.loads((root / "metadata/resources.json").read_bytes())["producer"], PRODUCER)
+                if outcome == "missing":
+                    self.assertEqual(json.loads((root / "metadata/worker.json").read_bytes())["stage"], "worker-missing")
+                else:
+                    self.assertEqual((root / "metadata/worker.json").read_bytes(), raw)
+                    self.assertEqual((root / "worker.json").read_bytes(), raw)
+                destination = fixture / "evidence/p3" / outcome
+                destination.mkdir(parents=True)
+                (destination / "run.json").write_bytes(record)
+            checked = subprocess.run(["go", "run", "./cmd/nib", "lint", str(fixture)], cwd=ROOT,
+                env={**os.environ, "GOTOOLCHAIN": "local", "GOPROXY": "off", "GOSUMDB": "off"},
+                capture_output=True, timeout=120)
+            self.assertEqual(checked.returncode, 0, checked.stderr.decode())
 
     def test_unknown_cleanup_does_not_remove_images_or_authorize_metadata(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -327,7 +396,7 @@ class LifecycleTests(unittest.TestCase):
             state = {"empty_verified": False, "group_removed": False}
             with mock.patch.object(wrapper, "DIRECTORY", root), mock.patch.object(wrapper, "PRIVATE", private), \
                  mock.patch.object(wrapper, "BUNDLE", bundle), self.assertRaises(ValueError):
-                wrapper.finish(state, private.stat(), bundle.stat(), "synthetic")
+                wrapper.finish(state, private.stat(), bundle.stat(), "synthetic", PRODUCER)
             self.assertTrue(private.exists()); self.assertTrue(bundle.exists())
             self.assertFalse((root / "metadata").exists())
 
@@ -350,7 +419,7 @@ class LifecycleTests(unittest.TestCase):
                 try:
                     with mock.patch.object(wrapper, "DIRECTORY", root), mock.patch.object(wrapper, "PRIVATE", private), \
                          mock.patch.object(wrapper, "BUNDLE", bundle), self.assertRaises((OSError, ValueError)):
-                        wrapper.finish(state, identity, bundle.stat(), "synthetic")
+                        wrapper.finish(state, identity, bundle.stat(), "synthetic", PRODUCER)
                     self.assertFalse((root / "metadata/validation.json").exists())
                 finally:
                     if bad == "cleanup": delete.stop()

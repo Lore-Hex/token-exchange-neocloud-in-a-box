@@ -260,6 +260,12 @@ def run(downloads, archive, runtime_inputs, go, revision, sources, debug):
 
 
 def main():
+    if sys.argv[1:] == ["--source-only"]:
+        native.probe.native.preflight()
+        revision, sources, debug = committed()
+        print(json.dumps({"schema": "nib.debug-producer/v1", "source": native.source_identity(revision, sources),
+                          "debug_source": native.source_identity(revision, debug)}, sort_keys=True))
+        return 0
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("downloads", "archive", "runtime-inputs", "go"):
         parser.add_argument("--" + name, type=Path, required=True)
