@@ -10,7 +10,7 @@ import sys
 import types
 
 STAGES = ("preflight", "namespaces", "pid", "ownership", "configuration", "installation", "inventory", "driver-build",
-          "runtime-policy")
+          "runtime-policy", "appraisal-cli")
 COMMAND = ["/usr/bin/python3.12", "-I", "-S", "-B", "/nib/mkosi-entry.py",
            "--directory=/work/config", "--tools-tree=/", "--output=rootfs",
            "--output-directory=/work/output", "--workspace-directory=/work/workspaces",
@@ -91,7 +91,8 @@ def install(processes, output, report):
 def failure_diagnostics(error):
     """Identify our failing operation, never exception text, locals or paths."""
     names = {__file__: "build-worker", "/nib/snapshot.py": "process-supervisor",
-             "/nib/dkms-worker.py": "driver-worker", "/nib/runtime-policy.py": "runtime-policy"}
+             "/nib/dkms-worker.py": "driver-worker", "/nib/runtime-policy.py": "runtime-policy",
+             "/nib/appraisal-probe.py": "appraisal-probe"}
     frames = []
     traceback = error.__traceback__
     while traceback is not None:
@@ -173,6 +174,9 @@ def main():
         if guest["scope"] == "guest-runtime-dependency-coverage":
             stage = "runtime-policy"
             report["runtime_policy"] = module("runtime-policy").apply()
+            stage = "appraisal-cli"
+            report["appraisal_cli"] = module("appraisal-probe").probe(
+                processes, module("confinement").PREFIX, module("dkms-worker").regular)
         report["result"] = "pass"
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         report["failure_frames"] = failure_diagnostics(exc)

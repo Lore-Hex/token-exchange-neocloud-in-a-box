@@ -71,7 +71,7 @@ require, digest, encoded = base.require, base.digest, base.encoded
 
 
 def committed(extra=()):
-    require(isinstance(extra, tuple) and len(extra) <= 29
+    require(isinstance(extra, tuple) and len(extra) <= 30
             and all(isinstance(p, str) and re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_./-]*", p)
                     and not p.startswith("/") and ".." not in p.split("/") for p in extra))
     def git(*args):
