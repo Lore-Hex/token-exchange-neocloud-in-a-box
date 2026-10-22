@@ -7,6 +7,7 @@ if __name__ == "__main__" and not (sys.flags.isolated and sys.flags.no_site):
     sys.exit("Use python3 -I -S -B scripts/fetch_mkosi_tools.py")
 
 import argparse
+import concurrent.futures
 import gzip
 import io
 import json
@@ -15,6 +16,7 @@ import re
 import runpy
 import subprocess
 import tarfile
+import threading
 import time
 import types
 from urllib.parse import urlsplit, urlunsplit
@@ -34,6 +36,7 @@ MAX_METADATA = 64 << 20
 # and content-integrity failures never become retryable.
 # https://curl.se/libcurl/c/libcurl-errors.html
 TRANSIENT_CODES = frozenset((6, 7, 28, 52, 55, 56))
+RETRY_LOG_LOCK = threading.Lock()
 
 
 class FetchFailure(ValueError):
@@ -205,8 +208,10 @@ def fetch_attempt(name, item, execute, deadline, clock):
     return result.stdout
 
 
-def fetch_item(name, item, execute, deadline, clock, sleep):
+def fetch_item(name, item, execute, deadline, clock, sleep, *, cancelled=lambda: False):
     for attempt in range(1, 4):
+        if cancelled():
+            raise FetchFailure(name, item[1], item[2], "cancelled")
         try:
             return fetch_attempt(name, item, execute, deadline, clock)
         except FetchFailure as error:
@@ -220,13 +225,55 @@ def fetch_item(name, item, execute, deadline, clock, sleep):
                 raise FetchFailure(name, item[1], item[2], "deadline") from None
             # Record every retry without retaining response bytes, stderr,
             # exception strings, URLs, paths or request-derived identifiers.
-            print(json.dumps({**row, "schema": "nib.input-fetch-retry/v1", "result": "retry",
-                              "failed_attempt": attempt, "delay_seconds": delay}, sort_keys=True), flush=True)
+            with RETRY_LOG_LOCK:
+                print(json.dumps({**row, "schema": "nib.input-fetch-retry/v1", "result": "retry",
+                                  "failed_attempt": attempt, "delay_seconds": delay}, sort_keys=True), flush=True)
             sleep(delay)
     raise AssertionError("unreachable fetch attempt")
 
 
-def fetch(lock_raw, execute, *, clock=time.monotonic, sleep=time.sleep, guest_raw=None, metadata=None):
+def fetch_parallel(items, execute, deadline, clock, sleep):
+    """Four in-flight public inputs; join bounded children before returning errors."""
+    remaining = iter(sorted(items.items()))
+    pending, files, stop = {}, {}, threading.Event()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        try:
+            def replenish():
+                while len(pending) < 4:
+                    row = next(remaining, None)
+                    if row is None:
+                        break
+                    name, item = row
+                    future = pool.submit(fetch_item, name, item, execute, deadline, clock, sleep,
+                                         cancelled=stop.is_set)
+                    pending[future] = row
+            replenish()
+            while pending:
+                seconds = deadline - clock()
+                if seconds <= 0:
+                    name, item = next(iter(pending.values()))
+                    raise FetchFailure(name, item[1], item[2], "deadline")
+                done, _ = concurrent.futures.wait(pending, timeout=seconds,
+                                                 return_when=concurrent.futures.FIRST_COMPLETED)
+                if not done:
+                    name, item = next(iter(pending.values()))
+                    raise FetchFailure(name, item[1], item[2], "deadline")
+                # Observe every completed failure before admitting more work.
+                for future in sorted(done, key=lambda f: pending[f][0]):
+                    name, _ = pending.pop(future)
+                    files[name] = future.result()
+                replenish()
+        except BaseException:
+            stop.set()
+            for future in pending:
+                future.cancel()
+            raise
+    return files
+
+
+def fetch(lock_raw, execute, *, clock=time.monotonic, sleep=time.sleep, guest_raw=None, metadata=None,
+          workers=1):
+    require(type(workers) is int and workers in (1, 4))
     lock = json.loads(lock_raw)
     items = plan(lock) if guest_raw is None else build_plan(lock, json.loads(guest_raw))
     files = {"mkosi-tools-inputs.json": lock_raw}
@@ -236,6 +283,10 @@ def fetch(lock_raw, execute, *, clock=time.monotonic, sleep=time.sleep, guest_ra
         validate_metadata(metadata, items)
         files.update(metadata)
     deadline = clock() + 600
+    if workers == 4:
+        files.update(fetch_parallel({name: item for name, item in items.items() if name not in files},
+                                    execute, deadline, clock, sleep))
+        return files
     for name, item in sorted(items.items()):
         if name in files:
             continue
@@ -285,7 +336,7 @@ def main():
         print("Authenticated input-index archive exported; no network or package execution.")
         return
     files = fetch(sources[prep.LOCK], base.processes.execute_process_group,
-                  guest_raw=guest_raw, metadata=metadata)
+                  guest_raw=guest_raw, metadata=metadata, workers=4)
     base.publish(args.output.absolute(), files)
     print("Pinned public build inputs fetched; no package execution.")
 
