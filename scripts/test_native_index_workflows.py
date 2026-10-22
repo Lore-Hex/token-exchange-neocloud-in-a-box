@@ -17,8 +17,17 @@ class NativeIndexWorkflowTests(unittest.TestCase):
         steps = workflow["jobs"]["install"]["steps"]
         self.assertIn('> build/native-install/input-fetch.log', steps[1]["run"])
         self.assertNotIn("|| true", steps[1]["run"])
-        self.assertEqual(steps[-1]["if"], "always()")
-        self.assertIn("build/native-install/input-fetch.log", steps[-1]["with"]["path"].splitlines())
+        self.assertIs(workflow[True]["workflow_dispatch"]["inputs"]["validate_export"]["default"], False)
+        uploads = [step for step in steps if step.get("uses", "").startswith("actions/upload-artifact@")]
+        self.assertEqual(len(uploads), 2)
+        ordinary, private_export = uploads
+        self.assertEqual(ordinary["if"], "${{ always() && !inputs.validate_export }}")
+        self.assertEqual(ordinary["with"]["path"].splitlines(), [
+            "build/native-install/input-fetch.log", "build/native-install/evidence/",
+            "build/native-install/evidence-resources.json"])
+        self.assertEqual(private_export["if"], "${{ always() && inputs.validate_export && "
+                         "steps.export_validation.outputs.metadata_ready == 'true' }}")
+        self.assertNotIn("build/native-install/input-fetch.log", private_export["with"]["path"].splitlines())
 
     def test_tools_and_install_use_identical_pinned_index_archive(self):
         for name, job, directory in (
