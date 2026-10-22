@@ -41,7 +41,8 @@ TOOL = {"type": "function", "function": {
     "parameters": {"type": "object", "properties": {"key": {"type": "string", "enum": ["blue", "gold"]}},
                    "required": ["key"], "additionalProperties": False},
 }}
-FAILURES = ("none", "protocol", "answer", "json", "tool", "timeout", "transport", "cancelled", "budget")
+FAILURES = ("none", "protocol", "answer", "answer-case", "answer-punctuation", "answer-case-punctuation",
+            "json", "tool", "timeout", "transport", "cancelled", "budget")
 
 
 class Rejected(ValueError):
@@ -73,7 +74,7 @@ def strict_json(raw):
 
 def contract():
     case_bytes = json.dumps({"cases": CASES, "tool": TOOL}, sort_keys=True, separators=(",", ":")).encode()
-    return {"schema": "nib.local-correctness-contract/v1", "case_sha256": hashlib.sha256(case_bytes).hexdigest(),
+    return {"schema": "nib.local-correctness-contract/v2", "case_sha256": hashlib.sha256(case_bytes).hexdigest(),
             "source_revision": REVISION, "source_sha256": SOURCE_SHA256, "cases": 8, "requests": MAX_REQUESTS,
             "max_output_tokens": MAX_OUTPUT, "request_seconds": REQUEST_SECONDS, "total_seconds": TOTAL_SECONDS,
             "teardown_reserve_seconds": TEARDOWN_RESERVE, "temperature": 0, "reasoning_effort": "none",
@@ -102,6 +103,18 @@ def decode_completion(raw, model, max_output):
     return message, choice["finish_reason"], {key: usage[key] for key in ("prompt_tokens", "completion_tokens")}
 
 
+def answer_failure(content, expected):
+    """Classify fixed synthetic comparisons only; never turn a mismatch into a pass."""
+    if content.casefold() == expected.casefold():
+        return "answer-case"
+    if content.endswith((".", "!")):
+        if content[:-1] == expected:
+            return "answer-punctuation"
+        if content[:-1].casefold() == expected.casefold():
+            return "answer-case-punctuation"
+    return "answer"
+
+
 def final_answer(case, message, finish):
     content = message.get("content")
     require(finish == "stop" and type(content) is str and bool(content.strip())
@@ -115,7 +128,9 @@ def final_answer(case, message, finish):
         require(type(value) is dict and set(value) == set(expected)
                 and all(type(value[k]) is type(v) and value[k] == v for k, v in expected.items()), "json")
     else:
-        require(content.strip() == case["answer"], "answer")
+        value = content.strip()
+        if value != case["answer"]:
+            raise Rejected(answer_failure(value, case["answer"]))
 
 
 def tool_continuation(case, message, finish):
@@ -148,7 +163,7 @@ def run(request, model, *, clock=time.monotonic, deadline=None):
     deadline = min(started + TOTAL_SECONDS - TEARDOWN_RESERVE,
                    deadline if deadline is not None else float("inf"))
     rows = [{"id": case["id"], "result": "not_run", "failure": "budget", "requests": []} for case in CASES]
-    result = {"schema": "nib.local-correctness-smoke/v1", "case_sha256": contract()["case_sha256"],
+    result = {"schema": "nib.local-correctness-smoke/v2", "case_sha256": contract()["case_sha256"],
               "cases": rows, "requests_started": 0, "all_cases_pass": False, "request_phase_elapsed_ms": 0,
               "tau_acceptance": False}
     cancelled = False
@@ -213,7 +228,7 @@ def run(request, model, *, clock=time.monotonic, deadline=None):
 def validate(row):
     require(type(row) is dict and set(row) == {"schema", "case_sha256", "cases", "requests_started",
                                                "all_cases_pass", "request_phase_elapsed_ms", "tau_acceptance"})
-    require(row["schema"] == "nib.local-correctness-smoke/v1" and row["case_sha256"] == contract()["case_sha256"]
+    require(row["schema"] == "nib.local-correctness-smoke/v2" and row["case_sha256"] == contract()["case_sha256"]
             and row["tau_acceptance"] is False and type(row["all_cases_pass"]) is bool
             and type(row["requests_started"]) is int and 0 <= row["requests_started"] <= MAX_REQUESTS
             and type(row["request_phase_elapsed_ms"]) is int and 0 <= row["request_phase_elapsed_ms"] <= TOTAL_SECONDS * 1000

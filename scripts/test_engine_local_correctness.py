@@ -36,6 +36,32 @@ def success(payload, _deadline):
 
 
 class CorrectnessTests(unittest.TestCase):
+    def test_diagnostics_version_does_not_change_frozen_cases_or_acceptance(self):
+        self.assertEqual(smoke.contract()["schema"], "nib.local-correctness-contract/v2")
+        self.assertEqual(smoke.contract()["case_sha256"],
+                         "b622ef5975f51feea1dd01c8c3d350d3c1aaf59723cba5e75c32890715d060f3")
+        variants = (("Yes", "answer-case"), ("yes.", "answer-punctuation"),
+                    ("Yes!", "answer-case-punctuation"), ("no", "answer"),
+                    ("yes. private detail", "answer"), ("yes..", "answer"))
+        for content, category in variants:
+            def request(payload, deadline):
+                if payload["messages"][0]["content"] == smoke.CASES[2]["prompt"]:
+                    return completion({"content": content})
+                return success(payload, deadline)
+            with self.subTest(category=category):
+                row = smoke.run(request, MODEL)
+                self.assertEqual(row["schema"], "nib.local-correctness-smoke/v2")
+                self.assertFalse(row["all_cases_pass"])
+                self.assertEqual(row["requests_started"], 10)
+                self.assertEqual(row["cases"][2]["failure"], category)
+                self.assertEqual(row["cases"][2]["requests"][0]["failure"], category)
+                self.assertEqual(row["cases"][2]["result"], "fail")
+                self.assertNotIn(json.dumps(content), json.dumps(row))
+                changed = copy.deepcopy(row)
+                changed["all_cases_pass"] = True
+                with self.assertRaises(smoke.Rejected):
+                    smoke.validate(changed)
+
     def test_eight_fixed_cases_ten_requests_no_tau_claim(self):
         call = mock.Mock(side_effect=success)
         row = smoke.run(call, MODEL)
