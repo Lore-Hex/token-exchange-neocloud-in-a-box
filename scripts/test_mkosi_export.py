@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Private local export fixtures, never a native build, boot or cgroup proof."""
-from contextlib import contextmanager, ExitStack
+from contextlib import contextmanager, ExitStack, nullcontext
 import copy
 import hashlib
 import io
@@ -526,12 +526,67 @@ class ExportTests(unittest.TestCase):
                 self.assertEqual(pending.exists(), bad is None)
                 self.assertFalse(final.exists())  # The child cannot publish a bundle.
 
+    def test_worker_preserves_boot_diagnostics_with_export_callback(self):
+        for rejected in (False, True):
+            with self.subTest(rejected=rejected), tempfile.TemporaryDirectory() as tmp, ExitStack() as stack:
+                root = Path(tmp)
+                def path(*parts):
+                    return root / Path(*parts).relative_to("/")
+                for name in ("nib/prepared", "out", "work"):
+                    (root / name).mkdir(parents=True)
+                (root / "nib/ownership-input.json").write_text("{}")
+                (root / "nib/prepared/guest-inputs.json").write_text(
+                    json.dumps({"scope": "guest-runtime-dependency-coverage"}))
+                modules = {name: mock.Mock() for name in (
+                    "namespace-check", "pid-check", "ownership", "snapshot", "package-inputs",
+                    "dkms-worker", "confinement", "runtime-policy", "appraisal-probe", "verity-root",
+                    "boot-uki", "boot-export")}
+                modules["package-inputs"].regular.return_value = b"{}"
+                modules["dkms-worker"].CONTROL_NAMES = ()
+                for name, method in (("dkms-worker", "build"), ("runtime-policy", "apply"),
+                                     ("appraisal-probe", "probe")):
+                    getattr(modules[name], method).return_value = {"result": "pass"}
+                modules["boot-export"].parsed.side_effect = json.loads
+                modules["boot-export"].owned.return_value = nullcontext()
+                modules["boot-export"].stage.return_value = {"published": False}
+                def verity(*args, require_boot_ids, consume):
+                    self.assertIs(require_boot_ids, True)
+                    consume({"root_hash": "ab" * 32})
+                    return {"result": "pass"}
+                def boot(*args, diagnostics, consume):
+                    self.assertEqual(diagnostics, {})
+                    if rejected:
+                        diagnostics.update(member="usr/lib/os-release", observed={"bytes": 15})
+                        raise ValueError("private fixture detail must not appear")
+                    consume({"root_hash": "ab" * 32})
+                    return {"result": "pass"}
+                modules["verity-root"].build.side_effect = verity
+                modules["boot-uki"].build.side_effect = boot
+                stack.enter_context(mock.patch.object(worker, "Path", side_effect=path))
+                stack.enter_context(mock.patch.object(worker, "module", side_effect=modules.__getitem__))
+                stack.enter_context(mock.patch.object(worker, "sys", mock.Mock(
+                    platform="linux", version_info=(3, 12),
+                    argv=["worker", "1", "2", "3", "4", "5", "--install-driver", "--verity-root",
+                          "--boot-uki", "--stage-boot"])))
+                for name in ("geteuid", "getegid"):
+                    stack.enter_context(mock.patch.object(worker.os, name, return_value=0))
+                for name in ("expected_packages", "prepare_configuration", "install", "installation_environment"):
+                    stack.enter_context(mock.patch.object(worker, name, return_value={}))
+                stack.enter_context(mock.patch.object(worker, "configured", return_value=212))
+                self.assertEqual(worker.main(), 1 if rejected else 0)
+                report = json.loads((root / "out/result.json").read_bytes())
+                self.assertEqual(report["stage"], "boot-uki")
+                self.assertEqual(report["boot_input_diagnostics"],
+                                 {"member": "usr/lib/os-release", "observed": {"bytes": 15}} if rejected else {})
+                self.assertEqual("artifact_stage" in report, not rejected)
+                self.assertNotIn("private fixture", json.dumps(report))
+
     def test_nested_verified_lifetimes_preserve_original_bytes_and_cleanup_on_every_failure(self):
         # Real helper orchestration and file copies with synthetic subprocess
         # outputs only. The GPT/UKI parsers' native-format tests remain separate.
         verity, boot = vt.verity, bt.boot
         vf, bf = vt.VerityTests(), bt.BootTests()
-        failures = [None, *verity.OPERATIONS, *boot.OPERATIONS, "copy", "late-root", "late-uki", "cleanup"]
+        failures = [None, *verity.OPERATIONS, *boot.OPERATIONS, "member", "copy", "late-root", "late-uki", "cleanup"]
         for failure in failures:
             with self.subTest(failure=failure), vf.fixture() as vr, bf.fixture() as (br, _), ExitStack() as stack:
                 stage = vr / "out/boot-stage"
@@ -554,7 +609,7 @@ class ExportTests(unittest.TestCase):
                     return original_copy(mapped[source], *args)
                 stack.enter_context(mock.patch.object(export, "copy", side_effect=mapped_copy))
                 vp, bp = vf.supervisor(failure), bf.supervisor(failure)
-                reports, observed = {}, []
+                reports, observed, diagnostics = {}, [], {}
                 source = {"git_sha": "ab" * 20, "sources": {host.EXPORT: base.digest(b"fixture source")}}
                 remove = boot.shutil.rmtree
                 def cleanup(path, *args, **kwargs):
@@ -565,12 +620,14 @@ class ExportTests(unittest.TestCase):
                 def consume_root(root):
                     self.assertEqual(vp.execute_process_group.call_count, len(verity.OPERATIONS))
                     self.assertTrue(all((verity.WORK / name).exists() for name in (verity.DATA, verity.HASH, verity.DISK)))
+                    if failure == "member": (boot.ROOTFS / "usr/lib/os-release").write_bytes(b"PRIVATE-CONTENT")
                     def consume_boot(uki):
                         self.assertEqual(bp.execute_process_group.call_count, len(boot.OPERATIONS))
                         observed.extend([(verity.WORK / verity.DISK).read_bytes(), (boot.WORK / "nib.efi").read_bytes()])
                         reports["staged"] = export.stage(root, uki, source, base.directory)
                         if failure == "late-uki": (boot.WORK / "nib.efi").write_bytes(b"changed")
-                    reports["boot"] = boot.build(bp, bt.guard.PREFIX, root["root_hash"], br / "out", consume=consume_boot)
+                    reports["boot"] = boot.build(bp, bt.guard.PREFIX, root["root_hash"], br / "out",
+                                                diagnostics=diagnostics, consume=consume_boot)
                     if failure == "late-root": (verity.WORK / verity.DISK).write_bytes(b"changed")
                 def run():
                     with export.owned(stage, base.directory, base.inputs.remove_flat_directory):
@@ -581,9 +638,15 @@ class ExportTests(unittest.TestCase):
                     self.assertEqual([(stage / name).read_bytes() for name in export.FILES], observed)
                     self.assertIs(reports["root"]["private_images_removed"], True)
                     self.assertIs(reports["boot"]["private_images_removed"], True)
+                    self.assertEqual(diagnostics, {})
                 else:
                     with self.assertRaises((OSError, ValueError, vt.subprocess.SubprocessError)): run()
                     self.assertFalse(stage.exists())
+                    if failure == "member":
+                        self.assertEqual(diagnostics["member"], "usr/lib/os-release")
+                        self.assertEqual(diagnostics["observed"], {"regular": True, "links": 1, "bytes": 15})
+                        self.assertNotIn("PRIVATE", json.dumps(diagnostics))
+                        self.assertEqual(observed, [])
                 self.assertFalse(verity.WORK.exists())
                 if failure != "cleanup": self.assertFalse(boot.WORK.exists())
 

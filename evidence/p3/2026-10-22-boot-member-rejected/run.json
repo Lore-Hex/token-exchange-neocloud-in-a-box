@@ -1,0 +1,20 @@
+{
+  "command": "host/run-mkosi-build.py --downloads PRIVATE --archive PRIVATE --output PRIVATE --compile-driver --install-driver --guest-runtime --verity-root --boot-uki",
+  "ended_utc": "2026-10-22T14:21:43Z",
+  "execution": "software",
+  "git_sha": "527adf09912614515c8313df82499643be2c19a8",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "ubuntu-22.04-x86_64",
+    "provider": "github-actions"
+  },
+  "notes": "Private initrd and unsigned UKI assembly/inspection after userspace verity verification; images removed. No export, boot, signing, LKCA, reproducibility or confidentiality proof.",
+  "phase": "P3",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-22T14:17:27Z",
+  "task": "T1"
+}

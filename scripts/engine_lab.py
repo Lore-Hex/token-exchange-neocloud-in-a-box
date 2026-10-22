@@ -251,6 +251,8 @@ def lab_context(expected):
     if "tokenizer_parity" in contract:
         PARITY = load("lab_tokenizer_parity", sources["tokenizer-parity.py"], ROOT + "/tokenizer-parity.py")
         require(PARITY.enabled(contract))
+    if "tokenizer_materialization" in contract:
+        tokenizer_adapter_options(contract, require)
     modules = [load(name, sources["application/" + name], ROOT + "/application/" + name)
                for name in ("engine_overlay.py", "engine_image_diagnostic.py", "engine_python_descriptor.py", "application.py")]
     overlay, _, _, app = modules
@@ -420,9 +422,16 @@ def local_tokenizer(contract, modules, application):
         os.close(report_fd)
 
 
+def lab_layout(contract):
+    layout = {"paths": contract["paths"], "stdlib_roots": contract["paths"][:2],
+              "wrapper": ROOT + "/python", "launcher": ROOT + "/launch.py"}
+    if "tokenizer_materialization" in contract:
+        layout.update(tokenizer_adapter_options(contract, require))
+    return layout
+
+
 def prepare_engine(contract, checkpoints):
-    state = install_lab({"paths": contract["paths"], "stdlib_roots": contract["paths"][:2],
-                         "wrapper": ROOT + "/python", "launcher": ROOT + "/launch.py"}, sys.modules[__name__],
+    state = install_lab(lab_layout(contract), sys.modules[__name__],
                         checkpoint=checkpoints.bootstrap)
     # At this boundary all metadata/paths are established before engine imports.
     checkpoints.emit(11)
@@ -562,6 +571,8 @@ def application_and_request(contract, sources, modules, application, measured):
               "startup": None, "engine_stopped": False}
     correctness = contract["operation"] == "local-correctness"
     parity = contract.get("tokenizer_parity") is True
+    if "tokenizer_materialization" in contract:
+        result.update(tokenizer_adapter_options(contract, require))
     pre_serve = contract["operation"] == "pre-serve"
     if correctness:
         if parity:
@@ -754,8 +765,7 @@ def lab_entry():
         print(json.dumps(observation, sort_keys=True))
     else:
         recheck_sources(modules[0], application, contract["paths"])
-        state = install_lab({"paths": contract["paths"], "stdlib_roots": contract["paths"][:2],
-                             "wrapper": ROOT + "/python", "launcher": ROOT + "/launch.py"}, sys.modules[__name__])
+        state = install_lab(lab_layout(contract), sys.modules[__name__])
         if mode == "-c":
             path = vecisa_library(rest, state["layout"], sys.modules[__name__])
             require(os.environ["LD_LIBRARY_PATH"] == contract["environment"]["LD_LIBRARY_PATH"])

@@ -159,6 +159,12 @@ rename/fsync failures; explicit cleanup failure; and privilege-drop/receipt
 ordering. No test calls the actual root launcher, native package builders,
 firmware, hardware, cloud, or public release infrastructure.
 
+Integration with main `eee2388421e09568ae28951d0d747c84267f1fea` retains the
+transformed os-release inventory and bounded boot-member diagnostics. The nested
+export callback passes the same diagnostics object as the ordinary boot path;
+a rejected member preserves metadata while removing staged images, and successful
+assembly clears the diagnostic. Export never bypasses the exact member hash.
+
 Also run `test_mkosi_export` with an actual Python 3.10 interpreter and the test
 PyYAML dependency available, not just a 3.10 syntax parse. The host-compatibility
 run covers successful export, resource rejection, source-audit failure,

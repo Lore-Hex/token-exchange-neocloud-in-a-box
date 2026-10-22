@@ -199,10 +199,13 @@ def main():
                 def consume_root(root):
                     nonlocal stage
                     stage = "boot-uki"
+                    report["boot_input_diagnostics"] = {}
                     def consume_boot(image):
                         report["artifact_stage"] = export.stage(root, image, source, verity.directory)
                     report["boot_uki"] = boot.build(processes, module("confinement").PREFIX,
-                                                   root["root_hash"], consume=consume_boot)
+                                                   root["root_hash"],
+                                                   diagnostics=report["boot_input_diagnostics"],
+                                                   consume=consume_boot)
                 report["verity_root"] = verity.build(processes, module("confinement").PREFIX,
                     module("dkms-worker").regular, require_boot_ids=True, consume=consume_root)
         elif verity_root:
@@ -212,8 +215,10 @@ def main():
                 **({"require_boot_ids": True} if boot_uki else {}))
         if boot_uki and not stage_boot:
             stage = "boot-uki"
+            report["boot_input_diagnostics"] = {}
             report["boot_uki"] = module("boot-uki").build(
-                processes, module("confinement").PREFIX, report["verity_root"]["root_hash"])
+                processes, module("confinement").PREFIX, report["verity_root"]["root_hash"],
+                diagnostics=report["boot_input_diagnostics"])
         report["result"] = "pass"
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as exc:
         report["failure_frames"] = failure_diagnostics(exc)

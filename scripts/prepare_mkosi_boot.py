@@ -16,7 +16,19 @@ PACKAGES = LIBRARIES | {"base-files", "systemd", "udev", "kmod", "mount", "dmset
                         "linux-modules-" + KERNEL}
 MAX_BYTES = 192 << 20
 MAX_ENTRIES = 8192
-INVENTORY_SHA256 = "9e58a03558396b6cf3370b44405fad56acc18c7962e6b80661eb8942ce46d540"
+INVENTORY_SHA256 = "b10eb64d60d8cfeba7de15b8533e2f7f8b38f56594bfa4abe90b4ff55ba6971b"
+
+
+def installed_release(raw, image_id, require):
+    # https://github.com/systemd/mkosi/blob/ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b/mkosi/__init__.py#L373
+    # configure_os_release appends IMAGE_ID
+    # for the exact recipe's fixed ImageId. The .deb bytes alone are not the
+    # installed file. No other generated or modified package member is allowed.
+    require(type(raw) is bytes and 0 < len(raw) <= 4096 and raw.endswith(b"\n")
+            and not any(line.startswith(b"IMAGE_ID=") for line in raw.splitlines())
+            and type(image_id) is str and 0 < len(image_id) <= 128
+            and all(c in "abcdefghijklmnopqrstuvwxyz0123456789-" for c in image_id))
+    return raw + b'IMAGE_ID="' + image_id.encode("ascii") + b'"\n'
 
 
 def selected(package, path, kind):
@@ -49,6 +61,9 @@ def prepare(archives, lock_raw, tools):
             tools.merge(tree, {p: r for p, r in payload.items() if selected(package, p, r["kind"])})
             packages[package] = {"sha256": row["SHA256"], "version": row["Version"]}
     tools.complete_tree(tree)
+    release = tree["usr/lib/os-release"]
+    require(release["kind"] == "file")
+    release["data"] = installed_release(release["data"], base.IMAGE_ID, require)
     require(len(tree) <= MAX_ENTRIES and sum(len(r.get("data", b"")) for r in tree.values()) <= MAX_BYTES)
     for name in ("usr/lib/systemd/systemd", "usr/bin/systemctl", "usr/bin/udevadm", "usr/bin/kmod",
                  "usr/bin/mount", "usr/lib/systemd/systemd-veritysetup",
