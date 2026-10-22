@@ -28,6 +28,8 @@ FILES = {
 }
 LINKS = {"etc/systemd/" + scope + "/" + name: "/dev/null"
          for scope, names in (("system", SYSTEM), ("user", USER)) for name in names}
+# Ubuntu's packaged syslog.conf sorts after our drop-in and enables forwarding.
+LINKS["etc/systemd/journald.conf.d/syslog.conf"] = "/dev/null"
 
 
 def require(value):

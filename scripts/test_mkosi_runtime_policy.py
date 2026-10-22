@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Exercise the fixed startup policy only against disposable fixture roots."""
+import configparser
 import hashlib
 import json
 import os
@@ -59,6 +60,30 @@ class RuntimePolicyTests(unittest.TestCase):
             with mock.patch.object(policy, "ROOTFS", root), self.assertRaises(OSError):
                 policy.apply(root)
             self.assertEqual(list(outside.iterdir()), [])
+
+    def test_packaged_syslog_dropin_is_masked_by_same_name_not_sort_order(self):
+        # systemd 255.4-1ubuntu8.18 ships this setting in /usr/lib. Drop-ins
+        # merge by filename, /etc wins same-name ties, then lexical order wins.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            vendor = root / "usr/lib/systemd/journald.conf.d/syslog.conf"
+            vendor.parent.mkdir(parents=True)
+            vendor.write_text("[Journal]\nForwardToSyslog=yes\n")
+            with mock.patch.object(policy, "ROOTFS", root):
+                policy.apply(root)
+            effective = {}
+            for directory in (vendor.parent, root / "etc/systemd/journald.conf.d"):
+                effective.update({path.name: path for path in directory.glob("*.conf")})
+            parser = configparser.ConfigParser(interpolation=None)
+            for name in sorted(effective):
+                path = effective[name]
+                if path.is_symlink():
+                    self.assertEqual(os.readlink(path), "/dev/null")
+                    continue
+                parser.read_string(path.read_text())
+            self.assertEqual(parser["Journal"]["ForwardToSyslog"], "no")
+            self.assertEqual(parser["Journal"]["Storage"], "none")
+            self.assertEqual(vendor.read_text(), "[Journal]\nForwardToSyslog=yes\n")
 
     def test_conflict_rejected_before_any_file_is_written(self):
         name = sorted(policy.LINKS)[-1]

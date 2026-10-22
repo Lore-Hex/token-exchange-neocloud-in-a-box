@@ -18,6 +18,9 @@ private build namespace. The original 145-package target is unchanged.
   activation links; the explicit masks are what block the listed services.
 - Configure journald with no storage and no forwarding to syslog, kernel,
   console or wall. Set the manager's default core limit to zero.
+  Mask Ubuntu's exact `journald.conf.d/syslog.conf` with a same-name `/etc`
+  `/dev/null` link: its vendor `ForwardToSyslog=yes` otherwise sorts after our
+  drop-in and overrides `no`. The original vendor file is preserved.
 
 The [implementation](../../scripts/mkosi_runtime_policy.py) uses fixed paths
 under `/work/output/rootfs`, with directory-descriptor-relative traversal and
@@ -55,7 +58,8 @@ upstream v255 is context, not a replacement for the reviewed Ubuntu inputs.
 
 Focused tests cover repeatability, fixed-root rejection, parent/leaf symlinks,
 hardlinks, FIFOs, conflicting files, permission changes, exclusive creation
-under a leaf race and system/user policy coverage. Tests use disposable
+under a leaf race, system/user policy coverage and effective drop-in precedence
+with the actual vendor syslog setting. Tests use disposable
 fixtures only. The native workflow must still prove application to the real
 installed package graph; no such result is claimed by this document.
 
