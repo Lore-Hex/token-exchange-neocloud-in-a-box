@@ -220,6 +220,7 @@ def context(expected):
         require(hashlib.sha256(data).hexdigest() == sha)
         sources[name] = data
     require(sum(map(len, sources.values())) <= 8 << 20)
+    require("model_files" not in contract or contract.get("diagnostic") == "tau-agent-prefix")
     lab = load_module("engine_lab", sources["lab.py"], ROOT + "/lab.py")
     sys.modules["engine_lab"] = lab
     require(read_source(ROOT + "/python") == lab.wrapper_bytes(
@@ -277,7 +278,7 @@ def decode_state(raw):
     return None if value == 65535 else {name: bool(value & (1 << i)) for i, name in enumerate(STATE_FIELDS)}
 
 
-def entry_child(expected, checkpoint_fd, state_fd, lab):
+def entry_child(expected, checkpoint_fd, state_fd, lab, prefix_fd=None):
     checkpoints = lab.EntryCheckpointWriter(checkpoint_fd)
     state_writer = None
     catalog = None
@@ -290,12 +291,19 @@ def entry_child(expected, checkpoint_fd, state_fd, lab):
         contract, sources, modules, application, _, verified_lab = context(expected)
         source_roots = (ROOT + "/", *tuple(path.rstrip("/") + "/" for path in contract["paths"]))
         require(verified_lab.__file__ == lab.__file__)
+        require((prefix_fd is not None) == (contract.get("diagnostic") == "tau-agent-prefix"))
         checkpoints.emit(2)
         verified_lab.recheck_sources(modules[0], application, contract["paths"])
         catalog = finder_catalog(contract["paths"][-1])
         # The shared helper stops after the original state check. No ID 17,
         # serve.cmd, HTTP client, model loader, probe, or worker route is called.
-        if contract.get("diagnostic") == "tokenizer-continuation":
+        if contract.get("diagnostic") == "tau-agent-prefix":
+            require(type(prefix_fd) is int and prefix_fd >= 3
+                    and prefix_fd not in (checkpoints.fd, state_writer.fd))
+            diagnostic = load_module("target_prefix", sources["target-prefix.py"], ROOT + "/target-prefix.py")
+            raw = diagnostic.encoded(diagnostic.run(contract, sources, verified_lab, checkpoints, read_source))
+            require(len(raw) <= 4096 and os.write(prefix_fd, raw) == len(raw))
+        elif contract.get("diagnostic") == "tokenizer-continuation":
             diagnostic = load_module("tokenizer_diagnostic", sources["tokenizer-diagnostic.py"],
                                      ROOT + "/tokenizer-diagnostic.py")
             diagnostic.run(contract, sources, verified_lab, checkpoints, read_source)
@@ -315,9 +323,11 @@ def entry_child(expected, checkpoint_fd, state_fd, lab):
                     state_writer.close()
         finally:
             checkpoints.close()
+            if prefix_fd is not None:
+                os.close(prefix_fd)
 
 
-def observe_entry(lab):
+def observe_entry(lab, *, agent_prefix=False):
     result = {"outcome": "launch-failed", "exit_code": None,
               "checkpoints": {"status": "not-started", "last_id": None},
               "state_observation": "unavailable", "state_mismatches": None, "finder_diagnostic": None,
@@ -325,16 +335,25 @@ def observe_entry(lab):
     checkpoints = lab.EntryCheckpointReader(result["checkpoints"])
     state = lab.EntryCheckpointReader({"status": "not-started", "last_id": None})
     process = None
+    prefix_reader = prefix_writer = None
+    if agent_prefix:
+        prefix_reader, prefix_writer = os.pipe()
+        os.set_blocking(prefix_reader, False)
+        result["agent_prefix"] = None
     try:
         try:
             process = subprocess.Popen(
-                [ROOT + "/python", "entry", "--checkpoint-fd", str(checkpoints.writer), "--state-fd", str(state.writer)],
+                [ROOT + "/python", "entry", "--checkpoint-fd", str(checkpoints.writer), "--state-fd", str(state.writer),
+                 *(["--prefix-fd", str(prefix_writer)] if agent_prefix else [])],
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                pass_fds=(checkpoints.writer, state.writer), start_new_session=True)
+                pass_fds=(checkpoints.writer, state.writer, *((prefix_writer,) if agent_prefix else ())), start_new_session=True)
             checkpoints.observation["status"] = "open"
         finally:
             checkpoints.close_writer()
             state.close_writer()
+            if prefix_writer is not None:
+                os.close(prefix_writer)
+                prefix_writer = None
         result["outcome"] = "supervisor-failure"
         try:
             code = process.wait(timeout=ENTRY_SECONDS)
@@ -369,6 +388,15 @@ def observe_entry(lab):
             result["state_observation"] = "invalid"
         finally:
             state.finish()
+            if prefix_reader is not None:
+                try:
+                    raw = os.read(prefix_reader, 4097)
+                    if raw and len(raw) <= 4096 and os.read(prefix_reader, 1) == b"":
+                        result["agent_prefix"] = json.loads(raw)
+                except (OSError, ValueError):
+                    pass
+                finally:
+                    os.close(prefix_reader)
     return result
 
 
@@ -391,7 +419,7 @@ def apply_and_observe(contract, sources, modules, application, measured, lab):
               "stage": "application-preflight", "application": None, "entry": None,
               "phase_elapsed_ms": {"application-preflight": None, "application": None, "entry": None}}
     if "diagnostic" in contract:
-        require(contract["diagnostic"] == "tokenizer-continuation")
+        require(contract["diagnostic"] in ("tokenizer-continuation", "tau-agent-prefix"))
         result["diagnostic"] = contract["diagnostic"]
     if "tokenizer_materialization" in contract:
         lab.tokenizer_adapter_options(contract, require)
@@ -417,8 +445,11 @@ def apply_and_observe(contract, sources, modules, application, measured, lab):
         started = time.monotonic()
         for name in ("home", "tmp", "hf", "deep-gemm", "triton", "inductor", "torch", "xdg"):
             os.mkdir("/cache/" + name, mode=0o700)
-        result["entry"] = observe_entry(lab)
+        prefix_mode = contract.get("diagnostic") == "tau-agent-prefix"
+        result["entry"] = observe_entry(lab, **({"agent_prefix": True} if prefix_mode else {}))
         result["entry_pass"] = diagnostic_pass(result["entry"])
+        if prefix_mode:
+            result["entry_pass"] = result["entry_pass"] and result["entry"]["agent_prefix"] is not None
         if "tokenizer_materialization" in contract:
             # The fixed child emits checkpoint 16 only after active loader,
             # delegate and Pydantic identities plus all fixed controls pass.
@@ -431,12 +462,13 @@ def apply_and_observe(contract, sources, modules, application, measured, lab):
     return result
 
 
-def validate(overlay, report, application, measured, receipt_validator, adapter=None):
+def validate(overlay, report, application, measured, receipt_validator, adapter=None, *, prefix_sources=None):
     fixed = {"schema": SCHEMA, "status": "BLOCKED", "execution": "software",
              "deployable": False, "confidential": False, "hardware_validated": False,
              "abi_validated": False, "inference_started": False}
     if type(report) is dict and "diagnostic" in report:
-        fixed["diagnostic"] = "tokenizer-continuation"
+        fixed["diagnostic"] = "tau-agent-prefix" if prefix_sources is not None else "tokenizer-continuation"
+    require(prefix_sources is None or adapter is None and report.get("diagnostic") == "tau-agent-prefix")
     if adapter is not None:
         require(report.get("diagnostic") == "tokenizer-continuation")
         fixed.update(tokenizer_materialization=adapter, adapter_verified=report["entry_pass"])
@@ -475,8 +507,9 @@ def validate(overlay, report, application, measured, receipt_validator, adapter=
     require((row is not None) == (report["stage"] == "complete"))
     if row is None:
         return False
-    require(type(row) is dict and set(row) == {"outcome", "exit_code", "checkpoints", "state_observation", "state_mismatches",
+    require(type(row) is dict and set(row) == ({"outcome", "exit_code", "checkpoints", "state_observation", "state_mismatches",
                                             "finder_diagnostic", "exception_diagnostic"}
+                                            | ({"agent_prefix"} if prefix_sources is not None else set()))
             and row["outcome"] in ("launch-failed", "supervisor-failure", "timeout", "exited")
             and row["state_observation"] in ("observed", "unavailable", "invalid"))
     require((type(row["exit_code"]) is int and -128 <= row["exit_code"] <= 255)
@@ -497,7 +530,12 @@ def validate(overlay, report, application, measured, receipt_validator, adapter=
     require(row["state_observation"] != "observed" or row["finder_diagnostic"] is not None)
     validate_exception(row["exception_diagnostic"])
     require(row["exception_diagnostic"] is None or row["state_observation"] != "invalid")
-    require(report["entry_pass"] == diagnostic_pass(row))
+    if prefix_sources is not None and row["agent_prefix"] is not None:
+        helper = load_module("target_prefix", prefix_sources["target-prefix.py"], ROOT + "/target-prefix.py")
+        parity, correctness, _ = helper.modules(prefix_sources)
+        helper.validate(row["agent_prefix"], parity, correctness, helper.digest(prefix_sources["agent-prefix.json"]))
+    require(report["entry_pass"] == (diagnostic_pass(row) and
+                                    (prefix_sources is None or row["agent_prefix"] is not None)))
     return report["entry_pass"]
 
 
@@ -505,7 +543,8 @@ def main():
     require(sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode)
     args = sys.argv[1:]
     require(len(args) == 2 and args[1] == "apply"
-            or len(args) == 6 and args[1] == "entry" and args[2] == "--checkpoint-fd" and args[4] == "--state-fd")
+            or len(args) in (6, 8) and args[1] == "entry" and args[2] == "--checkpoint-fd" and args[4] == "--state-fd"
+            and (len(args) == 6 or args[6] == "--prefix-fd"))
     # Bound the running container even if its host-side Docker client dies.
     signal.signal(signal.SIGALRM, lambda *_: os._exit(124))
     signal.alarm(ATTACH_SECONDS - 15)
@@ -524,7 +563,7 @@ def main():
             require(len(raw) <= 65536)
             require(os.write(saved, raw) == len(raw))
         else:
-            entry_child(args[0], args[3], args[5], lab)
+            entry_child(args[0], args[3], args[5], lab, *([int(args[7])] if len(args) == 8 else []))
     finally:
         os.close(saved)
 

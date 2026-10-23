@@ -33,9 +33,13 @@ OPENCV_TEST = "scripts/test_opencv_loader.py"
 LABEL = "nib.cpu-entry"
 TOKENIZER_FILES = ("scripts/engine_tokenizer_diagnostic.py", "scripts/engine_tokenizer_parity.py",
                    "scripts/test_engine_tokenizer_diagnostic.py")
+PREFIX_FILES = ("scripts/engine_target_prefix.py", "scripts/engine_tokenizer_parity.py",
+                "scripts/engine_local_correctness.py", "scripts/tau_agent_prefix.py",
+                "scripts/test_tau_agent_prefix.py", "scripts/test_engine_target_prefix.py",
+                "scripts/record-tau-agent-prefix.py")
 
 
-def read_source(path):
+def read_source(path, limit=2 << 20):
     parent = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
     try:
         path = Path(path)
@@ -48,9 +52,9 @@ def read_source(path):
         fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
         with os.fdopen(fd, "rb") as stream:
             before = os.fstat(stream.fileno())
-            if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or not 0 < before.st_size <= 2 << 20:
+            if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or not 0 < before.st_size <= limit:
                 raise ValueError("source rejected")
-            raw = stream.read((2 << 20) + 1)
+            raw = stream.read(limit + 1)
             def identity(row):
                 return (row.st_dev, row.st_ino, row.st_mode, row.st_nlink, row.st_size, row.st_mtime_ns, row.st_ctime_ns)
             if (len(raw) != before.st_size or identity(before) != identity(os.fstat(stream.fileno()))
@@ -82,11 +86,13 @@ cpu.require = base.overlay.require
 builder, overlay, recorder, checker = base.builder, base.overlay, base.recorder, base.checker
 
 
-def inputs(root=ROOT, tokenizer_continuation=False, tokenizer_materialization=False):
+def inputs(root=ROOT, tokenizer_continuation=False, tokenizer_materialization=False, *, agent_prefix=False):
     overlay.require(type(tokenizer_materialization) is bool and (not tokenizer_materialization or tokenizer_continuation))
+    overlay.require(type(agent_prefix) is bool and (not agent_prefix or not tokenizer_continuation and not tokenizer_materialization))
     revision, bundle, extra = base.inputs(root)
     for name in (SCRIPT, BASE, RUNTIME, LAB, LAB_BOOTSTRAP, EXCEPTIONS, TEST, SIX_TEST, OPENCV_TEST, "scripts/test_deepseek_lab.py",
                  *(TOKENIZER_FILES if tokenizer_continuation else ()),
+                 *(PREFIX_FILES if agent_prefix else ()),
                  *(("scripts/test_tokenizer_materialization.py",) if tokenizer_materialization else ())):
         row = checker.git(root, "ls-tree", revision, "--", name).decode().split()
         overlay.require(len(row) == 4 and row[:2] == ["100644", "blob"] and row[3] == name)
@@ -99,8 +105,11 @@ def inputs(root=ROOT, tokenizer_continuation=False, tokenizer_materialization=Fa
     return revision, bundle, extra
 
 
-def prepare_files(revision, bundle, extra, tokenizer_continuation=False, tokenizer_materialization=False):
+def prepare_files(revision, bundle, extra, tokenizer_continuation=False, tokenizer_materialization=False,
+                  *, agent_prefix=None, tokenizer_files=None):
     overlay.require(type(tokenizer_materialization) is bool and (not tokenizer_materialization or tokenizer_continuation))
+    overlay.require((agent_prefix is None) == (tokenizer_files is None)
+                    and (agent_prefix is None or not tokenizer_continuation and not tokenizer_materialization))
     files, _ = builder.prepare_files(revision, bundle, extra)
     application = overlay.load_json(files["payload/contract.json"])
     measured = builder.application.measurement(overlay, extra[builder.application.EVIDENCE])
@@ -113,6 +122,22 @@ def prepare_files(revision, bundle, extra, tokenizer_continuation=False, tokeniz
     if tokenizer_continuation:
         payload["tokenizer-diagnostic.py"] = extra[TOKENIZER_FILES[0]]
         payload["tokenizer-parity.py"] = extra[TOKENIZER_FILES[1]]
+    if agent_prefix is not None:
+        def prefix_module(name):
+            module = types.ModuleType(name)
+            exec(compile(extra[name], str(ROOT / name), "exec", dont_inherit=True), module.__dict__)
+            return module
+        helper = prefix_module(PREFIX_FILES[3])
+        helper.validate(agent_prefix)
+        parity = prefix_module(PREFIX_FILES[1])
+        overlay.require(type(tokenizer_files) is dict and set(tokenizer_files) == set(parity.MODEL_FILES))
+        for name, (size, sha) in parity.MODEL_FILES.items():
+            raw = tokenizer_files[name]
+            overlay.require(type(raw) is bytes and len(raw) == size and overlay.digest(raw) == sha)
+            payload["model/" + name] = raw
+        for name, source in zip(("target-prefix.py", "tokenizer-parity.py", "correctness.py", "agent-prefix.py"), PREFIX_FILES):
+            payload[name] = extra[source]
+        payload["agent-prefix.json"] = helper.encoded(agent_prefix)
     contract = {"schema": "nib.engine-cpu-entry-input/v1", "status": "BLOCKED", "deployable": False,
                 "confidential": False, "execution": "software", "git_sha": revision,
                 "base_image": overlay.BASE_IMAGE, "official_config": application["official_config"],
@@ -122,16 +147,26 @@ def prepare_files(revision, bundle, extra, tokenizer_continuation=False, tokeniz
                 "measurement_sha256": builder.application.EVIDENCE_SHA,
                 "paths": measured["proposed_paths"], "arguments": lab.lab_args(plan),
                 "interpreter": {key: measured["files"][0][key] for key in ("resolved", "bytes", "sha256")},
-                "environment": lab.lab_environment(plan), "sources": {name: overlay.digest(raw) for name, raw in payload.items()}}
+                "environment": lab.lab_environment(plan),
+                "sources": {name: overlay.digest(raw) for name, raw in payload.items()
+                            if agent_prefix is None or not name.startswith("model/")}}
     if tokenizer_continuation:
         contract["diagnostic"] = "tokenizer-continuation"
+    if agent_prefix is not None:
+        contract["diagnostic"] = "tau-agent-prefix"
+        contract["model_files"] = {name: {"bytes": size, "sha256": sha} for name, (size, sha) in parity.MODEL_FILES.items()}
     if tokenizer_materialization:
         overlay.require(extra[LAB_BOOTSTRAP] == BOOTSTRAP_SOURCE)
         contract["tokenizer_materialization"] = bootstrap.tokenizer_adapter_identity()
     payload["entry.json"] = overlay.json_bytes(contract)
     payload["python"] = lab.wrapper_bytes(contract["interpreter"]["resolved"], contract["environment"], overlay.digest(payload["entry.json"]))
-    overlay.require(len(payload) <= 110 and sum(map(len, payload.values())) <= overlay.MAX_CONTEXT)
+    model_bytes = sum(map(len, tokenizer_files.values())) if tokenizer_files is not None else 0
+    overlay.require(len(payload) <= 110 and sum(map(len, payload.values())) - model_bytes <= overlay.MAX_CONTEXT)
     return payload, contract
+
+
+def payload_source(directory, name):
+    return read_source(directory / name, 6367257 if name == "model/tokenizer.json" else 2 << 20)
 
 
 def publish_container_payload(directory, payload):
@@ -142,7 +177,7 @@ def publish_container_payload(directory, payload):
         info = os.fstat(parent)
         overlay.require(stat.S_IMODE(info.st_mode) == 0o700 and info.st_uid == os.getuid())
     recorder.prep.publish(directory, payload)
-    overlay.require({name: read_source(directory / name) for name in payload} == payload)
+    overlay.require({name: payload_source(directory, name) for name in payload} == payload)
     directories = {directory}
     for name in payload:
         path = directory / name
@@ -235,7 +270,9 @@ def run_container(payload, contract, config, env, execute=recorder.snapshot.exec
         application = overlay.load_json(read_source(payload / "application/contract.json"))
         measured = builder.application.measurement(overlay, read_source(payload / "application/measurement.json"))
         passed = cpu.validate(overlay, result, application, measured, base.smoke,
-                              contract.get("tokenizer_materialization"))
+                              contract.get("tokenizer_materialization"),
+                              **({"prefix_sources": {name: payload_source(payload, name) for name in contract["sources"]}}
+                                 if contract.get("diagnostic") == "tau-agent-prefix" else {}))
         terminal = recorder.docker_json("container", name, env, execute)
         overlay.require(terminal["Id"] == created and terminal["State"]["Status"] == "exited"
                         and terminal["State"]["ExitCode"] == 0 and not terminal["State"].get("OOMKilled"))
