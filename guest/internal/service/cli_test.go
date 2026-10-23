@@ -38,7 +38,7 @@ func TestFailureExitStatusIsRestrictedToNetworkAndFixedRange(t *testing.T) {
 	for _, role := range []string{"network", "gpu-gate", "weights", "engine", "unknown"} {
 		for status := -1; status <= 256; status++ {
 			want := 1
-			if role == "network" && status >= 64 && status <= 93 {
+			if role == "network" && status >= 64 && status <= 110 {
 				want = status
 			}
 			if failureExitStatus(role, testExitFailure(status)) != want {

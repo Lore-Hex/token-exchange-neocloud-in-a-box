@@ -1,0 +1,4 @@
+vLLM v0.32.0 release revision and immutable configuration sources checked; no global upstream VLLM_DISABLE_UVA setting. CC remains blocked.
+Engine manifest/configuration metadata verified: vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9 (8684 manifest bytes); no layers downloaded. This is not a signed build-provenance or runtime proof.
+dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8@c19ca5ca4eaeb79d29fdf08aea8327da95b1116a: 79 files, 510311056155 all-file bytes, 14160546 metadata/non-LFS bytes fetched.
+Software metadata check only; no weights, container layers, serving or hardware validation.

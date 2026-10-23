@@ -78,6 +78,19 @@ func networkCommandFailure(err error, stage networkFailure) error {
 	return stage
 }
 
+type networkReadbackFailure uint8
+
+func (networkReadbackFailure) Error() string          { return "network startup rejected" }
+func (f networkReadbackFailure) serviceExitCode() int { return int(f) }
+
+func networkVerificationFailure(err error) error {
+	if stage, ok := err.(nftables.VerificationFailure); ok &&
+		stage >= nftables.RejectedPolicy && stage <= nftables.RejectedOther {
+		return networkReadbackFailure(94 + stage - nftables.RejectedPolicy)
+	}
+	return failedNetworkReadback
+}
+
 type networkOperation int
 
 const (
@@ -123,8 +136,8 @@ func applyNetwork(ctx context.Context, raw []byte, run func(context.Context, net
 	if err != nil {
 		return networkCommandFailure(err, failedNetworkReadbackCommand)
 	}
-	if nftables.Verify(after, destinations) != nil {
-		return failedNetworkReadback
+	if err := nftables.Verify(after, destinations); err != nil {
+		return networkVerificationFailure(err)
 	}
 	if ctx.Err() != nil {
 		return failedNetworkDeadline

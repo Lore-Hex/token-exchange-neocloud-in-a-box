@@ -157,7 +157,9 @@ class EntryCheckpointReader:
             os.close(fd)
 
 
-def lab_args(plan, replicas=1):
+def lab_args(plan, replicas=1, *, model=MODEL):
+    if type(model) is not str or not 0 < len(model) <= 128 or not all(c in "abcdefghijklmnopqrstuvwxyz0123456789-_." for c in model):
+        raise ValueError("lab model name rejected")
     if type(replicas) is not int or replicas not in (1, 2):
         raise ValueError("lab parallel profile rejected")
     arguments = list(plan["fixed_engine_arguments"])
@@ -169,7 +171,7 @@ def lab_args(plan, replicas=1):
     arguments[index] = str(replicas)
     # Existing reviewed all-off controls, followed only by fixed lab limits.
     return arguments + [
-        "--model", "/model", "--tokenizer", "/model", "--served-model-name", MODEL,
+        "--model", "/model", "--tokenizer", "/model", "--served-model-name", model,
         "--port", "8000", "--api-server-count", "1", "--pipeline-parallel-size", "1",
         "--distributed-executor-backend", "mp", "--no-numa-bind",
         "--tokenizer-mode", "deepseek_v41", "--tool-call-parser", "deepseek_v41",
@@ -212,6 +214,30 @@ def load(name, raw, path):
     module.__file__ = path
     exec(compile(raw, path, "exec", flags=0, dont_inherit=True), module.__dict__)
     return module
+
+
+def model_identity(contract):
+    if "model_profile" not in contract:
+        require("model-profile.py" not in contract.get("sources", {}))
+        return None
+    raw = read_source(ROOT + "/model-profile.py")
+    require(hashlib.sha256(raw).hexdigest() == contract["sources"].get("model-profile.py"))
+    profiles = load("lab_model_profiles", raw, ROOT + "/model-profile.py")
+    identity = profiles.validate_contract(contract)
+    require(contract["operation"] == "local-correctness" and contract.get("gpu_family") == "B300"
+            and contract.get("gpu_security", "confidential") == "confidential"
+            and type(contract.get("data_parallel_size")) is int and contract["data_parallel_size"] == 2)
+    profiles.validate_manifest(identity["name"], read_source(ROOT + "/pack/files.sha256"))
+    return identity
+
+
+def validate_settings(contract, plan, replicas):
+    identity = model_identity(contract)
+    options = {"model": identity["served_model_name"]} if identity else {}
+    require(contract["arguments"] == lab_args(plan, replicas, **options) and contract["environment"] == lab_environment(plan)
+            and contract["pack_revision"] == (identity["hf_revision"] if identity else MODEL_REVISION)
+            and contract["pack_bytes"] == (identity["total_bytes"] if identity else TOTAL_BYTES))
+    return identity
 
 
 def lab_context(expected):
@@ -277,8 +303,7 @@ def lab_context(expected):
             and contract["base_image"] == application["base_image"]
             and contract["official_config"] == application["official_config"])
     plan = overlay.load_json(sources["launch-plan.json"])
-    require(contract["arguments"] == lab_args(plan, replicas) and contract["environment"] == lab_environment(plan)
-            and contract["pack_revision"] == MODEL_REVISION and contract["pack_bytes"] == TOTAL_BYTES)
+    validate_settings(contract, plan, replicas)
     return contract, sources, modules, application, measured
 
 
@@ -385,10 +410,10 @@ def bounded_request(path, payload, deadline):
         signal.setitimer(signal.ITIMER_REAL, restored)
 
 
-def completion_result(raw):
+def completion_result(raw, *, model=MODEL):
     row = json.loads(raw)
     require(type(row) is dict and "error" not in row and row.get("object") == "chat.completion"
-            and row.get("model") == MODEL and type(row.get("choices")) is list and len(row["choices"]) == 1)
+            and row.get("model") == model and type(row.get("choices")) is list and len(row["choices"]) == 1)
     choice = row["choices"][0]
     require(type(choice) is dict and choice.get("index") == 0 and choice.get("finish_reason") in ("stop", "length"))
     message = choice.get("message")
@@ -526,7 +551,7 @@ def recheck_sources(overlay, application, paths):
                     os.close(cache)
 
 
-def observe_startup(engine, observation, checkpoints=None):
+def observe_startup(engine, observation, checkpoints=None, *, model=MODEL):
     """Record only supervisor observations; never consume the engine's logs."""
     started = time.monotonic()
     observation["outcome"] = "supervisor-failure"
@@ -553,7 +578,7 @@ def observe_startup(engine, observation, checkpoints=None):
         models = json.loads(http_request("/v1/models"))
         require(type(models) is dict and type(models.get("data")) is list
                 and all(type(row) is dict for row in models["data"])
-                and [row.get("id") for row in models["data"]] == [MODEL])
+                and [row.get("id") for row in models["data"]] == [model])
         observation["outcome"] = "ready"
     finally:
         if checkpoints is not None:
@@ -609,10 +634,15 @@ def observe_runtime(engine, contract, row, started):
 
 def application_and_request(contract, sources, modules, application, measured):
     overlay, diagnostic, descriptor, app = modules
+    identity = model_identity(contract)
+    model = identity["served_model_name"] if identity else MODEL
+    model_options = {"model": model} if identity else {}
     result = {"schema": "nib.deepseek-lab-result/v2", "status": "BLOCKED", "deployable": False,
               "confidential": False, "functional_pass": False, "stage": "hardware",
               "application": None, "hardware": None, "completion": None,
               "startup": None, "engine_stopped": False}
+    if identity is not None:
+        result["model_profile"] = identity
     correctness = contract["operation"] == "local-correctness"
     parity = contract.get("tokenizer_parity") is True
     if "provider_conformance" in contract:
@@ -688,7 +718,7 @@ def application_and_request(contract, sources, modules, application, measured):
             if pre_serve:
                 observe_pre_serve(engine, result["startup"], checkpoints)
             else:
-                observe_startup(engine, result["startup"], checkpoints)
+                observe_startup(engine, result["startup"], checkpoints, **model_options)
         finally:
             # A live server keeps its error writer open. Read only after exit,
             # when a complete fixed packet or EOF can be required without blocking.
@@ -709,16 +739,16 @@ def application_and_request(contract, sources, modules, application, measured):
                 PARITY.verify_sources(read_source, contract["paths"][-1], CORRECTNESS)
             else:
                 local, _ = prepare_local_tokenizer(contract, started)
-            result["tokenizer_parity"] = PARITY.run(bounded_request, local, MODEL, CORRECTNESS,
+            result["tokenizer_parity"] = PARITY.run(bounded_request, local, model, CORRECTNESS,
                 deadline=started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE)
         elif correctness:
             result["correctness"] = CORRECTNESS.run(
-                correctness_request, MODEL, deadline=started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE)
+                correctness_request, model, deadline=started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE)
         else:
             raw = http_request("/v1/chat/completions", timeout=REQUEST_SECONDS, data={
-                "model": MODEL, "messages": [{"role": "user", "content": "Compute 1 + 1. Reply with the single digit only."}],
+                "model": model, "messages": [{"role": "user", "content": "Compute 1 + 1. Reply with the single digit only."}],
                 "max_tokens": 128, "temperature": 0, "stream": False})
-            result["completion"] = completion_result(raw)
+            result["completion"] = completion_result(raw, **model_options)
         if "provider_conformance" in contract:
             require(result["tokenizer_parity"]["all_cases_pass"] is True and engine.poll() is None)
             result["provider_conformance"] = PROVIDER_SESSION.guest_wait(
@@ -729,7 +759,8 @@ def application_and_request(contract, sources, modules, application, measured):
             require(result["tokenizer_parity"]["all_cases_pass"] is True and engine.poll() is None)
             result["stream_cohort"] = STREAM_LAB.run(engine, contract,
                 hashlib.sha256(read_source(ROOT + "/lab.json")).hexdigest(), stream_workload,
-                STREAM_COHORT, RUNTIME_OBSERVER, started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE)
+                STREAM_COHORT, RUNTIME_OBSERVER, started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE,
+                **model_options)
         require(hardware(contract.get("gpu_family", "B200"), security, count) == result["hardware"])
         if "runtime_observation" in contract:
             observe_runtime(engine, contract, result["runtime_observation"], started)
@@ -741,7 +772,7 @@ def application_and_request(contract, sources, modules, application, measured):
             result["functional_pass"] = result["functional_pass"] and result["provider_conformance"]["accepted"]
         if "stream_cohort" in contract:
             result["functional_pass"] = result["functional_pass"] and STREAM_LAB.validate(result["stream_cohort"],
-                contract, hashlib.sha256(read_source(ROOT + "/lab.json")).hexdigest(), STREAM_COHORT)
+                contract, hashlib.sha256(read_source(ROOT + "/lab.json")).hexdigest(), STREAM_COHORT, **model_options)
         result["stage"] = "complete"
     except Exception:
         result["functional_pass"] = False

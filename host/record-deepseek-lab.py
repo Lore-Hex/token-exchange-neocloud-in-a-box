@@ -42,6 +42,8 @@ SMOKE = "scripts/engine_import_smoke.py"
 TEST = "scripts/test_deepseek_lab.py"
 SIX_TEST = "scripts/test_botocore_six.py"
 PACK = "models/deepseek-v4.1-flash-1017/1"
+MODEL_PROFILE = "scripts/deepseek_model_profile.py"
+MODEL_PROFILE_SHA = "327c1f65d7d8d23838bd816a60243d1ccc4e02d48fca21a823a4f52356d64040"
 SUPPORT = ("scripts/record-engine-image.py", "scripts/prepare-engine-overlay.py",
            "scripts/check-engine-candidate.py", "scripts/engine_overlay.py",
            "scripts/engine_image_diagnostic.py", "scripts/engine_python_descriptor.py", "scripts/e2e/snapshot.py")
@@ -111,9 +113,42 @@ def parallel_size(contract):
     return size
 
 
+def selected_model(raw, name):
+    require(digest(raw) == MODEL_PROFILE_SHA)
+    module = types.ModuleType("lab_model_profiles")
+    exec(compile(raw, MODEL_PROFILE, "exec", dont_inherit=True), module.__dict__)
+    return module, module.select(name)
+
+
+def validate_model_profile(contract, path):
+    if "model_profile" not in contract:
+        require("model-profile.py" not in contract.get("sources", {}))
+        return None
+    raw = read(Path(path) / "payload/model-profile.py")
+    require(digest(raw) == contract["sources"].get("model-profile.py"))
+    module, _ = selected_model(raw, "uncensored")
+    identity = module.validate_contract(contract)
+    require(contract["operation"] == "local-correctness" and contract.get("gpu_family") == "B300"
+            and contract.get("gpu_security", "confidential") == "confidential" and parallel_size(contract) == 2)
+    module.validate_manifest("uncensored", read(Path(path) / "payload/pack/files.sha256"))
+    arguments = contract["arguments"]
+    require(arguments.count("--served-model-name") == 1
+            and arguments[arguments.index("--served-model-name") + 1] == identity["served_model_name"])
+    return identity
+
+
 def make_payload(builder, revision, bundle, extra, binary, operation="functional", family="B200", security="confidential", replicas=1,
                  *, tokenizer_parity=False, tokenizer_materialization=False, runtime_observation=False,
-                 provider_conformance=None, stream_cohort=False, stream_profile=None):
+                 provider_conformance=None, stream_cohort=False, stream_profile=None, model_profile="original"):
+    require(type(model_profile) is str and model_profile in ("original", "uncensored"))
+    identity = None
+    pack = PACK
+    if model_profile != "original":
+        require(operation == "local-correctness" and family == "B300" and security == "confidential"
+                and type(replicas) is int and replicas == 2 and provider_conformance is None)
+        profiles, identity = selected_model(extra[MODEL_PROFILE], model_profile)
+        pack = identity["pack"]
+        profiles.validate_manifest(model_profile, extra[pack + "/files.sha256"])
     require(operation in ("functional", "hardware-diagnostic", "local-correctness", "pre-serve"))
     require(family in ("B200", "B300") and (family == "B200" or operation in ("local-correctness", "pre-serve")))
     require(security in ("confidential", "nonconfidential") and (security == "confidential"
@@ -140,8 +175,10 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
                     "exception.py": extra[EXCEPTIONS],
                     "probe.py": extra[PROBE], "launch-plan.json": builder.overlay.json_bytes(plan),
                     "processes.py": extra[builder.recorder.SNAPSHOT],
-                    "nib": binary, "pack/pack.yaml": extra[PACK + "/pack.yaml"],
-                    "pack/files.sha256": extra[PACK + "/files.sha256"]})
+                    "nib": binary, "pack/pack.yaml": extra[pack + "/pack.yaml"],
+                    "pack/files.sha256": extra[pack + "/files.sha256"]})
+    if identity is not None:
+        payload["model-profile.py"] = extra[MODEL_PROFILE]
     if operation == "local-correctness":
         payload["correctness.py"] = extra[CORRECTNESS]
     if tokenizer_parity:
@@ -168,11 +205,15 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
                 "application_contract_sha256": digest(payload["application/contract.json"]),
                 "candidate_bundle_sha256": app["candidate_bundle_sha256"],
                 "validation_source_sha256": digest(extra[SMOKE]),
-                "pack_revision": runtime.MODEL_REVISION, "pack_bytes": runtime.TOTAL_BYTES,
+                "pack_revision": identity["hf_revision"] if identity else runtime.MODEL_REVISION,
+                "pack_bytes": identity["total_bytes"] if identity else runtime.TOTAL_BYTES,
                 "manifest_sha256": digest(payload["pack/files.sha256"]),
                 "interpreter": {key: measured["files"][0][key] for key in ("resolved", "bytes", "sha256")},
-                "paths": measured["proposed_paths"], "arguments": runtime.lab_args(plan, replicas),
+                "paths": measured["proposed_paths"],
+                "arguments": runtime.lab_args(plan, replicas, **({"model": identity["served_model_name"]} if identity else {})),
                 "environment": runtime.lab_environment(plan), "sources": {name: digest(data) for name, data in payload.items()}}
+    if identity is not None:
+        contract["model_profile"] = identity
     if family == "B300":
         contract["gpu_family"] = family
     if security == "nonconfidential":
@@ -201,12 +242,22 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
 
 def prepare(destination, operation="functional", family="B200", security="confidential", replicas=1, *,
             tokenizer_parity=False, tokenizer_materialization=False, runtime_observation=False,
-            provider_wheelhouse=None, stream_cohort=False, stream_profile=None):
+            provider_wheelhouse=None, stream_cohort=False, stream_profile=None, model_profile="original"):
     require(stream_profile is None or stream_cohort)
+    require(type(model_profile) is str and model_profile in ("original", "uncensored"))
+    require(model_profile == "original" or (operation == "local-correctness" and family == "B300"
+            and security == "confidential" and type(replicas) is int and replicas == 2 and provider_wheelhouse is None))
     builder = load("lab_application_builder", ROOT / BUILDER, BUILDER_SHA)
     revision, bundle, extra = builder.inputs(ROOT)
+    pack = PACK
+    if model_profile != "original":
+        extra[MODEL_PROFILE] = committed(builder, revision, MODEL_PROFILE)
+        _, identity = selected_model(extra[MODEL_PROFILE], model_profile)
+        pack = identity["pack"]
+        name = "scripts/test_deepseek_model_profile.py"
+        extra[name] = committed(builder, revision, name)
     for name in (SCRIPT, HELPER, RUNTIME, LAB_BOOTSTRAP, EXCEPTIONS, PROBE, SMOKE, TEST, SIX_TEST,
-                 PACK + "/pack.yaml", PACK + "/files.sha256"):
+                 pack + "/pack.yaml", pack + "/files.sha256"):
         extra[name] = committed(builder, revision, name)
     if operation == "local-correctness":
         for name in (CORRECTNESS, "scripts/test_engine_local_correctness.py"):
@@ -251,7 +302,7 @@ def prepare(destination, operation="functional", family="B200", security="confid
         payload, contract = make_payload(builder, revision, bundle, extra, read(binary, MAX_BYTES), operation, family, security, replicas,
                                          tokenizer_parity=tokenizer_parity, tokenizer_materialization=tokenizer_materialization,
                                          runtime_observation=runtime_observation, provider_conformance=provider_settings,
-                                         stream_cohort=stream_cohort, stream_profile=stream_profile)
+                                         stream_cohort=stream_cohort, stream_profile=stream_profile, model_profile=model_profile)
         config = recorder.raw_metadata(ROOT / "build/engine-image-metadata", contract)
         runtime = load("lab_environment_constants", ROOT / RUNTIME, digest(extra[RUNTIME]))
         image_env = dict(item.split("=", 1) for item in config["config"]["Env"])
@@ -324,6 +375,7 @@ def bundle_inputs(path, expected):
     probe = load("lab_profile_validation", path / "payload/probe.py", contract["sources"]["probe.py"])
     probe.security_profile(contract)
     require(probe.parallel_size(contract) == parallel_size(contract))
+    validate_model_profile(contract, path)
     if "tokenizer_parity" in contract:
         checker = load("lab_parity_profile", path / "payload/tokenizer-parity.py", contract["sources"]["tokenizer-parity.py"])
         require(checker.enabled(contract))
@@ -645,6 +697,7 @@ def run_container(bundle, sha, weights, deadline, recorder, contract, config, en
 
 
 def validate_result(row, bundle, contract, recorder):
+    identity = validate_model_profile(contract, bundle)
     if contract.get("operation") == "hardware-diagnostic":
         probe = load("lab_diagnostic_validation", Path(bundle) / "payload/probe.py", contract["sources"]["probe.py"])
         probe.validate_diagnostic(row)
@@ -654,6 +707,9 @@ def validate_result(row, bundle, contract, recorder):
     pre_serve = contract.get("operation") == "pre-serve"
     fields = {"schema", "status", "deployable", "confidential", "functional_pass",
               "stage", "application", "hardware", "completion", "startup", "engine_stopped"}
+    if identity is not None:
+        fields.add("model_profile")
+        require(type(row) is dict and row.get("model_profile") == identity)
     expected_schema = "nib.deepseek-lab-result/v2"
     if "runtime_observation" in contract:
         fields.add("runtime_observation")
@@ -682,7 +738,8 @@ def validate_result(row, bundle, contract, recorder):
             sources = {"stream/" + name + ".py": read(Path(bundle) / "payload/stream" / (name + ".py"))
                        for name in stream.NAMES}
             cohort = stream.load(sources, contract["sources"])
-            accepted = stream.validate(row["stream_cohort"], contract, digest(read(Path(bundle) / "payload/lab.json")), cohort)
+            accepted = stream.validate(row["stream_cohort"], contract, digest(read(Path(bundle) / "payload/lab.json")), cohort,
+                                       **({"model": identity["served_model_name"]} if identity else {}))
             require(row.get("stage") in ("request", "complete"))
         require(row.get("functional_pass") is not True or accepted)
     if "tokenizer_materialization" in contract:
@@ -859,6 +916,8 @@ def main():
                         help="Prepare one warmup plus eight 2K/512 streaming requests; requires parity, materialization and observation.")
     parser.add_argument("--stream-profile", metavar="PROFILE",
                         help="Explicit prepared cohort window; chat-2k-512-c1-600s opts into 600 seconds instead of 180.")
+    parser.add_argument("--model-profile", choices=("original", "uncensored"),
+                        help="Fixed checkpoint selection during preparation only; absence selects original.")
     parser.add_argument("--receipt-sha256")
     parser.add_argument("--weights")
     parser.add_argument("--output")
@@ -873,6 +932,10 @@ def main():
         if destination:
             require(not any((args.receipt_sha256, args.weights, args.output, args.deadline)))
             optional = {}
+            if args.model_profile == "uncensored":
+                require(profile == ("local-correctness", "B300", "confidential", 2)
+                        and not args.provider_conformance_wheels)
+                optional["model_profile"] = args.model_profile
             if args.stream_cohort:
                 require(profile[:3] == ("local-correctness", "B300", "confidential"))
                 optional["stream_cohort"] = True
@@ -894,7 +957,8 @@ def main():
                 prepare(destination, *profile, **optional)
             return 0
     require(not args.tokenizer_parity and not args.tokenizer_materialization and not args.runtime_observation
-            and not args.provider_conformance_wheels and not args.stream_cohort and args.stream_profile is None)
+            and not args.provider_conformance_wheels and not args.stream_cohort and args.stream_profile is None
+            and args.model_profile is None)
     require(sys.platform == "linux" and all((args.receipt_sha256, args.output, args.deadline)))
     deadline = dt.datetime.strptime(args.deadline, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp()
     require(0 < deadline - time.time() <= MAX_SECONDS)
@@ -920,6 +984,8 @@ def main():
                             "payload_sha256": receipt["payload_sha256"], "receipt_sha256": args.receipt_sha256,
                             "image": contract["base_image"], "config_sha256": contract["official_config"]["sha256"],
                             "manifest_sha256": contract["manifest_sha256"], "pack_revision": contract["pack_revision"]}
+    if "model_profile" in contract:
+        report["provenance"]["model_profile"] = contract["model_profile"]
     hardware_row = report.get("experiment", {}).get("hardware")
     diagnostic = contract["operation"] == "hardware-diagnostic"
     record = {"schema": "nib.evidence/v1", "phase": "P2", "task": "T3", "git_sha": receipt["git_sha"],

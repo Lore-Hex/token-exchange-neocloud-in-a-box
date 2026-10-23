@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/config"
+	"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/modelpack"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -69,7 +70,7 @@ func TestDraftEngineProfilesStayPrivateAndNonDeployable(t *testing.T) {
 					t.Errorf("profile changed %s", flag)
 				}
 			}
-			if p.repo == "deepseek-ai/DeepSeek-V4.1-Flash-1017" {
+			if strings.HasPrefix(p.dir, "models/deepseek-") {
 				i := slices.Index(profile.Args, "--engram-config")
 				if i < 0 || i+1 == len(profile.Args) || profile.Args[i+1] != `{"cpu_offload":false}` {
 					t.Fatal("GPU-resident Engram setting missing")
@@ -84,6 +85,72 @@ func TestDraftEngineProfilesStayPrivateAndNonDeployable(t *testing.T) {
 		})
 	}
 }
+
+func TestFixedPackSelection(t *testing.T) {
+	for _, mode := range []string{"generate", "check"} {
+		all, err := selectPacks([]string{mode})
+		if err != nil || len(all) != 3 {
+			t.Fatal("all-pack selection changed")
+		}
+		for _, p := range packs {
+			selected, err := selectPacks([]string{mode, filepath.Base(filepath.Dir(p.dir))})
+			if err != nil || len(selected) != 1 || selected[0] != p {
+				t.Fatal("fixed model selection differs")
+			}
+		}
+	}
+	for _, name := range []string{"", "../deepseek-v4.1-flash-1017", "models/deepseek-v4.1-flash-1017/1", "dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8", "https://example.test"} {
+		if _, err := selectPacks([]string{"generate", name}); err == nil {
+			t.Fatal("unapproved model path accepted")
+		}
+	}
+}
+
+func TestPinnedVariantManifestAndFraming(t *testing.T) {
+	files := make(map[string]map[string]config.ManifestFile)
+	for _, p := range packs {
+		pack, raw, err := modelpack.Load(filepath.Join("../..", p.dir))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if pack.Repository != p.repo || pack.Revision != p.revision || pack.TotalBytes != p.total {
+			t.Fatal("pack identity differs from fixed generator inputs")
+		}
+		rows, err := config.ParseFileManifest(raw, p.total)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[p.repo] = make(map[string]config.ManifestFile)
+		for _, row := range rows {
+			files[p.repo][row.Path] = row
+		}
+	}
+	base := files["deepseek-ai/DeepSeek-V4.1-Flash-1017"]
+	variant := files["dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8"]
+	if len(base) != 83 || len(variant) != 79 {
+		t.Fatal("complete pack inventory changed")
+	}
+	for _, name := range []string{"config.json", "tokenizer.json", "tokenizer_config.json", "model.safetensors.index.json", "encoding/encoding.py"} {
+		if base[name] != variant[name] || base[name].Path != name {
+			t.Fatalf("reviewed framing file differs: %s", name)
+		}
+	}
+	changed, identical := 0, 0
+	for name, row := range variant {
+		if !strings.HasSuffix(name, ".safetensors") {
+			continue
+		}
+		if row == base[name] {
+			identical++
+		} else {
+			changed++
+		}
+	}
+	if changed != 27 || identical != 21 || variant["inference/kernel.py"] == base["inference/kernel.py"] {
+		t.Fatal("reviewed checkpoint differences changed")
+	}
+}
+
 func TestRejectArbitraryArguments(t *testing.T) {
 	for _, args := range [][]string{nil, {"SECRET_PATH"}, {"generate", "SECRET_PATH"}, {"--out", "SECRET_PATH"}} {
 		if err := run(args); err == nil || strings.Contains(err.Error(), "SECRET_PATH") {

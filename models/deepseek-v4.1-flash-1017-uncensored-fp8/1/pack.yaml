@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: Apache-2.0
+# DRAFT, NOT DEPLOYABLE: no built weight volume or hardware acceptance.
+# Source U identifies this separate weight variant; A/C/D/E/F/R are in SOURCES.md.
+schema: nib.model-pack/v1
+id: deepseek-v4.1-flash-1017-uncensored-fp8@1
+hf_repo: dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8
+hf_revision: c19ca5ca4eaeb79d29fdf08aea8327da95b1116a
+license: MIT
+served_model_name: deepseek-v4.1-flash-1017-uncensored-fp8
+tr_model_id: dealignai/deepseek-v4.1-flash-1017-uncensored-fp8
+files: files.sha256
+total_bytes: 510311056155
+weights_volume:
+  format: erofs
+  verity_root_hash: ""
+engine_profiles:
+  b200x8-gcp-plain:
+    engine: vllm
+    # R: pinned official linux/amd64 image, not fork reference-engine code.
+    image: vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9
+    args:
+      # A/F: local verified weight mount and loopback-only listener.
+      - --model
+      - /model
+      - --host
+      - 127.0.0.1
+      - --port
+      - "8000"
+      - --served-model-name
+      - deepseek-v4.1-flash-1017-uncensored-fp8
+      # A/D: same candidate topology; this variant requires its own real test.
+      - --tensor-parallel-size
+      - "4"
+      - --data-parallel-size
+      - "2"
+      # D/U: identical architecture/config and tokenizer, not quality parity.
+      - --tokenizer-mode
+      - deepseek_v41
+      - --tool-call-parser
+      - deepseek_v41
+      - --enable-auto-tool-choice
+      - --reasoning-parser
+      - deepseek_v41
+      - --engram-config
+      - '{"cpu_offload":false}'
+      - --attention-config
+      - '{"backend":"FLASHINFER_MLA_SPARSE_DSV41","indexer_kv_dtype":"mxfp4","indexer_sparse_logits":true}'
+      - --kv-cache-dtype
+      - fp8
+      - --max-num-seqs
+      - "128"
+      - --max-model-len
+      - "1048576"
+      # A/F: disable request, output and access logging.
+      - --no-enable-log-requests
+      - --no-enable-log-outputs
+      - --disable-uvicorn-access-log
+    env:
+      # E/D: Python frontend and telemetry opt-outs, unchanged from base pack.
+      VLLM_USE_RUST_FRONTEND: "0"
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_DO_NOT_TRACK: "1"
+      VLLM_ENGINE_READY_TIMEOUT_S: "3600"
+    max_model_len: 1048576
+    replicas: 2

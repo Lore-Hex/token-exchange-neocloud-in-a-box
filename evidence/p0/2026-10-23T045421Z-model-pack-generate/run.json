@@ -1,0 +1,20 @@
+{
+  "command": "go run ./models/packcheck generate deepseek-v4.1-flash-1017-uncensored-fp8",
+  "ended_utc": "2026-10-23T04:54:27.573804Z",
+  "execution": "software",
+  "git_sha": "72e32d4fc9fe449fa1546563621b29980cc1eec4",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "darwin/arm64",
+    "provider": "local"
+  },
+  "notes": "Public metadata only. LFS hashes are remote assertions, not downloaded weight verification. Empty verity roots remain non-deployable. No credentials supplied; registry tokens are anonymous public pull tokens kept in memory.",
+  "phase": "P0",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-23T04:54:21.095125Z",
+  "task": "T4"
+}
