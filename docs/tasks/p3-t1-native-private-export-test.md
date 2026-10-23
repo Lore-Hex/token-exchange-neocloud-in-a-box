@@ -109,8 +109,10 @@ on `ff708bcfc5bac542cff0bc95a7c958926cb368d9` failed during native export,
 before QEMU. Its original validation contains no stage/OOM/status projection;
 that absence is preserved, not retroactively filled. This failure does not
 identify the earlier guest `config-read` cause or prove an umask attribution.
-The new diagnostic path is synthetic-tested only until a separately approved
-native run produces its own receipt.
+The subsequent [original guest-network rejection](../../evidence/p3/2026-10-23-native-guest-network-rejection/README.md)
+on exact `942dba9d38b8a19bf6c3ab6b9a3a7de44fcb3b0f` exercises the new projection:
+worker `guest-network/rejected`, installer exit 0, child exit 1, OOM0 and confirmed
+cleanup. It does not retain the precise rejected check, and QEMU was skipped.
 
 The verifier prints only `pass` or `fail` after metadata preparation completes.
 The shell accepts only those values, marks metadata ready, then independently
