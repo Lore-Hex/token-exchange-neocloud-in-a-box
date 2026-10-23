@@ -36,7 +36,11 @@ def sha(value):
 def enabled(contract):
     require(contract.get("stream_cohort") in ({"schema": SCHEMA},
             {"schema": SCHEMA, "profile": EXTENDED_PROFILE})
-            and contract.get("operation") == "local-correctness" and contract.get("gpu_family") == "B300"
+            and contract.get("operation") == "local-correctness"
+            and (contract.get("gpu_family") == "B300" or
+                 (contract.get("gpu_family") == "B200" and contract.get("data_parallel_size") == 2
+                  and type(contract.get("model_profile")) is dict
+                  and contract["model_profile"].get("name") == "uncensored"))
             and contract.get("gpu_security", "confidential") == "confidential"
             and type(contract.get("data_parallel_size", 1)) is int and contract.get("data_parallel_size", 1) in (1, 2)
             and contract.get("tokenizer_parity") is True and "tokenizer_materialization" in contract

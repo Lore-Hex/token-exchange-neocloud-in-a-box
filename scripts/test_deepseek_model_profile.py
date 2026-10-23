@@ -2,7 +2,7 @@
 """Fixed model selection and synthetic runtime boundaries, never GPU evidence."""
 
 import copy
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import hashlib
 import json
 from pathlib import Path
@@ -206,7 +206,7 @@ class PayloadProfiles(unittest.TestCase):
             changes = ({"model_profile": None}, {"model_profile": profiles.select()},
                        {"model_profile": {**NEW, "hf_revision": "0" * 40}},
                        {"manifest_sha256": "0" * 64}, {"pack_bytes": NEW["total_bytes"] - 1},
-                       {"operation": "pre-serve"}, {"gpu_family": "B200"},
+                       {"operation": "pre-serve"}, {"gpu_family": "H200"},
                        {"gpu_security": "nonconfidential"}, {"data_parallel_size": 1})
             for change in changes:
                 with self.subTest(change=change), self.assertRaises(ValueError):
@@ -229,7 +229,7 @@ class PayloadProfiles(unittest.TestCase):
             with self.subTest(name=name, value=value), self.assertRaises(ValueError):
                 observation.validate_sample(changed, self.contract)
         for change in ({"model_profile": None}, {"model_profile": profiles.select()},
-                       {"gpu_security": "nonconfidential"}, {"gpu_family": "B200"},
+                       {"gpu_security": "nonconfidential"}, {"gpu_family": "H200"},
                        {"data_parallel_size": 1}, {"operation": "pre-serve"}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 observation.validate_sample(row, {**self.contract, **change})
@@ -331,6 +331,233 @@ class PayloadProfiles(unittest.TestCase):
 
 def old_manifest():
     return (ROOT / host.PACK / "files.sha256").read_bytes()
+
+
+class B200Profiles(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        PayloadProfiles.setUpClass()
+        cls.fixture = PayloadProfiles.fixture
+        cls.extra = PayloadProfiles.extra
+        cls.args = (*PayloadProfiles.args[:6], "B200", "confidential", 2)
+        cls.options = {**PayloadProfiles.options, "stream_profile": stream_lab.EXTENDED_PROFILE}
+        cls.files, cls.contract = host.make_payload(*cls.args, **cls.options, model_profile="uncensored")
+
+    def test_only_new_family_changes_b300_contract_and_fixed_settings(self):
+        files, contract = host.make_payload(*PayloadProfiles.args, **self.options, model_profile="uncensored")
+        self.assertEqual(self.contract, {**contract, "gpu_family": "B200"})
+        for name in files.keys() - {"lab.json", "python"}:
+            self.assertEqual(files[name], self.files[name])
+        self.assertEqual(self.contract["model_profile"], NEW)
+        self.assertEqual(self.contract["sources"]["model-profile.py"], host.MODEL_PROFILE_SHA)
+        with payload_tree(self.files) as root:
+            old = host.create_command("owned", "owner", root, "/weights", contract, {"config": {"Env": []}})
+            new = host.create_command("owned", "owner", root, "/weights", self.contract, {"config": {"Env": []}})
+            self.assertEqual(old, new)
+            for flag, value in (("--memory", "512g"), ("--memory-swap", "512g"), ("--cpus", "64"),
+                                ("--pids-limit", "1024"), ("--network", "none"),
+                                ("--gpus", '\"device=0,1,2,3,4,5,6,7\"')):
+                self.assertEqual(new[new.index(flag) + 1], value)
+        args = self.contract["arguments"]
+        for flag, value in (("--tensor-parallel-size", "4"), ("--data-parallel-size", "2"),
+                            ("--max-model-len", "4096"), ("--max-num-seqs", "1"),
+                            ("--engram-config", '{"cpu_offload":false}')):
+            self.assertEqual(args[args.index(flag) + 1], value)
+        self.assertIn("--enforce-eager", args)
+        self.assertEqual((host.MAX_SECONDS, lab.WEIGHTS_SECONDS, lab.APPLICATION_SECONDS, lab.STARTUP_SECONDS),
+                         (4800, 1800, 720, 1800))
+
+    def test_all_legacy_payloads_and_docker_commands_match_frozen_base(self):
+        previous = types.ModuleType("previous_b200_host")
+        previous.__file__ = str(ROOT / host.SCRIPT)
+        exec(compile(git(ROOT, "show", "f9885c6405bdc8675dacf3c04ecd583223d0dfbd:" + host.SCRIPT),
+                     previous.__file__, "exec"), previous.__dict__)
+        cases = [("functional", "B200", "confidential", 1), ("hardware-diagnostic", "B200", "confidential", 1),
+                 ("local-correctness", "B200", "confidential", 1), ("local-correctness", "B200", "nonconfidential", 1),
+                 ("local-correctness", "B300", "confidential", 1), ("local-correctness", "B300", "nonconfidential", 1),
+                 ("local-correctness", "B300", "confidential", 2), ("pre-serve", "B200", "confidential", 1),
+                 ("pre-serve", "B300", "confidential", 1)]
+        for profile in cases:
+            for identity in ("original", "uncensored") if profile == cases[6] else ("original",):
+                options = {"model_profile": identity}
+                if profile[0] == "local-correctness" and profile[1:3] == ("B300", "confidential"):
+                    options.update(self.options)
+                args = (*self.args[:5], *profile)
+                with self.subTest(profile=profile, identity=identity):
+                    expected = previous.make_payload(*args, **options)
+                    self.assertEqual(host.make_payload(*args, **options), expected)
+                    files, contract = expected
+                    with payload_tree(files) as root:
+                        command = ("owned", "owner", root, None if profile[0] == "pre-serve" else "/weights",
+                                   contract, {"config": {"Env": []}})
+                        self.assertEqual(json.dumps(host.create_command(*command)).encode(),
+                                         json.dumps(previous.create_command(*command)).encode())
+
+    def test_cli_and_preparation_reject_implicit_or_wrong_b200_selection(self):
+        command = [host.SCRIPT, "--prepare-local-correctness-b200-dp2", "/unused"]
+        for suffix in ([], ["--model-profile", "original"], ["--model-profile", "unknown"],
+                       ["--model-profile", "uncensored", "--provider-conformance-wheels", "/unused"],
+                       ["--model-profile", "uncensored", "--prepare", "/other"]):
+            with mock.patch.object(sys, "argv", command + suffix), mock.patch.object(host, "prepare") as prepare, \
+                    self.assertRaises(ValueError):
+                host.main()
+            prepare.assert_not_called()
+        for identity in ("original", None, "unknown"):
+            with mock.patch.object(host, "load") as load, self.assertRaises(ValueError):
+                host.prepare("/unused", "local-correctness", "B200", "confidential", 2, model_profile=identity)
+            load.assert_not_called()
+
+    def test_identity_validation_precedes_any_runtime_action(self):
+        plan = self.fixture.builder.recorder.prep.launch_plan()
+        changes = [{"gpu_family": None}, {"gpu_family": "b200"}, {"gpu_family": "H200"},
+                   {"model_profile": None}, {"model_profile": profiles.select()},
+                   {"gpu_security": "nonconfidential"}, {"data_parallel_size": 1}, {"data_parallel_size": 2.0},
+                   {"pack_revision": profiles.select()["hf_revision"]}, {"pack_bytes": NEW["total_bytes"] - 1},
+                   {"manifest_sha256": "0" * 64}, {"operation": "functional"}, {"provider_conformance": {}}]
+        changes += [{"model_profile": {**NEW, key: "wrong" if type(value) is str else value + 1}}
+                    for key, value in NEW.items()]
+        with payload_tree(self.files) as root, mock.patch.object(lab, "read_source", side_effect=
+                lambda path, *_: self.files[path.removeprefix("/opt/nib/")]):
+            self.assertEqual(lab.validate_settings(self.contract, plan, 2), NEW)
+            for change in changes:
+                bad = {**self.contract, **change}
+                with self.subTest(change=change), self.assertRaises(ValueError):
+                    host.memory_gib(bad, root)
+                with mock.patch.object(lab, "check_scratch_mounts") as scratch, self.assertRaises(ValueError):
+                    lab.application_and_request(bad, self.files, [None] * 4, {}, {})
+                scratch.assert_not_called()
+            for missing in ("model_profile", "gpu_family", "data_parallel_size"):
+                bad = {key: value for key, value in self.contract.items() if key != missing}
+                with self.subTest(missing=missing), self.assertRaises(ValueError):
+                    host.validate_model_profile(bad, root)
+                with self.assertRaises(ValueError):
+                    lab.validate_settings(bad, plan, 2)
+            (root / "payload/model-profile.py").write_bytes(self.files["model-profile.py"] + b"\n")
+            with self.assertRaises(ValueError):
+                host.memory_gib(self.contract, root)
+
+    def test_optional_gates_do_not_open_original_b200_or_other_profiles(self):
+        for validate in (host.parallel_size, fixtures.probe.parallel_size, parity.enabled,
+                         observation.enabled, stream_lab.enabled):
+            validate(self.contract)
+            for change in ({"model_profile": None}, {"model_profile": profiles.select()},
+                           {"gpu_security": "nonconfidential"}, {"operation": "pre-serve"},
+                           {"gpu_family": "H200"}, {"data_parallel_size": 2.0}):
+                with self.subTest(check=validate.__name__, change=change), self.assertRaises(ValueError):
+                    validate({**self.contract, **change})
+
+    def test_eight_actual_devices_keep_b200_and_reject_mixed_or_unready(self):
+        probe = fixtures.probe
+        library = fixtures.DiagnosticTests().library(count=8, name=b"NVIDIA B200", memory=160 << 20)
+        with mock.patch.object(probe.c, "CDLL", return_value=library):
+            raw = probe.NVML().observe("B200", expected=8)
+        row = probe.validate(raw, family="B200", expected=8)
+        self.assertEqual(probe.validate_report(row, family="B200", expected=8), row)
+        self.assertEqual(row["family"], "B200")
+        self.assertEqual(row["selected_gpus"], 8)
+        self.assertIs(row["attestation_verified"], False)
+        for index in range(8):
+            for device in ({"b300": True, "protected_kib": 250 << 20},
+                           {"b200": False, "protected_kib": 160 << 20},
+                           {"b200": True, "protected_kib": (120 << 20) - 1}):
+                bad = copy.deepcopy(raw)
+                bad["devices"][index] = device
+                with self.subTest(index=index, device=device), self.assertRaises(ValueError):
+                    probe.validate(bad, family="B200", expected=8)
+        for change in ({"devices": raw["devices"][:4]}, {"ready": 0}, {"feature": 0}, {"devtools": 1},
+                       {"environment": 1}, {"multigpu": 0}, {"cuda_driver": 12080}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                probe.validate({**raw, **change}, family="B200", expected=8)
+        with self.assertRaises(ValueError):
+            probe.validate_report(row, family="B300", expected=8)
+
+    def test_actual_container_and_cgroup_bounds_stay_512_gib(self):
+        # Reuse the complete actual-inspect fixture and all cap/swap negatives
+        # with this B200 payload, then mutate the other owned resources.
+        real_check, seen = host.check_container, []
+        def check(info, *args):
+            real_check(info, *args)
+            seen.append((copy.deepcopy(info), args))
+        with mock.patch.object(host, "check_container", side_effect=check):
+            PayloadProfiles.test_uncensored_actual_container_memory_and_swap_must_equal_512_gib(self)
+        info, args = seen[0]
+        with payload_tree(self.files) as root:
+            args = (*args[:2], root, *args[3:])
+            info["Mounts"][0]["Source"] = str(root / "payload")
+            real_check(info, *args)
+            for key, value in (("NanoCpus", 240000000000), ("PidsLimit", 2048), ("ShmSize", 4 << 30),
+                               ("NetworkMode", "host"), ("Privileged", True),
+                               ("DeviceRequests", [{"DeviceIDs": list(map(str, range(4))),
+                                 "Capabilities": [["gpu"]], "Count": 0, "Driver": "nvidia"}])):
+                bad = copy.deepcopy(info)
+                bad["HostConfig"][key] = value
+                with self.subTest(key=key), self.assertRaises(ValueError):
+                    real_check(bad, *args)
+        PayloadProfiles.test_uncensored_cgroup_observation_requires_same_cap_and_zero_swap(self)
+
+    def test_cli_to_published_bundle_to_runtime_failure_retains_binding(self):
+        # Only Git/build/OCI inputs are synthetic. Exercise the actual CLI,
+        # preparer, publisher, bundle reader and runtime identity/result checks.
+        real_load, real_read = host.load, host.read
+        config = {"config": {"Env": ["LD_LIBRARY_PATH=" + lab.IMAGE_LD_PATH, "CUDA_HOME=/usr/local/cuda"]}}
+        def build(_root, _revision, work, _env):
+            binary = work / "synthetic-validator"
+            binary.write_bytes(b"synthetic-linux-validator-not-executed")
+            return binary, "a" * 64
+        def load(name, path, sha):
+            module = real_load(name, path, sha)
+            if name == "lab_application_builder":
+                module.inputs = lambda _: ("1" * 40, dict(self.fixture.bundle), dict(self.extra))
+                module.recorder.build_validator = build
+                module.recorder.raw_metadata = lambda *_: config
+            elif name == "lab_record_support":
+                module.raw_metadata = lambda *_: config
+            return module
+        def read(path, *args):
+            if Path(path).parent == ROOT / "build/engine-image-metadata":
+                return b"synthetic-OCI-metadata-not-used-for-runtime"
+            return real_read(path, *args)
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            root = Path(temporary).resolve() / "bundle"
+            command = [host.SCRIPT, "--prepare-local-correctness-b200-dp2", str(root),
+                       "--model-profile", "uncensored", "--tokenizer-parity", "--tokenizer-materialization",
+                       "--runtime-observation", "--stream-cohort", "--stream-profile", stream_lab.EXTENDED_PROFILE]
+            stack.enter_context(mock.patch.object(sys, "argv", command))
+            stack.enter_context(mock.patch.object(host, "load", side_effect=load))
+            stack.enter_context(mock.patch.object(host, "read", side_effect=read))
+            stack.enter_context(mock.patch.object(host, "committed", side_effect=lambda _b, _r, name: (ROOT / name).read_bytes()))
+            stack.enter_context(mock.patch("builtins.print"))
+            self.assertEqual(host.main(), 0)
+            receipt_sha = host.digest(real_read(root / "receipt.json"))
+            receipt, contract, _, _ = host.bundle_inputs(root, receipt_sha)
+            self.assertEqual(contract["gpu_family"], "B200")
+            self.assertEqual(contract["model_profile"], NEW)
+            self.assertEqual(receipt["source_bundle_sha256"], contract["source_bundle_sha256"])
+            sources = {name: real_read(root / "payload" / name) for name in contract["sources"]}
+            plan = json.loads(real_read(root / "payload/launch-plan.json"))
+            stack.enter_context(mock.patch.object(lab, "read_source", side_effect=
+                lambda path, *_: real_read(root / "payload" / path.removeprefix("/opt/nib/"))))
+            self.assertEqual(lab.validate_settings(contract, plan, 2), NEW)
+            stack.enter_context(mock.patch.object(lab, "tokenizer_adapter_options", fixtures.bootstrap.tokenizer_adapter_options, create=True))
+            stack.enter_context(mock.patch.object(lab, "STREAM_LAB", stream_lab))
+            stack.enter_context(mock.patch.object(lab, "RUNTIME_OBSERVER", observation))
+            stack.enter_context(mock.patch.object(lab, "GPU_PROBE", fixtures.probe))
+            stack.enter_context(mock.patch.object(lab, "check_scratch_mounts"))
+            stack.enter_context(mock.patch.object(lab, "hardware", side_effect=ValueError("synthetic-private-rejection")))
+            row = lab.application_and_request(contract, sources, [None] * 4, {}, {})
+            host.validate_result(row, root, contract, None)
+            self.assertEqual(row["model_profile"], NEW)
+            self.assertEqual(row["status"], "BLOCKED")
+            for name in ("functional_pass", "deployable", "confidential"):
+                self.assertIs(row[name], False)
+            self.assertNotIn("synthetic-private-rejection", json.dumps(row))
+            for name in ("probe.py", "model-profile.py", "lab.json"):
+                path = root / "payload" / name
+                original = path.read_bytes()
+                path.write_bytes(original + b"\n")
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    host.bundle_inputs(root, receipt_sha)
+                path.write_bytes(original)
 
 
 class RuntimeProfiles(unittest.TestCase):
