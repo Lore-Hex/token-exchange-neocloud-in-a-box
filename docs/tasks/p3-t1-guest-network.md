@@ -22,6 +22,12 @@ failed during native export before QEMU started. Its original cleanup receipt
 does not identify the failing build stage; no new guest observation or corrected
 native result is claimed.
 
+The latest [original run 39897633422](../../evidence/p3/2026-10-23-debug-network-readback/README.md)
+passed native export and debug UKI assembly, then failed in the guest's strict
+ruleset readback verification (fixed status 76). INITRD passed; root proof did
+not. Cleanup passed. The exact rejected comparison is not retained, and no
+unique lower-level cause or accepted firewall is claimed.
+
 This implementation applies and reads back the existing firewall candidate;
 that path has not yet succeeded in a native guest. It is not
 interface/address configuration, connectivity qualification or a deployable
@@ -295,3 +301,39 @@ remain, including full stat equality. No error text, errno, path, file content
 or arbitrary numeric metadata is exposed. The same three-field frame, 62-byte
 cap, eight-bit exit status, deadlines, privileges and exact success proof remain.
 A further native boot requires its own reviewed proposal and run authorization.
+
+## Readback Failure Follow-Up
+
+The actual status 76 identifies the call to `nftables.Verify` after a successful
+final nft read command. It does not distinguish malformed metadata, object
+count/shape/handles/elements, duplicate objects or exact policy mismatch.
+No ruleset, arbitrary field value or raw nft output was retained or retrieved.
+
+Verification now distinguishes fixed statuses 94-110: policy input, envelope,
+object count, object shape, handle, set elements, duplicate object, table,
+IPv4 set, IPv6 set, input/forward/output chain, input/forward/output rules,
+and other mismatch. All earlier statuses retain their meanings. Unknown
+errors still map to generic readback status 76. The final classification is
+computed only after the unchanged whole-ruleset equality rejects, with a fixed
+comparison order. The same 64 KiB JSON bounds, strict metadata, full object
+checks, rule order and exact expressions remain mandatory.
+
+The CLI forwards these fixed statuses only for the network role; other roles,
+untyped errors and out-of-range values retain generic failure exit 1. A full
+synthetic command-dispatch regression covers actual readback rejection through
+service error conversion and CLI exit, not just the classifier in isolation.
+
+The expected shape was rechecked against the pinned
+[nftables 1.0.9 primary source](https://netfilter.org/projects/nftables/files/nftables-1.0.9.tar.xz),
+SHA-256 `a3c304cd9ba061239ee0474f9afb938a9bb99d89b960246f66f0c3a0a85e14cd`:
+`src/json.c:131-300,547-553,1691-1751`, and the original
+`tests/py/any/ct.t.json` / `tests/py/inet/tcp.t.json` fixtures. That inspection
+does not reproduce the missing actual ruleset and is not justification to
+accept an alternative representation. This patch changes diagnostics only.
+
+Synthetic mutations check fixed categories and content-free errors; service
+tests reject unknown typed values and arbitrary errors; fragmented-frame tests
+keep the same 62-byte maximum and never promote a diagnostic to successful
+boot. No command, deadline, privilege, cap, retry, raw-log path or success
+criterion changes. A new boot remains separately gated and is not authorized
+by preserving this failed run.

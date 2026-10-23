@@ -18,6 +18,32 @@ const ReadbackLimit = 64 << 10
 
 var errReadback = errors.New("network policy readback rejected")
 
+// VerificationFailure exposes only a fixed rejection class, never ruleset data.
+// Keep these values stable: the service maps them to content-free exit statuses.
+type VerificationFailure uint8
+
+const (
+	RejectedPolicy VerificationFailure = 1 + iota
+	RejectedEnvelope
+	RejectedCount
+	RejectedObject
+	RejectedHandle
+	RejectedElements
+	RejectedDuplicate
+	RejectedTable
+	RejectedEgress4
+	RejectedEgress6
+	RejectedInputChain
+	RejectedForwardChain
+	RejectedOutputChain
+	RejectedInputRules
+	RejectedForwardRules
+	RejectedOutputRules
+	RejectedOther
+)
+
+func (VerificationFailure) Error() string { return "network policy readback rejected" }
+
 // Create reuses the candidate policy but refuses an existing table. There is
 // deliberately no flush, replace, retry, or deletion on failure.
 func Create(destinations []string) ([]byte, error) {
@@ -46,27 +72,30 @@ func Empty(raw []byte) error {
 // nftables 1.0.9: src/json.c, doc/libnftables-json.adoc, tests/py/any/ct.t.json.
 func Verify(raw []byte, destinations []string) error {
 	if _, err := Render(destinations); err != nil {
-		return errReadback
+		return RejectedPolicy
 	}
 	objects, err := dump(raw)
-	if err != nil || len(objects) != 15 {
-		return errReadback
+	if err != nil {
+		return RejectedEnvelope
+	}
+	if len(objects) != 15 {
+		return RejectedCount
 	}
 	actual := map[string]any{}
 	for _, item := range objects {
 		wrapper, ok := item.(map[string]any)
 		if !ok || len(wrapper) != 1 {
-			return errReadback
+			return RejectedObject
 		}
 		for kind, value := range wrapper {
 			obj, ok := value.(map[string]any)
 			if !ok {
-				return errReadback
+				return RejectedObject
 			}
 			handle, ok := obj["handle"].(json.Number)
 			n, err := strconv.ParseUint(string(handle), 10, 64)
 			if !ok || err != nil || n == 0 || strconv.FormatUint(n, 10) != string(handle) {
-				return errReadback
+				return RejectedHandle
 			}
 			delete(obj, "handle")
 			key := kind
@@ -75,19 +104,19 @@ func Verify(raw []byte, destinations []string) error {
 			case "set", "chain":
 				name, ok := obj["name"].(string)
 				if !ok {
-					return errReadback
+					return RejectedObject
 				}
 				key += "/" + name
 				if kind == "set" {
 					if elems, present := obj["elem"]; present {
 						values, ok := elems.([]any)
 						if !ok || len(values) == 0 || len(values) > 32 {
-							return errReadback
+							return RejectedElements
 						}
 						addresses := make([]string, len(values))
 						for i, value := range values {
 							if addresses[i], ok = value.(string); !ok {
-								return errReadback
+								return RejectedElements
 							}
 						}
 						sort.Strings(addresses)
@@ -97,25 +126,39 @@ func Verify(raw []byte, destinations []string) error {
 			case "rule":
 				chain, ok := obj["chain"].(string)
 				if !ok {
-					return errReadback
+					return RejectedObject
 				}
 				key += "/" + chain
 				rules, _ := actual[key].([]any)
 				actual[key] = append(rules, obj)
 				continue
 			default:
-				return errReadback
+				return RejectedObject
 			}
 			if _, exists := actual[key]; exists {
-				return errReadback
+				return RejectedDuplicate
 			}
 			actual[key] = obj
 		}
 	}
-	if !reflect.DeepEqual(actual, expected(destinations)) {
-		return errReadback
+	want := expected(destinations)
+	if !reflect.DeepEqual(actual, want) {
+		return mismatch(actual, want)
 	}
 	return nil
+}
+
+// Classification runs only after the unchanged whole-ruleset equality rejects.
+// Fixed ordering avoids map iteration affecting the reported rejection class.
+func mismatch(actual, want map[string]any) VerificationFailure {
+	for i, key := range []string{"table", "set/egress4", "set/egress6",
+		"chain/input", "chain/forward", "chain/output",
+		"rule/input", "rule/forward", "rule/output"} {
+		if !reflect.DeepEqual(actual[key], want[key]) {
+			return RejectedTable + VerificationFailure(i)
+		}
+	}
+	return RejectedOther
 }
 
 func expected(destinations []string) map[string]any {

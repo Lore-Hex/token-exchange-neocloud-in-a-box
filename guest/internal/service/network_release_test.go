@@ -8,9 +8,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/nftables"
 )
 
 func TestNetworkLifecycle(t *testing.T) {
@@ -77,10 +80,10 @@ func TestNetworkLifecycle(t *testing.T) {
 			if (err == nil) != (scenario == "pass") {
 				t.Fatal("incorrect acceptance")
 			}
-			stages := map[string]networkFailure{"dirty": failedNetworkInitialRuleset, "read-error": failedNetworkInitialCommand,
+			stages := map[string]error{"dirty": failedNetworkInitialRuleset, "read-error": failedNetworkInitialCommand,
 				"check-error": failedNetworkCheck, "check-output": failedNetworkCheck, "create-error": failedNetworkCreate,
 				"create-output": failedNetworkCreate, "final-error": failedNetworkReadbackCommand,
-				"changed": failedNetworkReadback, "cancelled": failedNetworkDeadline}
+				"changed": networkReadbackFailure(96), "cancelled": failedNetworkDeadline}
 			if scenario != "pass" && (err != stages[scenario] || err.Error() != "network startup rejected") {
 				t.Fatal("failure classification changed or leaked backend detail", scenario)
 			}
@@ -98,6 +101,83 @@ func TestNetworkLifecycle(t *testing.T) {
 		}) == nil {
 			t.Fatal("invalid config passed")
 		}
+	}
+}
+
+func TestNetworkVerificationStatusesAreFiniteAndContentFree(t *testing.T) {
+	for value := 0; value <= 255; value++ {
+		got := networkVerificationFailure(nftables.VerificationFailure(value))
+		if value >= 1 && value <= 17 {
+			stage, ok := got.(networkReadbackFailure)
+			if !ok || stage.serviceExitCode() != 93+value {
+				t.Fatal("lost fixed verification status")
+			}
+		} else if got != failedNetworkReadback {
+			t.Fatal("unknown verification status forwarded")
+		}
+		if got.Error() != "network startup rejected" {
+			t.Fatal("non-fixed verification diagnostic")
+		}
+	}
+	for _, err := range []error{nil, errors.New("PRIVATE RULESET CANARY"), failedNetworkExecutable} {
+		if networkVerificationFailure(err) != failedNetworkReadback {
+			t.Fatal("arbitrary error promoted to verification status")
+		}
+	}
+}
+
+func TestReadbackFailureReachesCLIWithoutContentOrRoleEscape(t *testing.T) {
+	before := []byte(`{"nftables":[{"metainfo":{"version":"1.0.9","release_name":"Old Doc Yak #3","json_schema_version":1}}]}`)
+	config := []byte(`{"schema":"nib.guest-network/v1","egress":[]}`)
+	invoke := func(role string, backendError func() error, want int) {
+		t.Helper()
+		var out, errs bytes.Buffer
+		calls := 0
+		code := runCommand(context.Background(), role, []string{"--config", "/etc/nib/network.json"}, &out, &errs,
+			func(_ context.Context, gotRole, path string, _ io.Writer) error {
+				calls++
+				if gotRole != role || path != "/etc/nib/network.json" {
+					t.Fatal("CLI changed backend arguments")
+				}
+				return backendError()
+			})
+		if calls != 1 || code != want || out.Len() != 0 ||
+			errs.String() != "guest: startup denied or service stopped; no confidentiality established\n" {
+			t.Fatalf("CLI lost failure status or privacy: status %d, want %d", code, want)
+		}
+	}
+	// Exercise real config/render/empty/check/create/Verify/error conversion and
+	// CLI dispatch. Only the four nft subprocess results are synthetic.
+	invoke("network", func() error {
+		calls := 0
+		err := applyNetwork(context.Background(), config,
+			func(context.Context, networkOperation, []byte) ([]byte, error) {
+				calls++
+				if calls == 1 || calls == 4 {
+					return before, nil
+				}
+				return nil, nil
+			})
+		if calls != 4 || err != networkReadbackFailure(96) {
+			t.Fatal("readback did not reject missing policy")
+		}
+		return err
+	}, 96)
+	for stage := nftables.RejectedPolicy; stage <= nftables.RejectedOther; stage++ {
+		for _, role := range []string{"network", "gpu-gate", "weights", "engine"} {
+			want := 1
+			if role == "network" {
+				want = 93 + int(stage)
+			}
+			invoke(role, func() error { return networkVerificationFailure(stage) }, want)
+		}
+	}
+	for _, err := range []error{networkReadbackFailure(63), networkReadbackFailure(111),
+		networkReadbackFailure(255), errors.New("PRIVATE RULESET CANARY")} {
+		invoke("network", func() error { return err }, 1)
+	}
+	for _, stage := range []nftables.VerificationFailure{0, 18, 255} {
+		invoke("network", func() error { return networkVerificationFailure(stage) }, 76)
 	}
 }
 

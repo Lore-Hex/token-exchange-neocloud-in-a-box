@@ -48,11 +48,15 @@ class QemuTests(unittest.TestCase):
             "initial-command initial-ruleset check create readback-command readback deadline "
             "config-root-open config-parent-stat config-parent-trust config-component-open config-file-stat "
             "config-file-filesystem config-file-mode config-file-owner config-file-links config-file-size "
-            "config-duplicate config-read-io config-close config-read-length config-restat config-changed".split()))
-        for status in (*range(64, 95), 0, 203, 226, 255):
+            "config-duplicate config-read-io config-close config-read-length config-restat config-changed "
+            "readback-policy readback-envelope readback-count readback-object readback-handle readback-elements "
+            "readback-duplicate readback-table readback-egress4 readback-egress6 readback-input-chain "
+            "readback-forward-chain readback-output-chain readback-input-rules readback-forward-rules "
+            "readback-output-rules readback-other".split()))
+        for status in (*range(63, 112), 0, 203, 226, 255):
             raw = qemu.NETWORK_PREFIX + f"2 1 {status}\n".encode("ascii")
             expected = {"service_result": "exit-code", "exit_code": "exited", "exit_status": status,
-                        "stage": qemu.NETWORK_STAGES[status - 64] if 64 <= status <= 93 else None}
+                        "stage": qemu.NETWORK_STAGES[status - 64] if 64 <= status <= 110 else None}
             self.assertLessEqual(len(raw), 62)
             for split in range(1, len(raw)):
                 connection = mock.Mock()
