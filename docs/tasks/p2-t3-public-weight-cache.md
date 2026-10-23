@@ -1,5 +1,9 @@
 # P2.T3 persistent public-weight cache
 
+The original modes described here remain unchanged. The separate opt-in
+[fixed dealign cache and seed mode](p2-t4-public-cache-seed.md) reuses this helper
+and supervisor for verified regular copies, with its own partial/full receipts.
+
 `host/cache-public-weights.py` is an operator-approved lab utility, not a guest
 component or confidential storage implementation. It preserves only the exact
 83-file DeepSeek V4.1 Flash 1017 manifest. It never deletes the original pack or
