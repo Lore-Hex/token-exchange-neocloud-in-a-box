@@ -148,7 +148,14 @@ def validate_sample(sample, contract):
             and all(type(n) is int and 0 <= n < 2**63 for n in values.values()))
     replicas = contract.get("data_parallel_size", 1)
     require(type(replicas) is int and replicas in (1, 2))
-    require(values["memory.max"] == (512 * replicas) << 30 and values["memory.swap.max"] == 0
+    memory_gib = 512 * replicas
+    if "model_profile" in contract:
+        # The host and lab entry validate the complete pinned model identity.
+        enabled(contract)
+        require(type(contract["model_profile"]) is dict
+                and contract["model_profile"].get("name") == "uncensored" and replicas == 2)
+        memory_gib = 512
+    require(values["memory.max"] == memory_gib << 30 and values["memory.swap.max"] == 0
             and values["pids.max"] == 1024 and 0 < values["pids.current"] <= 1024
             and 0 < values["memory.current"] <= values["memory.peak"] <= values["memory.max"])
 
