@@ -23,17 +23,18 @@ def document(name):
     return json.loads((DIRECTORY / name).read_bytes())
 
 
-class StreamFailureEvidenceTests(unittest.TestCase):
+class SourceBoundStreamEvidence:
     def test_original_bytes_and_source_bound_bundle(self):
-        for name, expected in HASHES.items():
-            self.assertEqual(hashlib.sha256((DIRECTORY / name).read_bytes()).hexdigest(), expected)
-        run, report, contract, receipt = (document(name) for name in HASHES)
+        directory, hashes, producer = self.directory, self.hashes, self.producer
+        for name, expected in hashes.items():
+            self.assertEqual(hashlib.sha256((directory / name).read_bytes()).hexdigest(), expected)
+        run, report, contract, receipt = (json.loads((directory / name).read_bytes()) for name in hashes)
         for value in (run, report["provenance"], contract, receipt):
-            self.assertEqual(value["git_sha"], PRODUCER)
-        self.assertEqual(report["provenance"]["receipt_sha256"], HASHES["receipt.json"])
+            self.assertEqual(value["git_sha"], producer)
+        self.assertEqual(report["provenance"]["receipt_sha256"], hashes["receipt.json"])
         self.assertEqual(receipt["files"]["payload/lab.json"], {
-            "bytes": (DIRECTORY / "input-contract.json").stat().st_size,
-            "sha256": HASHES["input-contract.json"],
+            "bytes": (directory / "input-contract.json").stat().st_size,
+            "sha256": hashes["input-contract.json"],
         })
         for key in ("source_bundle_sha256", "manifest_sha256", "pack_revision"):
             self.assertEqual(report["provenance"][key], contract[key])
@@ -48,13 +49,17 @@ class StreamFailureEvidenceTests(unittest.TestCase):
         source_map.update({name: "scripts/" + name.removeprefix("payload/stream/")
                            for name in receipt["files"] if name.startswith("payload/stream/")})
         for name, source in source_map.items():
-            raw = git(ROOT, "show", PRODUCER + ":" + source)
+            raw = git(ROOT, "show", producer + ":" + source)
             self.assertEqual(receipt["files"][name], {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()})
         prefix = b'import sys\nif not (sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode):\n    sys.exit("Isolated lab required.")\n'
-        launch = prefix + b"\n".join(git(ROOT, "show", PRODUCER + ":scripts/" + source) for source in (
+        launch = prefix + b"\n".join(git(ROOT, "show", producer + ":scripts/" + source) for source in (
             "engine_python_bootstrap.py", "engine_exception.py", "engine_lab_bootstrap.py", "engine_lab.py"))
         self.assertEqual(receipt["files"]["payload/launch.py"],
                          {"bytes": len(launch), "sha256": hashlib.sha256(launch).hexdigest()})
+
+
+class StreamFailureEvidenceTests(SourceBoundStreamEvidence, unittest.TestCase):
+    directory, hashes, producer = DIRECTORY, HASHES, PRODUCER
 
     def test_ready_is_not_benchmark_success(self):
         run, report = document("run.json"), document("output.log")

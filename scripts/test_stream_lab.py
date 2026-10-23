@@ -65,6 +65,29 @@ class BindingTests(unittest.TestCase):
         del bad["tokenizer_materialization"]
         with self.assertRaises(ValueError): binding.enabled(bad)
 
+    def test_extended_profile_is_closed_and_receipt_uses_the_bound_window(self):
+        selected = contract()
+        selected["stream_cohort"]["profile"] = binding.EXTENDED_PROFILE
+        binding.enabled(selected)
+        self.assertEqual(binding.cohort_seconds(contract(), cohort), 180)
+        self.assertEqual(binding.cohort_seconds(selected, cohort), 600)
+        for settings in ({"schema": binding.SCHEMA, "profile": None},
+                         {"schema": binding.SCHEMA, "profile": "unknown"},
+                         {"schema": binding.SCHEMA, "profile": binding.EXTENDED_PROFILE, "seconds": 900}):
+            with self.subTest(settings=settings), self.assertRaises(ValueError):
+                binding.enabled({**contract(), "stream_cohort": settings})
+        with fake_collection([sample(elapsed=50)] * 9, advance=50):
+            result = cohort.run(endpoint(), workload(), deadline=1000, gpu_count=8,
+                                cohort_seconds=binding.cohort_seconds(selected, cohort))
+        value = {"schema": binding.RESULT_SCHEMA, "contract_sha256": SHA,
+                 "engine_identity_sha256": "c" * 64, "terminal_identity_verified": True, "cohort": result}
+        self.assertTrue(binding.validate(value, selected, SHA, cohort))
+        with self.assertRaises(ValueError): binding.validate(value, contract(), SHA, cohort)
+        value["cohort"]["elapsed_seconds"] = 600
+        with self.assertRaises(ValueError): binding.validate(value, selected, SHA, cohort)
+        value["cohort"].update(completed=False, stop_reason="deadline")
+        self.assertFalse(binding.validate(value, selected, SHA, cohort))
+
     def test_child_binds_current_contract_parity_and_exact_workload_metadata(self):
         value = binding.child(Tokenizer(), parity_fixtures.local(), SHA, cohort, time.monotonic() + 3)
         local, prepared = binding.admit_child(value, SHA, cohort, parity, correctness)
@@ -161,6 +184,7 @@ class BindingTests(unittest.TestCase):
                         self.assertEqual(value["cohort"]["known_output_tokens"], 450)
                         self.assertNotIn("PRIVATE", json.dumps(value))
                         self.assertEqual(bind.call_args.args[1]["process"]["exe_sha256"], contract()["interpreter"]["sha256"])
+                        self.assertEqual(run.call_args.kwargs["cohort_seconds"], 180)
 
 
 class HarnessTests(unittest.TestCase):
@@ -176,8 +200,18 @@ class HarnessTests(unittest.TestCase):
         options = {"tokenizer_parity": True, "tokenizer_materialization": True, "runtime_observation": True}
         base_files, base = host.make_payload(*args, **options)
         files, selected = host.make_payload(*args, **options, stream_cohort=True)
+        extended_files, extended = host.make_payload(*args, **options, stream_cohort=True,
+                                                     stream_profile=binding.EXTENDED_PROFILE)
         self.assertNotIn("stream_cohort", base)
         self.assertEqual(selected["stream_cohort"], {"schema": binding.SCHEMA})
+        self.assertEqual(extended["stream_cohort"], {"schema": binding.SCHEMA, "profile": binding.EXTENDED_PROFILE})
+        self.assertEqual({k: v for k, v in selected.items() if k != "stream_cohort"},
+                         {k: v for k, v in extended.items() if k != "stream_cohort"})
+        self.assertEqual({k: v for k, v in files.items() if k not in ("lab.json", "python")},
+                         {k: v for k, v in extended_files.items() if k not in ("lab.json", "python")})
+        for enabled, profile in ((False, binding.EXTENDED_PROFILE), (True, "unknown"), (True, 600)):
+            with self.subTest(enabled=enabled, profile=profile), self.assertRaises(ValueError):
+                host.make_payload(*args, **options, stream_cohort=enabled, stream_profile=profile)
         binding.load(files, selected["sources"])
         self.assertLessEqual(len(selected["sources"]), 110)
         for key in ("arguments", "environment", "pack_revision", "pack_bytes", "interpreter", "tokenizer_materialization"):
@@ -202,6 +236,16 @@ class HarnessTests(unittest.TestCase):
         with mock.patch.object(host.sys, "argv", ["script", *valid]), mock.patch.object(host, "prepare") as prepare:
             self.assertEqual(host.main(), 0)
             self.assertTrue(prepare.call_args.kwargs["stream_cohort"])
+            self.assertNotIn("stream_profile", prepare.call_args.kwargs)
+        with mock.patch.object(host.sys, "argv", ["script", *valid, "--stream-profile", binding.EXTENDED_PROFILE]), \
+                mock.patch.object(host, "prepare") as prepare:
+            self.assertEqual(host.main(), 0)
+            self.assertEqual(prepare.call_args.kwargs["stream_profile"], binding.EXTENDED_PROFILE)
+        for args in (["--prepare-local-correctness-b300-dp2", "/not-written"], ["--run", "/not-read"]):
+            with mock.patch.object(host.sys, "argv", ["script", *args, "--stream-profile", binding.EXTENDED_PROFILE]), \
+                    mock.patch.object(host, "prepare") as prepare:
+                with self.assertRaises(ValueError): host.main()
+                prepare.assert_not_called()
 
     def test_private_tokenizer_child_checks_sources_before_and_after_count(self):
         selected = {**contract(), "paths": ["/stdlib", "/dyn", "/selected"]}
