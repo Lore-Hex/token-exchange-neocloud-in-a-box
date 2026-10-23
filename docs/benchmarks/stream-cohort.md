@@ -32,6 +32,14 @@ first failed request stops dispatch. These are diagnostic bounds, not a claim
 that a full 512-token response will finish within the limit. Early EOS is valid;
 reports use actual output usage and do not label it a 512-token completion.
 
+An explicit `--stream-profile chat-2k-512-c1-600s` during preparation selects a
+600-second window instead. The contract binds that named option; it cannot be
+changed when running a prepared bundle. The default contract and 180-second
+behavior remain unchanged. The same nine 60-second request limits need at most
+540 seconds of transport time, leaving 60 seconds for control overhead within
+the longer window. Earlier owner deadlines always win. There is still no retry
+or change to request count, token reservation, context, concurrency or cleanup.
+
 ## Measurement And Ownership
 
 The concrete [owned HTTP collector](stream-transport.md) retains the same-owner
@@ -91,7 +99,13 @@ The [first actual attempt](../../evidence/p2/2026-10-23-stream-preparation-failu
 reached engine readiness but failed before parity/cohort completion, with
 confirmed cleanup. It is not a throughput result. The padding regression and
 early-preparation ordering are tested; a successful real rerun remains required.
-Its budget is the
+The [second actual attempt](../../evidence/p2/2026-10-23-stream-window-exhaustion/README.md)
+passed all four parity cases and completed a warmup plus three measured
+responses, but exhausted its 180-second window during the fourth measured
+request. Four requests never started and one has unknown usage. It remains a
+failed, partial benchmark with confirmed cleanup. The named longer window is
+tested, not yet hardware-validated.
+The budget is the
 existing eight parity requests (four tokenize, four one-token completions), plus
 one warmup and eight measured stream requests. Stream reservation remains 23,040
 tokens; the four parity completions have their separate existing accounting.
@@ -99,7 +113,8 @@ No credentials, public endpoint, cloud resources or new launch profile are added
 
 ## Remaining Work
 
-Actual throughput and cleanup evidence remain unmeasured by these code tests.
+Partial live observations and cleanup are preserved above. A complete live
+cohort and the full benchmark sweep remain pending; code tests do not prove them.
 The current 4,096-context profile does not
 support the planned 32K/128K workloads or concurrency-256 sweep; those require
 separately reviewed profiles and live tests.

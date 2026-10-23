@@ -205,3 +205,36 @@ pair/simulator-tokenizer.json|compact|independent_tokens_sha256|1b7419454da94e65
 pair/evaluator-tokenizer.json|compact|independent_tokens_sha256|1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|
 CASES
 done
+
+# The partial stream originals get the same exact field/value/path boundaries.
+while IFS='|' read -r relative field known suffix; do
+  format=pretty
+  target="$tmp/stream/evidence/p2/2026-10-23-stream-window-exhaustion/$relative"
+  mkdir -p "$(dirname "$target")"
+  write_receipt_field "$target" "$field" "$known"
+  expect_receipt_scan "$target" 0
+  write_receipt_field "$target" "$field" "$unknown"
+  expect_receipt_scan "$target" 42
+  write_receipt_field "$target" api_key "$known"
+  expect_receipt_scan "$target" 42
+  write_receipt_field "$tmp/stream/other.log" "$field" "$known"
+  expect_receipt_scan "$tmp/stream/other.log" 42
+  printf 'Stream original hash exception requires exact value, field and path.\n'
+done <<'CASES'
+input-contract.json|tokenizer-adapter.py|060220d1bc62f13278e5a03a3a85c39ef84f528ada2a9e39ab0c62a4a7c09960|,
+input-contract.json|tokenizer-parity.py|09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a|
+input-contract.json|stream/engine_tokenizer_parity.py|09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a|,
+output.log|tokens_sha256|9d6bde6f28006680e5d37e06d816356d782004f1e8dbabf46d42e81b088afc16|
+output.log|tokens_sha256|c7b86dad075d1d51e4bf9aec664d9ce392e5d04a63babe717ab9354ec0b56032|
+output.log|tokens_sha256|6ddfa5e6dbf2f45b8efc1e2ebda65f1f79c39b1a4ec8a7fce8e77fc5a0add7d5|
+output.log|tokens_sha256|4e5eb88296779609b1ef81a335894e3ef5c284a94a8ceb1607421414c43c9cbe|
+output.log|token_ids_sha256|d061ea411012b683576ee86d57d07054066b842e936edb4e0ff7d89bd97c5470|
+output.log|token_ids_sha256|4d7e4f06506e1e47b470b40a38ec147fef8016cae2675b4fc1d7ee5d941088c7|
+output.log|token_ids_sha256|ff76892724504c2a7ee072064c89c029664b421b491f7232a3a1e264d9653a1d|
+output.log|token_ids_sha256|4c53823667bac7092f3f1aacf02c6a0a5f8d11ba6b855af70267f484b8d7bc83|
+output.log|token_ids_sha256|b750144a2ab856791ad30cd5f8490509ecbbebf7f06bfcd729873becd36248ef|
+output.log|token_ids_sha256|66580e2260a1cb593df35123b62ccd5834a9ba0e2f7aac5901f0ad841b9f3d06|
+output.log|token_ids_sha256|e1fdec586d6a4fcdb513c01c85c3ae9ca4f3841215515bfccfee06d00cab5a02|
+output.log|token_ids_sha256|c2b7a5883e367117f9956115c67ce31de3c8ae610396b9e214ab72faeed28cf2|
+output.log|token_ids_sha256|72cb95039dc41812098f6f9e6d40525acc5fa3c41ab9550fdb12f60ea2b0c713|
+CASES

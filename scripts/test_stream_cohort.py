@@ -147,6 +147,24 @@ class CohortTests(unittest.TestCase):
         self.assertEqual(result["samples"], [])
         self.assertIsNone(result["measured"])
 
+    def test_extended_window_is_explicit_finite_and_cannot_extend_owner_deadline(self):
+        for seconds, owner_deadline, expected_calls, complete, expected_cutoff in (
+                (180, 1000, 4, False, 280), (600, 1000, 9, True, 700),
+                (600, 200, 2, False, 200)):
+            with self.subTest(seconds=seconds, owner_deadline=owner_deadline), \
+                    fake_collection([sample(elapsed=50)] * 9, advance=50) as (_, seen):
+                result = cohort.run(endpoint(), workload(), deadline=owner_deadline,
+                                    gpu_count=8, cohort_seconds=seconds)
+            self.assertEqual(len(seen), expected_calls)
+            self.assertEqual(result["completed"], complete)
+            self.assertEqual({row[1]["deadline"] for row in seen}, {expected_cutoff})
+            self.assertEqual(result["reserved_total_tokens"], 23040)
+            self.assertEqual(result["reserved_requests"], 9)
+            self.assertEqual({row[1]["max_output_tokens"] for row in seen}, {512})
+        for seconds in (True, 600.0, 0, 179, 181, 599, 601, float("inf")):
+            with self.subTest(seconds=seconds), self.assertRaises(ValueError):
+                cohort.run(endpoint(), workload(), deadline=1000, gpu_count=8, cohort_seconds=seconds)
+
     def test_failed_known_usage_counted_not_in_throughput(self):
         with fake_collection([sample(), sample(), sample("protocol-error")]) as (_, seen):
             result = cohort.run(endpoint(), workload(), deadline=1000, gpu_count=8)
