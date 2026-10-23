@@ -127,3 +127,70 @@ cleanup cannot produce a successful measurement.
 No actual token count, successful original tau trial, model quality, paired
 reference result, production readiness or confidential-computing claim is made
 by this implementation or its synthetic tests.
+
+## Original Local Attempt
+
+The single CPU-only attempt at producer
+`fb41c77ea96ae9a9d76603d5d98b69497bde80a8` ran from
+2026-10-23 01:27:09 to 01:39:26 UTC and **failed before tokenizer entry**.
+The [final original envelope](../../evidence/p2/2026-10-23-tau-agent-prefix-local-fb41c77/result/run.json)
+and [content-free report](../../evidence/p2/2026-10-23-tau-agent-prefix-local-fb41c77/result/output.log)
+are preserved byte for byte, together with the original pending marker and
+render receipts. No body, transcript, token IDs or raw container logs are added.
+
+| Stage | Original Observation |
+|---|---|
+| Sealed original scorer | Pass, 01:27:15-01:27:23 UTC; one system message, 16 tool schemas, no generation; cleanup confirmed |
+| CPU application preflight | 10,817 ms |
+| CPU application | 709,217 ms; fixed `bounded-cpu-entry-rejected` failure |
+| Tokenizer entry | Not reached; application receipt, entry and count observation are null |
+| CPU container owner | Completed, `entry_pass=false`, cleanup confirmed; overall attempt failed |
+
+The two measured preparation intervals total 720,034 ms, consistent with the
+unchanged shared 720-second application deadline. The report does not identify
+the internal inventory/application step or explain why it consumed that time.
+It is not a tokenizer failure, a measured token count, a `context-exceeded`
+result, a full-fit result, or tau execution. The successful renderer is not a
+successful end-to-end preflight.
+
+The tests pin all original bytes and both producers, verify the 22 scorer source
+hashes against the original Git tree, reconstruct the CPU source/application
+contract, and replay the original failure validator with negative controls.
+The discarded private request is not reconstructed: its original payload hash
+is preserved, not independently remeasured by these tests.
+
+## Native Comparison
+
+A distinct earlier [native CPU envelope](../../evidence/p2/2026-10-22-cpu-native-39795135328-1/run.json)
+and [original report](../../evidence/p2/2026-10-22-cpu-native-39795135328-1/output.log)
+are also preserved unchanged. GitHub workflow `39795135328`, producer
+`0ea53612f5e0b769eb2652af3be89af89678946c`, ran the older
+`tokenizer-continuation` diagnostic on a Linux/amd64 software runner. It failed
+before entry: 16,982 ms preflight plus 703,019 ms application, cleanup confirmed.
+This is not a native prefix count or evidence for the earlier local TypeError.
+
+That native attempt used the same pinned image/config, 2-CPU/8-GiB container
+profile, and byte-identical `engine_application.py`, `engine_overlay.py` and
+base container policy. Consequently emulation alone is **not an established
+cause**, and a native rerun is not a demonstrated remedy.
+
+At the frozen producer, [application inspection](../../scripts/engine_application.py)
+and [stage application](../../scripts/engine_overlay.py) perform two complete
+admission inventories, a deletion recheck, and five post-stage inventories,
+plus metadata/RECORD reads. [CPU entry](../../scripts/engine_cpu_entry.py) gives
+all of them the same 720-second deadline. Page-cache pressure, I/O and emulation
+cost are hypotheses, not measured explanations; neither original records
+substage timings or cgroup I/O/memory counters. No check or deadline is relaxed.
+
+The unchanged producer can be staged for native Linux using the authenticated
+Git bundle, original upstream archive, all 74 locked scorer wheels and the two
+pinned tokenizer files. Host orchestration uses Python standard-library/POSIX
+APIs, Git and Docker, not Go compilation, host upstream imports or model weights.
+The host has no explicit Python 3.12 gate; preparation uses standard-library
+`tomllib` and parses pinned source syntax. The independently checked
+**container** interpreter remains pinned to 3.12.
+Host-version compatibility must be checked before launch, not inferred from the
+container version. Image profile selection stays explicit and fail-closed.
+Staging is not execution approval: a native attempt requires its own coordinated
+resource/cleanup readiness and authorization, with the same bounds and no GPU,
+network, shared PID namespace, settings changes or automatic retry.
