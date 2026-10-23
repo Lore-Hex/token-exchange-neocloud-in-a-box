@@ -57,11 +57,43 @@ The output contains workload hashes, usage, timing and fixed dispositions only.
 It does not contain prompt text, completion text or token IDs. It explicitly
 leaves quality, pricing, confidential service and sweep acceptance false.
 
-## Remaining Integration
+## Owned Lab Integration
 
-The lab must still wire preparation into the sealed tokenizer child, bind the
-workload to the current runtime, invoke the cohort from the owning controller,
-and preserve the actual run and cleanup evidence. No host launch or guest
-admission changes are made here. The current 4,096-context profile does not
+The existing [lab recorder](../../host/record-deepseek-lab.py) accepts an explicit
+`--stream-cohort` preparation option, together with `--tokenizer-parity`,
+`--tokenizer-materialization` and `--runtime-observation`, for its existing B300
+CC local-correctness profile. It cannot be combined with the separate provider
+checker or passed as an override when running an already prepared bundle.
+Defaults, engine arguments, container privileges, namespaces and cleanup limits
+are unchanged. GPU CC mode alone is not confidential-service qualification.
+
+The [integration](../../scripts/stream_lab.py) binds the complete fixed collector
+source closure into the existing authenticated payload. It compiles those exact
+bytes, not ambient same-name modules. The existing private tokenizer child
+prepares the workload alongside its four independent parity controls and binds
+the metadata to the current lab contract. Sources and model files are checked
+again before the child returns; prompts, token IDs and library output are never
+returned. The existing 60-second child deadline remains in force, including
+bootstrap, counting and final checks.
+
+The owning controller requires all four endpoint parity probes to pass before
+dispatch. It then binds the collector to its current child process, namespace,
+executable and listener, preserving per-connection accepted-peer checks. The
+before/after runtime observations and normal engine teardown still run. A late
+identity or cleanup failure prevents success without discarding already reported
+usage. The host independently validates workload hashes, fixed budgets, timings,
+arithmetic, stop dispositions and summary recomputation from the bounded receipt.
+
+This integration is tested against synthetic fixtures; a reviewed, explicitly
+authorized actual run must still produce committed evidence. Its budget is the
+existing eight parity requests (four tokenize, four one-token completions), plus
+one warmup and eight measured stream requests. Stream reservation remains 23,040
+tokens; the four parity completions have their separate existing accounting.
+No credentials, public endpoint, cloud resources or new launch profile are added.
+
+## Remaining Work
+
+Actual throughput and cleanup evidence remain unmeasured by these code tests.
+The current 4,096-context profile does not
 support the planned 32K/128K workloads or concurrency-256 sweep; those require
 separately reviewed profiles and live tests.

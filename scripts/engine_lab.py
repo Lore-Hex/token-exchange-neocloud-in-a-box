@@ -30,6 +30,7 @@ CORRECTNESS = None
 PARITY = None
 RUNTIME_OBSERVER = None
 PROVIDER_SESSION = None
+STREAM_LAB = STREAM_COHORT = None
 ENTRY_CHECKPOINTS = 17
 EXCEPTION_PACKET_BYTES = 3 + 8 * 36
 WORKER_EXCEPTION_PATH = "/cache/worker-exception.bin"
@@ -214,7 +215,7 @@ def load(name, raw, path):
 
 
 def lab_context(expected):
-    global PROCESSES, GPU_PROBE, CORRECTNESS, PARITY, RUNTIME_OBSERVER, PROVIDER_SESSION
+    global PROCESSES, GPU_PROBE, CORRECTNESS, PARITY, RUNTIME_OBSERVER, PROVIDER_SESSION, STREAM_LAB, STREAM_COHORT
     import platform
     import re
     require(re.fullmatch(r"[0-9a-f]{64}", expected) and __file__ == ROOT + "/launch.py")
@@ -258,6 +259,10 @@ def lab_context(expected):
     if "runtime_observation" in contract:
         RUNTIME_OBSERVER = load("lab_runtime_observer", sources["runtime-observation.py"], ROOT + "/runtime-observation.py")
         require(RUNTIME_OBSERVER.enabled(contract))
+    if "stream_cohort" in contract:
+        STREAM_LAB = load("lab_stream", sources["stream-lab.py"], ROOT + "/stream-lab.py")
+        STREAM_LAB.enabled(contract)
+        STREAM_COHORT = STREAM_LAB.load(sources, contract["sources"])
     if "provider_conformance" in contract:
         PROVIDER_SESSION = load("lab_provider_session", sources["provider-session.py"], ROOT + "/provider-session.py")
         PROVIDER_SESSION.enabled(contract)
@@ -421,9 +426,15 @@ def local_tokenizer(contract, modules, application):
         from vllm.entrypoints.openai.chat_completion.protocol import ChatCompletionToolsParam
         tokenizer = DeepseekV41Tokenizer.from_pretrained("/model", local_files_only=True, trust_remote_code=False)
         row = PARITY.local_measure(tokenizer, ChatCompletionToolsParam, CORRECTNESS)
+        PARITY.validate_local(row, CORRECTNESS)
+        if "stream_cohort" in contract:
+            row = STREAM_LAB.child(tokenizer, row, hashlib.sha256(read_source(ROOT + "/lab.json")).hexdigest(),
+                                   STREAM_COHORT, time.monotonic() + STREAM_COHORT.PREPARE_SECONDS)
         state["check"]()
         PARITY.verify_model(read_source)
-        PARITY.validate_local(row, CORRECTNESS)
+        if "stream_cohort" in contract:
+            PARITY.verify_sources(read_source, contract["paths"][-1], CORRECTNESS)
+            recheck_sources(modules[0], application, contract["paths"])
         raw = PARITY.encoded(row)
         require(len(raw) <= 8192 and os.write(report_fd, raw) == len(raw))
     finally:
@@ -596,6 +607,9 @@ def application_and_request(contract, sources, modules, application, measured):
     if "provider_conformance" in contract:
         PROVIDER_SESSION.enabled(contract)
         result["provider_conformance"] = None
+    if "stream_cohort" in contract:
+        STREAM_LAB.enabled(contract)
+        result["stream_cohort"] = None
     if "tokenizer_materialization" in contract:
         result.update(tokenizer_adapter_options(contract, require))
     if "runtime_observation" in contract:
@@ -680,6 +694,9 @@ def application_and_request(contract, sources, modules, application, measured):
             require(remaining > 0)
             local = CORRECTNESS.strict_json(quiet_command([ROOT + "/python", "tokenizer-parity"],
                                                          min(PARITY.LOCAL_SECONDS, remaining), output=True))
+            if "stream_cohort" in contract:
+                local, stream_workload = STREAM_LAB.admit_child(local,
+                    hashlib.sha256(read_source(ROOT + "/lab.json")).hexdigest(), STREAM_COHORT, PARITY, CORRECTNESS)
             result["tokenizer_parity"] = PARITY.run(bounded_request, local, MODEL, CORRECTNESS,
                 deadline=started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE)
         elif correctness:
@@ -696,6 +713,11 @@ def application_and_request(contract, sources, modules, application, measured):
                 result["runtime_observation"]["contract_sha256"], result["runtime_observation"]["samples"][0],
                 min(time.monotonic() + PROVIDER_SESSION.SECONDS,
                     started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE))
+        if "stream_cohort" in contract:
+            require(result["tokenizer_parity"]["all_cases_pass"] is True and engine.poll() is None)
+            result["stream_cohort"] = STREAM_LAB.run(engine, contract,
+                hashlib.sha256(read_source(ROOT + "/lab.json")).hexdigest(), stream_workload,
+                STREAM_COHORT, RUNTIME_OBSERVER, started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE)
         require(hardware(contract.get("gpu_family", "B200"), security, count) == result["hardware"])
         if "runtime_observation" in contract:
             observe_runtime(engine, contract, result["runtime_observation"], started)
@@ -705,6 +727,9 @@ def application_and_request(contract, sources, modules, application, measured):
                                      and result["completion"]["finish"] == "stop"))
         if "provider_conformance" in contract:
             result["functional_pass"] = result["functional_pass"] and result["provider_conformance"]["accepted"]
+        if "stream_cohort" in contract:
+            result["functional_pass"] = result["functional_pass"] and STREAM_LAB.validate(result["stream_cohort"],
+                contract, hashlib.sha256(read_source(ROOT + "/lab.json")).hexdigest(), STREAM_COHORT)
         result["stage"] = "complete"
     except Exception:
         result["functional_pass"] = False
