@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S record-stage.py run --download --seconds 10800 --max-bytes 510311056234 --receipt-sha256 e4e1b38e6986b599b6fc13b70f51031b0e587351da2fb8a135527a5f36833faf --workers 8 --destination <private> --evidence <private>",
+  "ended_utc": "2026-10-23T11:01:56Z",
+  "execution": "software",
+  "git_sha": "3dbbd3aafc5e26adaac5bc4ebfc48a7fb4c4140d",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "not-used",
+    "machine": "linux-amd64",
+    "provider": "operator-approved-test-host"
+  },
+  "notes": "Pinned public byte staging only; no engine launch, immutable volume, attestation or runtime readiness. Trusted offline builder receipt SHA-256: e4e1b38e6986b599b6fc13b70f51031b0e587351da2fb8a135527a5f36833faf. Progress is unverified metadata, not transfer or integrity proof. Process bounds do not delete a rented machine or stop billing. Complete model files are retained; no wildcard cleanup.",
+  "phase": "P0",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-23T09:28:00Z",
+  "task": "T4"
+}
