@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 """One bounded, offline package installation in the prepared namespace."""
+from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
 import runpy
+import stat
 import subprocess
 import sys
 import types
@@ -58,10 +60,61 @@ def installation_environment():
             "PYTHONDONTWRITEBYTECODE": "1", "SOURCE_DATE_EPOCH": "1792454400"}
 
 
+def prepare_skeleton(config, prepared):
+    """Separate private transport modes from fixed logical image directories."""
+    inputs, driver = module("package-inputs"), module("dkms-worker")
+    directories = ("etc", "etc/dkms", "etc/dkms/framework.conf.d")
+    with ExitStack() as stack:
+        def private_directory(name, parent=None):
+            fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+            stack.callback(os.close, fd)
+            info = os.fstat(fd)
+            require(info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700)
+            return fd
+
+        source = {"": private_directory("mkosi-skeleton", private_directory(prepared))}
+        for name in directories:
+            parent, _, leaf = name.rpartition("/")
+            source[name] = private_directory(leaf, source[parent])
+        controls = {}
+        for name in driver.CONTROL_NAMES:
+            parent, _, leaf = name.rpartition("/")
+            require(parent in directories and leaf not in ("", ".", ".."))
+            info = os.stat(leaf, dir_fd=source[parent], follow_symlinks=False)
+            require(info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o600)
+            controls[name] = inputs.regular(leaf, 16384, dir_fd=source[parent])
+
+        config_fd = private_directory(config)
+        os.mkdir("mkosi-skeleton", 0o700, dir_fd=config_fd)
+        target = {"": private_directory("mkosi-skeleton", config_fd)}
+        for name in directories:
+            parent, _, leaf = name.rpartition("/")
+            os.mkdir(leaf, 0o700, dir_fd=target[parent])
+            fd = private_directory(leaf, target[parent])
+            # mkosi copy_tree(preserve=False) still preserves modes. Only these
+            # exclusively created image parents, not private ancestors or an
+            # existing guest tree, acquire traversable image modes.
+            os.fchmod(fd, 0o755)
+            os.fsync(fd)
+            target[name] = fd
+        for name, raw in controls.items():
+            parent, _, leaf = name.rpartition("/")
+            fd = os.open(leaf, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                         0o600, dir_fd=target[parent])
+            with os.fdopen(fd, "wb") as stream:
+                require(stream.write(raw) == len(raw))
+                stream.flush()
+                os.fsync(stream.fileno())
+            require(inputs.regular(leaf, 16384, dir_fd=target[parent]) == raw)
+            os.fsync(target[parent])
+        os.fsync(target[""])
+        os.fsync(config_fd)
+
+
 def prepare_configuration(config, prepared):
+    prepare_skeleton(config, prepared)
     (config / "mkosi.conf").write_bytes((prepared / "mkosi.conf.candidate").read_bytes())
-    for name in ("repo", "mkosi-skeleton"):
-        (config / name).symlink_to(prepared / name)
+    (config / "repo").symlink_to(prepared / "repo")
     # Config paths are validated before command-line overrides take effect.
     # Here / is the authenticated private tools root, never the host root.
     (config / "tools-tree").symlink_to("/", target_is_directory=True)

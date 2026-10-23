@@ -150,19 +150,23 @@ class BuildTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             config, prepared = root / "config", root / "prepared"
-            config.mkdir()
-            prepared.mkdir()
+            config.mkdir(mode=0o700)
             original = b"[Build]\nToolsTree=tools-tree\nWithNetwork=no\n"
-            (prepared / "mkosi.conf.candidate").write_bytes(original)
-            worker.prepare_configuration(config, prepared)
+            files = {**host.mkosi.dkms_build_controls(), "mkosi.conf.candidate": original}
+            host.base.publish(prepared, files)
+            modules = {"package-inputs": inputs, "dkms-worker": load("scripts/mkosi_dkms.py")}
+            with mock.patch.object(worker, "module", side_effect=modules.__getitem__):
+                worker.prepare_configuration(config, prepared)
             self.assertEqual((config / "mkosi.conf").read_bytes(), original)
             self.assertEqual((config / "tools-tree").readlink(), Path("/"))
             self.assertEqual({p.name for p in config.iterdir()},
                              {"mkosi.conf", "tools-tree", "repo", "mkosi-skeleton"})
-            for name in ("repo", "mkosi-skeleton"):
-                self.assertEqual((config / name).readlink(), prepared / name)
-            with self.assertRaises(FileExistsError):
-                worker.prepare_configuration(config, prepared)
+            self.assertEqual((config / "repo").readlink(), prepared / "repo")
+            self.assertFalse((config / "mkosi-skeleton").is_symlink())
+            host.base.verify(prepared, files)
+            with mock.patch.object(worker, "module", side_effect=modules.__getitem__):
+                with self.assertRaises(FileExistsError):
+                    worker.prepare_configuration(config, prepared)
 
     def test_private_build_identity_does_not_require_or_inherit_host_accounts(self):
         with mock.patch.dict(os.environ, {"USER": "private-host-user", "LOGNAME": "private-host-login",

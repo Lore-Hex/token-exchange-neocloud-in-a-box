@@ -5,6 +5,11 @@ candidate recipe. Its three files are included in the source-bound receipt and
 rechecked during bundle verification. Nothing is installed or compiled by this
 step. These controls must not be mistaken for a verified module or release image.
 
+The native worker now separates the private transport's `0700` directories from
+the [fresh image skeleton's logical `0755` parents](p3-t1-image-skeleton-modes.md).
+It copies only these three controls, with unchanged bytes and file modes; neither
+private payload modes nor existing guest-directory checks are relaxed.
+
 - `etc/dkms/no-autoinstall` separates package configuration from explicit builds.
 - `etc/dkms/framework.conf.d/99-nib-build.conf` sets two jobs and clears
   `modprobe_on_install` and `build_environment`.
