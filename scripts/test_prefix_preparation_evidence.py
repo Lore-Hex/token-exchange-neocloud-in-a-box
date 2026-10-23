@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import types
 import unittest
 
 from test_evidence_history import git
@@ -23,6 +24,18 @@ HASHES = {
 
 
 class PrefixPreparationEvidenceTests(unittest.TestCase):
+    def test_active_host_builder_pin_loads_current_committed_bootstrap(self):
+        path = ROOT / "host/record-deepseek-lab.py"
+        host = types.ModuleType("active_host_builder_check")
+        host.__file__ = str(path)
+        exec(compile(path.read_bytes(), str(path), "exec"), host.__dict__)
+        source = git(ROOT, "show", "HEAD:" + host.BUILDER)
+        self.assertEqual((ROOT / host.BUILDER).read_bytes(), source)
+        self.assertEqual(host.BUILDER_SHA, hashlib.sha256(source).hexdigest())
+        builder = host.load("active_committed_builder", ROOT / host.BUILDER, host.BUILDER_SHA)
+        self.assertEqual(builder.BOOTSTRAP, source)
+        self.assertEqual(builder.recorder.prep.CHECKER_SOURCE, (ROOT / "scripts/check-engine-candidate.py").read_bytes())
+
     def test_original_bytes_and_pre_container_failure_are_preserved(self):
         self.assertEqual({p.relative_to(DIRECTORY).as_posix() for p in DIRECTORY.rglob("*") if p.is_file()},
                          set(HASHES))
