@@ -37,6 +37,7 @@ PARITY = "scripts/engine_tokenizer_parity.py"
 OBSERVATION = "scripts/engine_runtime_observation.py"
 PROVIDER = "scripts/provider_conformance_session.py"
 PROVIDER_WORKER = "scripts/provider_conformance_worker.py"
+STREAM = "scripts/stream_lab.py"
 SMOKE = "scripts/engine_import_smoke.py"
 TEST = "scripts/test_deepseek_lab.py"
 SIX_TEST = "scripts/test_botocore_six.py"
@@ -112,7 +113,7 @@ def parallel_size(contract):
 
 def make_payload(builder, revision, bundle, extra, binary, operation="functional", family="B200", security="confidential", replicas=1,
                  *, tokenizer_parity=False, tokenizer_materialization=False, runtime_observation=False,
-                 provider_conformance=None):
+                 provider_conformance=None, stream_cohort=False):
     require(operation in ("functional", "hardware-diagnostic", "local-correctness", "pre-serve"))
     require(family in ("B200", "B300") and (family == "B200" or operation in ("local-correctness", "pre-serve")))
     require(security in ("confidential", "nonconfidential") and (security == "confidential"
@@ -124,6 +125,8 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
     require(type(tokenizer_materialization) is bool and (not tokenizer_materialization or tokenizer_parity))
     require(type(runtime_observation) is bool and (not runtime_observation or
             (operation == "local-correctness" and family == "B300" and security == "confidential")))
+    require(type(stream_cohort) is bool and (not stream_cohort or
+            runtime_observation and tokenizer_parity and tokenizer_materialization and provider_conformance is None))
     files, _ = builder.prepare_files(revision, bundle, extra)
     app = builder.overlay.load_json(files["payload/contract.json"])
     measured = builder.application.measurement(builder.overlay, extra[builder.application.EVIDENCE])
@@ -146,6 +149,12 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
         payload["tokenizer-adapter.py"] = extra[LAB_BOOTSTRAP]
     if runtime_observation:
         payload["runtime-observation.py"] = extra[OBSERVATION]
+    if stream_cohort:
+        stream = types.ModuleType("lab_stream_constants")
+        exec(compile(extra[STREAM], STREAM, "exec", dont_inherit=True), stream.__dict__)
+        payload["stream-lab.py"] = extra[STREAM]
+        for name in stream.NAMES:
+            payload["stream/" + name + ".py"] = extra["scripts/" + name + ".py"]
     if provider_conformance is not None:
         require(type(provider_conformance) is dict and runtime_observation and tokenizer_materialization
                 and tokenizer_parity and replicas == 2)
@@ -177,6 +186,9 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
         contract["tokenizer_materialization"] = adapter.tokenizer_adapter_identity()
     if runtime_observation:
         contract["runtime_observation"] = True
+    if stream_cohort:
+        contract["stream_cohort"] = {"schema": stream.SCHEMA}
+        stream.enabled(contract)
     if provider_conformance is not None:
         contract["provider_conformance"] = provider_conformance
     payload["lab.json"] = builder.overlay.json_bytes(contract)
@@ -186,7 +198,7 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
 
 def prepare(destination, operation="functional", family="B200", security="confidential", replicas=1, *,
             tokenizer_parity=False, tokenizer_materialization=False, runtime_observation=False,
-            provider_wheelhouse=None):
+            provider_wheelhouse=None, stream_cohort=False):
     builder = load("lab_application_builder", ROOT / BUILDER, BUILDER_SHA)
     revision, bundle, extra = builder.inputs(ROOT)
     for name in (SCRIPT, HELPER, RUNTIME, LAB_BOOTSTRAP, EXCEPTIONS, PROBE, SMOKE, TEST, SIX_TEST,
@@ -203,6 +215,11 @@ def prepare(destination, operation="functional", family="B200", security="confid
         extra[name] = committed(builder, revision, name)
     if runtime_observation:
         for name in (OBSERVATION, "scripts/test_engine_runtime_observation.py"):
+            extra[name] = committed(builder, revision, name)
+    if stream_cohort:
+        extra[STREAM] = committed(builder, revision, STREAM)
+        stream = load("lab_stream_sources", ROOT / STREAM, digest(extra[STREAM]))
+        for name in ("scripts/" + item + ".py" for item in (*stream.NAMES, "test_stream_lab")):
             extra[name] = committed(builder, revision, name)
     checker_files = provider_settings = provider_prep = None
     if provider_wheelhouse is not None:
@@ -228,7 +245,8 @@ def prepare(destination, operation="functional", family="B200", security="confid
         binary, source_sha = recorder.build_validator(ROOT, revision, work, {**env, "GOOS": "linux", "GOARCH": "amd64"})
         payload, contract = make_payload(builder, revision, bundle, extra, read(binary, MAX_BYTES), operation, family, security, replicas,
                                          tokenizer_parity=tokenizer_parity, tokenizer_materialization=tokenizer_materialization,
-                                         runtime_observation=runtime_observation, provider_conformance=provider_settings)
+                                         runtime_observation=runtime_observation, provider_conformance=provider_settings,
+                                         stream_cohort=stream_cohort)
         config = recorder.raw_metadata(ROOT / "build/engine-image-metadata", contract)
         runtime = load("lab_environment_constants", ROOT / RUNTIME, digest(extra[RUNTIME]))
         image_env = dict(item.split("=", 1) for item in config["config"]["Env"])
@@ -311,6 +329,9 @@ def bundle_inputs(path, expected):
         observer = load("lab_runtime_profile", path / "payload/runtime-observation.py",
                         contract["sources"]["runtime-observation.py"])
         require(observer.enabled(contract))
+    if "stream_cohort" in contract:
+        stream = load("lab_stream_profile", path / "payload/stream-lab.py", contract["sources"]["stream-lab.py"])
+        stream.enabled(contract)
     require(provider_present == ("provider_conformance" in contract))
     if provider_present:
         session = load("lab_provider_session", path / "payload/provider-session.py",
@@ -646,6 +667,19 @@ def validate_result(row, bundle, contract, recorder):
             require(row.get("stage") in ("request", "complete"))
         if row.get("functional_pass") is True:
             require(row.get("provider_conformance") is not None and row["provider_conformance"]["accepted"])
+    if "stream_cohort" in contract:
+        fields.add("stream_cohort")
+        stream = load("lab_stream_validation", Path(bundle) / "payload/stream-lab.py",
+                      contract["sources"]["stream-lab.py"])
+        stream.enabled(contract)
+        accepted = False
+        if row.get("stream_cohort") is not None:
+            sources = {"stream/" + name + ".py": read(Path(bundle) / "payload/stream" / (name + ".py"))
+                       for name in stream.NAMES}
+            cohort = stream.load(sources, contract["sources"])
+            accepted = stream.validate(row["stream_cohort"], contract, digest(read(Path(bundle) / "payload/lab.json")), cohort)
+            require(row.get("stage") in ("request", "complete"))
+        require(row.get("functional_pass") is not True or accepted)
     if "tokenizer_materialization" in contract:
         fields.add("tokenizer_materialization")
         require(parity and row.get("tokenizer_materialization") == contract["tokenizer_materialization"])
@@ -816,17 +850,24 @@ def main():
                         help="Observe the owned B300 CC API process and cgroup counters; not tau admission.")
     parser.add_argument("--provider-conformance-wheels", metavar="PRIVATE_LOCKED_WHEELHOUSE",
                         help="Prepare the opt-in owned CPU checker; requires DP2, parity, materialization and observation.")
+    parser.add_argument("--stream-cohort", action="store_true",
+                        help="Prepare one warmup plus eight 2K/512 streaming requests; requires parity, materialization and observation.")
     parser.add_argument("--receipt-sha256")
     parser.add_argument("--weights")
     parser.add_argument("--output")
     parser.add_argument("--deadline", help="Required UTC hard cutoff, YYYY-MM-DDTHH:MM:SSZ, at most 80 minutes away.")
     args = parser.parse_args()
     require(not args.tokenizer_materialization or args.tokenizer_parity)
+    require(not args.stream_cohort or args.tokenizer_parity and args.tokenizer_materialization
+            and args.runtime_observation and not args.provider_conformance_wheels)
     for option, profile in preparations.items():
         destination = getattr(args, option.replace("-", "_"))
         if destination:
             require(not any((args.receipt_sha256, args.weights, args.output, args.deadline)))
             optional = {}
+            if args.stream_cohort:
+                require(profile[:3] == ("local-correctness", "B300", "confidential"))
+                optional["stream_cohort"] = True
             if args.provider_conformance_wheels:
                 require(profile == ("local-correctness", "B300", "confidential", 2)
                         and args.tokenizer_parity and args.tokenizer_materialization and args.runtime_observation)
@@ -843,7 +884,7 @@ def main():
                 prepare(destination, *profile, **optional)
             return 0
     require(not args.tokenizer_parity and not args.tokenizer_materialization and not args.runtime_observation
-            and not args.provider_conformance_wheels)
+            and not args.provider_conformance_wheels and not args.stream_cohort)
     require(sys.platform == "linux" and all((args.receipt_sha256, args.output, args.deadline)))
     deadline = dt.datetime.strptime(args.deadline, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp()
     require(0 < deadline - time.time() <= MAX_SECONDS)

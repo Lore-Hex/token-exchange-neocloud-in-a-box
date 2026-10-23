@@ -242,7 +242,13 @@ def summarize(samples, *, scheduled, wall_seconds, gpu_count):
             and integer(gpu_count, 1024) and gpu_count > 0)
     require(all(row.status in FAILURES | {"completed"}
                 and number(row.elapsed_seconds) and row.elapsed_seconds <= wall_seconds for row in samples))
-    rows = [sample.metadata() for sample in samples]
+    return _summarize_rows([sample.metadata() for sample in samples], scheduled=scheduled,
+                           wall_seconds=wall_seconds, gpu_count=gpu_count)
+
+
+def _summarize_rows(rows, *, scheduled, wall_seconds, gpu_count):
+    # Shared arithmetic for in-process samples and the separately validated
+    # metadata-only lab receipt. This is not untrusted-input admission.
     good = [row for row in rows if row["status"] == "completed"]
     failed = [row for row in rows if row["status"] != "completed"]
     output = sum(row["completion_tokens"] for row in good)
