@@ -32,6 +32,15 @@ public-byte staging only, not durable cache upload or backup, runtime readiness,
 inference, hardware validation or confidential qualification. The original
 partial-seed receipt and its limitations remain unchanged.
 
+The later [complete cache upload receipt](../../evidence/p2/2026-10-23-dealign-cache-upload/README.md)
+records all 79 files / 510,311,056,155 bytes copied and verified from
+11:04:25.312425 to 12:17:27.349410 UTC on October 23. It reports
+`pack_complete=true` with non-atomic `exclusive-directory-copy` publication.
+This is a completed cache copy, not power-loss durability, future cache
+availability, a GPU restore, runtime execution or model-quality evidence.
+Runtime and confidential flags remain false; later use still requires fresh
+verification.
+
 Relative to the original pinned `1bae0e1088993b9b82de08f59de5be5a34e42170`:
 
 - The config, tokenizer, tokenizer config, weight index and encoding module
