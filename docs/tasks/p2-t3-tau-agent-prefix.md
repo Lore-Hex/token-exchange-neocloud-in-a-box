@@ -36,6 +36,33 @@ an unfinished output marker does not prove cleanup.
 
 ## Exact Runtime Count
 
+### Checkpoint Selection
+
+New runs accept `--model-profile original` (the default) or
+`--model-profile uncensored`. Both are fixed identities from
+[`deepseek_model_profile.py`](../../scripts/deepseek_model_profile.py), not
+arbitrary model names, revisions or paths. The source gate authenticates that
+helper and both complete committed manifests. Before creating either container,
+the recorder verifies the selected manifest's pinned digest and requires its
+tokenizer rows to match the exact runtime tokenizer pins below. Wrong manifests,
+unknown selections and tokenizer drift fail before output reservation or launch.
+
+The selected repository, revision and manifest identity accompany the pending
+marker, final report and tokenizer provenance. They identify the tokenizer
+measurement, **not** a verified weight download or a generated model response.
+The original tau policy and tools are unchanged; the model label in that sealed
+static request is not sent to an inference endpoint. A checkpoint selection does
+not change the 4,096-token context, 256-token reserve, image, resource limits,
+deadlines, tokenizer controls or fail-closed isolation.
+
+The uncensored pack's
+[pinned manifest](../../models/deepseek-v4.1-flash-1017-uncensored-fp8/1/files.sha256)
+contains the same two tokenizer hashes and sizes as the original pack. This is
+a source-checked input equivalence, not a new measured prefix count or quality
+equivalence. The historical receipts below remain unchanged and apply only to
+their original producers and checkpoint. The new checkpoint-selection path is
+software-tested; a real selected-checkpoint run remains to be recorded.
+
 The counter reuses the existing pinned engine image, five-stage application,
 isolated bootstrap and selected vLLM source, revision
 `5df63a7203cdb9328d824a27b682e77c7b9928be`. It independently invokes
@@ -79,6 +106,7 @@ Only these outcomes are allowed:
 
 ```sh
 python3 -I -S -B scripts/record-tau-agent-prefix.py \
+  --model-profile original \
   --source-archive /PRIVATE/tau2-source.tar.gz \
   --wheelhouse /PRIVATE/tau-wheels \
   --tokenizer-directory /PRIVATE/tokenizer-inputs \
