@@ -11,6 +11,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/nftables"
 )
 
 func TestNetworkLifecycle(t *testing.T) {
@@ -77,10 +79,10 @@ func TestNetworkLifecycle(t *testing.T) {
 			if (err == nil) != (scenario == "pass") {
 				t.Fatal("incorrect acceptance")
 			}
-			stages := map[string]networkFailure{"dirty": failedNetworkInitialRuleset, "read-error": failedNetworkInitialCommand,
+			stages := map[string]error{"dirty": failedNetworkInitialRuleset, "read-error": failedNetworkInitialCommand,
 				"check-error": failedNetworkCheck, "check-output": failedNetworkCheck, "create-error": failedNetworkCreate,
 				"create-output": failedNetworkCreate, "final-error": failedNetworkReadbackCommand,
-				"changed": failedNetworkReadback, "cancelled": failedNetworkDeadline}
+				"changed": networkReadbackFailure(96), "cancelled": failedNetworkDeadline}
 			if scenario != "pass" && (err != stages[scenario] || err.Error() != "network startup rejected") {
 				t.Fatal("failure classification changed or leaked backend detail", scenario)
 			}
@@ -97,6 +99,28 @@ func TestNetworkLifecycle(t *testing.T) {
 			return nil, nil
 		}) == nil {
 			t.Fatal("invalid config passed")
+		}
+	}
+}
+
+func TestNetworkVerificationStatusesAreFiniteAndContentFree(t *testing.T) {
+	for value := 0; value <= 255; value++ {
+		got := networkVerificationFailure(nftables.VerificationFailure(value))
+		if value >= 1 && value <= 17 {
+			stage, ok := got.(networkReadbackFailure)
+			if !ok || stage.serviceExitCode() != 93+value {
+				t.Fatal("lost fixed verification status")
+			}
+		} else if got != failedNetworkReadback {
+			t.Fatal("unknown verification status forwarded")
+		}
+		if got.Error() != "network startup rejected" {
+			t.Fatal("non-fixed verification diagnostic")
+		}
+	}
+	for _, err := range []error{nil, errors.New("PRIVATE RULESET CANARY"), failedNetworkExecutable} {
+		if networkVerificationFailure(err) != failedNetworkReadback {
+			t.Fatal("arbitrary error promoted to verification status")
 		}
 	}
 }

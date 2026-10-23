@@ -154,3 +154,65 @@ func TestStrictDecodeBounds(t *testing.T) {
 		t.Fatal("valid verdict null rejected")
 	}
 }
+
+func TestVerificationFailureClassesRemainContentFree(t *testing.T) {
+	raw := readbackFixture(t)
+	check := func(data []byte, destinations []string, want VerificationFailure) {
+		t.Helper()
+		err := Verify(data, destinations)
+		if err != want || err.Error() != errReadback.Error() {
+			t.Fatalf("wrong fixed rejection: got %v want %v", err, want)
+		}
+	}
+	check(raw, []string{"PRIVATE CANARY"}, RejectedPolicy)
+	check([]byte("PRIVATE CANARY"), nil, RejectedEnvelope)
+	check(bytes.Replace(raw, []byte(`"version":"1.0.9"`), []byte(`"version":"unknown"`), 1), nil, RejectedEnvelope)
+	for _, tc := range []struct {
+		want VerificationFailure
+		edit func([]any) []any
+	}{
+		{RejectedCount, func(v []any) []any { return v[:len(v)-1] }},
+		{RejectedObject, func(v []any) []any { v[1] = "PRIVATE CANARY"; return v }},
+		{RejectedObject, func(v []any) []any { v[1] = map[string]any{"table": nil}; return v }},
+		{RejectedObject, func(v []any) []any { v[1] = map[string]any{"unknown": map[string]any{"handle": 1}}; return v }},
+		{RejectedHandle, func(v []any) []any { delete(v[1].(map[string]any)["table"].(map[string]any), "handle"); return v }},
+		{RejectedDuplicate, func(v []any) []any { v[2] = v[1]; return v }},
+		{RejectedElements, func(v []any) []any { v[2].(map[string]any)["set"].(map[string]any)["elem"] = []any{1}; return v }},
+	} {
+		value, _ := Decode(raw)
+		m := value.(map[string]any)
+		m["nftables"] = tc.edit(m["nftables"].([]any))
+		data, _ := json.Marshal(m)
+		check(data, nil, tc.want)
+	}
+	for _, tc := range []struct {
+		kind, name string
+		want       VerificationFailure
+	}{
+		{"table", "nib", RejectedTable}, {"set", "egress4", RejectedEgress4}, {"set", "egress6", RejectedEgress6},
+		{"chain", "input", RejectedInputChain}, {"chain", "forward", RejectedForwardChain}, {"chain", "output", RejectedOutputChain},
+		{"rule", "input", RejectedInputRules}, {"rule", "output", RejectedOutputRules},
+	} {
+		value, _ := Decode(raw)
+		for _, item := range value.(map[string]any)["nftables"].([]any)[1:] {
+			obj, ok := item.(map[string]any)[tc.kind].(map[string]any)
+			if ok && (obj["name"] == tc.name || obj["chain"] == tc.name) {
+				obj["unknown"] = "PRIVATE CANARY"
+				break
+			}
+		}
+		data, _ := json.Marshal(value)
+		check(data, nil, tc.want)
+	}
+	// No forward rules are allowed. A moved output rule must still reject.
+	check(bytes.Replace(raw, []byte(`"chain":"output"`), []byte(`"chain":"forward"`), 1), nil, RejectedForwardRules)
+	want := expected(nil)
+	actual := expected(nil)
+	actual["unknown"] = "PRIVATE CANARY"
+	if mismatch(actual, want) != RejectedOther {
+		t.Fatal("unknown object mismatch lost")
+	}
+	if RejectedPolicy != 1 || RejectedOther != 17 {
+		t.Fatal("diagnostic values changed")
+	}
+}
