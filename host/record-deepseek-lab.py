@@ -113,7 +113,7 @@ def parallel_size(contract):
 
 def make_payload(builder, revision, bundle, extra, binary, operation="functional", family="B200", security="confidential", replicas=1,
                  *, tokenizer_parity=False, tokenizer_materialization=False, runtime_observation=False,
-                 provider_conformance=None, stream_cohort=False):
+                 provider_conformance=None, stream_cohort=False, stream_profile=None):
     require(operation in ("functional", "hardware-diagnostic", "local-correctness", "pre-serve"))
     require(family in ("B200", "B300") and (family == "B200" or operation in ("local-correctness", "pre-serve")))
     require(security in ("confidential", "nonconfidential") and (security == "confidential"
@@ -127,6 +127,7 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
             (operation == "local-correctness" and family == "B300" and security == "confidential")))
     require(type(stream_cohort) is bool and (not stream_cohort or
             runtime_observation and tokenizer_parity and tokenizer_materialization and provider_conformance is None))
+    require(stream_profile is None or stream_cohort and type(stream_profile) is str)
     files, _ = builder.prepare_files(revision, bundle, extra)
     app = builder.overlay.load_json(files["payload/contract.json"])
     measured = builder.application.measurement(builder.overlay, extra[builder.application.EVIDENCE])
@@ -188,6 +189,8 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
         contract["runtime_observation"] = True
     if stream_cohort:
         contract["stream_cohort"] = {"schema": stream.SCHEMA}
+        if stream_profile is not None:
+            contract["stream_cohort"]["profile"] = stream_profile
         stream.enabled(contract)
     if provider_conformance is not None:
         contract["provider_conformance"] = provider_conformance
@@ -198,7 +201,8 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
 
 def prepare(destination, operation="functional", family="B200", security="confidential", replicas=1, *,
             tokenizer_parity=False, tokenizer_materialization=False, runtime_observation=False,
-            provider_wheelhouse=None, stream_cohort=False):
+            provider_wheelhouse=None, stream_cohort=False, stream_profile=None):
+    require(stream_profile is None or stream_cohort)
     builder = load("lab_application_builder", ROOT / BUILDER, BUILDER_SHA)
     revision, bundle, extra = builder.inputs(ROOT)
     for name in (SCRIPT, HELPER, RUNTIME, LAB_BOOTSTRAP, EXCEPTIONS, PROBE, SMOKE, TEST, SIX_TEST,
@@ -219,6 +223,7 @@ def prepare(destination, operation="functional", family="B200", security="confid
     if stream_cohort:
         extra[STREAM] = committed(builder, revision, STREAM)
         stream = load("lab_stream_sources", ROOT / STREAM, digest(extra[STREAM]))
+        require(stream_profile is None or stream_profile == stream.EXTENDED_PROFILE)
         for name in ("scripts/" + item + ".py" for item in (*stream.NAMES, "test_stream_lab")):
             extra[name] = committed(builder, revision, name)
     checker_files = provider_settings = provider_prep = None
@@ -246,7 +251,7 @@ def prepare(destination, operation="functional", family="B200", security="confid
         payload, contract = make_payload(builder, revision, bundle, extra, read(binary, MAX_BYTES), operation, family, security, replicas,
                                          tokenizer_parity=tokenizer_parity, tokenizer_materialization=tokenizer_materialization,
                                          runtime_observation=runtime_observation, provider_conformance=provider_settings,
-                                         stream_cohort=stream_cohort)
+                                         stream_cohort=stream_cohort, stream_profile=stream_profile)
         config = recorder.raw_metadata(ROOT / "build/engine-image-metadata", contract)
         runtime = load("lab_environment_constants", ROOT / RUNTIME, digest(extra[RUNTIME]))
         image_env = dict(item.split("=", 1) for item in config["config"]["Env"])
@@ -852,11 +857,14 @@ def main():
                         help="Prepare the opt-in owned CPU checker; requires DP2, parity, materialization and observation.")
     parser.add_argument("--stream-cohort", action="store_true",
                         help="Prepare one warmup plus eight 2K/512 streaming requests; requires parity, materialization and observation.")
+    parser.add_argument("--stream-profile", metavar="PROFILE",
+                        help="Explicit prepared cohort window; chat-2k-512-c1-600s opts into 600 seconds instead of 180.")
     parser.add_argument("--receipt-sha256")
     parser.add_argument("--weights")
     parser.add_argument("--output")
     parser.add_argument("--deadline", help="Required UTC hard cutoff, YYYY-MM-DDTHH:MM:SSZ, at most 80 minutes away.")
     args = parser.parse_args()
+    require(args.stream_profile is None or args.stream_cohort)
     require(not args.tokenizer_materialization or args.tokenizer_parity)
     require(not args.stream_cohort or args.tokenizer_parity and args.tokenizer_materialization
             and args.runtime_observation and not args.provider_conformance_wheels)
@@ -868,6 +876,8 @@ def main():
             if args.stream_cohort:
                 require(profile[:3] == ("local-correctness", "B300", "confidential"))
                 optional["stream_cohort"] = True
+                if args.stream_profile is not None:
+                    optional["stream_profile"] = args.stream_profile
             if args.provider_conformance_wheels:
                 require(profile == ("local-correctness", "B300", "confidential", 2)
                         and args.tokenizer_parity and args.tokenizer_materialization and args.runtime_observation)
@@ -884,7 +894,7 @@ def main():
                 prepare(destination, *profile, **optional)
             return 0
     require(not args.tokenizer_parity and not args.tokenizer_materialization and not args.runtime_observation
-            and not args.provider_conformance_wheels and not args.stream_cohort)
+            and not args.provider_conformance_wheels and not args.stream_cohort and args.stream_profile is None)
     require(sys.platform == "linux" and all((args.receipt_sha256, args.output, args.deadline)))
     deadline = dt.datetime.strptime(args.deadline, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp()
     require(0 < deadline - time.time() <= MAX_SECONDS)

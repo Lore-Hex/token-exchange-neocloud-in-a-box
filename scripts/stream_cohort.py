@@ -20,6 +20,7 @@ MEASURED_REQUESTS, WARMUP_REQUESTS = 8, 1
 TOTAL_REQUESTS = MEASURED_REQUESTS + WARMUP_REQUESTS
 RESERVED_TOKENS = TOTAL_REQUESTS * (PROMPT_TOKENS + OUTPUT_TOKENS)
 PREPARE_SECONDS, COHORT_SECONDS = 60, 180
+EXTENDED_COHORT_SECONDS = 600
 MAX_PADDING, SEARCH_RADIUS = 4096, 16
 
 
@@ -119,7 +120,7 @@ def _collect(client, workload, index, deadline):
                             0, None, None, None, None)
 
 
-def run(endpoint, workload, *, deadline, gpu_count):
+def run(endpoint, workload, *, deadline, gpu_count, cohort_seconds=COHORT_SECONDS):
     """One warmup then eight sequential requests, stopping on the first failure.
 
     The same-owner Endpoint and exact-tokenizer workload must be supplied by the
@@ -128,11 +129,12 @@ def run(endpoint, workload, *, deadline, gpu_count):
     """
     require(threading.current_thread() is threading.main_thread()
             and type(workload) is Workload and meter.number(deadline)
-            and type(gpu_count) is int and gpu_count in (4, 8))
+            and type(gpu_count) is int and gpu_count in (4, 8)
+            and type(cohort_seconds) is int and cohort_seconds in (COHORT_SECONDS, EXTENDED_COHORT_SECONDS))
     workload.validate()
     client = stream.OwnedStreamHTTP(endpoint)
     started = time.monotonic()
-    deadline = min(deadline, started + COHORT_SECONDS)
+    deadline = min(deadline, started + cohort_seconds)
     warmup, samples, measured_started = None, [], None
     stop = "deadline"
     if time.monotonic() < deadline:

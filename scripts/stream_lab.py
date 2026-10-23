@@ -15,6 +15,7 @@ NAMES = ("tau_preflight", "tau_trial_worker", "tau_transport", "tau_local_vllm",
 SCHEMA = "nib.owned-stream-input/v1"
 CHILD_SCHEMA = "nib.owned-stream-tokenizer/v1"
 RESULT_SCHEMA = "nib.owned-stream-result/v1"
+EXTENDED_PROFILE = "chat-2k-512-c1-600s"
 MAX_SECONDS = 4800
 
 
@@ -33,12 +34,19 @@ def sha(value):
 
 
 def enabled(contract):
-    require(contract.get("stream_cohort") == {"schema": SCHEMA}
+    require(contract.get("stream_cohort") in ({"schema": SCHEMA},
+            {"schema": SCHEMA, "profile": EXTENDED_PROFILE})
             and contract.get("operation") == "local-correctness" and contract.get("gpu_family") == "B300"
             and contract.get("gpu_security", "confidential") == "confidential"
             and type(contract.get("data_parallel_size", 1)) is int and contract.get("data_parallel_size", 1) in (1, 2)
             and contract.get("tokenizer_parity") is True and "tokenizer_materialization" in contract
             and contract.get("runtime_observation") is True and "provider_conformance" not in contract)
+
+
+def cohort_seconds(contract, cohort):
+    enabled(contract)
+    return (cohort.EXTENDED_COHORT_SECONDS if "profile" in contract["stream_cohort"]
+            else cohort.COHORT_SECONDS)
 
 
 def load(sources, pins):
@@ -107,7 +115,8 @@ def run(engine, contract, contract_sha, prepared, cohort, observer, deadline):
     result = {"schema": RESULT_SCHEMA, "contract_sha256": sha(contract_sha),
               "engine_identity_sha256": digest(process), "terminal_identity_verified": False,
               "cohort": cohort.run(endpoint, prepared, deadline=deadline,
-                                   gpu_count=4 * contract.get("data_parallel_size", 1))}
+                                   gpu_count=4 * contract.get("data_parallel_size", 1),
+                                   cohort_seconds=cohort_seconds(contract, cohort))}
     try:
         endpoint.check(deadline)
         require(engine.poll() is None and observer.process(engine.pid, deadline) == before
@@ -200,5 +209,5 @@ def validate(value, contract, contract_sha, cohort):
     else:
         require(all(sample["status"] == "completed" for sample in samples))
         require(stop != "complete" or len(measured) == cohort.MEASURED_REQUESTS
-                and row["elapsed_seconds"] < cohort.COHORT_SECONDS)
+                and row["elapsed_seconds"] < cohort_seconds(contract, cohort))
     return row["completed"] and value["terminal_identity_verified"]
