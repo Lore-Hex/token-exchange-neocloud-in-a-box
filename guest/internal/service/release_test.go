@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -20,7 +21,11 @@ func TestReleaseNeverAcceptsFixtures(t *testing.T) {
 			t.Setenv("NIB_FAKE", "1")
 			t.Setenv("NIB_SKIP_VERIFY", "1")
 			var out, errs bytes.Buffer
-			if Run(context.Background(), role, []string{"--config", path}, &out, &errs) != 1 || out.Len() != 0 {
+			want := 1
+			if role == "network" && runtime.GOOS == "linux" {
+				want = int(failedNetworkPath)
+			}
+			if Run(context.Background(), role, []string{"--config", path}, &out, &errs) != want || out.Len() != 0 {
 				t.Fatal("release accepted simulated input or emitted success")
 			}
 		})

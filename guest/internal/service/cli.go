@@ -24,6 +24,11 @@ func Run(ctx context.Context, role string, args []string, out, errOut io.Writer)
 	}
 	if err := runBackend(ctx, role, args[1], out); err != nil {
 		fmt.Fprintln(errOut, "guest: startup denied or service stopped; no confidentiality established")
+		if code, ok := err.(interface{ serviceExitCode() int }); ok && role == "network" {
+			if status := code.serviceExitCode(); status >= 64 && status <= 77 {
+				return status
+			}
+		}
 		return 1
 	}
 	return 0

@@ -31,6 +31,12 @@ ROOT_READ_REASONS = {1: "size", 2: "deadline", 3: "short-read", 4: "io",
                      5: "extra-data", 6: "eof", 7: "late-eof", 8: "close"}
 MAX_ROOT_BYTES = 1536 << 20
 MAX_ROOT_READ_SECONDS = 145
+NETWORK_PREFIX = INITRD + b"NIB_DEBUG_BOOT_V1 N "
+NETWORK_RESULTS = ("unknown", "resources", "exit-code", "signal", "core-dump", "timeout",
+                   "watchdog", "oom-kill", "protocol", "start-limit-hit")
+NETWORK_CODES = ("unknown", "exited", "killed", "dumped")
+NETWORK_STAGES = ("path", "filesystem", "interfaces", "config-read", "config", "policy", "executable",
+                  "initial-command", "initial-ruleset", "check", "create", "readback-command", "readback", "deadline")
 SOCKET = Path("/work/proof.sock")
 QEMU = "/runtime/usr/bin/qemu-system-x86_64"
 LOADER = "/runtime/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
@@ -124,6 +130,37 @@ def root_read_frame(raw):
     return True, {"reason": ROOT_READ_REASONS[values[0]], "bytes_read": values[1], "elapsed_seconds": values[2]}
 
 
+def network_frame(raw):
+    """Fixed failure enums and an 8-bit process status, never a success path."""
+    if NETWORK_PREFIX.startswith(raw):
+        return True, None
+    if not raw.startswith(NETWORK_PREFIX):
+        return False, None
+    body = raw[len(NETWORK_PREFIX):]
+    complete = body.endswith(b"\n")
+    fields = (body[:-1] if complete else body).split(b" ")
+    if len(fields) > 3:
+        return False, None
+    values = []
+    for i, field in enumerate(fields):
+        if not field:
+            return not complete and i == len(fields) - 1, None
+        if not field.isdigit() or (len(field) > 1 and field.startswith(b"0")) or len(field) > (1, 1, 3)[i]:
+            return False, None
+        value = int(field)
+        if value > (9, 3, 255)[i]:
+            return False, None
+        values.append(value)
+    if not complete:
+        return True, None
+    if len(values) != 3 or (values[1] != 1 and values[2] != 0):
+        return False, None
+    result, code, status = values
+    stage = NETWORK_STAGES[status - 64] if result == 2 and code == 1 and 64 <= status <= 77 else None
+    return True, {"service_result": NETWORK_RESULTS[result], "exit_code": NETWORK_CODES[code],
+                  "exit_status": status, "stage": stage}
+
+
 def receive(listener, stop, deadline, state):
     """Only fixed protocol prefixes are retained; never report arbitrary bytes."""
     connection = None
@@ -154,12 +191,13 @@ def receive(listener, stop, deadline, state):
             if not chunk:
                 eof = True
                 state["complete"] = raw == EXPECTED
-                if raw not in RECORDS and root_read_frame(raw)[1] is None:
+                if raw not in RECORDS and root_read_frame(raw)[1] is None and network_frame(raw)[1] is None:
                     state["protocol_error"] = "incomplete"
                 break
             raw += chunk
             root_prefix, root_read = root_read_frame(raw)
-            if not any(record.startswith(raw) for record in RECORDS) and not root_prefix:
+            network_prefix, network = network_frame(raw)
+            if not any(record.startswith(raw) for record in RECORDS) and not root_prefix and not network_prefix:
                 state["protocol_error"] = "invalid-frame"
                 raise ValueError("debug-proof-rejected")
             state["initrd"] = raw.startswith(INITRD)
@@ -168,6 +206,8 @@ def receive(listener, stop, deadline, state):
                 state["guest_failure"] = FAILURES[raw]
             if root_read is not None:
                 state.update(guest_failure="ROOT_READ", root_read=root_read)
+            if network is not None:
+                state.update(guest_failure="NETWORK_SERVICE", network_failure=network)
     except (OSError, ValueError):
         state["complete"] = False
     finally:

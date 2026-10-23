@@ -13,6 +13,26 @@ import (
 
 var testHash = strings.Repeat("1", 64)
 
+func TestNetworkFailureMetadataIsFixedBoundedAndNeverPass(t *testing.T) {
+	for _, tc := range []struct{ unit, result, code, status, body string }{
+		{"nib-network.service", "exit-code", "exited", "70", "2 1 70"},
+		{"nib-network.service", "exit-code", "exited", "226", "2 1 226"},
+		{"nib-network.service", "resources", "", "", "1 0 0"},
+		{"nib-network.service", "timeout", "killed", "TERM", "5 2 0"},
+		{"nib-network.service", "success", "exited", "0", "0 1 0"},
+		{"nib-network.service", "exit-code", "exited", "070", "2 0 0"},
+		{"nib-network.service", "exit-code", "exited", "256", "2 0 0"},
+		{"nib-network.service", "private-canary", "private-canary", "private-canary", "0 0 0"},
+		{"private-canary", "exit-code", "exited", "70", "0 0 0"},
+		{"", "", "", "", "0 0 0"},
+	} {
+		got := networkFailureRecord(tc.unit, tc.result, tc.code, tc.status)
+		if got != "NIB_DEBUG_BOOT_V1 N "+tc.body+"\n" || len(InitrdRecord+got) > 62 || strings.Contains(got, "PASS") || strings.Contains(got, "private-canary") {
+			t.Fatal("unsafe network failure frame")
+		}
+	}
+}
+
 func TestFailureRecordsAreFixedAndCannotBecomePass(t *testing.T) {
 	names := strings.Fields("INITRD_STAGE INITRD_MARKER KERNEL PID1 CMDLINE PID1_MOUNT SELF_MOUNT MOUNT_MATCH DM_NAME DM_SUSPENDED DM_READONLY TABLE_QUERY TABLE_FORMAT ROOT_OPEN ROOT_READ TABLE_RECHECK STATUS_QUERY STATUS_FORMAT DEADLINE")
 	if len(names) != len(failureNames) {

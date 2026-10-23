@@ -11,7 +11,7 @@ import (
 	"syscall"
 )
 
-//go:embed nib-debug-boot.service nib-debug-boot.target
+//go:embed nib-debug-boot.service nib-debug-boot.target nib-debug-network-failure.service 90-nib-debug-network-failure.conf
 var units embed.FS
 
 func ownedDirectory(root *os.Root) bool {
@@ -64,7 +64,7 @@ func childDirectory(root *os.Root, name string) (*os.Root, error) {
 // The initrd's /run is carried across switch-root by systemd v255.4. Stage only
 // fixed files, never overwrite existing units/binaries, and keep failure fatal
 // to initrd-switch-root.service through the debug-only Requires drop-in.
-func stageAt(run *os.Root, executable []byte) error {
+func stageAt(run *os.Root, executable []byte, network bool) error {
 	if !ownedDirectory(run) || len(executable) == 0 || len(executable) > 8<<20 {
 		return errRejected
 	}
@@ -84,6 +84,21 @@ func stageAt(run *os.Root, executable []byte) error {
 	for _, name := range []string{"nib-debug-boot.service", "nib-debug-boot.target"} {
 		raw, err := units.ReadFile(name)
 		if err != nil || newFileAt(system, name, raw, 0444) != nil {
+			return errRejected
+		}
+	}
+	if network {
+		raw, err := units.ReadFile("nib-debug-network-failure.service")
+		if err != nil || newFileAt(system, "nib-debug-network-failure.service", raw, 0444) != nil {
+			return errRejected
+		}
+		dropin, err := childDirectory(system, "nib-network.service.d")
+		if err != nil {
+			return err
+		}
+		defer dropin.Close()
+		raw, err = units.ReadFile("90-nib-debug-network-failure.conf")
+		if err != nil || newFileAt(dropin, "90-nib-debug-network-failure.conf", raw, 0444) != nil {
 			return errRejected
 		}
 	}

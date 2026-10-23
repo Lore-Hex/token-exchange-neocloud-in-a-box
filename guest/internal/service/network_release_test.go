@@ -77,6 +77,13 @@ func TestNetworkLifecycle(t *testing.T) {
 			if (err == nil) != (scenario == "pass") {
 				t.Fatal("incorrect acceptance")
 			}
+			stages := map[string]networkFailure{"dirty": failedNetworkInitialRuleset, "read-error": failedNetworkInitialCommand,
+				"check-error": failedNetworkCheck, "check-output": failedNetworkCheck, "create-error": failedNetworkCreate,
+				"create-output": failedNetworkCreate, "final-error": failedNetworkReadbackCommand,
+				"changed": failedNetworkReadback, "cancelled": failedNetworkDeadline}
+			if scenario != "pass" && (err != stages[scenario] || err.Error() != "network startup rejected") {
+				t.Fatal("failure classification changed or leaked backend detail", scenario)
+			}
 			expectedCalls := map[string]int{"pass": 4, "dirty": 1, "read-error": 1, "check-error": 2,
 				"create-error": 3, "final-error": 4, "check-output": 2, "create-output": 3, "changed": 4, "cancelled": 4}
 			if calls != expectedCalls[scenario] {
@@ -90,6 +97,32 @@ func TestNetworkLifecycle(t *testing.T) {
 			return nil, nil
 		}) == nil {
 			t.Fatal("invalid config passed")
+		}
+	}
+}
+
+func TestNetworkExecutableFailureIsNotLostAtAnyCommand(t *testing.T) {
+	before := []byte(`{"nftables":[{"metainfo":{"version":"1.0.9","release_name":"Old Doc Yak #3","json_schema_version":1}}]}`)
+	for failAt := 1; failAt <= 4; failAt++ {
+		calls := 0
+		err := applyNetwork(context.Background(), []byte(`{"schema":"nib.guest-network/v1","egress":[]}`),
+			func(context.Context, networkOperation, []byte) ([]byte, error) {
+				calls++
+				if calls == failAt {
+					return nil, failedNetworkExecutable
+				}
+				if calls == 1 {
+					return before, nil
+				}
+				return nil, nil
+			})
+		if err != failedNetworkExecutable || calls != failAt {
+			t.Fatal("lost executable stage or continued after failure")
+		}
+	}
+	for code := failedNetworkPath; code <= failedNetworkDeadline; code++ {
+		if code.serviceExitCode() < 64 || code.serviceExitCode() > 77 || code.Error() != errNetwork.Error() {
+			t.Fatal("unsafe fixed status")
 		}
 	}
 }

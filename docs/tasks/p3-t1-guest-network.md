@@ -3,14 +3,18 @@
 ## Status
 
 The first real network backend is implemented and covered by offline unit and
-synthetic subprocess tests. It is not yet installed in a native image or run
-against a kernel firewall. No development-host firewall was touched. GPU,
+synthetic subprocess tests. The optional native image built in the first
+[CPU-only run](../../evidence/p3/2026-10-22-debug-network-boot-failure/README.md),
+but its boot failed: initrd proof arrived, root proof did not, and no guest
+failure code was received. This does not prove the network executable started
+or that a kernel ruleset was installed. No development-host firewall was touched. GPU,
 weights and engine release backends still deny startup; a successful network
 oneshot cannot start inference or establish confidentiality.
 
 An explicit optional native composition/export/debug-consumer path is now
 implemented and tested with synthetic processes and temporary image trees.
-That is not evidence that the optional image builds or that its gate runs.
+The original failure and cleanup receipts are preserved separately from the
+new diagnostic implementation; no corrected native run is claimed.
 
 This slice applies and reads back the existing firewall candidate. It is not
 interface/address configuration, connectivity qualification or a deployable
@@ -171,10 +175,68 @@ The existing hosted Ubuntu 22.04, CPU-only/no-NIC/no-GPU execution and bounds
 remain: 35-minute job, 600-second native generation, 900-second debug wrapper,
 180-second QEMU, two CPUs, 2 GiB debug memory, swap zero and 128 PIDs. Only the
 existing fixed JSON files can upload after independent cleanup. No serial,
-firewall output or unsigned image is published. No run has been dispatched
-for this profile.
+firewall output or unsigned image is published. The first run failed as
+recorded above; no additional run is authorized by these instructions.
 
 Real NET_ADMIN delivery, kernel module loading, atomic installation and nft
 JSON readback remain unproven. Routing, conntrack initialization and IPv6
 neighbor discovery remain qualification gaps. Only an attested front door may
 eventually listen off loopback; engine/GPU/weights readiness remains unavailable.
+
+## Failure Diagnostics
+
+The release network helper now maps failures to fixed exit statuses 64-77:
+path, filesystem, interfaces, configuration read, configuration parse, policy
+render, executable validation, initial command, initial ruleset, check,
+create, readback command, readback comparison and deadline. Every status is
+nonzero; acceptance, commands, privileges, eight-second aggregate deadline,
+two-second child deadline and output bounds are unchanged. Generic errors
+and stderr remain fixed and content-free.
+
+Only the explicit network debug path selects `--stage-initrd-network`. Its
+source-bound initrd stages an additional observer and an in-memory network
+`OnFailure` drop-in under `/run`. The original release unit is unchanged.
+On failure, the observer reads only the fixed systemd `MONITOR_UNIT`,
+`MONITOR_SERVICE_RESULT`, `MONITOR_EXIT_CODE` and `MONITOR_EXIT_STATUS` fields.
+An unknown unit or unknown values collapse to fixed unknown enums; only a
+canonical eight-bit exit status may be forwarded. No environment strings,
+unit names, errors, journal or nft output cross the proof channel.
+
+The observer has an empty capability bounding set, no new privileges, null
+standard streams, a 1.5-second hard process bound and a two-second unit bound.
+Both success and failure of the observer enter the existing failclosed
+shutdown target. The root probe still requires network success. The host
+recognizes only a bounded failure frame within the existing 62-byte cap and
+continues to require exact INITRD/PASS/EOF for successful boot. A zero process
+status reported by the observer is never successful boot evidence.
+
+Pinned primary sources:
+
+- [systemd v255.4 execution environment](https://github.com/systemd/systemd-stable/blob/v255.4/man/systemd.exec.xml),
+  source-archive lines 4021-4045: `MONITOR_*` is passed to an `OnFailure` or
+  `OnSuccess` handler; multiple triggers may omit it. Missing data is unknown,
+  never invented. The observer is dedicated to `nib-network.service`.
+- [systemd v255.4 unit dependencies](https://github.com/systemd/systemd-stable/blob/v255.4/man/systemd.unit.xml),
+  `OnFailure` and `OnSuccess`: the debug observer terminates in the same
+  shutdown target; it is not a restart or a fallback network policy.
+- [systemd v255.4 namespace implementation](https://github.com/systemd/systemd-stable/blob/v255.4/src/core/namespace.c),
+  source-archive lines 2799-2888: existing read-only private-temp directories
+  can fall back to an empty read-only directory. Read-only EROFS alone does
+  not establish `PrivateTmp` as the cause. That hardening is unchanged.
+
+These files were read from the already hash-verified pinned Ubuntu source
+archive above. Synthetic tests cover fixed statuses, all network command
+failure positions, explicit staging, destination collisions/symlinks, fragmented
+frames, malformed fields, missing EOF, zero QEMU exit and cleanup. They do not
+prove the new observer has run in the actual guest. No diagnostic-only native
+retry should occur without an exact reviewed proposal.
+
+The proposed next run is one `debug-boot.yml` dispatch on the exact reviewed,
+green merged producer, with both `debug_boot=true` and `guest_network=true`.
+Record that producer and the run URL before execution. Expected duration is
+an **estimate** of 8-10 minutes based on the original 8m45s job; the existing
+35-minute job ceiling and all component/resource bounds above remain fixed.
+It will build fresh private inputs, boot once without NIC/GPU/KVM, remove all
+images, and preserve only the same four cleanup-gated JSON files. Stop after
+either outcome and preserve the originals. Missing or unknown diagnostics
+remain a failure, not permission to retry, weaken a check or claim readiness.
