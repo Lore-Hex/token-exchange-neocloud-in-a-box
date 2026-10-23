@@ -39,7 +39,11 @@ def require(value):
 
 def enabled(contract):
     require(contract.get("tokenizer_parity") is True and contract.get("operation") == "local-correctness"
-            and contract.get("gpu_family") == "B300" and contract.get("gpu_security", "confidential") == "confidential")
+            and (contract.get("gpu_family") == "B300" or
+                 (contract.get("gpu_family") == "B200" and type(contract.get("data_parallel_size")) is int
+                  and contract["data_parallel_size"] == 2 and type(contract.get("model_profile")) is dict
+                  and contract["model_profile"].get("name") == "uncensored"))
+            and contract.get("gpu_security", "confidential") == "confidential")
     return True
 
 

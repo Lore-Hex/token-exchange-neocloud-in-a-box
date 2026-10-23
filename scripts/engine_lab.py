@@ -224,7 +224,9 @@ def model_identity(contract):
     require(hashlib.sha256(raw).hexdigest() == contract["sources"].get("model-profile.py"))
     profiles = load("lab_model_profiles", raw, ROOT + "/model-profile.py")
     identity = profiles.validate_contract(contract)
-    require(contract["operation"] == "local-correctness" and contract.get("gpu_family") == "B300"
+    require(contract["operation"] == "local-correctness"
+            and (contract.get("gpu_family") == "B300" or
+                 (contract.get("gpu_family") == "B200" and identity["name"] == "uncensored"))
             and contract.get("gpu_security", "confidential") == "confidential"
             and type(contract.get("data_parallel_size")) is int and contract["data_parallel_size"] == 2)
     profiles.validate_manifest(identity["name"], read_source(ROOT + "/pack/files.sha256"))

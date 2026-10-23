@@ -104,12 +104,17 @@ def committed(builder, revision, name):
     return builder.checker.git(ROOT, "cat-file", "blob", row[2])
 
 
+def correctness_target(family, security, replicas, model_profile):
+    return security == "confidential" and (family == "B300" or
+            (family == "B200" and type(replicas) is int and replicas == 2 and model_profile == "uncensored"))
+
+
 def parallel_size(contract):
     size = contract.get("data_parallel_size", 1)
     require(type(size) is int and size in (1, 2))
     require(size == 1 or (contract.get("operation") == "local-correctness"
-            and contract.get("gpu_family") == "B300"
-            and contract.get("gpu_security", "confidential") == "confidential"))
+            and correctness_target(contract.get("gpu_family"), contract.get("gpu_security", "confidential"), size,
+                contract["model_profile"].get("name") if type(contract.get("model_profile")) is dict else None)))
     return size
 
 
@@ -128,8 +133,9 @@ def validate_model_profile(contract, path):
     require(digest(raw) == contract["sources"].get("model-profile.py"))
     module, _ = selected_model(raw, "uncensored")
     identity = module.validate_contract(contract)
-    require(contract["operation"] == "local-correctness" and contract.get("gpu_family") == "B300"
-            and contract.get("gpu_security", "confidential") == "confidential" and parallel_size(contract) == 2)
+    require(contract["operation"] == "local-correctness" and parallel_size(contract) == 2
+            and correctness_target(contract.get("gpu_family"), contract.get("gpu_security", "confidential"),
+                                   2, identity["name"]))
     module.validate_manifest("uncensored", read(Path(path) / "payload/pack/files.sha256"))
     arguments = contract["arguments"]
     require(arguments.count("--served-model-name") == 1
@@ -144,7 +150,7 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
     identity = None
     pack = PACK
     if model_profile != "original":
-        require(operation == "local-correctness" and family == "B300" and security == "confidential"
+        require(operation == "local-correctness" and correctness_target(family, security, replicas, model_profile)
                 and type(replicas) is int and replicas == 2 and provider_conformance is None)
         profiles, identity = selected_model(extra[MODEL_PROFILE], model_profile)
         pack = identity["pack"]
@@ -154,12 +160,12 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
     require(security in ("confidential", "nonconfidential") and (security == "confidential"
             or operation == "local-correctness"))
     parallel_size({"operation": operation, "gpu_family": family, "gpu_security": security,
-                   "data_parallel_size": replicas})
+                   "data_parallel_size": replicas, **({"model_profile": identity} if identity else {})})
     require(type(tokenizer_parity) is bool and (not tokenizer_parity or
-            (operation == "local-correctness" and family == "B300" and security == "confidential")))
+            (operation == "local-correctness" and correctness_target(family, security, replicas, model_profile))))
     require(type(tokenizer_materialization) is bool and (not tokenizer_materialization or tokenizer_parity))
     require(type(runtime_observation) is bool and (not runtime_observation or
-            (operation == "local-correctness" and family == "B300" and security == "confidential")))
+            (operation == "local-correctness" and correctness_target(family, security, replicas, model_profile))))
     require(type(stream_cohort) is bool and (not stream_cohort or
             runtime_observation and tokenizer_parity and tokenizer_materialization and provider_conformance is None))
     require(stream_profile is None or stream_cohort and type(stream_profile) is str)
@@ -214,7 +220,7 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
                 "environment": runtime.lab_environment(plan), "sources": {name: digest(data) for name, data in payload.items()}}
     if identity is not None:
         contract["model_profile"] = identity
-    if family == "B300":
+    if family == "B300" or identity is not None:
         contract["gpu_family"] = family
     if security == "nonconfidential":
         contract["gpu_security"] = security
@@ -245,8 +251,10 @@ def prepare(destination, operation="functional", family="B200", security="confid
             provider_wheelhouse=None, stream_cohort=False, stream_profile=None, model_profile="original"):
     require(stream_profile is None or stream_cohort)
     require(type(model_profile) is str and model_profile in ("original", "uncensored"))
-    require(model_profile == "original" or (operation == "local-correctness" and family == "B300"
-            and security == "confidential" and type(replicas) is int and replicas == 2 and provider_wheelhouse is None))
+    require(model_profile == "original" or (operation == "local-correctness"
+            and correctness_target(family, security, replicas, model_profile)
+            and type(replicas) is int and replicas == 2 and provider_wheelhouse is None))
+    require(not (family == "B200" and replicas == 2) or model_profile == "uncensored")
     builder = load("lab_application_builder", ROOT / BUILDER, BUILDER_SHA)
     revision, bundle, extra = builder.inputs(ROOT)
     pack = PACK
@@ -408,7 +416,7 @@ def bundle_inputs(path, expected):
 def memory_gib(contract, bundle):
     replicas = parallel_size(contract)
     if "model_profile" in contract:
-        # Only the source-bound uncensored B300 CC DP2 identity has this cap.
+        # Only the source-bound uncensored CC DP2 identity has this cap.
         validate_model_profile(contract, bundle)
         return ENGINE_MEMORY_GIB
     return 8 if contract["operation"] == "pre-serve" else ENGINE_MEMORY_GIB * replicas
@@ -905,6 +913,7 @@ def main():
         "prepare-local-correctness": ("local-correctness", "B200", "confidential"),
         "prepare-local-correctness-b300": ("local-correctness", "B300", "confidential"),
         "prepare-local-correctness-b300-dp2": ("local-correctness", "B300", "confidential", 2),
+        "prepare-local-correctness-b200-dp2": ("local-correctness", "B200", "confidential", 2),
         "prepare-pre-serve": ("pre-serve", "B200", "confidential"),
         "prepare-pre-serve-b300": ("pre-serve", "B300", "confidential"),
         "prepare-nonconfidential-baseline": ("local-correctness", "B200", "nonconfidential"),
@@ -914,11 +923,11 @@ def main():
         action.add_argument("--" + option)
     action.add_argument("--run", metavar="PRIVATE_BUNDLE")
     parser.add_argument("--tokenizer-parity", action="store_true",
-                        help="Prepare the fixed B300 CC tokenizer prerequisite instead of correctness cases.")
+                        help="Prepare the fixed CC tokenizer prerequisite instead of correctness cases.")
     parser.add_argument("--tokenizer-materialization", action="store_true",
                         help="Prepare the pinned server validator adapter; requires --tokenizer-parity.")
     parser.add_argument("--runtime-observation", action="store_true",
-                        help="Observe the owned B300 CC API process and cgroup counters; not tau admission.")
+                        help="Observe the owned CC API process and cgroup counters; not tau admission.")
     parser.add_argument("--provider-conformance-wheels", metavar="PRIVATE_LOCKED_WHEELHOUSE",
                         help="Prepare the opt-in owned CPU checker; requires DP2, parity, materialization and observation.")
     parser.add_argument("--stream-cohort", action="store_true",
@@ -940,13 +949,16 @@ def main():
         destination = getattr(args, option.replace("-", "_"))
         if destination:
             require(not any((args.receipt_sha256, args.weights, args.output, args.deadline)))
+            require(option != "prepare-local-correctness-b200-dp2" or args.model_profile == "uncensored")
+            target = correctness_target(profile[1], profile[2], profile[3] if len(profile) == 4 else 1,
+                                        args.model_profile)
             optional = {}
             if args.model_profile == "uncensored":
-                require(profile == ("local-correctness", "B300", "confidential", 2)
+                require(profile[0] == "local-correctness" and len(profile) == 4 and profile[3] == 2 and target
                         and not args.provider_conformance_wheels)
                 optional["model_profile"] = args.model_profile
             if args.stream_cohort:
-                require(profile[:3] == ("local-correctness", "B300", "confidential"))
+                require(profile[0] == "local-correctness" and target)
                 optional["stream_cohort"] = True
                 if args.stream_profile is not None:
                     optional["stream_profile"] = args.stream_profile
@@ -955,10 +967,10 @@ def main():
                         and args.tokenizer_parity and args.tokenizer_materialization and args.runtime_observation)
                 optional["provider_wheelhouse"] = args.provider_conformance_wheels
             if args.runtime_observation:
-                require(profile[:3] == ("local-correctness", "B300", "confidential"))
+                require(profile[0] == "local-correctness" and target)
                 optional["runtime_observation"] = True
             if args.tokenizer_parity:
-                require(profile[:3] == ("local-correctness", "B300", "confidential"))
+                require(profile[0] == "local-correctness" and target)
                 if args.tokenizer_materialization:
                     optional["tokenizer_materialization"] = True
                 prepare(destination, *profile, tokenizer_parity=True, **optional)

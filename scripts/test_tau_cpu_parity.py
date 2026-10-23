@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Synthetic protocol/supervisor controls; no model is loaded or served."""
+import ast
 import copy
 import hashlib
 import json
@@ -16,6 +17,7 @@ from unittest import mock
 
 import tau_cpu_parity as cpu
 import test_tau_local_vllm as fixtures
+from test_evidence_history import git
 
 ROOT = Path(__file__).resolve().parent.parent
 rec = types.SimpleNamespace(**runpy.run_path(str(ROOT / "scripts/record-tau-cpu-parity.py"), run_name="tests"))
@@ -119,10 +121,27 @@ class CPUParityTests(unittest.TestCase):
             self.assertEqual(report["models"][0]["cases"], [])
             self.assertNotIn(fixtures.CANARY, json.dumps(report))
 
+    def test_shared_parity_change_is_only_gpu_eligibility(self):
+        path = "scripts/engine_tokenizer_parity.py"
+        previous = git(ROOT, "show", "f9885c6405bdc8675dacf3c04ecd583223d0dfbd:" + path)
+        self.assertEqual(hashlib.sha256(previous).hexdigest(),
+                         "09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a")
+
+        def without_eligibility(raw):
+            definitions = [node for node in ast.parse(raw).body
+                           if isinstance(node, ast.FunctionDef) and node.name == "enabled"]
+            self.assertEqual(len(definitions), 1)
+            definition, = definitions
+            self.assertEqual(definition.decorator_list, [])
+            lines = raw.splitlines(keepends=True)
+            return b"".join(lines[:definition.lineno - 1] + lines[definition.end_lineno:])
+
+        self.assertEqual(without_eligibility((ROOT / path).read_bytes()), without_eligibility(previous))
+
     def test_same_fixed_probes_and_no_semantic_repair(self):
         source = ROOT / "scripts/engine_tokenizer_parity.py"
         self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(),
-                         "09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a")
+                         "1f0a6be98d400cdddae64db78baba7128d96fd8d861466c88326b9c7d5c22bea")
         for model in cpu.MODEL_IDS:
             for probe in cpu.probes.probes():
                 original = copy.deepcopy(probe)
