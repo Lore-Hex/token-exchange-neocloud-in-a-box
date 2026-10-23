@@ -313,6 +313,155 @@ class StageRecorderTests(unittest.TestCase):
             self.assertEqual(env["GO_TELEMETRY_CHILD"], "2")
         self.assertEqual((destination / "nib").stat().st_mode & 0o777, 0o500)
 
+    def prepare_profile_fixture(self, destination, profile="original", *, overrides=None, plan=None):
+        pack = "models/deepseek-v4.1-flash-1017-uncensored-fp8/1"
+        manifest = stage.read(ROOT / pack / "files.sha256")
+        source = {stage.SCRIPT: stage.BOOTSTRAP,
+                  stage.PROFILE_SOURCE: stage.read(ROOT / stage.PROFILE_SOURCE),
+                  stage.PACK + "/pack.yaml": self.files["pack.yaml"],
+                  stage.PACK + "/files.sha256": self.files["files.sha256"],
+                  pack + "/pack.yaml": stage.read(ROOT / pack / "pack.yaml"),
+                  pack + "/files.sha256": manifest}
+        source.update(overrides or {})
+        selected_plan = self.plan if profile == "original" else {
+            "hf_repo": "dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8",
+            "hf_revision": "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a",
+            "manifest_sha256": stage.digest(manifest), "files": 79,
+            "total_bytes": 510311056155, "minimum_budget_bytes": 510311056234}
+        def committed(_, revision, name):
+            self.assertEqual(revision, "b" * 40)
+            if source[name] is None:
+                raise ValueError("missing committed fixture")
+            return source[name]
+        def build(root, revision, work, env):
+            self.assertEqual((root, revision), (stage.ROOT, "b" * 40))
+            binary = work / "nib"
+            binary.write_bytes(self.files["nib"])
+            return binary, "c" * 64
+        builder = types.SimpleNamespace(
+            checker=types.SimpleNamespace(git=mock.Mock(return_value=("b" * 40 + "\n").encode())),
+            GO_TOOLCHAIN="go1.27.2", offline_environment=mock.Mock(return_value={}),
+            build_validator=mock.Mock(side_effect=build),
+            call=mock.Mock(return_value=stage.json_bytes(plan or selected_plan)))
+        with mock.patch.object(stage, "load_builder", return_value=builder), \
+                mock.patch.object(stage, "committed", side_effect=committed) as reads, \
+                redirect_stdout(io.StringIO()) as printed:
+            stage.prepare(destination, profile)
+        return builder, reads, json.loads(printed.getvalue())
+
+    def test_original_profile_preserves_legacy_bundle_bytes_without_helper(self):
+        destination = self.root / "original"
+        _, reads, printed = self.prepare_profile_fixture(destination)
+        self.assertEqual((destination / "receipt.json").read_bytes(), stage.json_bytes(self.receipt))
+        self.assertEqual(printed["receipt_sha256"], self.receipt_hash)
+        self.assertEqual(stage.bundle(destination, self.receipt_hash), (self.receipt, self.files))
+        self.assertEqual([call.args[2] for call in reads.call_args_list],
+                         [stage.SCRIPT, stage.PACK + "/pack.yaml", stage.PACK + "/files.sha256"])
+        with mock.patch.object(stage, "prepare", return_value=None) as prepare:
+            for extra in ([], ["--model-profile", "original"]):
+                with mock.patch.object(sys, "argv", [stage.SCRIPT, "prepare", "--output", str(destination), *extra]):
+                    self.assertEqual(stage.main(), 0)
+                prepare.assert_called_with(destination, "original")
+
+    def test_uncensored_profile_binds_helper_pack_manifest_and_existing_receipt(self):
+        destination = self.root / "uncensored"
+        builder, reads, printed = self.prepare_profile_fixture(destination, "uncensored")
+        receipt, files = stage.bundle(destination, printed["receipt_sha256"])
+        self.assertEqual(set(receipt), set(self.receipt))
+        self.assertEqual(set(files), set(self.files))
+        self.assertEqual({path.name for path in destination.iterdir()}, set(self.files) | {"receipt.json"})
+        self.assertEqual(receipt["plan"], {
+            "hf_repo": "dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8",
+            "hf_revision": "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a",
+            "manifest_sha256": "5c6891a9649702b1ac0327b945600acb40c571a069942517cf14ba661a3cfcbc",
+            "files": 79, "total_bytes": 510311056155, "minimum_budget_bytes": 510311056234})
+        pack = "models/deepseek-v4.1-flash-1017-uncensored-fp8/1"
+        self.assertEqual(files["pack.yaml"], stage.read(ROOT / pack / "pack.yaml"))
+        self.assertEqual(files["files.sha256"], stage.read(ROOT / pack / "files.sha256"))
+        self.assertEqual([call.args[2] for call in reads.call_args_list],
+                         [stage.SCRIPT, stage.PROFILE_SOURCE, pack + "/pack.yaml", pack + "/files.sha256"])
+        self.assertEqual(builder.build_validator.call_count, 2)
+        self.assertEqual(stage.digest(stage.read(ROOT / stage.PROFILE_SOURCE)), stage.PROFILE_SHA256)
+        self.assertIn(stage.PROFILE_SHA256.encode(), files["record-stage.py"])
+        self.assertEqual(receipt["files"]["record-stage.py"]["sha256"], stage.digest(stage.BOOTSTRAP))
+        self.assertEqual(stage.capacity(self.destination, receipt["plan"])["required_bytes"], 561342161771)
+
+    def test_profile_cli_is_prepare_only_and_rejects_unknown_before_builder(self):
+        destination = self.root / "rejected"
+        with mock.patch.object(stage, "load_builder") as builder:
+            for name in ("", "unknown", "../pack", "https://example.invalid/model", None, True, 1, []):
+                with self.subTest(profile=name), self.assertRaises(ValueError):
+                    stage.prepare(destination, name)
+            builder.assert_not_called()
+        with mock.patch.object(stage, "prepare") as prepare, mock.patch.object(stage, "run") as run:
+            with mock.patch.object(sys, "argv", [stage.SCRIPT, "prepare", "--output", str(destination),
+                                                "--model-profile", "uncensored"]):
+                self.assertEqual(stage.main(), 0)
+            prepare.assert_called_once_with(destination, "uncensored")
+            for argv in (["prepare", "--output", str(destination), "--model-profile", "unknown"],
+                         ["run", "--receipt-sha256", self.receipt_hash, "--destination", str(self.destination),
+                          "--evidence", str(self.evidence), "--seconds", "60", "--max-bytes", "12",
+                          "--model-profile", "uncensored"]):
+                with mock.patch.object(sys, "argv", [stage.SCRIPT, *argv]), self.assertRaises(ValueError):
+                    stage.main()
+            run.assert_not_called()
+        self.assertFalse(destination.exists())
+
+    def test_profile_helper_source_manifest_and_identity_fail_before_output(self):
+        pack = "models/deepseek-v4.1-flash-1017-uncensored-fp8/1"
+        destination = self.root / "rejected"
+        marker = self.root / "helper-executed"
+        poisoned = ("from pathlib import Path\nPath(" + repr(str(marker)) + ").touch()\n").encode()
+        for path, data in ((stage.SCRIPT, b"wrong bootstrap"), (stage.PROFILE_SOURCE, None),
+                           (stage.PROFILE_SOURCE, poisoned), (pack + "/files.sha256", b"wrong manifest")):
+            with self.subTest(path=path, data=data), self.assertRaises(ValueError), \
+                    mock.patch.object(stage.tempfile, "TemporaryDirectory", side_effect=AssertionError("no build")):
+                self.prepare_profile_fixture(destination, "uncensored", overrides={path: data})
+            self.assertFalse(destination.exists())
+            self.assertFalse(marker.exists())
+        plan = {"hf_repo": "dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8",
+                "hf_revision": "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a",
+                "manifest_sha256": "5c6891a9649702b1ac0327b945600acb40c571a069942517cf14ba661a3cfcbc",
+                "files": 79, "total_bytes": 510311056155, "minimum_budget_bytes": 510311056234}
+        for key, value in (("hf_repo", "synthetic/wrong"), ("hf_revision", "a" * 40),
+                           ("manifest_sha256", "0" * 64), ("total_bytes", 510311056154)):
+            bad = {**plan, key: value}
+            bad["minimum_budget_bytes"] = bad["total_bytes"] + bad["files"]
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.prepare_profile_fixture(destination, "uncensored", plan=bad)
+            self.assertFalse(destination.exists())
+
+    def test_profile_helper_uses_committed_source_not_checkout_or_bytecode(self):
+        builder = stage.load_builder()
+        source = stage.read(ROOT / stage.PROFILE_SOURCE)
+        repo = self.root / "profiles"
+        path = repo / stage.PROFILE_SOURCE
+        path.parent.mkdir(parents=True)
+        path.write_bytes(source)
+        env = {**stage.GIT_ENV, "GIT_AUTHOR_NAME": "Fixture", "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+               "GIT_COMMITTER_NAME": "Fixture", "GIT_COMMITTER_EMAIL": "fixture@example.invalid"}
+        def git(*args):
+            return subprocess.run(["git", "-C", str(repo), *args], env=env,
+                                  capture_output=True, check=True, timeout=10).stdout
+        git("init", "-q")
+        git("add", ".")
+        git("commit", "-qm", "committed profile fixture")
+        revision = git("rev-parse", "HEAD").decode().strip()
+        marker = self.root / "helper-executed"
+        path.write_text("from pathlib import Path\nPath(" + repr(str(marker)) + ").touch()\n")
+        path.with_suffix(".pyc").write_bytes(b"SYNTHETIC_BYTECODE_OVERRIDE")
+        with mock.patch.object(stage, "ROOT", repo), \
+                mock.patch.object(stage, "read", side_effect=AssertionError("no checkout read")):
+            profiles = stage.load_profiles(builder, revision)
+        self.assertEqual(profiles.NAMES, stage.MODEL_PROFILES)
+        self.assertEqual(profiles.select("uncensored")["hf_revision"], "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a")
+        self.assertFalse(marker.exists())
+        git("add", ".")
+        git("commit", "-qm", "untrusted profile fixture")
+        with mock.patch.object(stage, "ROOT", repo), self.assertRaises(ValueError):
+            stage.load_profiles(builder, git("rev-parse", "HEAD").decode().strip())
+        self.assertFalse(marker.exists())
+
     def test_builder_uses_only_pinned_git_bytes_not_checkout_or_replacements(self):
         repo = self.root / "source"
         repo.mkdir()
