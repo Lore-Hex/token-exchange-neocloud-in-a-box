@@ -159,6 +159,38 @@ write_receipt_field() {
     printf '  "%s": "%s"%s\n' "$2" "$3" "$suffix" > "$1"
   fi
 }
+
+# The source-derived prefix and controls are compact JSON; never exempt the
+# entire line, which could also contain an unrelated secret candidate.
+for known in \
+  9d6bde6f28006680e5d37e06d816356d782004f1e8dbabf46d42e81b088afc16 \
+  c7b86dad075d1d51e4bf9aec664d9ce392e5d04a63babe717ab9354ec0b56032 \
+  6ddfa5e6dbf2f45b8efc1e2ebda65f1f79c39b1a4ec8a7fce8e77fc5a0add7d5 \
+  4e5eb88296779609b1ef81a335894e3ef5c284a94a8ceb1607421414c43c9cbe \
+  bd6e6807cddbb0f4844b130b9d8e7632f25ebc12a367ffb9ab412d1b23340c09; do
+  format=compact
+  target="$tmp/prefix/evidence/p2/2026-10-23-native-prefix-count/result/output.log"
+  mkdir -p "$(dirname "$target")"
+  write_receipt_field "$target" tokens_sha256 "$known"
+  expect_receipt_scan "$target" 0
+  write_receipt_field "$target" tokens_sha256 "$unknown"
+  expect_receipt_scan "$target" 42
+  write_receipt_field "$target" api_key "$known"
+  expect_receipt_scan "$target" 42
+  write_receipt_field "$tmp/prefix/other.log" tokens_sha256 "$known"
+  expect_receipt_scan "$tmp/prefix/other.log" 42
+  printf '{"tokens_sha256":"%s","api_key":"%s"}\n' "$known" "$unknown" > "$target"
+  expect_receipt_scan "$target" 42
+  python3 - "$tmp/held-report.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    findings = json.load(stream)
+assert any(row["RuleID"] == "generic-api-key" and row["Match"].startswith("api_key") for row in findings)
+PY
+  printf 'Original prefix exact value/field/path and same-line secret boundaries passed.\n'
+done
+
 for receipt_set in cpu-session-native-pass tau-cpu-prompt-fit-pass; do
 while IFS='|' read -r relative format field known suffix; do
   if [[ "$receipt_set" == tau-cpu-prompt-fit-pass ]]; then

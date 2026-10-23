@@ -1,6 +1,9 @@
 # P2.T3: Original Agent Prefix Tokenizer Preflight
 
-Status: implemented and tested against synthetic fixtures, **not yet measured**.
+Status: measured on native Linux/amd64 with the pinned runtime: **4,785 prefix
+tokens plus 256 output reserve exceed the unchanged 4,096-token context**.
+The [original receipts](../../evidence/p2/2026-10-23-native-prefix-count/result/run.json)
+record a successful measurement, not a successful tau trial or full-request fit.
 This is a CPU-only lower-bound check before spending time loading the GPU target.
 It does not execute a tau trial, generate a user or agent reply, expose an
 endpoint, admit a live deployment, or change the full benchmark's requirements.
@@ -124,9 +127,63 @@ container cleanup**, even when its disposition is `context-exceeded`; it never
 authorizes a GPU launch. Signals, missing reports, source drift and unresolved
 cleanup cannot produce a successful measurement.
 
-No actual token count, successful original tau trial, model quality, paired
-reference result, production readiness or confidential-computing claim is made
-by this implementation or its synthetic tests.
+The implementation and its synthetic tests alone do not establish an actual
+token count. The native measurement below does not establish a successful
+original tau trial, model quality, paired reference result, production readiness
+or confidential computing.
+
+## Native Prefix Measurement
+
+Producer `35b5e2caef9e1113b649ae3f744b26c204867cbf` ran once from
+2026-10-23 04:32:58 to 04:36:23 UTC on the retained native Linux/amd64 host.
+The original [pending marker](../../evidence/p2/2026-10-23-native-prefix-count/pending.json),
+[render envelope](../../evidence/p2/2026-10-23-native-prefix-count/render/run.json),
+[render report](../../evidence/p2/2026-10-23-native-prefix-count/render/output.log),
+[final envelope](../../evidence/p2/2026-10-23-native-prefix-count/result/run.json) and
+[final report](../../evidence/p2/2026-10-23-native-prefix-count/result/output.log)
+are copied byte for byte. The earlier failures below remain unchanged.
+
+| Measurement | Original Observation |
+|---|---|
+| Original static input | One system message and 16 tool schemas; same request digest as both earlier attempts |
+| Application preflight / application | 6,410 / 165,138 ms; all eight inventories complete |
+| Tokenizer entry | 23,045 ms, checkpoint 16, exit 0, no guard mismatch or exception |
+| Static prefix | 4,785 tokens; structural boundary verified; four unchanged local tokenizer controls pass |
+| Fixed context / output reserve | 4,096 / 256 tokens |
+| Disposition | `context-exceeded`: 5,041 exceeds 4,096 by 945, before actual first-user content |
+| Cleanup | Scorer and CPU owners report confirmed cleanup |
+
+This is a lower bound for the **original pinned DeepSeek checkpoint and task**,
+not a measurement of another checkpoint or a guarantee for a larger context.
+In particular it does not measure or qualify the later dealign checkpoint.
+It does not compare the count to a live HTTP endpoint, load model weights,
+generate a completion, run the original trial, or prove any complete request
+fits. No context, request, concurrency, memory, timeout or admission gate changes.
+All quality, full-fit, generation and confidential flags remain false.
+The original nested CPU candidate `result=fail`/`BLOCKED` fields remain intact;
+the outer `pass` means this bounded measurement completed, not deployment approval.
+The original pending marker remains `incomplete`/`unproven`; it is not rewritten
+to match the final receipts.
+
+The tests verify all five original sizes and hashes, 22 scorer source pins and
+the exact 68-file CPU closure. They replay the committed prefix, application,
+progress and entry-diagnostic validators, with negative controls. The private
+render body and complete private payload are neither retained nor reconstructed;
+their original digest joins are checked, not independently remeasured.
+The compact original report contains the four existing synthetic-control token
+hashes and the source-derived static-prefix token hash. The scanner exception
+permits only these five literal values in `tokens_sha256` at this exact report
+path. Positive controls retain detection of unknown values, other fields or
+paths, and a different secret candidate on the same line.
+
+Before this one runtime attempt, an operator preflight wrapper incorrectly
+inspected the scorer index without the committed `--platform linux/amd64`.
+The unchanged manifest validator rejected that index. Read-only comparison
+confirmed that the existing explicit platform selection passes. Only the
+operator wrapper was corrected; the producer, image profile and validators did
+not change. A fresh full source/input/image/resource preflight passed before
+the one authorized runtime launch. This wrapper failure is not a model or
+runtime failure and did not create a container.
 
 ## Original Local Attempt
 
