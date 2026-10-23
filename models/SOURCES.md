@@ -1,9 +1,9 @@
 # Model Pack Sources
 
-Both packs are **draft, not deployable**. They have complete metadata manifests,
-not downloaded/verified weights or built erofs/verity images. The profile name
+All packs are **draft, not deployable**. Their metadata manifests do not by
+themselves prove downloaded weights or built erofs/verity images. The profile name
 `b200x8-gcp-plain` means a non-confidential P2 candidate, not a hardware result.
-No inference container was executed. P2 must validate compatibility, correctness,
+Pack metadata checks execute no inference container. Separate P2 evidence must validate compatibility, correctness,
 capacity, request-data logging behavior and performance before adopting a profile.
 
 ## Immutable Source Keys
@@ -18,6 +18,7 @@ These keys are references, not copied upstream implementation or a new license.
 - **R**, official [v0.32.0 release](https://github.com/vllm-project/vllm/releases/tag/v0.32.0) and [release tag revision](https://api.github.com/repos/vllm-project/vllm/git/ref/tags/v0.32.0). Both packs pin its Linux/amd64 manifest `sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9`, not the mutable tag or multi-platform index. `packcheck` verifies the manifest and config digest, platform, entrypoint and source-revision metadata. Registry metadata is not signed build provenance or proof of the installed code.
 - **D**, official DeepSeek recipe, selected `variants.default` DS1017, `model`, `features`, `single_node_tp`, and GPU-resident Engram guide: [DeepSeek-V4.1-Flash.yaml](https://github.com/vllm-project/recipes/blob/2338e9edec1d5df5f823abf3c1f19e7ba0b2ed0e/models/deepseek-ai/DeepSeek-V4.1-Flash.yaml).
 - **G**, official GLM recipe, native FP8 `model`, `features` and guide / FP8 on 8xB200: [GLM-5.3.yaml](https://github.com/vllm-project/recipes/blob/2338e9edec1d5df5f823abf3c1f19e7ba0b2ed0e/models/zai-org/GLM-5.3.yaml).
+- **U**, separate dealignai checkpoint at `c19ca5ca4eaeb79d29fdf08aea8327da95b1116a`: [model card](https://huggingface.co/dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8/blob/c19ca5ca4eaeb79d29fdf08aea8327da95b1116a/README.md), [config](https://huggingface.co/dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8/blob/c19ca5ca4eaeb79d29fdf08aea8327da95b1116a/config.json), and [complete tree](https://huggingface.co/api/models/dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8/tree/c19ca5ca4eaeb79d29fdf08aea8327da95b1116a?recursive=true). The publisher describes modified weights, native FP8 plus FP4 experts, and an MIT license. Publisher capability/benchmark claims are not our validation. See the [variant runbook](../docs/operators/dealign-checkpoint.md).
 - **T (historical reference only)**, Tinfoil [Dockerfile.b200](https://github.com/tinfoilsh/confidential-deepseek-v4-1-flash/blob/803246156cb54952d0fc93a9fb66cdd4d87af2b3/Dockerfile.b200) supplied the former upstream 0.31.0 base pin. Its [released B200 config](https://github.com/tinfoilsh/confidential-deepseek-v4-1-flash/blob/29bc3ea355129b1dda97282ce80ce972530ee4fc/tinfoil-config.yml) is a separate patched four-GPU deployment, not our selected image. Current checks do not fetch or depend on Tinfoil's patches/image.
 
 ## Deliberate Limits
@@ -86,6 +87,7 @@ Repository tooling is Apache-2.0. Model files and licenses remain upstream and
 are neither vendored nor relicensed. Manifests include their license files:
 
 - DeepSeek: [MIT LICENSE at the pinned revision](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/blob/1bae0e1088993b9b82de08f59de5be5a34e42170/LICENSE).
+- dealignai variant: [LICENSE at the pinned revision](https://huggingface.co/dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8/blob/c19ca5ca4eaeb79d29fdf08aea8327da95b1116a/LICENSE). Credit: based on `dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8`, derived from DeepSeek-AI's model. Our Apache-2.0 tooling does not relicense these weights.
 - GLM: [GLM-5.3 LICENSE at the pinned revision](https://huggingface.co/zai-org/GLM-5.3/blob/ba32f8c19c8738e2c57c71798c601d477a7bf844/LICENSE). This is not replaced with Apache-2.0 or assumed to be MIT.
 
 ## Generation And Verification
@@ -97,6 +99,14 @@ go run ./models/packcheck generate
 go run ./cmd/nib model check-remote models/deepseek-v4.1-flash-1017/1
 go run ./cmd/nib model check-remote models/glm-5.3/1
 go run ./models/packcheck check
+```
+
+The optional second argument selects one fixed, reviewed model ID, not an
+arbitrary repository, revision or path. To generate only the new variant from
+its clean generator commit, before its manifest exists:
+
+```sh
+go run ./models/packcheck generate deepseek-v4.1-flash-1017-uncensored-fp8
 ```
 
 `generate` refuses existing manifests. Use a clean checkout of the generator

@@ -69,7 +69,7 @@ func TestDraftEngineProfilesStayPrivateAndNonDeployable(t *testing.T) {
 					t.Errorf("profile changed %s", flag)
 				}
 			}
-			if p.repo == "deepseek-ai/DeepSeek-V4.1-Flash-1017" {
+			if strings.HasPrefix(p.dir, "models/deepseek-") {
 				i := slices.Index(profile.Args, "--engram-config")
 				if i < 0 || i+1 == len(profile.Args) || profile.Args[i+1] != `{"cpu_offload":false}` {
 					t.Fatal("GPU-resident Engram setting missing")
@@ -82,6 +82,26 @@ func TestDraftEngineProfilesStayPrivateAndNonDeployable(t *testing.T) {
 				t.Fatal("unsupported global UVA flag added")
 			}
 		})
+	}
+}
+
+func TestFixedPackSelection(t *testing.T) {
+	for _, mode := range []string{"generate", "check"} {
+		all, err := selectPacks([]string{mode})
+		if err != nil || len(all) != 3 {
+			t.Fatal("all-pack selection changed")
+		}
+		for _, p := range packs {
+			selected, err := selectPacks([]string{mode, filepath.Base(filepath.Dir(p.dir))})
+			if err != nil || len(selected) != 1 || selected[0] != p {
+				t.Fatal("fixed model selection differs")
+			}
+		}
+	}
+	for _, name := range []string{"", "../deepseek-v4.1-flash-1017", "models/deepseek-v4.1-flash-1017/1", "dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8", "https://example.test"} {
+		if _, err := selectPacks([]string{"generate", name}); err == nil {
+			t.Fatal("unapproved model path accepted")
+		}
 	}
 }
 func TestRejectArbitraryArguments(t *testing.T) {
