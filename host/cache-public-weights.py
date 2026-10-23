@@ -449,9 +449,20 @@ def publication_preflight(parent, publication, deadline):
 
 
 def atomic_copy(source, destination, rows, source_rows, deadline):
-    # The old full-pack helper owns all copying/hashing. Only a verified subset
-    # may be published here; an interrupted temporary tree is never a seed proof.
-    publication = load_pinned("scripts/pilot/export.py", PUBLICATION_SHA256)
+    return verified_copy(source, destination, rows, source_rows, deadline, atomic=True)
+
+
+def upload_copy(source, destination, rows, deadline):
+    # Linux v6.8 fs/nfs/dir.c:nfs_rename rejects all rename flags. This fixed
+    # upload mode uses exclusive creation and a complete-copy receipt, not an
+    # atomic-rename fallback. Failed/partial directories are never overwritten.
+    return verified_copy(source, destination, rows, rows, deadline, atomic=False)
+
+
+def verified_copy(source, destination, rows, source_rows, deadline, *, atomic):
+    # The old full-pack helper owns all copying/hashing. Atomic local publication
+    # and non-atomic exclusive upload share checks, never a rename fallback.
+    publication = load_pinned("scripts/pilot/export.py", PUBLICATION_SHA256) if atomic else None
     require(source != destination and not source.is_relative_to(destination)
             and not destination.is_relative_to(source))
     with directory(source) as source_fd, directory(destination.parent) as parent:
@@ -459,8 +470,9 @@ def atomic_copy(source, destination, rows, source_rows, deadline):
         require(parent_info.st_uid == os.getuid() and not parent_info.st_mode & 0o022)
         require(not os.path.lexists(destination))
         initial = strict_inventory(source, source_rows)
-        publication_preflight(parent, publication, deadline)
-        temporary = destination.parent / (".nib-cache-" + uuid.uuid4().hex)
+        if atomic:
+            publication_preflight(parent, publication, deadline)
+        temporary = destination.parent / (".nib-cache-" + uuid.uuid4().hex) if atomic else destination
         copied = copy_pack(source, temporary, rows, deadline, source_rows=source_rows, stable=True)
         require(strict_inventory(source, source_rows) == initial)
         require(file_identity(source_info) == file_identity(os.stat(source, follow_symlinks=False)))
@@ -480,7 +492,8 @@ def atomic_copy(source, destination, rows, source_rows, deadline):
                     == (parent_info.st_dev, parent_info.st_ino, parent_info.st_mode, parent_info.st_uid))
             require(time.monotonic() < deadline)
             require(strict_inventory(temporary, rows) == copied["identities"])
-            publication.rename_exclusive(parent, temporary.name, destination.name)
+            if atomic:
+                publication.rename_exclusive(parent, temporary.name, destination.name)
             os.fsync(parent)
             published = os.stat(destination.name, dir_fd=parent, follow_symlinks=False)
             require((published.st_dev, published.st_ino) == (info.st_dev, info.st_ino))
@@ -517,10 +530,16 @@ def profile_worker(operation, export, mount, local, manifest_path, seed_manifest
         # still uses the unmodified staging recorder's full-pack capacity gate.
         needed = target["total_bytes"]
         require(space.f_bavail * space.f_frsize >= needed + max(10 << 30, (needed + 9) // 10))
-    result = atomic_copy(source, destination, rows, source_rows, deadline)
+    result = (upload_copy(source, destination, rows, deadline) if operation == "upload"
+              else atomic_copy(source, destination, rows, source_rows, deadline))
     verify_mount(export, mount, readonly=readonly)
     require(time.monotonic() < deadline)
-    print(json.dumps({"schema": "nib.public-weight-profile-worker/v1", "operation": operation, **result}, sort_keys=True))
+    print(json.dumps({"schema": "nib.public-weight-profile-worker/v1", "operation": operation,
+                      "publication_mode": publication_mode(operation), **result}, sort_keys=True))
+
+
+def publication_mode(operation):
+    return "exclusive-directory-copy" if operation == "upload" else "atomic-no-replace-directory"
 
 
 def profile_report(operation, export, mount, local, manifest_path, seed_manifest, output, producer, seconds):
@@ -538,12 +557,14 @@ def profile_report(operation, export, mount, local, manifest_path, seed_manifest
     report = {"schema": "nib.public-weight-profile-cache/v1", "result": "fail", "stage": "preflight",
               "operation": operation, "model_profile": target, "producer": producer,
               "script_sha256": hashlib.sha256(source).hexdigest(), "supervisor_sha256": PROBE_SHA256,
-              "profile_helper_sha256": PROFILE_SHA256, "publication_helper_sha256": PUBLICATION_SHA256,
+              "profile_helper_sha256": PROFILE_SHA256,
+              "publication_helper_sha256": None if operation == "upload" else PUBLICATION_SHA256,
               "source_manifest_sha256": original["manifest_sha256"] if operation == "seed" else target["manifest_sha256"],
               "target_manifest_sha256": target["manifest_sha256"], "timeout_seconds": seconds,
               "started_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(), "ended_utc": None,
               "failure": None, "cleanup": "not-started", "worker_exit_confirmed": False,
               "process_group_absence_verified": False, "publication": "not-started",
+              "publication_mode": publication_mode(operation),
               "pack_complete": False, "runtime_ready": False, "confidential": False,
               "source_removed": False, "files": 0, "verified_bytes": 0,
               "remaining_files": None, "remaining_bytes": None}
@@ -582,8 +603,9 @@ def profile_report(operation, export, mount, local, manifest_path, seed_manifest
             require(time.monotonic() < deadline and type(raw) is bytes and len(raw) <= 4096)
             row = json.loads(raw, object_pairs_hook=unique)
             count, total = (SEED_FILES, SEED_BYTES) if operation == "seed" else (79, target["total_bytes"])
-            require(type(row) is dict and set(row) == {"schema", "operation", "files", "verified_bytes"}
+            require(type(row) is dict and set(row) == {"schema", "operation", "publication_mode", "files", "verified_bytes"}
                     and row["schema"] == "nib.public-weight-profile-worker/v1" and row["operation"] == operation
+                    and row["publication_mode"] == publication_mode(operation)
                     and type(row["files"]) is int and row["files"] == count
                     and type(row["verified_bytes"]) is int and row["verified_bytes"] == total)
             report.update(result="pass", stage="complete", cleanup="worker-completed", worker_exit_confirmed=True,

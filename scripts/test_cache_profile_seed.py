@@ -45,6 +45,7 @@ class ProfileCacheTests(unittest.TestCase):
 
     def worker_result(self, operation="seed"):
         return json.dumps({"schema": "nib.public-weight-profile-worker/v1", "operation": operation,
+                           "publication_mode": cache.publication_mode(operation),
                            "files": 48 if operation == "seed" else 79,
                            "verified_bytes": 310737990397 if operation == "seed" else 510311056155}).encode()
 
@@ -92,6 +93,40 @@ class ProfileCacheTests(unittest.TestCase):
 
     def test_full_profile_uses_same_atomic_copy(self):
         self.assertEqual(self.copy(self.rows), {"files": 3, "verified_bytes": sum(row[1] for row in self.rows)})
+
+    def test_upload_uses_exclusive_creation_without_any_rename(self):
+        with mock.patch.object(cache, "load_pinned", side_effect=AssertionError("rename helper must not load")), \
+                mock.patch.object(cache, "publication_preflight", side_effect=AssertionError("no rename probe")):
+            result = cache.upload_copy(self.source, self.destination, self.rows, time.monotonic() + 10)
+        self.assertEqual(result, {"files": 3, "verified_bytes": sum(row[1] for row in self.rows)})
+        for _, _, name in self.rows:
+            self.assertEqual((self.source / name).read_bytes(), (self.destination / name).read_bytes())
+            self.assertEqual((self.destination / name).stat().st_nlink, 1)
+        with self.assertRaises(ValueError):
+            cache.upload_copy(self.source, self.destination, self.rows, time.monotonic() + 10)
+
+    def test_failed_partial_upload_cannot_verify_restore_or_be_overwritten(self):
+        original_write = cache.os.write
+        calls = 0
+        def fail(fd, data):
+            nonlocal calls
+            calls += 1
+            if calls > 1:
+                raise OSError("synthetic interruption")
+            return original_write(fd, data)
+        with mock.patch.object(cache.os, "write", side_effect=fail), self.assertRaises(OSError):
+            cache.upload_copy(self.source, self.destination, self.rows, time.monotonic() + 10)
+        self.assertTrue(self.destination.is_dir())
+        with self.assertRaises(ValueError):
+            cache.strict_inventory(self.destination, self.rows)
+        restore = self.root / "restore"
+        with self.assertRaises(ValueError):
+            cache.atomic_copy(self.destination, restore, self.rows, self.rows, time.monotonic() + 10)
+        self.assertFalse(restore.exists())
+        retained = (self.destination / "config.json").read_bytes()
+        with self.assertRaises(ValueError):
+            cache.upload_copy(self.source, self.destination, self.rows, time.monotonic() + 10)
+        self.assertEqual((self.destination / "config.json").read_bytes(), retained)
 
     def test_bad_source_never_publishes_or_copies(self):
         for kind in ("extra", "partial", "corrupt", "truncated", "symlink", "hardlink", "fifo", "unselected-hardlink"):
@@ -232,6 +267,9 @@ class ProfileCacheTests(unittest.TestCase):
                 row = json.loads(args[6].read_bytes())
                 self.assertTrue(row["pack_complete"])
                 self.assertEqual((row["files"], row["verified_bytes"]), (79, 510311056155))
+                self.assertEqual(row["publication_mode"], cache.publication_mode(operation))
+                if operation == "upload":
+                    self.assertIsNone(row["publication_helper_sha256"])
                 self.assertFalse(row["runtime_ready"])
                 self.assertFalse(row["confidential"])
 
@@ -240,7 +278,8 @@ class ProfileCacheTests(unittest.TestCase):
         outcomes = [ValueError("probe-timeout"), ValueError("probe-cleanup-timeout"), InterruptedError("private"),
                     ValueError("probe-output-limit"), ValueError("probe-command-failed"), b"{}"]
         outcomes.append(self.worker_result().replace(b'"files": 48', b'"files": 79, "files": 48'))
-        for field, value in (("files", True), ("verified_bytes", 510311056155), ("operation", "restore"), ("extra", 1)):
+        for field, value in (("files", True), ("verified_bytes", 510311056155), ("operation", "restore"),
+                             ("publication_mode", "exclusive-directory-copy"), ("extra", 1)):
             outcomes.append(json.dumps({**wrong, field: value}).encode())
         for index, outcome in enumerate(outcomes):
             args = list(self.arguments())
@@ -257,6 +296,7 @@ class ProfileCacheTests(unittest.TestCase):
 
     def test_path_mode_and_deadline_rejections_precede_worker(self):
         for index, value in ((0, "arbitrary"), (2, Path("relative")), (3, self.root / "mount/child"),
+                             (4, Path("models/new/files.sha256")), (5, Path("models/old/files.sha256")),
                              (5, None), (6, self.destination / "receipt"), (8, 60), (8, 7201)):
             args = list(self.arguments())
             args[index] = value
@@ -341,17 +381,54 @@ class ProfileCacheTests(unittest.TestCase):
                         mock.patch.object(cache, "verify_mount") as readback, \
                         mock.patch.object(cache.os, "fstatvfs", return_value=types.SimpleNamespace(f_bavail=929387577344, f_frsize=1)), \
                         mock.patch.object(cache, "atomic_copy", return_value={"files": len(selected), "verified_bytes": sum(r[1] for r in selected)}) as copy, \
+                        mock.patch.object(cache, "upload_copy", return_value={"files": len(selected), "verified_bytes": sum(r[1] for r in selected)}) as upload, \
                         mock.patch.object(cache.sys, "stdout", printed):
                     cache.profile_worker(operation, "nfs.example.test:/public", str(mount), str(self.destination),
                                          str(new_path), str(old_path) if operation == "seed" else "-", "60")
                 attach.assert_called_once_with("nfs.example.test:/public", mount, readonly=operation != "upload")
                 readback.assert_called_once_with("nfs.example.test:/public", mount, readonly=operation != "upload")
-                args = copy.call_args.args
+                if operation == "upload":
+                    copy.assert_not_called()
+                else:
+                    upload.assert_not_called()
+                args = (upload if operation == "upload" else copy).call_args.args
                 self.assertEqual(args[0], self.destination if operation == "upload" else mount / (
                     original["served_model_name"] if operation == "seed" else target["served_model_name"]))
                 self.assertEqual(args[1], mount / target["served_model_name"] if operation == "upload" else self.destination)
-                self.assertEqual((args[2], args[3]), (selected, old if operation == "seed" else new))
+                self.assertEqual(args[2], selected)
+                if operation != "upload": self.assertEqual(args[3], old if operation == "seed" else new)
                 self.assertEqual(json.loads(printed.getvalue())["operation"], operation)
+
+    def test_post_copy_mount_readback_failure_never_claims_complete_upload(self):
+        target = cache.profiles()[1]
+        manifest = self.root / "target-manifest"
+        manifest.write_bytes((ROOT / target["pack"] / "files.sha256").read_bytes())
+        mount = self.root / "mount"
+        mount.mkdir(mode=0o700)
+        copied = False
+        def copy(*_):
+            nonlocal copied
+            copied = True
+            return {"files": 79, "verified_bytes": 510311056155}
+        def capture(*_args, **_kwargs):
+            printed = io.StringIO()
+            with mock.patch.object(cache.sys, "platform", "linux"), \
+                    mock.patch.object(cache.sys, "flags", types.SimpleNamespace(isolated=True, no_site=True)), \
+                    mock.patch.object(cache.sys, "dont_write_bytecode", True), mock.patch.object(cache.os, "getuid", return_value=0), \
+                    mock.patch.object(cache, "mount_cache"), mock.patch.object(cache, "verify_mount", side_effect=ValueError("readback failed")), \
+                    mock.patch.object(cache.os, "fstatvfs", return_value=types.SimpleNamespace(f_bavail=929387577344, f_frsize=1)), \
+                    mock.patch.object(cache, "upload_copy", side_effect=copy), mock.patch.object(cache.sys, "stdout", printed):
+                with self.assertRaises(ValueError):
+                    cache.profile_worker("upload", "nfs.example.test:/public", str(mount), str(self.source), str(manifest), "-", "60")
+            self.assertEqual(printed.getvalue(), "")
+            raise ValueError("probe-command-failed")
+        with mock.patch.object(cache, "load_capture", return_value=capture):
+            self.assertEqual(cache.profile_report(*self.arguments("upload")), 1)
+        self.assertTrue(copied)
+        row = json.loads((self.root / "receipt.json").read_bytes())
+        self.assertEqual((row["result"], row["publication"], row["cleanup"]), ("fail", "unproven", "unproven"))
+        self.assertFalse(row["pack_complete"])
+        self.assertEqual(row["verified_bytes"], 0)
 
     def test_worker_rejects_old_target_manifest_and_capacity_shortfall(self):
         original, target = cache.profiles()
@@ -400,6 +477,12 @@ class ProfileCacheTests(unittest.TestCase):
                         else:
                             current.assert_not_called()
                             legacy.assert_called_once()
+
+    def test_documented_seed_uses_absolute_package_manifest_paths(self):
+        text = (ROOT / "docs/tasks/p2-t4-public-cache-seed.md").read_text()
+        self.assertIn('--manifest "$PACKAGE/models/deepseek-v4.1-flash-1017-uncensored-fp8/1/files.sha256"', text)
+        self.assertIn('--seed-manifest "$PACKAGE/models/deepseek-v4.1-flash-1017/1/files.sha256"', text)
+        self.assertIn("canonical absolute paths", text)
 
 
 if __name__ == "__main__":
