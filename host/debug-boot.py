@@ -27,7 +27,8 @@ SCRIPT = "host/debug-boot.py"
 ROOT_LAUNCHER = "host/run-debug-boot.py"
 GUEST = tuple("guest/debugboot/" + p for p in (
     "probe.go", "query_unix.go", "stage_unix.go", "run_linux.go", "cmd/nib-debug-boot/main_linux.go",
-    "nib-debug-boot.service", "nib-debug-boot.target", "nib-debug-boot-stage.service", "10-nib-debug-boot.conf"))
+    "nib-debug-boot.service", "nib-debug-boot.target", "nib-debug-boot-stage.service", "10-nib-debug-boot.conf",
+    "nib-debug-network-failure.service", "90-nib-debug-network-failure.conf"))
 EXTRA = (SCRIPT, ROOT_LAUNCHER, "scripts/debug_boot_uki.py", "scripts/debug_boot_qemu.py",
          "scripts/fetch_debug_boot_runtime.py", runtime.SCRIPT, runtime.LOCK, validator.SCRIPT, "go.mod", "go.sum", *GUEST)
 STAGE = ROOT / "build/debug-boot/private"
@@ -77,6 +78,16 @@ def safe_directory(path):
         info = os.fstat(fd)
         require(info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700)
         return info
+
+
+def initrd_units(debug, guest_network):
+    units = {name: debug["guest/debugboot/" + name] for name in ("nib-debug-boot-stage.service", "10-nib-debug-boot.conf")}
+    if guest_network:
+        name = "nib-debug-boot-stage.service"
+        command = b"ExecStart=/usr/libexec/nib-debug-boot --stage-initrd\n"
+        require(units[name].count(command) == 1)
+        units[name] = units[name].replace(command, b"ExecStart=/usr/libexec/nib-debug-boot --stage-initrd-network\n")
+    return units
 
 
 def prepare_tools(downloads, directory, revision, sources, export):
@@ -224,7 +235,7 @@ def run(downloads, archive, runtime_inputs, go, revision, sources, debug, guest_
             "ownership.py": sources[native.probe.OWNERSHIP], "ownership-input.json": base.encoded(mapped),
             "confinement.py": sources[native.probe.CONFINEMENT],
             "debug-uki.py": debug["scripts/debug_boot_uki.py"], "debug-qemu.py": debug["scripts/debug_boot_qemu.py"]}
-        units = {name: debug["guest/debugboot/" + name] for name in ("nib-debug-boot-stage.service", "10-nib-debug-boot.conf")}
+        units = initrd_units(debug, guest_network)
         payload_files.update(units)
         config = {"schema": "nib.debug-uki-input/v1", "root_hash": manifest["root_hash"], "original": original_boot,
                   "probe": report["compiler"]["probe"], "units": {name: {"bytes": len(raw), "sha256": base.digest(raw)} for name, raw in units.items()}}

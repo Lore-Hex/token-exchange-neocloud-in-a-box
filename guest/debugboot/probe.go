@@ -90,6 +90,26 @@ func failureRecord(stage failureStage) string {
 	return "NIB_DEBUG_BOOT_V1 FAIL " + failureNames[stage] + "\n"
 }
 
+// systemd v255.4 MONITOR_* values from our one fixed OnFailure dependency.
+// Unknown/missing metadata collapses to zero; never forward arbitrary strings.
+func networkFailureRecord(unit, result, code, status string) string {
+	resultID, codeID, exitStatus := 0, 0, uint64(0)
+	if unit == "nib-network.service" {
+		resultID = map[string]int{"resources": 1, "exit-code": 2, "signal": 3,
+			"core-dump": 4, "timeout": 5, "watchdog": 6, "oom-kill": 7,
+			"protocol": 8, "start-limit-hit": 9}[result]
+		codeID = map[string]int{"exited": 1, "killed": 2, "dumped": 3}[code]
+		if codeID == 1 {
+			if n, ok := decimal(status, 255); ok {
+				exitStatus = n
+			} else {
+				codeID = 0
+			}
+		}
+	}
+	return "NIB_DEBUG_BOOT_V1 N " + strconv.Itoa(resultID) + " " + strconv.Itoa(codeID) + " " + strconv.FormatUint(exitStatus, 10) + "\n"
+}
+
 func lowerHex(s string) bool {
 	if len(s) != 64 {
 		return false

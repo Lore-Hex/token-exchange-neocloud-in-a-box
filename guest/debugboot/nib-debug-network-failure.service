@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+# Debug-only failure observer; never install in a release root.
+[Unit]
+Description=Report fixed network failure status before guest shutdown
+DefaultDependencies=no
+Before=nib-failclosed.target
+OnSuccess=nib-failclosed.target
+OnFailure=nib-failclosed.target
+
+[Service]
+Type=oneshot
+ExecStart=/run/nib-debug-boot --network-failure
+TimeoutStartSec=2
+TimeoutStopSec=2
+KillMode=control-group
+User=root
+Group=root
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX
+LimitCORE=0
+LimitFSIZE=0
+MemoryMax=64M
+TasksMax=32
+UMask=0077
+StandardInput=null
+StandardOutput=null
+StandardError=null

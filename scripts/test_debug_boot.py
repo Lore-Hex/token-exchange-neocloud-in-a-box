@@ -42,6 +42,79 @@ PRODUCER = {"schema": "nib.debug-producer/v1", "source": {"git_sha": "a" * 40, "
 
 
 class QemuTests(unittest.TestCase):
+    def test_network_failure_frames_fit_original_cap_and_never_pass(self):
+        self.assertEqual(qemu.MAX_PROOF_BYTES, 62)
+        self.assertEqual(qemu.NETWORK_STAGES, tuple("path filesystem interfaces config-read config policy executable "
+            "initial-command initial-ruleset check create readback-command readback deadline".split()))
+        for status in (*range(64, 78), 0, 203, 226, 255):
+            raw = qemu.NETWORK_PREFIX + f"2 1 {status}\n".encode("ascii")
+            expected = {"service_result": "exit-code", "exit_code": "exited", "exit_status": status,
+                        "stage": qemu.NETWORK_STAGES[status - 64] if 64 <= status <= 77 else None}
+            self.assertLessEqual(len(raw), 62)
+            for split in range(1, len(raw)):
+                connection = mock.Mock()
+                connection.recv.side_effect = [raw[:split], raw[split:], b""]
+                listener = mock.Mock()
+                listener.accept.return_value = (connection, None)
+                state = {"initrd": False, "root": False, "complete": False}
+                qemu.receive(listener, threading.Event(), time.monotonic() + 1, state)
+                self.assertEqual(state["network_failure"], expected)
+                self.assertEqual(state["guest_failure"], "NETWORK_SERVICE")
+                self.assertTrue(state["initrd"])
+                self.assertFalse(state["root"] or state["complete"])
+                self.assertNotIn("protocol_error", state)
+        for result in range(10):
+            for code in range(4):
+                prefix, value = qemu.network_frame(qemu.NETWORK_PREFIX + f"{result} {code} 0\n".encode())
+                self.assertTrue(prefix)
+                self.assertEqual(value["service_result"], qemu.NETWORK_RESULTS[result])
+                self.assertIsNone(value["stage"])
+
+    def test_network_failure_rejects_noncanonical_content_and_missing_eof(self):
+        for body in (b"10 1 0\n", b"1 4 0\n", b"1 1 256\n", b"01 1 0\n", b"1 1 00\n", b"1 1 -1\n",
+                     b"1 2 9\n", b"1 1 0 extra\n", b"1 1 0\r\n", b"1  0 0\n", b"1 1 private-canary\n",
+                     b"2 1 70\nPASS\n", b"2 1 70\n\n"):
+            raw = qemu.NETWORK_PREFIX + body
+            self.assertEqual(qemu.network_frame(raw), (False, None))
+            connection = mock.Mock()
+            connection.recv.side_effect = [raw, b""]
+            listener = mock.Mock()
+            listener.accept.return_value = (connection, None)
+            state = {"initrd": False, "root": False, "complete": False}
+            qemu.receive(listener, threading.Event(), time.monotonic() + 1, state)
+            self.assertFalse(state["complete"])
+            self.assertNotIn("network_failure", state)
+            self.assertNotIn("private-canary", json.dumps(state))
+        self.assertEqual(qemu.network_frame(b"NIB_DEBUG_BOOT_V1 N 2 1 70\n"), (False, None))
+        raw = qemu.NETWORK_PREFIX + b"2 1 70\n"
+        for chunks, expected in (([raw[:-1], b""], "incomplete"), ([raw, socket.timeout()], "missing-eof")):
+            connection = mock.Mock()
+            connection.recv.side_effect = chunks
+            listener = mock.Mock()
+            listener.accept.return_value = (connection, None)
+            stop = threading.Event(); stop.set()
+            state = {"initrd": False, "root": False, "complete": False}
+            qemu.receive(listener, stop, time.monotonic() + 1, state)
+            self.assertFalse(state["complete"])
+            self.assertEqual(state["protocol_error"], expected)
+
+    def test_network_failure_survives_clean_qemu_exit_and_cleanup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary).resolve() / "proof.sock"
+            def execute(args, **kwargs):
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                    client.connect(str(path))
+                    client.sendall(qemu.NETWORK_PREFIX + b"1 0 0\n")
+                return subprocess.CompletedProcess(args, 0, b"", b"")
+            with mock.patch.object(qemu, "SOCKET", path), mock.patch.object(qemu, "TIMEOUT", 1):
+                state, terminal = {"initrd": False, "root": False, "complete": False}, {}
+                with self.assertRaises(ValueError): qemu.trial(execute, state, terminal)
+            self.assertEqual(state["network_failure"], {"service_result": "resources", "exit_code": "unknown", "exit_status": 0, "stage": None})
+            self.assertFalse(state["complete"])
+            self.assertEqual(terminal["exit_code"], 0)
+            self.assertTrue(terminal["process_group_cleaned"])
+            self.assertFalse(path.exists())
+
     def test_root_read_counters_fit_unchanged_cap_and_never_pass(self):
         self.assertEqual(qemu.MAX_PROOF_BYTES, 62)
         self.assertEqual(qemu.MAX_ROOT_BYTES, 1536 << 20)
@@ -320,6 +393,34 @@ class QemuTests(unittest.TestCase):
 
 
 class UkiTests(unittest.TestCase):
+    def test_network_failure_observer_is_explicit_debug_only_and_failclosed(self):
+        debug = {name: (ROOT / name).read_bytes() for name in host.GUEST}
+        default = host.initrd_units(debug, False)
+        selected = host.initrd_units(debug, True)
+        self.assertEqual(default["nib-debug-boot-stage.service"], debug["guest/debugboot/nib-debug-boot-stage.service"])
+        self.assertEqual(selected["nib-debug-boot-stage.service"], default["nib-debug-boot-stage.service"].replace(
+            b" --stage-initrd\n", b" --stage-initrd-network\n"))
+        self.assertEqual(selected["10-nib-debug-boot.conf"], default["10-nib-debug-boot.conf"])
+        for bad in (b"unknown", default["nib-debug-boot-stage.service"] * 2):
+            with self.assertRaises(ValueError): host.initrd_units({**debug, "guest/debugboot/nib-debug-boot-stage.service": bad}, True)
+        config = configparser.ConfigParser(interpolation=None)
+        config.read_string(debug["guest/debugboot/nib-debug-network-failure.service"].decode())
+        self.assertEqual(config["Unit"]["OnSuccess"], "nib-failclosed.target")
+        self.assertEqual(config["Unit"]["OnFailure"], "nib-failclosed.target")
+        self.assertEqual(config["Unit"]["Before"], "nib-failclosed.target")
+        self.assertNotIn("Requires", config["Unit"])
+        self.assertNotIn("After", config["Unit"])
+        service = config["Service"]
+        self.assertEqual(service["ExecStart"], "/run/nib-debug-boot --network-failure")
+        self.assertEqual(service["CapabilityBoundingSet"], "")
+        self.assertEqual(service["NoNewPrivileges"], "yes")
+        self.assertEqual(service["TimeoutStartSec"], "2")
+        self.assertEqual(service["TimeoutStopSec"], "2")
+        for stream in ("StandardInput", "StandardOutput", "StandardError"): self.assertEqual(service[stream], "null")
+        self.assertEqual(debug["guest/debugboot/90-nib-debug-network-failure.conf"].decode().split("[Unit]\n")[1],
+                         "OnFailure=\nOnFailure=nib-debug-network-failure.service\n")
+        self.assertIn("OnFailure=nib-failclosed.target", (ROOT / "guest/systemd/nib-network.service").read_text())
+
     @contextmanager
     def fixture(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -485,7 +586,9 @@ class LifecycleTests(unittest.TestCase):
     def test_terminal_failure_keeps_valid_worker_diagnostic(self):
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary).resolve()
-            value = {"result": "fail", "stage": "boot"}
+            value = {"result": "fail", "stage": "boot", "proof": {"initrd": True, "root": False, "complete": False,
+                "guest_failure": "NETWORK_SERVICE", "network_failure": {
+                    "service_result": "exit-code", "exit_code": "exited", "exit_status": 70, "stage": "executable"}}}
             (output / "qemu.json").write_text(json.dumps(value))
             for failure in (subprocess.CompletedProcess([], 1, b"", b""), subprocess.TimeoutExpired([], 1),
                             ValueError("synthetic cleanup failure")):

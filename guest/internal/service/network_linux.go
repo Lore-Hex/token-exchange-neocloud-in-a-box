@@ -28,32 +28,32 @@ func runNetwork(ctx context.Context, path string) error {
 	ctx, cancel := context.WithTimeout(ctx, networkDeadline)
 	defer cancel()
 	if path != networkConfig {
-		return errNetwork
+		return failedNetworkPath
 	}
 	// This is an accidental-host-execution guard, not a verity or attestation
 	// claim. The image/boot chain must authenticate the complete runtime root.
 	var fs syscall.Statfs_t
 	if syscall.Statfs("/", &fs) != nil || !networkFilesystem(fs) {
-		return errNetwork
+		return failedNetworkFilesystem
 	}
 	interfaces, err := net.Interfaces()
 	if err != nil || len(interfaces) > 32 {
-		return errNetwork
+		return failedNetworkInterfaces
 	}
 	for _, iface := range interfaces {
 		if iface.Flags&net.FlagLoopback == 0 && iface.Flags&net.FlagUp != 0 {
-			return errNetwork
+			return failedNetworkInterfaces
 		}
 	}
 	raw, err := networkReadFile(networkConfig, 4096, 0o644)
 	if err != nil {
-		return errNetwork
+		return failedNetworkConfigRead
 	}
 	return applyNetwork(ctx, raw, func(ctx context.Context, op networkOperation, input []byte) ([]byte, error) {
 		executable, err := networkReadFile(nftExecutable, nftSize, 0o755)
 		digest := sha256.Sum256(executable)
 		if err != nil || len(executable) != nftSize || hex.EncodeToString(digest[:]) != nftSHA256 {
-			return nil, errNetwork
+			return nil, failedNetworkExecutable
 		}
 		var args []string
 		switch op {

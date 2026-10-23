@@ -213,7 +213,7 @@ func check(ctx context.Context, deadline time.Time, stage *failureStage, read *r
 	return nil
 }
 
-func stageInitrd() error {
+func stageInitrd(network bool) error {
 	if _, err := os.Stat("/etc/initrd-release"); err != nil {
 		return errRejected
 	}
@@ -246,18 +246,23 @@ func stageInitrd() error {
 	if err != nil || !os.SameFile(before, after) {
 		return errRejected
 	}
-	return stageAt(run, raw)
+	return stageAt(run, raw, network)
 }
 
 // Run has no configurable paths, command, network or success override.
 // It is linked only into the separately tagged debug command, never a gate.
 func Run() int {
-	staging := len(os.Args) == 2 && os.Args[1] == "--stage-initrd"
-	if (len(os.Args) != 1 && !staging) || os.Geteuid() != 0 || os.Getegid() != 0 {
+	networkStage := len(os.Args) == 2 && os.Args[1] == "--stage-initrd-network"
+	staging := networkStage || len(os.Args) == 2 && os.Args[1] == "--stage-initrd"
+	networkFailure := len(os.Args) == 2 && os.Args[1] == "--network-failure"
+	if (len(os.Args) != 1 && !staging && !networkFailure) || os.Geteuid() != 0 || os.Getegid() != 0 {
 		return 1
 	}
 	// Also terminate blocked device reads; systemd supplies the outer kill bound.
 	checkTimeout, hardTimeout := probeTimeouts(staging)
+	if networkFailure {
+		checkTimeout, hardTimeout = time.Second, 1500*time.Millisecond
+	}
 	timer := time.AfterFunc(hardTimeout, func() { os.Exit(1) })
 	defer timer.Stop()
 	deadline := time.Now().Add(checkTimeout)
@@ -270,8 +275,13 @@ func Run() int {
 	if _, err = rootHash(raw); err != nil {
 		return 1
 	}
+	if networkFailure {
+		if _, err := os.Lstat("/etc/initrd-release"); !os.IsNotExist(err) {
+			return 1
+		}
+	}
 	output, err := port()
-	for attempts := 0; err != nil && attempts < 40; attempts++ {
+	for attempts := 0; err != nil && attempts < 40 && time.Now().Before(deadline); attempts++ {
 		time.Sleep(100 * time.Millisecond)
 		output, err = port()
 	}
@@ -279,10 +289,21 @@ func Run() int {
 		return 1
 	}
 	defer output.Close()
+	if networkFailure {
+		record := networkFailureRecord(os.Getenv("MONITOR_UNIT"), os.Getenv("MONITOR_SERVICE_RESULT"),
+			os.Getenv("MONITOR_EXIT_CODE"), os.Getenv("MONITOR_EXIT_STATUS"))
+		n, err := output.Write([]byte(record))
+		if err != nil || n != len(record) {
+			return 1
+		}
+		// The failure observer never reports successful boot. Both unit outcomes
+		// enter the existing failclosed shutdown target.
+		return 0
+	}
 	stage := failedInitrd
 	var read rootReadObservation
 	record, result := FailRecord, 1
-	if staging && stageInitrd() == nil {
+	if staging && stageInitrd(networkStage) == nil {
 		record, result = InitrdRecord, 0
 	} else if !staging && check(ctx, deadline, &stage, &read) == nil {
 		record, result = PassRecord, 0
