@@ -318,6 +318,11 @@ computed only after the unchanged whole-ruleset equality rejects, with a fixed
 comparison order. The same 64 KiB JSON bounds, strict metadata, full object
 checks, rule order and exact expressions remain mandatory.
 
+The CLI forwards these fixed statuses only for the network role; other roles,
+untyped errors and out-of-range values retain generic failure exit 1. A full
+synthetic command-dispatch regression covers actual readback rejection through
+service error conversion and CLI exit, not just the classifier in isolation.
+
 The expected shape was rechecked against the pinned
 [nftables 1.0.9 primary source](https://netfilter.org/projects/nftables/files/nftables-1.0.9.tar.xz),
 SHA-256 `a3c304cd9ba061239ee0474f9afb938a9bb99d89b960246f66f0c3a0a85e14cd`:

@@ -12,6 +12,13 @@ import (
 
 // Run returns only fixed diagnostics: never echo paths, input, or backend errors.
 func Run(ctx context.Context, role string, args []string, out, errOut io.Writer) int {
+	return runCommand(ctx, role, args, out, errOut, runBackend)
+}
+
+// Package-private dispatch seam for CLI tests. Run always selects runBackend;
+// no caller option, mutable executor or runtime override is provided.
+func runCommand(ctx context.Context, role string, args []string, out, errOut io.Writer,
+	backend func(context.Context, string, string, io.Writer) error) int {
 	switch role {
 	case "gpu-gate", "weights", "network", "engine":
 	default:
@@ -22,7 +29,7 @@ func Run(ctx context.Context, role string, args []string, out, errOut io.Writer)
 		fmt.Fprintln(errOut, "usage: guest-helper --config <configuration-file>")
 		return 2
 	}
-	if err := runBackend(ctx, role, args[1], out); err != nil {
+	if err := backend(ctx, role, args[1], out); err != nil {
 		fmt.Fprintln(errOut, "guest: startup denied or service stopped; no confidentiality established")
 		return failureExitStatus(role, err)
 	}
@@ -31,7 +38,7 @@ func Run(ctx context.Context, role string, args []string, out, errOut io.Writer)
 
 func failureExitStatus(role string, err error) int {
 	if code, ok := err.(interface{ serviceExitCode() int }); ok && role == "network" {
-		if status := code.serviceExitCode(); status >= 64 && status <= 93 {
+		if status := code.serviceExitCode(); status >= 64 && status <= 110 {
 			return status
 		}
 	}

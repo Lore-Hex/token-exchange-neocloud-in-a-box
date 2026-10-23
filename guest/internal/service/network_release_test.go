@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"testing"
 	"time"
@@ -122,6 +123,61 @@ func TestNetworkVerificationStatusesAreFiniteAndContentFree(t *testing.T) {
 		if networkVerificationFailure(err) != failedNetworkReadback {
 			t.Fatal("arbitrary error promoted to verification status")
 		}
+	}
+}
+
+func TestReadbackFailureReachesCLIWithoutContentOrRoleEscape(t *testing.T) {
+	before := []byte(`{"nftables":[{"metainfo":{"version":"1.0.9","release_name":"Old Doc Yak #3","json_schema_version":1}}]}`)
+	config := []byte(`{"schema":"nib.guest-network/v1","egress":[]}`)
+	invoke := func(role string, backendError func() error, want int) {
+		t.Helper()
+		var out, errs bytes.Buffer
+		calls := 0
+		code := runCommand(context.Background(), role, []string{"--config", "/etc/nib/network.json"}, &out, &errs,
+			func(_ context.Context, gotRole, path string, _ io.Writer) error {
+				calls++
+				if gotRole != role || path != "/etc/nib/network.json" {
+					t.Fatal("CLI changed backend arguments")
+				}
+				return backendError()
+			})
+		if calls != 1 || code != want || out.Len() != 0 ||
+			errs.String() != "guest: startup denied or service stopped; no confidentiality established\n" {
+			t.Fatalf("CLI lost failure status or privacy: status %d, want %d", code, want)
+		}
+	}
+	// Exercise real config/render/empty/check/create/Verify/error conversion and
+	// CLI dispatch. Only the four nft subprocess results are synthetic.
+	invoke("network", func() error {
+		calls := 0
+		err := applyNetwork(context.Background(), config,
+			func(context.Context, networkOperation, []byte) ([]byte, error) {
+				calls++
+				if calls == 1 || calls == 4 {
+					return before, nil
+				}
+				return nil, nil
+			})
+		if calls != 4 || err != networkReadbackFailure(96) {
+			t.Fatal("readback did not reject missing policy")
+		}
+		return err
+	}, 96)
+	for stage := nftables.RejectedPolicy; stage <= nftables.RejectedOther; stage++ {
+		for _, role := range []string{"network", "gpu-gate", "weights", "engine"} {
+			want := 1
+			if role == "network" {
+				want = 93 + int(stage)
+			}
+			invoke(role, func() error { return networkVerificationFailure(stage) }, want)
+		}
+	}
+	for _, err := range []error{networkReadbackFailure(63), networkReadbackFailure(111),
+		networkReadbackFailure(255), errors.New("PRIVATE RULESET CANARY")} {
+		invoke("network", func() error { return err }, 1)
+	}
+	for _, stage := range []nftables.VerificationFailure{0, 18, 255} {
+		invoke("network", func() error { return networkVerificationFailure(stage) }, 76)
 	}
 }
 
