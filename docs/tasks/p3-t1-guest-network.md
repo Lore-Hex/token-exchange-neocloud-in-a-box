@@ -17,7 +17,10 @@ The later [diagnostic run](../../evidence/p3/2026-10-23-debug-network-config-rea
 also failed, with a valid fixed `config-read` observation (exit 67). This proves
 the helper reached its guarded configuration read, not the rejected subcheck
 or successful firewall installation. Both failures and cleanup receipts are
-preserved. No corrected native run is claimed.
+preserved. A subsequent [attempt](../../evidence/p3/2026-10-23-native-export-before-network-boot/README.md)
+failed during native export before QEMU started. Its original cleanup receipt
+does not identify the failing build stage; no new guest observation or corrected
+native result is claimed.
 
 This implementation applies and reads back the existing firewall candidate;
 that path has not yet succeeded in a native guest. It is not

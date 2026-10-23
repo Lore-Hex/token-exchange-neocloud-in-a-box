@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import types
 import unittest
 from unittest import mock
 
@@ -19,6 +20,14 @@ import test_mkosi_export as fixtures
 
 validator = load("host/validate-native-boot-export.py")
 base, export, publication = fixtures.base, fixtures.export, fixtures.publication
+
+
+def recorded(report):
+    value = copy.deepcopy(report)
+    value["failure_kind"] = None
+    value["worker"].update(installer_exit_code=0, failure_kind=None, package_installation_executed=True,
+                           reproducibility_verified=False)
+    return value
 
 
 class ValidationTests(unittest.TestCase):
@@ -82,6 +91,8 @@ class ValidationTests(unittest.TestCase):
                     data["result"] = "fail"
                     path.write_bytes(export.encoded(data))
                 elif mutation == "pending": export.paths(evidence)[0].mkdir(mode=0o700)
+                elif mutation == "outcome":
+                    (evidence / "result.json").write_bytes(export.encoded(recorded(report)))
                 elif mutation == "missing":
                     fd = publication.open_parent(bundle)
                     try:
@@ -126,9 +137,166 @@ class ValidationTests(unittest.TestCase):
     def test_failed_build_with_confirmed_cleanup_retains_only_failure_metadata(self):
         with self.fixture.fixture() as (evidence, stage, _, report, source):
             self.fixture.prepare(evidence, stage, report)
+            (evidence / "result.json").write_bytes(export.encoded(recorded(report)))
             self.assertEqual(self.run_validation(evidence, source, "failure"), "fail")
             self.assertFalse(any(os.path.lexists(p) for p in export.paths(evidence)))
             self.assertEqual({p.name for p in (evidence.parent / "export-validation").iterdir()}, {"validation.json"})
+
+    def test_failure_projection_retains_stage_oom_status_without_raw_details(self):
+        with self.fixture.fixture() as (evidence, stage, _, report, source):
+            self.fixture.prepare(evidence, stage, report)
+            report = recorded(report)
+            report.update(result="fail", stage="installation", failure_kind="process-exit")
+            report["worker"].update(result="fail", stage="guest-network", failure_kind="rejected",
+                failure_frames=[{"PRIVATE_RAW_TRACE": "PRIVATE_ERROR"}],
+                private_process_states={"PRIVATE_PROCESS": "PRIVATE_PATH"})
+            raw = export.encoded(report)
+            (evidence / "result.json").write_bytes(raw)
+            resources = evidence.with_name(evidence.name + "-resources.json")
+            state = json.loads(resources.read_bytes())
+            state.update(result="fail", child_exit_code=-9, oom_kill=2, memory_peak_bytes=8 << 30,
+                         populated_before_cleanup=1)
+            resources.write_bytes(export.encoded(state))
+            self.assertEqual(self.run_validation(evidence, source, "failure"), "fail")
+            published = (evidence.parent / "export-validation/validation.json").read_bytes()
+            self.assertNotIn(b"PRIVATE", published)
+            observed = json.loads(published)
+            self.assertEqual(observed["failure"], {"schema": "nib.native-build-failure/v1",
+                "git_sha": source["git_sha"], "installation": {"result": "fail", "stage": "installation",
+                    "failure_kind": "process-exit", "payload_removed": True, "process_cleanup_confirmed": True,
+                    "receipt": {"bytes": len(raw), "sha256": base.digest(raw)},
+                    "worker": {"result": "fail", "stage": "guest-network", "failure_kind": "rejected",
+                               "installed_packages": 212, "installer_exit_code": 0}},
+                "resources": {"result": "fail", "limits_read_back": True, "child_exit_code": -9,
+                    "oom_kill": 2, "memory_peak_bytes": 8 << 30, "populated_before_cleanup": 1}})
+            self.assertTrue(observed["private_images_removed"])
+            for key in ("artifacts_verified", "boot_verified", "signed", "confidentiality_verified",
+                        "reproducibility_verified"):
+                self.assertIs(observed[key], False)
+            self.assertEqual((evidence / "result.json").read_bytes(), raw)
+            self.assertFalse(any(os.path.lexists(p) for p in export.paths(evidence)))
+
+    def test_missing_report_worker_and_optional_counters_are_unknown_not_zero(self):
+        for missing in ("report", "worker", "skipped"):
+            with self.subTest(missing=missing), self.fixture.fixture() as (evidence, _, _, report, source):
+                if missing in ("report", "skipped"):
+                    (evidence / "result.json").unlink()
+                else:
+                    value = recorded(report)
+                    value.update(result="fail", stage="guest-helper-compilation", worker=None, failure_kind="timeout")
+                    (evidence / "result.json").write_bytes(export.encoded(value))
+                resource = evidence.with_name(evidence.name + "-resources.json")
+                if missing == "skipped":
+                    resource.unlink()
+                else:
+                    state = json.loads(resource.read_bytes())
+                    state.update(result="fail", child_exit_code=None)
+                    state.pop("oom_kill")
+                    resource.write_bytes(export.encoded(state))
+                self.assertEqual(self.run_validation(evidence, source,
+                    "skipped" if missing == "skipped" else "cancelled"), "fail")
+                value = json.loads((evidence.parent / "export-validation/validation.json").read_bytes())["failure"]
+                if missing == "worker":
+                    self.assertIsNone(value["installation"]["worker"])
+                    self.assertEqual(value["installation"]["stage"], "guest-helper-compilation")
+                else:
+                    self.assertIsNone(value["installation"])
+                if missing == "skipped":
+                    self.assertIsNone(value["resources"])
+                else:
+                    for key in ("oom_kill", "memory_peak_bytes", "populated_before_cleanup", "child_exit_code"):
+                        self.assertIsNone(value["resources"][key])
+
+    def test_projection_and_receipt_keep_existing_json_size_and_deadline_bounds(self):
+        for failure in ("size", "deadline"):
+            with self.subTest(failure=failure), self.fixture.fixture() as (evidence, stage, _, report, source):
+                self.fixture.prepare(evidence, stage, report)
+                (evidence / "result.json").write_bytes(export.encoded(recorded(report)))
+                encoded = export.encoded
+                project = validator.failure_receipt
+                def encoding(value):
+                    raw = encoded(value)
+                    return b" " * export.MAX_JSON + raw if value.get("schema") == "nib.native-private-export-validation/v1" else raw
+                def slow_projection(*args):
+                    time.sleep(1)
+                    return project(*args)
+                with mock.patch.object(export, "encoded", side_effect=encoding if failure == "size" else encoded), \
+                        mock.patch.object(export, "TIMEOUT", 0.01 if failure == "deadline" else export.TIMEOUT), \
+                        mock.patch.object(validator, "failure_receipt", side_effect=slow_projection
+                                          if failure == "deadline" else project):
+                    with self.assertRaises(ValueError):
+                        self.run_validation(evidence, source, "failure")
+                self.assertFalse(any(os.path.lexists(p) for p in export.paths(evidence)))
+                self.assertFalse((evidence.parent / "export-validation").exists())
+
+    def test_bad_present_failure_records_reject_upload_but_still_clean_images(self):
+        mutations = ("missing-field", "unknown-field", "source", "schema", "stage", "kind", "true-qualification",
+            "worker-field", "worker-missing-field", "worker-schema", "worker-stage", "worker-kind", "worker-count",
+            "worker-status", "worker-bool", "resource-field", "resource-status", "resource-oom", "resource-peak",
+            "resource-populated", "resource-bool", "resource-limits", "duplicate", "nonfinite", "malformed",
+            "oversized", "empty", "symlink", "hardlink", "directory", "writable", "ownership", "changed", "disappeared")
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), self.fixture.fixture() as (evidence, stage, _, report, source):
+                self.fixture.prepare(evidence, stage, report)
+                value = recorded(report)
+                resource = evidence.with_name(evidence.name + "-resources.json")
+                state = json.loads(resource.read_bytes())
+                if mutation == "missing-field": del value["stage"]
+                elif mutation == "unknown-field": value["PRIVATE"] = "PRIVATE"
+                elif mutation == "source": value["git_sha"] = "ef" * 20
+                elif mutation == "schema": value["schema"] = "unknown"
+                elif mutation == "stage": value["stage"] = "PRIVATE"
+                elif mutation == "kind": value["failure_kind"] = "PRIVATE"
+                elif mutation == "true-qualification": value["bootable"] = True
+                elif mutation == "worker-field": value["worker"]["PRIVATE"] = "PRIVATE"
+                elif mutation == "worker-missing-field": del value["worker"]["installer_exit_code"]
+                elif mutation == "worker-schema": value["worker"]["schema"] = "unknown"
+                elif mutation == "worker-stage": value["worker"]["stage"] = "PRIVATE"
+                elif mutation == "worker-kind": value["worker"]["failure_kind"] = "PRIVATE"
+                elif mutation == "worker-count": value["worker"]["installed_packages"] = 213
+                elif mutation == "worker-status": value["worker"]["installer_exit_code"] = 256
+                elif mutation == "worker-bool": value["worker"]["installed_packages"] = True
+                elif mutation == "resource-field": state["PRIVATE"] = "PRIVATE"
+                elif mutation == "resource-status": state["child_exit_code"] = -65
+                elif mutation == "resource-oom": state["oom_kill"] = -1
+                elif mutation == "resource-peak": state["memory_peak_bytes"] = 1 << 63
+                elif mutation == "resource-populated": state["populated_before_cleanup"] = 2
+                elif mutation == "resource-bool": state["oom_kill"] = False
+                elif mutation == "resource-limits": state["limits"]["memory.max"] = "max"
+                resource.write_bytes(export.encoded(state))
+                path = evidence / "result.json"
+                path.write_bytes(export.encoded(value))
+                if mutation == "duplicate": path.write_bytes(b'{"stage":"preflight","stage":"PRIVATE"}')
+                elif mutation == "nonfinite": path.write_bytes(b'{"stage":NaN}')
+                elif mutation == "malformed": path.write_bytes(b'{"PRIVATE"')
+                elif mutation == "oversized": path.write_bytes(b" " * (export.MAX_JSON + 1))
+                elif mutation == "empty": path.write_bytes(b"")
+                elif mutation in ("symlink", "hardlink"):
+                    original = evidence / "other"
+                    path.rename(original)
+                    path.symlink_to(original) if mutation == "symlink" else os.link(original, path)
+                elif mutation == "directory":
+                    path.unlink()
+                    path.mkdir()
+                elif mutation == "writable": path.chmod(0o666)
+                real_read = validator.base.read_at
+                real_stat = validator.os.stat
+                def changing_read(*args):
+                    raw = real_read(*args)
+                    if mutation == "changed" and args[1] == "result.json": path.chmod(0o644)
+                    if mutation == "disappeared" and args[1] == "result.json": path.unlink()
+                    return raw
+                def observed_stat(name, *args, **kwargs):
+                    info = real_stat(name, *args, **kwargs)
+                    if mutation == "ownership" and name == "result.json":
+                        return types.SimpleNamespace(st_uid=os.getuid() + 1, st_mode=info.st_mode)
+                    return info
+                with mock.patch.object(validator.base, "read_at", side_effect=changing_read), \
+                        mock.patch.object(validator.os, "stat", side_effect=observed_stat):
+                    with self.assertRaises((ValueError, OSError, KeyError, TypeError)):
+                        self.run_validation(evidence, source, "failure")
+                self.assertFalse(any(os.path.lexists(p) for p in export.paths(evidence)))
+                self.assertFalse((evidence.parent / "export-validation").exists())
 
     def test_actual_deadline_rejects_verification_and_removes_images(self):
         with self.fixture.fixture() as (evidence, stage, _, report, source):
@@ -241,6 +409,33 @@ class ValidationTests(unittest.TestCase):
                              "FIXTURE_RESULT": result, "FIXTURE_EXIT": str(code)},
                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5, check=False)
                     self.assertEqual(process.returncode == 0, passed)
+                    self.assertEqual(marker.read_text(), "metadata_ready=true\n" if ready else "")
+
+    def test_debug_unused_export_keeps_single_json_and_no_upload_after_validator_rejection(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/debug-boot.yml").read_text())
+        job = workflow["jobs"]["boot"]
+        self.assertEqual((job["runs-on"], job["timeout-minutes"]), ("ubuntu-22.04", 35))
+        step = next(s for s in job["steps"] if s.get("id") == "unused_export")
+        self.assertEqual(step["if"], "${{ always() && steps.debug.outcome == 'skipped' }}")
+        self.assertEqual(step["timeout-minutes"], 5)
+        upload = job["steps"][-1]
+        self.assertEqual(upload["if"], "${{ always() && steps.unused_export.outputs.metadata_ready == 'true' }}")
+        self.assertEqual(upload["with"]["path"], "build/native-install/export-validation/validation.json")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stub, marker = root / "stub.py", root / "outputs"
+            stub.write_text("import os, sys\nprint(os.environ['FIXTURE_RESULT'])\nsys.exit(int(os.environ['FIXTURE_EXIT']))\n")
+            shell = step["run"].replace("/usr/bin/python3.10 -I -S -B host/validate-native-boot-export.py",
+                shlex.quote(sys.executable) + " -I -S -B " + shlex.quote(str(stub)))
+            for result, code, ready in (("fail", 0, True), ("fail", 1, False), ("unknown", 0, False),
+                                        ("fail\nmetadata_ready=true", 0, False)):
+                with self.subTest(result=result, code=code):
+                    marker.write_text("")
+                    process = subprocess.run(["/bin/bash", "-e", "-o", "pipefail", "-c", shell],
+                        env={"PATH": "/usr/bin:/bin", "BUILD_RESULT": "failure", "GUEST_NETWORK": "true",
+                             "GITHUB_OUTPUT": str(marker), "FIXTURE_RESULT": result, "FIXTURE_EXIT": str(code)},
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5, check=False)
+                    self.assertEqual(process.returncode == 0, ready)
                     self.assertEqual(marker.read_text(), "metadata_ready=true\n" if ready else "")
 
     def test_workflow_keeps_default_gates_and_never_uploads_a_directory_in_export_mode(self):
