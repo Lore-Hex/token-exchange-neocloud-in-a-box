@@ -1,7 +1,8 @@
 # P2.T3: fresh held CPU support pair
 
-Status: the first native lifecycle attempt **failed before pair readiness**;
-whether either model completed parity is unknown. This is an opt-in executable continuation of
+Status: [native run 39871047432 passed held-pair readiness and release](../../evidence/p2/2026-10-22-cpu-session-native-pass/README.md).
+The earlier failure remains unexplained and unreproduced; it is not rewritten
+as a pass. Both servers from the successful run are stopped. This is an opt-in executable continuation of
 [CPU parity](p2-t3-tau-cpu-parity.md) and [CPU admission](p2-t3-tau-cpu-admission.md),
 not a tau trial or an acceptance result. Historical sequential parity receipts
 are not converted into live receipts.
@@ -137,8 +138,11 @@ The standalone parity worker, probes, pilot, kernel/socket guards, Dockerfile,
 parity recorder and workflow remain byte-identical. Only the controller's host
 metadata construction changes in addition to the session diagnostics. Source closure remains
 23 worker files / 27 controller files; diagnostic sources are already in it.
-The v2 diagnostic path has only synthetic regression coverage until a separately
-reviewed, green-CI, explicitly approved native attempt. No retry was performed.
+The separately reviewed, green-CI, explicitly approved v2 diagnostic attempt
+subsequently passed with both models held concurrently, all eight fixed-probe
+comparisons, four fresh original receipts, bound release and confirmed cleanup.
+Its [eight originals](../../evidence/p2/2026-10-22-cpu-session-native-pass/README.md)
+establish that run only, not the cause of the earlier failure or tau prompt fit.
 
 ## Remaining executable prerequisites
 
