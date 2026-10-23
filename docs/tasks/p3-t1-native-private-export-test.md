@@ -76,11 +76,41 @@ root hash, artifact hashes/sizes and confirmed deletion. Each JSON is at most
 64 KiB. No image bytes or raw subprocess logs are copied into this upload tree.
 
 A failed verification with confirmed safe cleanup produces only a fixed-field
-failure `validation.json`; no unverified receipt contents or exception text is
+failure `validation.json`; no raw receipt contents or exception text is
 copied. The workflow still fails. If cleanup is unknown or metadata preparation
 fails, no upload is authorized at all. The original build evidence remains
 local to the disposable runner in export mode; the default no-export workflow
 continues uploading its original diagnostic files unchanged.
+
+For a failed/cancelled build, `validation.json` now includes a
+`nib.native-build-failure/v1` projection of the existing committed native
+recorder. It binds the installation report's exact producer to the independently
+audited source and includes only finite build/worker stages, finite failure
+classes, package count, signed child/installer exit status, OOM count, peak bytes
+and cleanup/readback booleans. The existing resource receipt has no producer
+field of its own; it is read at the fixed sibling path after the same independent
+cleanup check, not promoted to an independently source-authenticated record.
+The complete input report's size/hash is retained, not its detailed contents.
+
+Absent reports/workers and absent optional counters remain JSON null, never a
+guessed stage or zero OOM count. A present record must have its fixed schema,
+required fields and known keys; unknown fields/enums, wrong source, malformed or
+duplicate-key JSON, nonfinite/bool-as-integer values, unsafe links/ownership,
+changed files and oversized inputs reject metadata publication. Private-image
+cleanup still runs if this diagnostic validation fails. Recognized detailed
+records (including traces, process lists and image proofs) are omitted entirely;
+they are not imported as code or used to weaken artifact acceptance. The
+projection and original metadata remain inside the existing 64-KiB JSON bound
+and 120-second verification alarm. Success metadata and the no-export path are
+unchanged; no new workflow input, upload path, raw log or image is exposed.
+
+The [original failed attempt](../../evidence/p3/2026-10-23-native-export-before-network-boot/README.md)
+on `ff708bcfc5bac542cff0bc95a7c958926cb368d9` failed during native export,
+before QEMU. Its original validation contains no stage/OOM/status projection;
+that absence is preserved, not retroactively filled. This failure does not
+identify the earlier guest `config-read` cause or prove an umask attribution.
+The new diagnostic path is synthetic-tested only until a separately approved
+native run produces its own receipt.
 
 The verifier prints only `pass` or `fail` after metadata preparation completes.
 The shell accepts only those values, marks metadata ready, then independently
