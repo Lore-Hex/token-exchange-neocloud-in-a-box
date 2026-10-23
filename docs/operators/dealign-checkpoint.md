@@ -24,6 +24,14 @@ that receipt. It explicitly records `pack_complete=false`, `runtime_ready=false`
 and `confidential=false`; it does not prove subsequent full staging or model
 execution.
 
+The separate [complete stage receipt](../../evidence/p0/2026-10-23-dealign-stage-complete/README.md)
+then verified all 79 files / 510,311,056,155 bytes from 09:28:00 to 11:01:56 UTC
+on October 23, reusing 48 files and downloading 199,573,065,758 bytes. Its
+terminal proof is distinct from unverified progress counts. This proves local
+public-byte staging only, not durable cache upload or backup, runtime readiness,
+inference, hardware validation or confidential qualification. The original
+partial-seed receipt and its limitations remain unchanged.
+
 Relative to the original pinned `1bae0e1088993b9b82de08f59de5be5a34e42170`:
 
 - The config, tokenizer, tokenizer config, weight index and encoding module

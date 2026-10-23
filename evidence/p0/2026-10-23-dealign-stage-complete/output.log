@@ -1,0 +1,50 @@
+{
+  "body_byte_budget": 510311056234,
+  "build_source_sha256": "bb4e8d5fc65df324804a95a0b6ff091550efb1eceac0c09b55be61b274feb952",
+  "cleanup": "confirmed",
+  "cleanup_scope": "local-process-group-only",
+  "confidential_qualified": false,
+  "deadline_seconds": 10800,
+  "disk": {
+    "available_bytes": 618593964032,
+    "overhead_bytes": 51031105616,
+    "required_bytes": 561342161771,
+    "sufficient": true
+  },
+  "download_workers": 8,
+  "hardware_validated": false,
+  "last_observation": {
+    "counts": {
+      "observed_bytes": 510311056155,
+      "observed_files": 79,
+      "partial_bytes": 0,
+      "partial_files": 0
+    },
+    "elapsed_seconds": 5616,
+    "verified": false
+  },
+  "nib_sha256": "7ee5f1e7cd29697c7dfc42cff9e4fdc3ff0cf6c0861f55fe6989190d29c3361c",
+  "plan": {
+    "files": 79,
+    "hf_repo": "dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8",
+    "hf_revision": "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a",
+    "manifest_sha256": "5c6891a9649702b1ac0327b945600acb40c571a069942517cf14ba661a3cfcbc",
+    "minimum_budget_bytes": 510311056234,
+    "total_bytes": 510311056155
+  },
+  "proof": {
+    "downloaded_bytes": 199573065758,
+    "files": 79,
+    "hf_repo": "dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8",
+    "hf_revision": "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a",
+    "manifest_sha256": "5c6891a9649702b1ac0327b945600acb40c571a069942517cf14ba661a3cfcbc",
+    "reused_files": 48,
+    "verified_bytes": 510311056155
+  },
+  "receipt_sha256": "e4e1b38e6986b599b6fc13b70f51031b0e587351da2fb8a135527a5f36833faf",
+  "result": "pass",
+  "runtime_ready": false,
+  "schema": "nib.weight-stage-recording/v1",
+  "source_git_sha": "3dbbd3aafc5e26adaac5bc4ebfc48a7fb4c4140d",
+  "stage": "complete"
+}
