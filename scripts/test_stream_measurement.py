@@ -24,7 +24,7 @@ def usage(prompt=2048, output=512, cached=None):
 
 
 def event(row, newline=b"\n"):
-    body = row if type(row) is bytes else json.dumps(row, separators=(",", ":")).encode()
+    body = row if type(row) is bytes else json.dumps(row, separators=(",", ":"), ensure_ascii=False).encode()
     return b"data: " + body + newline + newline
 
 
@@ -114,6 +114,19 @@ class MeasurementTests(unittest.TestCase):
                 m = meter()
                 m.feed(raw, 1)
                 self.assertEqual(m.close(2).status, "protocol-error")
+
+    def test_every_two_read_split_preserves_framing_usage_and_nonretention(self):
+        raw = event(chunk({"content": "synthetic \u00e9 answer"}, finish="stop", usage=usage()), b"\r\n")
+        raw += event(b"[DONE]", b"\r\n")
+        self.assertIn(b"\xc3\xa9", raw)
+        for boundary in range(len(raw) + 1):
+            m = meter()
+            m.feed(raw[:boundary], 0.5)
+            m.feed(raw[boundary:], 1)
+            row = m.close(2).metadata()
+            self.assertEqual(row["status"], "completed")
+            self.assertEqual((row["prompt_tokens"], row["completion_tokens"]), (2048, 512))
+            self.assertFalse(m.event or m.pending)
 
     def test_duplicate_terminals_json_fields_choices_identity_and_errors_rejected(self):
         valid = chunk({"content": "x"}, finish="stop", usage=usage())
