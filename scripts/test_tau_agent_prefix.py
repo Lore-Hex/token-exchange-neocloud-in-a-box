@@ -16,6 +16,7 @@ from unittest import mock
 import tau_agent_prefix as prefix
 import tau_support_probe as policy
 import tau_transport as transport
+import deepseek_model_profile as model_profiles
 import test_tau_trial as trial
 
 
@@ -25,6 +26,61 @@ def body():
 
 
 class AgentPrefixTests(unittest.TestCase):
+    def checkpoint_sources(self, entry):
+        return {name: (entry.ROOT / name).read_bytes() for name in (
+            *entry.PREFIX_MODEL_FILES, "scripts/engine_tokenizer_parity.py")}
+
+    def test_checkpoint_identity_requires_selected_manifest_and_tokenizer_pins(self):
+        owner = trial.runner.load("scripts/record-tau-agent-prefix.py")
+        parity, _ = owner.entry.load("prefix_test_parity", owner.ROOT / "scripts/engine_tokenizer_parity.py")
+        extra = self.checkpoint_sources(owner.entry)
+        for name in model_profiles.NAMES:
+            with self.subTest(profile=name):
+                expected = model_profiles.select(name)
+                self.assertEqual(owner.checkpoint_identity(extra, name, parity), expected)
+                path = expected["pack"] + "/files.sha256"
+                other = model_profiles.select("uncensored" if name == "original" else "original")
+                for raw in (b"", extra[path] + b"\n", extra[other["pack"] + "/files.sha256"]):
+                    with self.assertRaises(ValueError):
+                        owner.checkpoint_identity({**extra, path: raw}, name, parity)
+                changed = dict(parity.MODEL_FILES)
+                changed["tokenizer.json"] = (6367257, "0" * 64)
+                with mock.patch.object(parity, "MODEL_FILES", changed), self.assertRaises(ValueError):
+                    owner.checkpoint_identity(extra, name, parity)
+        for name in (None, "", "auto", "dealignai/model", True, []):
+            with self.subTest(invalid=name), self.assertRaises(ValueError):
+                owner.checkpoint_identity(extra, name, parity)
+
+    def test_checkpoint_rejected_before_reservation_or_container_launch(self):
+        owner = trial.runner.load("scripts/record-tau-agent-prefix.py")
+        entry = owner.entry
+        runner, runner_raw = entry.load("prefix_gate_owner", owner.ROOT / "scripts/tau_trial.py")
+        parity, parity_raw = entry.load("prefix_gate_parity", owner.ROOT / "scripts/engine_tokenizer_parity.py")
+        socket = mock.Mock()
+        socket.is_absolute.return_value = True
+        socket.stat.return_value = types.SimpleNamespace(st_mode=stat.S_IFSOCK)
+        for fault in ("unknown-profile", "manifest", "parity-source"):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                extra = {**self.checkpoint_sources(entry),
+                         owner.SCRIPT: (owner.ROOT / owner.SCRIPT).read_bytes(), entry.SCRIPT: owner.ENTRY_SOURCE}
+                if fault == "manifest":
+                    extra[model_profiles.select("uncensored")["pack"] + "/files.sha256"] += b"\n"
+                if fault == "parity-source":
+                    extra["scripts/engine_tokenizer_parity.py"] += b"\n"
+                with mock.patch.object(entry, "inputs", return_value=("a" * 40, {}, extra)), \
+                        mock.patch.object(entry, "load", side_effect=lambda name, path: (runner, runner_raw)
+                                          if name == "prefix_scorer_owner" else (parity, parity_raw)), \
+                        mock.patch.object(owner, "tokenizer_inputs") as tokenizer, \
+                        mock.patch.object(entry.recorder.prep, "publish") as publish, \
+                        mock.patch.object(runner, "run") as render, \
+                        mock.patch.object(entry, "run_container") as launch, self.assertRaises(ValueError):
+                    owner.execute(root / "archive", root / "wheels", root / "model", socket, root / "out",
+                                  model_profile="unknown" if fault == "unknown-profile" else "uncensored")
+                for operation in (tokenizer, publish, render, launch):
+                    operation.assert_not_called()
+                self.assertFalse((root / "out").exists())
+
     def test_original_agent_initial_state_and_tools_without_initializing_or_stepping(self):
         names = ("tau2", "tau2.runner", "tau2.runner.helpers", "tau2.runner.build", "tau2.data_model",
                  "tau2.data_model.simulation", "tau2.utils", "tau2.utils.llm_utils")
@@ -116,7 +172,7 @@ class AgentPrefixTests(unittest.TestCase):
         owner = trial.runner.load("scripts/record-tau-agent-prefix.py")
         entry = owner.entry
         runner, runner_raw = entry.load("fake_owner_test", owner.ROOT / "scripts/tau_trial.py")
-        parity, _ = entry.load("fake_parity_test", owner.ROOT / "scripts/engine_tokenizer_parity.py")
+        parity, parity_source = entry.load("fake_parity_test", owner.ROOT / "scripts/engine_tokenizer_parity.py")
         sha = prefix.digest(prefix.encoded(body()))
         rendered = {"prefix": {"request_sha256": sha}, "plan_sha256": "b" * 64, "cleanup": "confirmed"}
         payload = {"agent-prefix.json": prefix.encoded(body())}
@@ -145,9 +201,10 @@ class AgentPrefixTests(unittest.TestCase):
                     if change == "workspace-cleanup":
                         raise OSError("PRIVATE cleanup canary")
                 with mock.patch.object(entry, "inputs", return_value=("a" * 40, {}, {
+                        **self.checkpoint_sources(entry),
                         owner.SCRIPT: (owner.ROOT / owner.SCRIPT).read_bytes(), entry.SCRIPT: owner.ENTRY_SOURCE})), \
                         mock.patch.object(entry, "load", side_effect=lambda name, path: (runner, runner_raw)
-                                          if name == "prefix_scorer_owner" else (parity, b"")), \
+                                          if name == "prefix_scorer_owner" else (parity, parity_source)), \
                         mock.patch.object(owner, "tokenizer_inputs", return_value={"tokenizer.json": b"synthetic"}), \
                         mock.patch.object(runner, "prepare", return_value=({runner.SCRIPT: runner_raw, "trial.json": b"{}"},
                             {"producer": {"git_sha": "a" * 40}})), \
@@ -162,8 +219,9 @@ class AgentPrefixTests(unittest.TestCase):
                         mock.patch.object(owner.tempfile, "TemporaryDirectory", side_effect=workspace), \
                         mock.patch.object(owner.signal, "signal"):
                     selected = "docker29-descriptor" if change is None else None
+                    model = "uncensored" if change is None else "original"
                     code = owner.execute(root / "archive", root / "wheels", root / "model", socket, root / "out",
-                                         scorer_image_profile=selected)
+                                         scorer_image_profile=selected, model_profile=model)
                 raw = (root / "out/result/output.log").read_bytes()
                 result = json.loads(raw)
                 self.assertEqual((code, result["result"]), (0, "pass") if change is None else (1, "fail"))
@@ -172,6 +230,13 @@ class AgentPrefixTests(unittest.TestCase):
                 self.assertFalse(result["full_fit_proven"] or result["generation_performed"])
                 self.assertEqual(result["scorer_image_profile"], selected or "docker28-classic")
                 self.assertEqual(render.call_args.kwargs["scorer_image_profile"], result["scorer_image_profile"])
+                self.assertEqual(result["model_profile"], model_profiles.select(model))
+                self.assertEqual(json.loads((root / "out/pending.json").read_bytes())["model_profile"],
+                                 result["model_profile"])
+                if change is None:
+                    self.assertEqual(result["tokenizer"]["provenance"]["model_profile"], result["model_profile"])
+                record = json.loads((root / "out/result/run.json").read_bytes())
+                self.assertIn("--model-profile " + model, record["command"])
 
     def test_image_profile_is_explicit_prefix_only_and_never_falls_back(self):
         runner, tau = trial.runner, trial.runner.tau

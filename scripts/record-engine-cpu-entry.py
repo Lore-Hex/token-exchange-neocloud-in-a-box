@@ -39,6 +39,9 @@ PREFIX_FILES = ("scripts/engine_target_prefix.py", "scripts/engine_tokenizer_par
                 "scripts/engine_local_correctness.py", "scripts/tau_agent_prefix.py",
                 "scripts/test_tau_agent_prefix.py", "scripts/test_engine_target_prefix.py",
                 "scripts/record-tau-agent-prefix.py")
+PREFIX_MODEL_FILES = ("scripts/deepseek_model_profile.py",
+                      "models/deepseek-v4.1-flash-1017/1/files.sha256",
+                      "models/deepseek-v4.1-flash-1017-uncensored-fp8/1/files.sha256")
 
 
 def read_source(path, limit=2 << 20):
@@ -98,6 +101,7 @@ def inputs(root=ROOT, tokenizer_continuation=False, tokenizer_materialization=Fa
                  TEST, SIX_TEST, OPENCV_TEST, "scripts/test_deepseek_lab.py",
                  *(TOKENIZER_FILES if tokenizer_continuation else ()),
                  *(PREFIX_FILES if agent_prefix else ()),
+                 *(PREFIX_MODEL_FILES if agent_prefix else ()),
                  *(("scripts/test_tokenizer_materialization.py",) if tokenizer_materialization else ())):
         row = checker.git(root, "ls-tree", revision, "--", name).decode().split()
         overlay.require(len(row) == 4 and row[:2] == ["100644", "blob"] and row[3] == name)

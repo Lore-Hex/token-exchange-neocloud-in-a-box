@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Offline original-policy tokenizer lower bound; no model generation or endpoint."""
+"""Offline checkpoint-bound original-policy count; no generation or endpoint."""
 
 import sys
 
@@ -47,7 +47,23 @@ def tokenizer_inputs(directory, parity):
     return files
 
 
-def execute(archive, wheelhouse, tokenizer_directory, socket, destination, *, scorer_image_profile=None):
+def checkpoint_identity(extra, name, parity):
+    # Both checkpoints currently share these tokenizer bytes. Bind that fact to
+    # an authenticated complete manifest, not a caller label or model family.
+    source = "scripts/deepseek_model_profile.py"
+    profiles = types.ModuleType("prefix_model_profiles")
+    exec(compile(extra[source], source, "exec", dont_inherit=True), profiles.__dict__)
+    selected = profiles.select(name)
+    manifest = extra[selected["pack"] + "/files.sha256"]
+    require(profiles.validate_manifest(name, manifest) == selected)
+    lines = manifest.decode("ascii").splitlines()
+    for filename, (size, sha) in parity.MODEL_FILES.items():
+        require(lines.count(f"{sha}  {size}  {filename}") == 1)
+    return selected
+
+
+def execute(archive, wheelhouse, tokenizer_directory, socket, destination, *, scorer_image_profile=None,
+            model_profile="original"):
     revision, bundle, extra = entry.inputs(agent_prefix=True)
     require(extra[SCRIPT] == entry.read_source(Path(__file__).absolute())
             and extra[entry.SCRIPT] == ENTRY_SOURCE
@@ -55,12 +71,15 @@ def execute(archive, wheelhouse, tokenizer_directory, socket, destination, *, sc
     trial, trial_source = entry.load("prefix_scorer_owner", ROOT / "scripts/tau_trial.py")
     profile = trial.PREFIX_IMAGE_PROFILES[0] if scorer_image_profile is None else scorer_image_profile
     require(type(profile) is str and profile in trial.PREFIX_IMAGE_PROFILES)
-    parity, _ = entry.load("prefix_parity", ROOT / "scripts/engine_tokenizer_parity.py")
+    parity, parity_source = entry.load("prefix_parity", ROOT / "scripts/engine_tokenizer_parity.py")
+    require(extra["scripts/engine_tokenizer_parity.py"] == parity_source)
+    selected_model = checkpoint_identity(extra, model_profile, parity)
     models = tokenizer_inputs(tokenizer_directory, parity)
     started = trial.now()
     result = {"schema": "nib.tau-agent-prefix-record/v1", "git_sha": revision,
         "started_utc": started, "ended_utc": None, "stage": "scorer-inputs", "result": "fail",
         "scorer_image_profile": profile,
+        "model_profile": selected_model,
         "render": None, "tokenizer": None, "observation": None,
         "quality_eligible": False, "confidential": False, "full_fit_proven": False,
         "generation_performed": False}
@@ -68,6 +87,7 @@ def execute(archive, wheelhouse, tokenizer_directory, socket, destination, *, sc
     # is not evidence of cleanup or a count. Final files are exclusive as well.
     entry.recorder.prep.publish(destination, {"pending.json": entry.overlay.json_bytes({
         "schema": "nib.tau-agent-prefix-pending/v1", "git_sha": revision, "started_utc": started,
+        "model_profile": selected_model,
         "result": "incomplete", "cleanup": "unproven"})})
     signal.signal(signal.SIGTERM, entry.recorder.cancel)
     signal.signal(signal.SIGINT, entry.recorder.cancel)
@@ -99,6 +119,7 @@ def execute(archive, wheelhouse, tokenizer_directory, socket, destination, *, sc
                 "expected_config_sha256": contract["official_config"]["sha256"],
                 "raw_oci_metadata_verified": True, "measurement_sha256": contract["measurement_sha256"],
                 "render_plan_sha256": rendered["plan_sha256"], "request_sha256": rendered["prefix"]["request_sha256"],
+                "model_profile": selected_model,
                 "model_files": {name: {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
                                 for name, raw in models.items()}}
             result["tokenizer"] = observed
@@ -113,8 +134,10 @@ def execute(archive, wheelhouse, tokenizer_directory, socket, destination, *, sc
     result["ended_utc"] = trial.now()
     record = trial.evidence_record(revision, "0" * 64, started, result, parent_pipe=True)
     record.update(command="python3 -I -S -B " + SCRIPT + " --source-archive PRIVATE --wheelhouse PRIVATE "
-        "--tokenizer-directory PRIVATE --docker-socket PRIVATE --output PRIVATE --scorer-image-profile " + profile,
+        "--tokenizer-directory PRIVATE --docker-socket PRIVATE --output PRIVATE --scorer-image-profile " + profile
+        + " --model-profile " + selected_model["name"],
         notes="Original static retail task 2 policy/tools in sealed scorer, then exact pinned CPU tokenizer. "
+              "Checkpoint identity binds tokenizer inputs only; no model weights were checked or loaded. "
               "A completed count is not full request fit, tau execution, model quality or confidential proof. "
               "No weights, generation, endpoint or GPU. Private request body is never an artifact.")
     require(len(trial.tau.encoded(result)) <= 65536)
@@ -127,9 +150,10 @@ def main():
     for name in ("source-archive", "wheelhouse", "tokenizer-directory", "docker-socket", "output"):
         parser.add_argument("--" + name, required=True, type=lambda raw: Path(raw).absolute())
     parser.add_argument("--scorer-image-profile")
+    parser.add_argument("--model-profile", default="original", choices=("original", "uncensored"))
     args = parser.parse_args()
     return execute(args.source_archive, args.wheelhouse, args.tokenizer_directory, args.docker_socket, args.output,
-                   scorer_image_profile=args.scorer_image_profile)
+                   scorer_image_profile=args.scorer_image_profile, model_profile=args.model_profile)
 
 
 if __name__ == "__main__":
