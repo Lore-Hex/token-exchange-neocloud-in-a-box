@@ -2,7 +2,7 @@
 """Synthetic owner, source-binding and receipt tests; no GPU or attestation."""
 
 import copy
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import hashlib
 import json
 import os
@@ -259,19 +259,23 @@ class HarnessTests(unittest.TestCase):
             def observe(engine, selected, row, started):
                 if failure == "after-observation" and row["samples"]: raise ValueError("PRIVATE")
                 row["samples"].append({"event": "synthetic"})
-            with self.subTest(failure=failure), mock.patch.object(lab, "CORRECTNESS", correctness), \
-                    mock.patch.object(lab, "PARITY", parity), mock.patch.object(lab, "STREAM_LAB", binding), \
-                    mock.patch.object(lab, "STREAM_COHORT", cohort), mock.patch.object(lab, "RUNTIME_OBSERVER", observation), \
-                    mock.patch.object(lab, "GPU_PROBE", fixtures.probe), mock.patch.object(parity, "verify_sources"), \
-                    mock.patch.object(parity, "verify_model"), \
-                    mock.patch.object(lab, "tokenizer_adapter_options", create=True, return_value={}), \
-                    mock.patch.object(lab, "check_scratch_mounts"), mock.patch.object(lab, "read_source", return_value=raw_contract), \
-                    mock.patch.object(lab, "hardware", return_value={"fixed": True}), \
-                    mock.patch.object(lab, "quiet_command", return_value=parity.encoded(child)), \
-                    mock.patch.object(lab, "observe_startup"), mock.patch.object(lab, "observe_runtime", side_effect=observe), \
-                    mock.patch.object(lab, "bounded_request", side_effect=request), \
-                    mock.patch.object(binding, "run", return_value=result) as stream, \
-                    mock.patch.object(lab.subprocess, "Popen", return_value=engine) as launch, mock.patch.object(lab.os, "killpg"):
+            with self.subTest(failure=failure), ExitStack() as stack:
+                for patch in (
+                    mock.patch.object(lab, "CORRECTNESS", correctness),
+                    mock.patch.object(lab, "PARITY", parity), mock.patch.object(lab, "STREAM_LAB", binding),
+                    mock.patch.object(lab, "STREAM_COHORT", cohort), mock.patch.object(lab, "RUNTIME_OBSERVER", observation),
+                    mock.patch.object(lab, "GPU_PROBE", fixtures.probe), mock.patch.object(parity, "verify_sources"),
+                    mock.patch.object(parity, "verify_model"),
+                    mock.patch.object(lab, "tokenizer_adapter_options", create=True, return_value={}),
+                    mock.patch.object(lab, "check_scratch_mounts"), mock.patch.object(lab, "read_source", return_value=raw_contract),
+                    mock.patch.object(lab, "hardware", return_value={"fixed": True}),
+                    mock.patch.object(lab, "quiet_command", return_value=parity.encoded(child)),
+                    mock.patch.object(lab, "observe_startup"), mock.patch.object(lab, "observe_runtime", side_effect=observe),
+                    mock.patch.object(lab, "bounded_request", side_effect=request), mock.patch.object(lab.os, "killpg"),
+                ):
+                    stack.enter_context(patch)
+                stream = stack.enter_context(mock.patch.object(binding, "run", return_value=result))
+                launch = stack.enter_context(mock.patch.object(lab.subprocess, "Popen", return_value=engine))
                 row = lab.application_and_request({**contract(), "paths": ["/selected"]}, {},
                                                   [None, None, None, app], {"files": []}, {})
             self.assertEqual(row["functional_pass"], failure is None)
