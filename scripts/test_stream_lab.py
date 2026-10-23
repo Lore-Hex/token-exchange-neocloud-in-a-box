@@ -263,6 +263,7 @@ class HarnessTests(unittest.TestCase):
                     mock.patch.object(lab, "PARITY", parity), mock.patch.object(lab, "STREAM_LAB", binding), \
                     mock.patch.object(lab, "STREAM_COHORT", cohort), mock.patch.object(lab, "RUNTIME_OBSERVER", observation), \
                     mock.patch.object(lab, "GPU_PROBE", fixtures.probe), mock.patch.object(parity, "verify_sources"), \
+                    mock.patch.object(parity, "verify_model"), \
                     mock.patch.object(lab, "tokenizer_adapter_options", create=True, return_value={}), \
                     mock.patch.object(lab, "check_scratch_mounts"), mock.patch.object(lab, "read_source", return_value=raw_contract), \
                     mock.patch.object(lab, "hardware", return_value={"fixed": True}), \
@@ -270,12 +271,19 @@ class HarnessTests(unittest.TestCase):
                     mock.patch.object(lab, "observe_startup"), mock.patch.object(lab, "observe_runtime", side_effect=observe), \
                     mock.patch.object(lab, "bounded_request", side_effect=request), \
                     mock.patch.object(binding, "run", return_value=result) as stream, \
-                    mock.patch.object(lab.subprocess, "Popen", return_value=engine), mock.patch.object(lab.os, "killpg"):
+                    mock.patch.object(lab.subprocess, "Popen", return_value=engine) as launch, mock.patch.object(lab.os, "killpg"):
                 row = lab.application_and_request({**contract(), "paths": ["/selected"]}, {},
                                                   [None, None, None, app], {"files": []}, {})
             self.assertEqual(row["functional_pass"], failure is None)
-            self.assertTrue(row["engine_stopped"])
-            engine.wait.assert_called()
+            if failure == "child":
+                launch.assert_not_called()
+                engine.wait.assert_not_called()
+                self.assertFalse(row["engine_stopped"])
+                self.assertIsNone(row["startup"])
+                self.assertEqual(row["stage"], "prelaunch")
+            else:
+                self.assertTrue(row["engine_stopped"])
+                engine.wait.assert_called()
             self.assertEqual(stream.call_count, 0 if failure in ("child", "parity") else 1)
             if stream.called: self.assertEqual(row["stream_cohort"], result)
             self.assertNotIn("PRIVATE", json.dumps(row))

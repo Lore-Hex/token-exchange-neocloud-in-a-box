@@ -76,16 +76,22 @@ again before the child returns; prompts, token IDs and library output are never
 returned. The existing 60-second child deadline remains in force, including
 bootstrap, counting and final checks.
 
-The owning controller requires all four endpoint parity probes to pass before
-dispatch. It then binds the collector to its current child process, namespace,
+For this opt-in benchmark, local workload preparation runs before engine
+startup. Two nonempty padding lengths estimate the search center; every final
+count is still measured exactly. The owning controller rechecks model and
+tokenizer source files after startup and requires all four endpoint parity
+probes to pass before dispatch. It then binds the collector to its current child process, namespace,
 executable and listener, preserving per-connection accepted-peer checks. The
 before/after runtime observations and normal engine teardown still run. A late
 identity or cleanup failure prevents success without discarding already reported
 usage. The host independently validates workload hashes, fixed budgets, timings,
 arithmetic, stop dispositions and summary recomputation from the bounded receipt.
 
-This integration is tested against synthetic fixtures; a reviewed, explicitly
-authorized actual run must still produce committed evidence. Its budget is the
+The [first actual attempt](../../evidence/p2/2026-10-23-stream-preparation-failure/README.md)
+reached engine readiness but failed before parity/cohort completion, with
+confirmed cleanup. It is not a throughput result. The padding regression and
+early-preparation ordering are tested; a successful real rerun remains required.
+Its budget is the
 existing eight parity requests (four tokenize, four one-token completions), plus
 one warmup and eight measured stream requests. Stream reservation remains 23,040
 tokens; the four parity completions have their separate existing accounting.

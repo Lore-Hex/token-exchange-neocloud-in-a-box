@@ -78,6 +78,20 @@ class CohortTests(unittest.TestCase):
         result = cohort.prepare(Tokenizer(factor=2, base=32), deadline=time.monotonic() + 3)
         self.assertEqual({row[0] for row in result.cases}, {1008})
 
+    def test_empty_padding_boundary_does_not_bias_the_estimated_slope(self):
+        # The pinned encoder/tokenizer diagnostic counted 35 for no filler,
+        # but 36+n for positive padding. Zero/64 extrapolation misses by 30.
+        class BoundaryTokenizer(Tokenizer):
+            def apply_chat_template(self, messages, **options):
+                ids = super().apply_chat_template(messages, **options)
+                return ids + [42] if messages[0]["content"].count(" x") else ids
+
+        tokenizer = BoundaryTokenizer(base=35)
+        result = cohort.prepare(tokenizer, deadline=time.monotonic() + 3)
+        self.assertEqual({row[0] for row in result.cases}, {2012})
+        self.assertEqual(tokenizer.calls, 27)
+        self.assertEqual({row["prompt_tokens"] for row in result.metadata()["cases"]}, {2048})
+
     def test_prepare_no_nearby_exact_fit_fails_instead_of_approximating(self):
         tokenizer = Tokenizer(factor=2)
         with self.assertRaises(ValueError):

@@ -82,10 +82,12 @@ def prepare(tokenizer, *, deadline):
                         and time.monotonic() < deadline)
                 return len(ids), digest(ids)
 
-            base, _ = count(0)
-            probe, _ = count(64)
+            # Empty padding can merge the surrounding text differently. Estimate
+            # from two nonempty prefixes, then still require an exact measured fit.
+            base, _ = count(64)
+            probe, _ = count(128)
             require(base < PROMPT_TOKENS and probe > base)
-            center = (PROMPT_TOKENS - base) * 64 // (probe - base)
+            center = 64 + (PROMPT_TOKENS - base) * 64 // (probe - base)
             candidates = [center] + [center + delta * sign
                                     for delta in range(1, SEARCH_RADIUS + 1) for sign in (-1, 1)]
             for padding in candidates:
