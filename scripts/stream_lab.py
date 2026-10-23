@@ -97,8 +97,9 @@ def admit_child(value, contract_sha, cohort, parity, correctness):
     return value["parity"], workload(value["workload"], cohort)
 
 
-def run(engine, contract, contract_sha, prepared, cohort, observer, deadline):
+def run(engine, contract, contract_sha, prepared, cohort, observer, deadline, *, model=None):
     enabled(contract)
+    model = selected_model(contract, cohort, model)
     require(engine.poll() is None and time.monotonic() < deadline)
     # The PID is the owner's current child, not a PID supplied by a receipt.
     before = observer.process(engine.pid, deadline)
@@ -116,7 +117,7 @@ def run(engine, contract, contract_sha, prepared, cohort, observer, deadline):
               "engine_identity_sha256": digest(process), "terminal_identity_verified": False,
               "cohort": cohort.run(endpoint, prepared, deadline=deadline,
                                    gpu_count=4 * contract.get("data_parallel_size", 1),
-                                   cohort_seconds=cohort_seconds(contract, cohort))}
+                                   cohort_seconds=cohort_seconds(contract, cohort), model=model)}
     try:
         endpoint.check(deadline)
         require(engine.poll() is None and observer.process(engine.pid, deadline) == before
@@ -157,14 +158,25 @@ def validate_sample(row, cohort):
         require(all(row[key] is None for key in timing))
 
 
-def validate(value, contract, contract_sha, cohort):
+def selected_model(contract, cohort, model):
+    if "model_profile" not in contract:
+        require(model in (None, cohort.stream.MODEL))
+        return cohort.stream.MODEL
+    # The owner validates the fixed source-bound identity before calling us.
+    # Never infer a new checkpoint from an old-name response or a receipt alone.
+    require(type(model) is str and model == contract["model_profile"]["served_model_name"])
+    return model
+
+
+def validate(value, contract, contract_sha, cohort, *, model=None):
     enabled(contract)
+    model = selected_model(contract, cohort, model)
     require(type(value) is dict and set(value) == {"schema", "contract_sha256", "engine_identity_sha256",
         "terminal_identity_verified", "cohort"} and value["schema"] == RESULT_SCHEMA
         and value["contract_sha256"] == sha(contract_sha) and type(value["terminal_identity_verified"]) is bool)
     sha(value["engine_identity_sha256"])
     row, meter = value["cohort"], cohort.meter
-    fixed = {"schema": "nib.chat-stream-cohort/v1", "model": cohort.stream.MODEL, "concurrency": 1,
+    fixed = {"schema": "nib.chat-stream-cohort/v1", "model": model, "concurrency": 1,
         "prompt_tokens_per_request": cohort.PROMPT_TOKENS, "max_output_tokens_per_request": cohort.OUTPUT_TOKENS,
         "reserved_requests": cohort.TOTAL_REQUESTS, "reserved_total_tokens": cohort.RESERVED_TOKENS,
         "pricing_measured": False, "quality_accepted": False, "confidential": False, "sweep_accepted": False}

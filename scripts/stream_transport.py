@@ -83,7 +83,8 @@ def response_length(response):
     return None
 
 
-def request_body(messages, prompt_tokens, max_output_tokens):
+def request_body(messages, prompt_tokens, max_output_tokens, *, model=MODEL):
+    require(type(model) is str and re.fullmatch(r"[a-z0-9_.-]{1,128}", model))
     require(type(max_output_tokens) is int and 0 < max_output_tokens <= MAX_OUTPUT
             and type(prompt_tokens) is int and 0 < prompt_tokens <= CONTEXT - max_output_tokens
             and type(messages) is list and 1 <= len(messages) <= 2
@@ -91,7 +92,7 @@ def request_body(messages, prompt_tokens, max_output_tokens):
                     and type(row["content"]) is str and 0 < len(row["content"]) <= worker.MAX_REQUEST
                     for row in messages)
             and [row["role"] for row in messages] in (["user"], ["system", "user"]))
-    return worker.bounded_json({"model": MODEL, "messages": messages,
+    return worker.bounded_json({"model": model, "messages": messages,
         "stream": True, "stream_options": {"include_usage": True}, "n": 1, "temperature": 0,
         "max_completion_tokens": max_output_tokens, "reasoning_effort": "none",
         "add_generation_prompt": True, "continue_final_message": False, "add_special_tokens": False,
@@ -106,10 +107,12 @@ class OwnedStreamHTTP(local.LocalChatHTTP):
     does not grant PID/UID/capability access or claim endpoint attestation.
     """
 
-    def __init__(self, endpoint):
+    def __init__(self, endpoint, *, model=MODEL):
         require(type(endpoint) is identity.Endpoint and endpoint.port == PORT)
+        require(type(model) is str and re.fullmatch(r"[a-z0-9_.-]{1,128}", model))
         super().__init__(PORT)
         self.endpoint = endpoint
+        self.model = model
 
     def connect(self, sock, deadline):
         self.endpoint.check(deadline)
@@ -119,11 +122,11 @@ class OwnedStreamHTTP(local.LocalChatHTTP):
     def collect(self, messages, *, prompt_tokens, max_output_tokens, deadline):
         require(threading.current_thread() is threading.main_thread()
                 and measurement.number(deadline))
-        raw = request_body(messages, prompt_tokens, max_output_tokens)
+        raw = request_body(messages, prompt_tokens, max_output_tokens, model=self.model)
         require(self.busy.acquire(blocking=False))
         started = time.monotonic()
         deadline = min(deadline, started + REQUEST_SECONDS)
-        meter = measurement.StreamMeasurement(MODEL, timeout_seconds=REQUEST_SECONDS,
+        meter = measurement.StreamMeasurement(self.model, timeout_seconds=REQUEST_SECONDS,
             max_prompt_tokens=prompt_tokens, max_output_tokens=max_output_tokens)
         connection = response = sock = None
         failure = None

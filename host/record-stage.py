@@ -37,6 +37,9 @@ BUILDER_FILES = {
     "scripts/engine_image_diagnostic.py": "e97285260e589d4d7cb6405529275a49a88be72778977fb34f03394dea2b2a48",
 }
 PACK = "models/deepseek-v4.1-flash-1017/1"
+MODEL_PROFILES = ("original", "uncensored")
+PROFILE_SOURCE = "scripts/deepseek_model_profile.py"
+PROFILE_SHA256 = "327c1f65d7d8d23838bd816a60243d1ccc4e02d48fca21a823a4f52356d64040"
 SMALL = 2 << 20
 MAX_BINARY = 128 << 20
 MAX_SECONDS = 3 * 3600
@@ -192,14 +195,33 @@ def validate_plan(plan):
             and plan["minimum_budget_bytes"] == plan["total_bytes"] + plan["files"])
 
 
-def prepare(destination):
-    require(not CANCELLED)
+def load_profiles(builder, revision):
+    # The existing receipt binds this script, which pins the helper bytes.
+    # Read only committed source; neither checkout overrides nor pyc can run.
+    data = committed(builder, revision, PROFILE_SOURCE)
+    require(digest(data) == PROFILE_SHA256)
+    module = types.ModuleType("committed_stage_profiles")
+    module.__file__ = str(ROOT / PROFILE_SOURCE)
+    exec(compile(data, module.__file__, "exec"), module.__dict__)
+    require(module.NAMES == MODEL_PROFILES)
+    return module
+
+
+def prepare(destination, model_profile="original"):
+    require(not CANCELLED and type(model_profile) is str and model_profile in MODEL_PROFILES)
     builder = load_builder()
     revision = builder.checker.git(ROOT, "rev-parse", "--verify", "HEAD^{commit}").decode().strip()
     require(re.fullmatch(r"[0-9a-f]{40}", revision))
     require(committed(builder, revision, SCRIPT) == BOOTSTRAP)
-    files = {"record-stage.py": BOOTSTRAP, "pack.yaml": committed(builder, revision, PACK + "/pack.yaml"),
-             "files.sha256": committed(builder, revision, PACK + "/files.sha256")}
+    profile, pack = None, PACK
+    if model_profile != "original":
+        profiles = load_profiles(builder, revision)
+        profile = profiles.select(model_profile)
+        pack = profile["pack"]
+    files = {"record-stage.py": BOOTSTRAP, "pack.yaml": committed(builder, revision, pack + "/pack.yaml"),
+             "files.sha256": committed(builder, revision, pack + "/files.sha256")}
+    if profile is not None:
+        require(profiles.validate_manifest(model_profile, files["files.sha256"]) == profile)
     with tempfile.TemporaryDirectory(prefix="nib-stage-build-") as temporary:
         work = Path(temporary).resolve()
         env = builder.offline_environment(work / "control")
@@ -210,6 +232,8 @@ def prepare(destination):
             (inputs / name).write_bytes(files[name])
         plan = parse(builder.call([str(native), "model", "stage", str(inputs)], env, timeout=30))
         validate_plan(plan)
+        if profile is not None:
+            require(all(plan[key] == profile[key] for key in ("hf_repo", "hf_revision", "total_bytes", "manifest_sha256")))
         target = work / "target"
         target.mkdir()
         binary, target_hash = builder.build_validator(ROOT, revision, target, {**env, "GOOS": "linux", "GOARCH": "amd64"})
@@ -528,6 +552,7 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
     prepare_parser = sub.add_parser("prepare")
     prepare_parser.add_argument("--output", type=Path, required=True)
+    prepare_parser.add_argument("--model-profile", choices=MODEL_PROFILES, default="original")
     launch = sub.add_parser("run")
     launch.add_argument("--receipt-sha256", required=True)
     launch.add_argument("--destination", type=Path, required=True)
@@ -538,7 +563,7 @@ def main():
     launch.add_argument("--workers", type=int, default=1)
     args = parser.parse_args()
     if args.command == "prepare":
-        prepare(args.output)
+        prepare(args.output, args.model_profile)
         return 0
     return run(Path(__file__).absolute().parent, args.receipt_sha256, args.destination, args.evidence,
                args.seconds, args.max_bytes, args.download, args.workers)

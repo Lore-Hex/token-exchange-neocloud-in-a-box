@@ -28,12 +28,15 @@ import (
 const upstreamRevision = "5df63a7203cdb9328d824a27b682e77c7b9928be"
 const upstreamImage = "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9"
 
-var packs = []struct {
+type packInput struct {
 	dir, repo, revision string
 	total               int64
-}{
+}
+
+var packs = []packInput{
 	{"models/deepseek-v4.1-flash-1017/1", "deepseek-ai/DeepSeek-V4.1-Flash-1017", "1bae0e1088993b9b82de08f59de5be5a34e42170", 510311045295},
 	{"models/glm-5.3/1", "zai-org/GLM-5.3", "ba32f8c19c8738e2c57c71798c601d477a7bf844", 755663689302},
+	{"models/deepseek-v4.1-flash-1017-uncensored-fp8/1", "dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8", "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a", 510311056155},
 }
 
 func main() {
@@ -43,9 +46,25 @@ func main() {
 	}
 }
 
+func selectPacks(args []string) ([]packInput, error) {
+	if len(args) < 1 || len(args) > 2 || (args[0] != "generate" && args[0] != "check") {
+		return nil, errors.New("usage: go run ./models/packcheck generate|check [fixed-model-id]")
+	}
+	if len(args) == 1 {
+		return packs, nil
+	}
+	for _, p := range packs {
+		if args[1] == filepath.Base(filepath.Dir(p.dir)) {
+			return []packInput{p}, nil
+		}
+	}
+	return nil, errors.New("unknown fixed model id")
+}
+
 func run(args []string) error {
-	if len(args) != 1 || (args[0] != "generate" && args[0] != "check") {
-		return errors.New("usage: go run ./models/packcheck generate|check")
+	selected, err := selectPacks(args)
+	if err != nil {
+		return err
 	}
 	mode := args[0]
 	// A real repository root and a clean checkout bind code and inputs to git_sha.
@@ -92,7 +111,7 @@ func run(args []string) error {
 		}
 		report.Images = append(report.Images, proof)
 		fmt.Fprintf(&output, "Engine manifest/configuration metadata verified: %s (%d manifest bytes); no layers downloaded. This is not a signed build-provenance or runtime proof.\n", proof.Image, proof.ManifestBytes)
-		for _, p := range packs {
+		for _, p := range selected {
 			m, err := modelpack.Generate(ctx, p.repo, p.revision)
 			if err != nil {
 				return err
@@ -144,7 +163,7 @@ func run(args []string) error {
 		fmt.Fprintln(&output, "CheckRemote repeats the bounded HF fetch; reported model transfer bytes cover Generate only.")
 	}
 	runRecord := map[string]any{
-		"schema": "nib.evidence/v1", "phase": "P0", "task": "T4", "git_sha": commit, "command": "go run ./models/packcheck " + mode,
+		"schema": "nib.evidence/v1", "phase": "P0", "task": "T4", "git_sha": commit, "command": "go run ./models/packcheck " + strings.Join(args, " "),
 		"started_utc": start.Format(time.RFC3339Nano), "ended_utc": time.Now().UTC().Format(time.RFC3339Nano),
 		"host":   map[string]any{"provider": "local", "machine": runtime.GOOS + "/" + runtime.GOARCH, "gpus": "none", "driver": nil, "cuda": nil},
 		"result": result, "execution": "software", "hardware_validated": false,

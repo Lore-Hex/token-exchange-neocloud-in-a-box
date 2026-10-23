@@ -120,7 +120,7 @@ def _collect(client, workload, index, deadline):
                             0, None, None, None, None)
 
 
-def run(endpoint, workload, *, deadline, gpu_count, cohort_seconds=COHORT_SECONDS):
+def run(endpoint, workload, *, deadline, gpu_count, cohort_seconds=COHORT_SECONDS, model=stream.MODEL):
     """One warmup then eight sequential requests, stopping on the first failure.
 
     The same-owner Endpoint and exact-tokenizer workload must be supplied by the
@@ -132,7 +132,7 @@ def run(endpoint, workload, *, deadline, gpu_count, cohort_seconds=COHORT_SECOND
             and type(gpu_count) is int and gpu_count in (4, 8)
             and type(cohort_seconds) is int and cohort_seconds in (COHORT_SECONDS, EXTENDED_COHORT_SECONDS))
     workload.validate()
-    client = stream.OwnedStreamHTTP(endpoint)
+    client = stream.OwnedStreamHTTP(endpoint, model=model)
     started = time.monotonic()
     deadline = min(deadline, started + cohort_seconds)
     warmup, samples, measured_started = None, [], None
@@ -158,7 +158,7 @@ def run(endpoint, workload, *, deadline, gpu_count, cohort_seconds=COHORT_SECOND
     if ended >= deadline and stop == "complete":
         stop = "deadline"
     all_samples = ([warmup] if warmup is not None else []) + samples
-    return {"schema": "nib.chat-stream-cohort/v1", "model": stream.MODEL,
+    return {"schema": "nib.chat-stream-cohort/v1", "model": model,
             "workload": workload.metadata(), "concurrency": 1,
             "prompt_tokens_per_request": PROMPT_TOKENS, "max_output_tokens_per_request": OUTPUT_TOKENS,
             "reserved_requests": TOTAL_REQUESTS, "reserved_total_tokens": RESERVED_TOKENS,
