@@ -21,6 +21,13 @@ paths = ['''(^|/)evidence/p2/2026-10-22-(tokenizer-parity-runtime-pass|provider-
 regexes = ['''^\s*"tokenizer-adapter\.py": "060220d1bc62f13278e5a03a3a85c39ef84f528ada2a9e39ab0c62a4a7c09960",\s*$''', '''^\s*"tokenizer-parity\.py": "09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a"\s*$''']
 
 [[rules.allowlists]]
+description = "Three exact public source hash fields in the original failed stream input"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)evidence/p2/2026-10-23-stream-preparation-failure/input-contract\.json$''']
+regexes = ['''^\s*"tokenizer-adapter\.py": "060220d1bc62f13278e5a03a3a85c39ef84f528ada2a9e39ab0c62a4a7c09960",\s*$''', '''^\s*"tokenizer-parity\.py": "09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a"\s*$''', '''^\s*"stream/engine_tokenizer_parity\.py": "09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a",\s*$''']
+
+[[rules.allowlists]]
 description = "Exact public probe source hash in the original CPU receipts"
 condition = "AND"
 regexTarget = "line"

@@ -441,6 +441,17 @@ def local_tokenizer(contract, modules, application):
         os.close(report_fd)
 
 
+def prepare_local_tokenizer(contract, started):
+    remaining = started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE - time.monotonic()
+    require(remaining > 0)
+    value = CORRECTNESS.strict_json(quiet_command([ROOT + "/python", "tokenizer-parity"],
+                                                 min(PARITY.LOCAL_SECONDS, remaining), output=True))
+    if "stream_cohort" in contract:
+        return STREAM_LAB.admit_child(value, hashlib.sha256(read_source(ROOT + "/lab.json")).hexdigest(),
+                                      STREAM_COHORT, PARITY, CORRECTNESS)
+    return value, None
+
+
 def lab_layout(contract):
     layout = {"paths": contract["paths"], "stdlib_roots": contract["paths"][:2],
               "wrapper": ROOT + "/python", "launcher": ROOT + "/launch.py"}
@@ -651,6 +662,9 @@ def application_and_request(contract, sources, modules, application, measured):
             PARITY.verify_sources(read_source, contract["paths"][-1], CORRECTNESS)
         elif correctness:
             CORRECTNESS.verify_sources(read_source, contract["paths"][-1])
+        if "stream_cohort" in contract:
+            # A bad benchmark fixture must not consume a full model startup.
+            local, stream_workload = prepare_local_tokenizer(contract, started)
         require(time.monotonic() - started < WEIGHTS_SECONDS + APPLICATION_SECONDS + 60)
         result["stage"] = "startup"
         result["startup"] = {"outcome": "launch-failed", "wait_ms": 0,
@@ -690,13 +704,11 @@ def application_and_request(contract, sources, modules, application, measured):
         if "runtime_observation" in contract:
             observe_runtime(engine, contract, result["runtime_observation"], started)
         if parity:
-            remaining = started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE - time.monotonic()
-            require(remaining > 0)
-            local = CORRECTNESS.strict_json(quiet_command([ROOT + "/python", "tokenizer-parity"],
-                                                         min(PARITY.LOCAL_SECONDS, remaining), output=True))
             if "stream_cohort" in contract:
-                local, stream_workload = STREAM_LAB.admit_child(local,
-                    hashlib.sha256(read_source(ROOT + "/lab.json")).hexdigest(), STREAM_COHORT, PARITY, CORRECTNESS)
+                PARITY.verify_model(read_source)
+                PARITY.verify_sources(read_source, contract["paths"][-1], CORRECTNESS)
+            else:
+                local, _ = prepare_local_tokenizer(contract, started)
             result["tokenizer_parity"] = PARITY.run(bounded_request, local, MODEL, CORRECTNESS,
                 deadline=started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE)
         elif correctness:
