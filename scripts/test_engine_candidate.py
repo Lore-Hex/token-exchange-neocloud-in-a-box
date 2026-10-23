@@ -136,6 +136,67 @@ class CandidateTest(unittest.TestCase):
                 "vllm/v1/conf_compute_utils.py", "vllm/distributed/device_communicators/cuda_communicator.py",
                 "vllm/compilation/passes/fusion/allreduce_rms_fusion.py"))
 
+    def test_private_patch_workspace_preserves_caller_umask_and_all_stage_bytes(self):
+        # Separate processes avoid changing the test runner's process-wide mask.
+        source = r'''
+import json, os, stat, sys, types
+from pathlib import Path
+root = Path(sys.argv[1])
+checker = types.ModuleType("private_patch_check")
+checker.__file__ = str(root / "scripts/check-engine-candidate.py")
+exec(compile(Path(checker.__file__).read_bytes(), checker.__file__, "exec"), checker.__dict__)
+original_run = checker.subprocess.run
+calls = []
+outcome = sys.argv[3]
+def checked_run(args, **kwargs):
+    assert "preexec_fn" not in kwargs
+    if "apply" in args:
+        directory = Path(args[args.index("-C") + 1])
+        assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+        calls.append(kwargs["umask"])
+        if "--check" not in args:
+            if outcome == "failure":
+                return checker.subprocess.CompletedProcess(args, 1, b"", b"")
+            if outcome == "cancelled":
+                raise KeyboardInterrupt
+    return original_run(args, **kwargs)
+checker.subprocess.run = checked_run
+mask = int(sys.argv[2], 8)
+os.umask(mask)
+try:
+    stages = checker.verify_stages(checker.working_bundle())
+    assert outcome == "success" and calls == [-1, 0o022] * 5
+    result = [{name: checker.sha256(raw) for name, raw in stage.items()} for stage in stages]
+except (ValueError, KeyboardInterrupt) as error:
+    assert type(error) is (ValueError if outcome == "failure" else KeyboardInterrupt)
+    assert outcome in ("failure", "cancelled") and calls == [-1, 0o022]
+    result = outcome
+finally:
+    assert os.umask(mask) == mask
+print(json.dumps(result, sort_keys=True))
+'''
+        expected = [{name: CHECKER.sha256(raw) for name, raw in stage.items()}
+                    for stage in CHECKER.verify_stages(BUNDLE)]
+        for mask, outcome in ((*((mask, "success") for mask in ("000", "022", "027", "077")),
+                               ("077", "failure"), ("077", "cancelled"))):
+            with self.subTest(mask=mask, outcome=outcome):
+                result = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", source,
+                                         str(CHECKER.ROOT), mask, outcome], env=CHECKER.tool_env(),
+                                        capture_output=True, timeout=60, check=True)
+                self.assertEqual(json.loads(result.stdout), expected if outcome == "success" else outcome)
+                self.assertEqual(result.stderr, b"")
+
+    def test_patch_mode_mismatch_still_fails_closed(self):
+        original_git = CHECKER.git
+        def altered_mode(root, *args, **kwargs):
+            result = original_git(root, *args, **kwargs)
+            if args[0] == "apply" and "--check" not in args:
+                (Path(root) / CHECKER.PATHS[0]).chmod(0o600)
+            return result
+        with patch.object(CHECKER, "git", side_effect=altered_mode):
+            with self.assertRaisesRegex(ValueError, "patched file differs"):
+                CHECKER.verify_stages(BUNDLE)
+
     def test_tampered_sources_patches_and_policy_are_rejected(self):
         for name in ("base/vllm/envs.py", *CHECKER.PATCHES, "LICENSE", "audit/" + CHECKER.AUDITS[0]):
             with self.subTest(name=name), self.assertRaises(ValueError):

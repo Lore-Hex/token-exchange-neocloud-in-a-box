@@ -97,9 +97,9 @@ def tool_env():
             "GIT_NO_LAZY_FETCH": "1", "GIT_ALLOW_PROTOCOL": "", "GIT_TERMINAL_PROMPT": "0"}
 
 
-def git(root, *args, input=None):
+def git(root, *args, input=None, umask=-1):
     result = subprocess.run(["git", "-c", "core.hooksPath=" + os.devnull, "-C", str(root), *args],
-                            env=tool_env(), input=input, capture_output=True, timeout=30)
+                            env=tool_env(), input=input, capture_output=True, timeout=30, umask=umask)
     if result.returncode or len(result.stdout) > LIMIT or len(result.stderr) > 65536:
         raise ValueError("bounded Git operation failed")
     return result.stdout
@@ -217,6 +217,8 @@ def verify_stages(bundle):
     stages = []
     with tempfile.TemporaryDirectory(prefix="nib-cc-check-") as directory:
         root = Path(directory)
+        if stat.S_IMODE(root.stat().st_mode) != 0o700:
+            raise ValueError("private patch workspace required")
         for item in manifest["files"]:
             if item["sha256"][0] is not None:
                 path = root / item["path"]
@@ -225,7 +227,9 @@ def verify_stages(bundle):
                 path.chmod(int(item["mode"], 8) & 0o777)
         for stage, patch in enumerate(PATCHES, 1):
             git(root, "apply", "--check", "--whitespace=error-all", "-", input=local[patch])
-            git(root, "apply", "--whitespace=error-all", "-", input=local[patch])
+            # Git recreates patched files through the child umask. Keep the
+            # authenticated modes inside this private tree, not the caller's mask.
+            git(root, "apply", "--whitespace=error-all", "-", input=local[patch], umask=0o022)
             if {p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file()} != set(PATHS):
                 raise ValueError("patch changed unexpected paths")
             for item in manifest["files"]:

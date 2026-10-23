@@ -21,7 +21,7 @@ PINS = "scripts/engine-overlay-pins.json"
 TEST = "scripts/test_engine_overlay.py"
 SOURCE_LIMIT = 2 << 20
 MODULE_HASHES = {
-    "overlay_candidate": "a295d3ec5ccda0794e3d830570d1d78c1b562e3cdb49ceb42aef37e6b25fd266",
+    "overlay_candidate": "c35fda3662ce0719dece81c001f5d9e4155d73e577bc13791b744ea3ee503bd5",
     "overlay_inspector": "deb0d99de48a2f06cba20e36d2f707ffacf2c8afd35531447df59b920f288938",
 }
 
