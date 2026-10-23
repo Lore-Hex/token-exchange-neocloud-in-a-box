@@ -1,0 +1,14 @@
+{
+  "confidential": false,
+  "git_sha": "4fe0bd7df8f6ce3293e6dca609106b37dd9676a3",
+  "live_admission": false,
+  "plan_sha256": "06247d35d8022a7f91fcb64d52c138baadb4567f58adabaa4e73251e621d52de",
+  "pricing": "not-measured",
+  "quality_eligible": false,
+  "runtime_lock_sha256": "6b15cca1ebb3d3766756d9f9aa9b4ec6fb892bb9c936fd73d4905abaef2b8787",
+  "schema": "nib.tau-cpu-probe-setup/v1",
+  "source_archive_sha256": "7a227036d07fdeb088dbd0c99fdb40ee9b9e0ebc06aadbc4dec1217b3383e57e",
+  "target": "scripted",
+  "upstream_executed": false,
+  "wheels": 74
+}

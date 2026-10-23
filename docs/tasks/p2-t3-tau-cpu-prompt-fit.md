@@ -1,9 +1,12 @@
 # P2.T3: Fixed Original Tau CPU Prompt Probe
 
-Status: implemented with synthetic tests; **no actual prompt-fit, target, tau
-quality or confidential result is claimed**. The fresh
-[CPU pair lifecycle](p2-t3-tau-cpu-controller.md) must first succeed. This code
-does not authorize another CPU attempt or any GPU run.
+Status: one separately authorized native CPU probe passed on original retail task
+2 with real support models and a scripted target. Simulator prompt/output counts
+were 382/24 and evaluator counts 281/88, with original parsing, bound release and
+cleanup confirmed. See the [original evidence and limits](../../evidence/p2/2026-10-22-tau-cpu-prompt-fit-pass/README.md).
+**No DeepSeek, full tau, quality, live admission or confidential result is claimed.**
+The fresh [CPU pair lifecycle](p2-t3-tau-cpu-controller.md) succeeded first; its
+earlier failure remains unexplained. This does not authorize another CPU or GPU run.
 
 ## Source and Scope
 
