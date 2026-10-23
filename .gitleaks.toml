@@ -14,6 +14,13 @@ paths = ['''(^|/)evidence/p2/2026-10-22-(tokenizer-parity-(tool-protocol-fail|fi
 regexes = ['''^\s*"tokens_sha256": "(9d6bde6f28006680e5d37e06d816356d782004f1e8dbabf46d42e81b088afc16|c7b86dad075d1d51e4bf9aec664d9ce392e5d04a63babe717ab9354ec0b56032|6ddfa5e6dbf2f45b8efc1e2ebda65f1f79c39b1a4ec8a7fce8e77fc5a0add7d5|4e5eb88296779609b1ef81a335894e3ef5c284a94a8ceb1607421414c43c9cbe)"\s*$''']
 
 [[rules.allowlists]]
+description = "Exact original source-derived prefix and four fixed control token-ID hashes"
+condition = "AND"
+regexTarget = "match"
+paths = ['''(^|/)evidence/p2/2026-10-23-native-prefix-count/result/output\.log$''']
+regexes = ['''^tokens_sha256":"(9d6bde6f28006680e5d37e06d816356d782004f1e8dbabf46d42e81b088afc16|c7b86dad075d1d51e4bf9aec664d9ce392e5d04a63babe717ab9354ec0b56032|6ddfa5e6dbf2f45b8efc1e2ebda65f1f79c39b1a4ec8a7fce8e77fc5a0add7d5|4e5eb88296779609b1ef81a335894e3ef5c284a94a8ceb1607421414c43c9cbe|bd6e6807cddbb0f4844b130b9d8e7632f25ebc12a367ffb9ab412d1b23340c09)"$''']
+
+[[rules.allowlists]]
 description = "Two exact public tokenizer source hashes in the original input contract"
 condition = "AND"
 regexTarget = "line"
