@@ -38,6 +38,39 @@ const (
 func (f networkFailure) Error() string        { return "network startup rejected" }
 func (f networkFailure) serviceExitCode() int { return int(f) }
 
+// Fixed guarded-read substeps. Only the configuration caller forwards these;
+// executable reads still collapse to failedNetworkExecutable.
+type networkFileFailure uint8
+
+const (
+	failedFileRoot networkFileFailure = 78 + iota
+	failedFileParentStat
+	failedFileParentTrust
+	failedFileOpen
+	failedFileStat
+	failedFileFilesystem
+	failedFileMode
+	failedFileOwner
+	failedFileLinks
+	failedFileSize
+	failedFileDuplicate
+	failedFileRead
+	failedFileClose
+	failedFileLength
+	failedFileRestat
+	failedFileChanged
+)
+
+func (f networkFileFailure) Error() string        { return "network startup rejected" }
+func (f networkFileFailure) serviceExitCode() int { return int(f) }
+
+func networkConfigReadFailure(err error) error {
+	if stage, ok := err.(networkFileFailure); ok && stage >= failedFileRoot && stage <= failedFileChanged {
+		return stage
+	}
+	return failedNetworkConfigRead
+}
+
 func networkCommandFailure(err error, stage networkFailure) error {
 	if err == failedNetworkExecutable {
 		return err

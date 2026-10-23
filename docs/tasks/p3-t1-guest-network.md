@@ -13,10 +13,14 @@ oneshot cannot start inference or establish confidentiality.
 
 An explicit optional native composition/export/debug-consumer path is now
 implemented and tested with synthetic processes and temporary image trees.
-The original failure and cleanup receipts are preserved separately from the
-new diagnostic implementation; no corrected native run is claimed.
+The later [diagnostic run](../../evidence/p3/2026-10-23-debug-network-config-read/README.md)
+also failed, with a valid fixed `config-read` observation (exit 67). This proves
+the helper reached its guarded configuration read, not the rejected subcheck
+or successful firewall installation. Both failures and cleanup receipts are
+preserved. No corrected native run is claimed.
 
-This slice applies and reads back the existing firewall candidate. It is not
+This implementation applies and reads back the existing firewall candidate;
+that path has not yet succeeded in a native guest. It is not
 interface/address configuration, connectivity qualification or a deployable
 dual-stack network profile. In particular, the existing policy has no ICMP or
 IPv6 neighbor-discovery allowance. Do not infer that IPv6 routing works merely
@@ -175,7 +179,7 @@ The existing hosted Ubuntu 22.04, CPU-only/no-NIC/no-GPU execution and bounds
 remain: 35-minute job, 600-second native generation, 900-second debug wrapper,
 180-second QEMU, two CPUs, 2 GiB debug memory, swap zero and 128 PIDs. Only the
 existing fixed JSON files can upload after independent cleanup. No serial,
-firewall output or unsigned image is published. The first run failed as
+firewall output or unsigned image is published. Both runs failed as
 recorded above; no additional run is authorized by these instructions.
 
 Real NET_ADMIN delivery, kernel module loading, atomic installation and nft
@@ -229,16 +233,62 @@ Pinned primary sources:
 These files were read from the already hash-verified pinned Ubuntu source
 archive above. Synthetic tests cover fixed statuses, all network command
 failure positions, explicit staging, destination collisions/symlinks, fragmented
-frames, malformed fields, missing EOF, zero QEMU exit and cleanup. They do not
-prove the new observer has run in the actual guest. No diagnostic-only native
-retry should occur without an exact reviewed proposal.
+frames, malformed fields, missing EOF, zero QEMU exit and cleanup. Those tests
+alone do not prove guest execution; the later original receipt above does
+record an observer failure frame. No diagnostic-only native retry should
+occur without an exact reviewed proposal.
 
-The proposed next run is one `debug-boot.yml` dispatch on the exact reviewed,
+The completed diagnostic proposal was one `debug-boot.yml` dispatch on the exact reviewed,
 green merged producer, with both `debug_boot=true` and `guest_network=true`.
 Record that producer and the run URL before execution. Expected duration is
 an **estimate** of 8-10 minutes based on the original 8m45s job; the existing
 35-minute job ceiling and all component/resource bounds above remain fixed.
-It will build fresh private inputs, boot once without NIC/GPU/KVM, remove all
-images, and preserve only the same four cleanup-gated JSON files. Stop after
-either outcome and preserve the originals. Missing or unknown diagnostics
-remain a failure, not permission to retry, weaken a check or claim readiness.
+It built fresh private inputs, booted once without NIC/GPU/KVM, removed all
+images, and preserved only the same four cleanup-gated JSON files. It stopped
+after failure. Missing or unknown diagnostics remain a failure, not permission
+to retry, weaken a check or claim readiness.
+
+## Configuration Read Follow-Up
+
+Run 39879042935 localized the rejection to `networkReadFile` for the fixed
+configuration, before any nft child. Its exit 67 does not identify which
+guard failed. The generated image was deleted as required; no actual directory
+mode, file ownership/link count or before/after stat difference was retained.
+
+A separate source defect is reproduced by the local composition fixture:
+under umask `022`, `mkdir(..., 0755)` creates `/etc/nib` as `0755`; under
+umask `077`, it creates `0700`, while the file itself is explicitly `0644`.
+The unprivileged `nib` service needs readable/searchable directory parents.
+Python 3.12's [mkdir contract](https://docs.python.org/3.12/library/os.html#os.mkdir)
+specifies that the process umask masks requested permission bits. This is a
+synthetic filesystem reproduction, not proof of the native worker's umask.
+
+Composition now explicitly fchmods only newly created, descriptor-opened,
+owner-checked fixed image directories to `0755`, then checks the mode. Existing
+parents must already be `0755`; a mismatch rejects without chmod. No global
+umask change, recursive chmod, source-payload permission change or runtime
+privilege is added. Restrictive-umask and existing-parent negative tests cover
+this behavior before account creation or image export.
+
+The `077` umasks in `mkosi_verity.main` and `mkosi_boot.main` belong to confined
+child executors. The build worker loads those modules with a non-main run name
+and composes the network files before launching either child. Those assignments
+do not establish the parent composition umask. The pinned mkosi sandbox's
+temporary [umask contexts](https://github.com/systemd/mkosi/blob/ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b/mkosi/sandbox.py#L644-L652)
+also restore the prior mask. The local source archive was rehashed against
+the existing `mkosi-27.1.json` pin before inspection. No native cause is
+invented from these source observations.
+
+To localize any remaining failure without file contents or raw errors, the
+configuration caller can now forward fixed statuses 78-93: root open, parent
+stat, parent ownership/mode, component open, file stat, file filesystem,
+file mode, file ownership, file link count, file size, descriptor duplication,
+read I/O, close, read length, restat and changed stat. Legacy statuses 64-77
+retain their meanings. Unknown errors still collapse to generic config-read;
+executable validation still collapses to its original status 70.
+
+All root/filesystem/owner/group/mode/link/size/hash/no-follow/stability checks
+remain, including full stat equality. No error text, errno, path, file content
+or arbitrary numeric metadata is exposed. The same three-field frame, 62-byte
+cap, eight-bit exit status, deadlines, privileges and exact success proof remain.
+A further native boot requires its own reviewed proposal and run authorization.

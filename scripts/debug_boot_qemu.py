@@ -36,7 +36,11 @@ NETWORK_RESULTS = ("unknown", "resources", "exit-code", "signal", "core-dump", "
                    "watchdog", "oom-kill", "protocol", "start-limit-hit")
 NETWORK_CODES = ("unknown", "exited", "killed", "dumped")
 NETWORK_STAGES = ("path", "filesystem", "interfaces", "config-read", "config", "policy", "executable",
-                  "initial-command", "initial-ruleset", "check", "create", "readback-command", "readback", "deadline")
+                  "initial-command", "initial-ruleset", "check", "create", "readback-command", "readback", "deadline",
+                  "config-root-open", "config-parent-stat", "config-parent-trust", "config-component-open",
+                  "config-file-stat", "config-file-filesystem", "config-file-mode", "config-file-owner",
+                  "config-file-links", "config-file-size", "config-duplicate", "config-read-io", "config-close",
+                  "config-read-length", "config-restat", "config-changed")
 SOCKET = Path("/work/proof.sock")
 QEMU = "/runtime/usr/bin/qemu-system-x86_64"
 LOADER = "/runtime/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
@@ -156,7 +160,7 @@ def network_frame(raw):
     if len(values) != 3 or (values[1] != 1 and values[2] != 0):
         return False, None
     result, code, status = values
-    stage = NETWORK_STAGES[status - 64] if result == 2 and code == 1 and 64 <= status <= 77 else None
+    stage = NETWORK_STAGES[status - 64] if result == 2 and code == 1 and 64 <= status <= 93 else None
     return True, {"service_result": NETWORK_RESULTS[result], "exit_code": NETWORK_CODES[code],
                   "exit_status": status, "stage": stage}
 

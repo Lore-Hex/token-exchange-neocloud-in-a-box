@@ -1,0 +1,20 @@
+{
+  "command": "sudo /usr/bin/python3.10 -I -S -B host/run-debug-boot.py --downloads PRIVATE --archive PRIVATE --runtime-inputs PRIVATE --go PRIVATE --guest-network",
+  "ended_utc": "2026-10-23T00:44:03Z",
+  "execution": "software",
+  "git_sha": "4e6a415dcd813736f6db9434b1ed3ee0ace80f4c",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "ubuntu-22.04-x86_64",
+    "provider": "github-actions"
+  },
+  "notes": "One bounded nonconfidential TCG debug boot; JSON only after independent cleanup. Source-bound network service is a required root-probe dependency; no connectivity or confidential-service qualification.",
+  "phase": "P3",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-23T00:42:19Z",
+  "task": "T1"
+}
