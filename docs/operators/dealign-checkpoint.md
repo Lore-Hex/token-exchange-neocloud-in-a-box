@@ -13,6 +13,10 @@ the checkpoint retains the base model's mixed native FP8/FP4 format; it is not
 a conversion of every expert to FP8. These are remote metadata observations,
 not proof of a completed local download.
 
+The committed generator's [metadata run](../../evidence/p0/2026-10-23T045421Z-model-pack-generate/run.json)
+passed. Its complete manifest matched a separate public-source audit byte for
+byte. This verified small files and published LFS identities, not weight bytes.
+
 Relative to the original pinned `1bae0e1088993b9b82de08f59de5be5a34e42170`:
 
 - The config, tokenizer, tokenizer config, weight index and encoding module

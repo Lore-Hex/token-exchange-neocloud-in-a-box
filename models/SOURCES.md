@@ -15,7 +15,7 @@ These keys are references, not copied upstream implementation or a new license.
 - **F**, vLLM `BaseFrontendArgs`, `FrontendArgs`, and `add_cli_args`: [launchers/cli_args.py](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/entrypoints/launchers/cli_args.py).
 - **E**, vLLM environment definitions, including telemetry opt-outs: [envs.py](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/envs.py).
 - **C**, Engram configuration: [engram.py](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/config/engram.py). `cpu_offload` defaults true upstream; our DeepSeek profile explicitly overrides it to false.
-- **R**, official [v0.32.0 release](https://github.com/vllm-project/vllm/releases/tag/v0.32.0) and [release tag revision](https://api.github.com/repos/vllm-project/vllm/git/ref/tags/v0.32.0). Both packs pin its Linux/amd64 manifest `sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9`, not the mutable tag or multi-platform index. `packcheck` verifies the manifest and config digest, platform, entrypoint and source-revision metadata. Registry metadata is not signed build provenance or proof of the installed code.
+- **R**, official [v0.32.0 release](https://github.com/vllm-project/vllm/releases/tag/v0.32.0) and [release tag revision](https://api.github.com/repos/vllm-project/vllm/git/ref/tags/v0.32.0). All packs pin its Linux/amd64 manifest `sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9`, not the mutable tag or multi-platform index. `packcheck` verifies the manifest and config digest, platform, entrypoint and source-revision metadata. Registry metadata is not signed build provenance or proof of the installed code.
 - **D**, official DeepSeek recipe, selected `variants.default` DS1017, `model`, `features`, `single_node_tp`, and GPU-resident Engram guide: [DeepSeek-V4.1-Flash.yaml](https://github.com/vllm-project/recipes/blob/2338e9edec1d5df5f823abf3c1f19e7ba0b2ed0e/models/deepseek-ai/DeepSeek-V4.1-Flash.yaml).
 - **G**, official GLM recipe, native FP8 `model`, `features` and guide / FP8 on 8xB200: [GLM-5.3.yaml](https://github.com/vllm-project/recipes/blob/2338e9edec1d5df5f823abf3c1f19e7ba0b2ed0e/models/zai-org/GLM-5.3.yaml).
 - **U**, separate dealignai checkpoint at `c19ca5ca4eaeb79d29fdf08aea8327da95b1116a`: [model card](https://huggingface.co/dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8/blob/c19ca5ca4eaeb79d29fdf08aea8327da95b1116a/README.md), [config](https://huggingface.co/dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8/blob/c19ca5ca4eaeb79d29fdf08aea8327da95b1116a/config.json), and [complete tree](https://huggingface.co/api/models/dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8/tree/c19ca5ca4eaeb79d29fdf08aea8327da95b1116a?recursive=true). The publisher describes modified weights, native FP8 plus FP4 experts, and an MIT license. Publisher capability/benchmark claims are not our validation. See the [variant runbook](../docs/operators/dealign-checkpoint.md).
@@ -112,7 +112,7 @@ go run ./models/packcheck generate deepseek-v4.1-flash-1017-uncensored-fp8
 `generate` refuses existing manifests. Use a clean checkout of the generator
 commit before manifests were added for exact regeneration; do not delete or
 replace recorded evidence. Commit generated manifests before running `check`.
-The latter exercises `CheckRemote` for both packs, checks fixed approved pins
+The latter exercises `CheckRemote` for each selected pack, checks fixed approved pins
 and engine digests, and records fresh evidence without overwriting an older run.
 It uses only fixed input paths/modes, never records arbitrary CLI arguments,
 and requires a clean checkout so its evidence SHA identifies all running code.
@@ -139,7 +139,8 @@ bounded and in memory; no registry authorization or cookies are forwarded.
 Further redirects fail, and the config size/hash must still match the manifest.
 Tokens stay in memory and are not included in evidence. The live `check` runs
 HF generation twice per pack (once to record transfer accounting, once through
-the public check API), so its maximum HF body budget is four times 64 MiB.
+the public check API), so its maximum HF body budget is six times 64 MiB for
+all three packs, or two times 64 MiB for one selected pack.
 Upstream source auditing has seven fixed requests capped at 4 MiB each, including
 the public release-tag reference; credentials and redirects are not used.
 No weight downloads, credentials supplied by the operator, paid resources or
