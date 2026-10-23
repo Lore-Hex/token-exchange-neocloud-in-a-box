@@ -139,7 +139,7 @@ class Progress:
     def finish(self, completed=False):
         self.sample("terminal")
         final = self.row["samples"][-1]
-        if completed and final["cgroup_status"] == "observed":
+        if completed and final["cgroup_status"] == "observed" and time.monotonic() <= self.deadline:
             self.phase = final["phase"] = "complete"
             return True
         return False

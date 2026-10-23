@@ -2,6 +2,7 @@
 """Synthetic files/kernel metadata only; no container, model or runtime proof."""
 
 import copy
+from contextlib import contextmanager
 import hashlib
 import importlib.util
 import json
@@ -200,6 +201,27 @@ class ProgressTests(unittest.TestCase):
         self.assertEqual(terminal["operation"], "read")
         self.assertIsNone(terminal["cgroup"])
 
+    def test_deadline_crossed_during_terminal_capture_never_marks_complete(self):
+        clock = [100.0]
+        with mock.patch.object(progress.time, "monotonic", side_effect=lambda: clock[0]), \
+                mock.patch.object(progress, "cgroup", return_value=cgroup_values()):
+            observer = progress.Progress("1" * 64, clock[0], 820.0)
+            observer.boundary("layout")
+            observer.phase = "application"
+            observer.counts.update(inventories_started=8, inventories_completed=8, reads_completed=8, read_bytes_completed=8)
+            clock[0] = 819.999
+            def capture(deadline):
+                self.assertEqual(deadline, 820.0)
+                clock[0] = 820.005
+                return cgroup_values()
+            with mock.patch.object(progress, "cgroup", side_effect=capture):
+                self.assertFalse(observer.finish(completed=True))
+        terminal = observer.row["samples"][-1]
+        self.assertEqual(terminal["phase"], "application")
+        self.assertEqual(terminal["cgroup_status"], "observed")
+        self.assertGreaterEqual(terminal["elapsed_ms"], 720004)
+        self.validate(observer.row)
+
     def test_closed_schema_source_binding_and_success_require_eight_completed_passes(self):
         row = fixture_row("1" * 64)
         self.validate(row, True)
@@ -266,6 +288,49 @@ class ProgressTests(unittest.TestCase):
             result = cpu.apply_and_observe({}, {}, (tool.overlay, None, None, app), {}, {}, tool.lab)
         self.assertEqual(result["failure"], "bounded-cpu-entry-rejected")
         self.assertTrue(all(row["cgroup_status"] == "unavailable" for row in result["application_progress"]["samples"]))
+
+    def test_cpu_terminal_deadline_crossing_preserves_valid_failure_and_never_enters(self):
+        import test_engine_cpu_entry as fixtures
+        fixtures.ContractTests.setUpClass()
+        baseline = fixtures.ContractTests()
+        cpu, tool = fixtures.cpu, fixtures.tool
+        for crossing in ("during-sample", "after-finish"):
+            clock = [100.0]
+            observer = cpu.progress.Progress(cpu.PROGRESS_SHA, clock[0], 820.0)
+            app = mock.Mock()
+            @contextmanager
+            def selected(*args):
+                yield tool.overlay.Tree(-1), ("unused", tool.overlay.Tree(-1))
+            app.selected_tree = selected
+            def applied(*args):
+                observer.counts.update(inventories_started=8, inventories_completed=8,
+                                       reads_completed=8, read_bytes_completed=8)
+                clock[0] = 819.999
+                return baseline.valid_report()["application"]
+            app.apply.side_effect = applied
+            def capture(deadline):
+                if crossing == "during-sample" and observer.counts["inventories_completed"] == 8:
+                    clock[0] = 820.005
+                return cgroup_values()
+            finish = observer.finish
+            def finish_then_schedule(*args, **kwargs):
+                result = finish(*args, **kwargs)
+                if crossing == "after-finish":
+                    clock[0] = 820.005
+                return result
+            with self.subTest(crossing=crossing), \
+                    mock.patch.object(cpu.time, "monotonic", side_effect=lambda: clock[0]), \
+                    mock.patch.object(cpu.progress, "Progress", return_value=observer), \
+                    mock.patch.object(cpu.progress, "cgroup", side_effect=capture), \
+                    mock.patch.object(observer, "finish", side_effect=finish_then_schedule), \
+                    mock.patch.object(cpu, "observe_entry") as entry:
+                result = cpu.apply_and_observe({}, baseline.files, (tool.overlay, None, None, app),
+                                               baseline.application, baseline.measured, tool.lab)
+            entry.assert_not_called()
+            self.assertEqual(result["stage"], "application")
+            self.assertEqual(result["failure"], "bounded-cpu-entry-rejected")
+            self.assertEqual(result["application_progress"]["samples"][-1]["phase"], "application")
+            self.assertFalse(baseline.validate(result))
 
 
 if __name__ == "__main__":

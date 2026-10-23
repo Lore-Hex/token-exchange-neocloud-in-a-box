@@ -67,7 +67,9 @@ Unsupported, missing or malformed telemetry is `unavailable` with null counters,
 never fabricated zeros, and stops further application. Once the shared deadline
 has expired, the terminal sample is `deadline` with null counters, retaining the
 last earlier observed sample and completed operations. Finalization does not
-replace the original fixed failure classification with exception text. A hard
+replace the original fixed failure classification with exception text. Crossing
+the deadline during terminal capture or the final phase-timing check remains
+an application failure; it cannot start entry or claim completed progress. A
 blocked call or killed process can still prevent any terminal receipt; the
 unchanged independent host deadline/cleanup remains authoritative. In-memory
 samples are not a promise of progress delivery after an uninterruptible stall.

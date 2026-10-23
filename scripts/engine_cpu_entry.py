@@ -451,6 +451,8 @@ def apply_and_observe(contract, sources, modules, application, measured, lab):
         require(time.monotonic() <= deadline)
         require(observer.finish(completed=True))
         result["phase_elapsed_ms"][phase] = int((time.monotonic() - started) * 1000)
+        require(sum(result["phase_elapsed_ms"][name] for name in ("application-preflight", "application"))
+                <= APPLICATION_SECONDS * 1000)
         phase = result["stage"] = "entry"
         started = time.monotonic()
         for name in ("home", "tmp", "hf", "deep-gemm", "triton", "inductor", "torch", "xdg"):
@@ -466,6 +468,8 @@ def apply_and_observe(contract, sources, modules, application, measured, lab):
             result["adapter_verified"] = result["entry_pass"]
         result["stage"] = "complete"
     except Exception:
+        if phase == "application" and observer.phase == "complete":
+            observer.phase = observer.row["samples"][-1]["phase"] = "application"
         result["failure"] = "bounded-cpu-entry-rejected"
     finally:
         if not observer.row["samples"] or observer.row["samples"][-1]["event"] != "terminal":
