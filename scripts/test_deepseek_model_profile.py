@@ -21,7 +21,9 @@ import stream_cohort
 import stream_transport
 import engine_local_correctness as correctness
 import engine_tokenizer_parity as parity
+import engine_runtime_observation as observation
 import test_engine_tokenizer_parity as parity_fixtures
+import test_engine_runtime_observation as observation_fixtures
 from test_stream_cohort import endpoint, fake_collection, sample, workload
 from test_stream_transport import server, pieces, collect
 
@@ -130,8 +132,107 @@ class PayloadProfiles(unittest.TestCase):
             self.assertEqual(host.validate_model_profile(self.contract, root), NEW)
             command = ("name", "owner", root, "/weights")
             config = {"config": {"Env": []}}
-            self.assertEqual(host.create_command(*command, self.contract, config), host.create_command(*command, old, config))
+            expected = host.create_command(*command, old, config)
+            for flag in ("--memory", "--memory-swap"):
+                expected[expected.index(flag) + 1] = "512g"
+            self.assertEqual(host.create_command(*command, self.contract, config), expected)
 
+    def test_memory_ceiling_changes_only_uncensored_docker_memory_arguments(self):
+        old = types.ModuleType("previous_memory_host")
+        old.__file__ = str(ROOT / host.SCRIPT)
+        exec(compile(git(ROOT, "show", "fc55fd09efd1e52a2c1302281c7c634fefee2d04:" + host.SCRIPT),
+                     old.__file__, "exec"), old.__dict__)
+        config = {"config": {"Env": ["NVIDIA_REQUIRE_CUDA=cuda>=13.0"]}}
+        cases = [("functional", "B200", "confidential", 1, 512),
+                 ("hardware-diagnostic", "B200", "confidential", 1, 512),
+                 ("local-correctness", "B200", "confidential", 1, 512),
+                 ("local-correctness", "B300", "confidential", 1, 512),
+                 ("local-correctness", "B300", "nonconfidential", 1, 512),
+                 ("local-correctness", "B300", "confidential", 2, 1024),
+                 ("pre-serve", "B200", "confidential", 1, 8),
+                 ("pre-serve", "B300", "confidential", 1, 8)]
+        with payload_tree(self.files) as root:
+            for operation, family, security, replicas, memory in cases:
+                contract = {"base_image": "pinned", "environment": {}, "operation": operation,
+                            "gpu_family": family, "gpu_security": security, "data_parallel_size": replicas}
+                weights = None if operation == "pre-serve" else "/weights"
+                args = ("owned", "owner", root, weights, contract, config)
+                with self.subTest(profile=(operation, family, security, replicas)):
+                    self.assertEqual(json.dumps(host.create_command(*args)).encode(),
+                                     json.dumps(old.create_command(*args)).encode())
+                    self.assertEqual(host.memory_gib(contract, root), memory)
+            args = ("owned", "owner", root, "/weights", self.contract, config)
+            expected = old.create_command(*args)
+            for flag in ("--memory", "--memory-swap"):
+                self.assertEqual(expected[expected.index(flag) + 1], "1024g")
+                expected[expected.index(flag) + 1] = "512g"
+            self.assertEqual(host.create_command(*args), expected)
+            self.assertEqual(host.memory_gib(self.contract, root), 512)
+
+    def test_uncensored_actual_container_memory_and_swap_must_equal_512_gib(self):
+        config = {"config": {"Env": []}}
+        with payload_tree(self.files) as root:
+            args = host.create_command("owned", "owner", root, "/weights", self.contract, config)
+            info = {
+                "Image": "image-id",
+                "Config": {"Image": self.contract["base_image"], "Labels": {host.LABEL: "owner"},
+                           "Entrypoint": ["/usr/bin/env"], "Cmd": args[args.index(self.contract["base_image"]) + 1:],
+                           "User": "0:0", "WorkingDir": "/", "Healthcheck": {"Test": ["NONE"]},
+                           "Env": [args[i + 1] for i, arg in enumerate(args) if arg == "--env"]},
+                "HostConfig": {"NetworkMode": "none", "Privileged": False, "Runtime": "nvidia",
+                               "ReadonlyRootfs": False, "CapDrop": ["ALL"], "IpcMode": "private",
+                               "ShmSize": 2 << 30, "CgroupnsMode": "private", "Memory": 512 << 30,
+                               "MemorySwap": 512 << 30, "NanoCpus": 64000000000, "PidsLimit": 1024,
+                               "RestartPolicy": {"Name": "no"}, "LogConfig": {"Type": "none"},
+                               "SecurityOpt": ["no-new-privileges"],
+                               "Tmpfs": {"/cache": "rw,nosuid,nodev,exec,size=16g,mode=0700",
+                                         "/tmp": "rw,nosuid,nodev,noexec,size=256m,mode=1777"},
+                               "DeviceRequests": [{"DeviceIDs": list(map(str, range(8))),
+                                                   "Capabilities": [["gpu"]], "Count": 0, "Driver": "nvidia"}]},
+                "Mounts": [{"Type": "bind", "Source": str(root / "payload"), "Destination": "/opt/nib", "RW": False},
+                           {"Type": "bind", "Source": "/weights", "Destination": "/model", "RW": False}],
+            }
+            host.check_container(info, "owned", "owner", root, "/weights", self.contract, config, "image-id")
+            for keys in (("Memory",), ("MemorySwap",), ("Memory", "MemorySwap")):
+                for value in (0, -1, 8 << 30, 511 << 30, 768 << 30, 1024 << 30, "512g", True):
+                    changed = copy.deepcopy(info)
+                    for key in keys:
+                        changed["HostConfig"][key] = value
+                    with self.subTest(keys=keys, value=value), self.assertRaises(ValueError):
+                        host.check_container(changed, "owned", "owner", root, "/weights", self.contract, config, "image-id")
+
+    def test_memory_helper_rejects_unbound_or_wrong_variant_identity(self):
+        with payload_tree(self.files) as root:
+            changes = ({"model_profile": None}, {"model_profile": profiles.select()},
+                       {"model_profile": {**NEW, "hf_revision": "0" * 40}},
+                       {"manifest_sha256": "0" * 64}, {"pack_bytes": NEW["total_bytes"] - 1},
+                       {"operation": "pre-serve"}, {"gpu_family": "B200"},
+                       {"gpu_security": "nonconfidential"}, {"data_parallel_size": 1})
+            for change in changes:
+                with self.subTest(change=change), self.assertRaises(ValueError):
+                    host.memory_gib({**self.contract, **change}, root)
+            (root / "payload/model-profile.py").write_bytes(self.files["model-profile.py"] + b"\n")
+            with self.assertRaises(ValueError):
+                host.memory_gib(self.contract, root)
+
+    def test_uncensored_cgroup_observation_requires_same_cap_and_zero_swap(self):
+        row = observation_fixtures.sample()
+        row["exe_sha256"] = self.contract["interpreter"]["sha256"]
+        observation.validate_sample(row, self.contract)
+        self.assertEqual(row["cgroup"]["memory.max"], host.ENGINE_MEMORY_GIB << 30)
+        for name, value in (("memory.max", 0), ("memory.max", -1), ("memory.max", 511 << 30),
+                            ("memory.max", 768 << 30), ("memory.max", 1024 << 30),
+                            ("memory.max", "max"), ("memory.swap.max", 1),
+                            ("memory.peak", (512 << 30) + 1)):
+            changed = copy.deepcopy(row)
+            changed["cgroup"][name] = value
+            with self.subTest(name=name, value=value), self.assertRaises(ValueError):
+                observation.validate_sample(changed, self.contract)
+        for change in ({"model_profile": None}, {"model_profile": profiles.select()},
+                       {"gpu_security": "nonconfidential"}, {"gpu_family": "B200"},
+                       {"data_parallel_size": 1}, {"operation": "pre-serve"}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                observation.validate_sample(row, {**self.contract, **change})
     def test_mixed_identity_manifest_source_or_runtime_rejected(self):
         plan = self.fixture.builder.recorder.prep.launch_plan()
         def read_source(path, *_):

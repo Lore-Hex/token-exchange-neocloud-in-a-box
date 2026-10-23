@@ -405,13 +405,22 @@ def bundle_inputs(path, expected):
     return receipt, contract, config, recorder
 
 
+def memory_gib(contract, bundle):
+    replicas = parallel_size(contract)
+    if "model_profile" in contract:
+        # Only the source-bound uncensored B300 CC DP2 identity has this cap.
+        validate_model_profile(contract, bundle)
+        return ENGINE_MEMORY_GIB
+    return 8 if contract["operation"] == "pre-serve" else ENGINE_MEMORY_GIB * replicas
+
+
 def create_command(name, owner, bundle, weights, contract, config):
     require(contract["operation"] in ("functional", "hardware-diagnostic", "local-correctness", "pre-serve"))
     payload = str(Path(bundle) / "payload")
     pre_serve = contract["operation"] == "pre-serve"
     replicas = parallel_size(contract)
     devices = ",".join(str(i) for i in range(4 * replicas))
-    memory = str(8 if pre_serve else ENGINE_MEMORY_GIB * replicas) + "g"
+    memory = str(memory_gib(contract, bundle)) + "g"
     require((weights is None) == pre_serve)
     command = ["docker", "container", "create", "--name", name, "--label", LABEL + "=" + owner,
                "--pull", "never", "--platform", "linux/amd64", "--runtime", "nvidia",
@@ -466,7 +475,7 @@ def check_container(info, name, owner, bundle, weights, contract, config, image_
             and not host.get("DeviceCgroupRules") and not host.get("PortBindings") and not host.get("PublishAllPorts")
             and not host.get("PidMode") and not host.get("UTSMode") and not host.get("VolumesFrom") and not host.get("Binds")
             and host["IpcMode"] == "private" and host["ShmSize"] == 2 << 30 and host["CgroupnsMode"] == "private"
-            and host["Memory"] == host["MemorySwap"] == (8 if pre_serve else ENGINE_MEMORY_GIB * parallel_size(contract)) << 30
+            and host["Memory"] == host["MemorySwap"] == memory_gib(contract, bundle) << 30
             and host["NanoCpus"] == (2 if pre_serve else 64) * 1000000000
             and host["PidsLimit"] == 1024 and host["RestartPolicy"]["Name"] == "no" and host["LogConfig"]["Type"] == "none"
             and set(host["SecurityOpt"]) in ({"no-new-privileges"}, {"no-new-privileges=true"})

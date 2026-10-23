@@ -61,6 +61,35 @@ uses the identity already frozen into the bundle; a launch-time model override
 is rejected. For this first variant bring-up, the older provider-conformance
 mode is rejected rather than probing it under the original model's name.
 
+### Host Memory Ceiling
+
+Only this uncensored B300 CC TP4/DP2 lab profile has a **512 GiB total**
+container memory ceiling, not 512 GiB per replica. Docker creation and actual
+container inspection use the same identity-validating helper. The runtime
+observer requires the matching cgroup ceiling. Memory plus swap equals the
+same limit, so additional swap remains zero. Original-model DP2 remains
+1,024 GiB; original DP1 remains 512 GiB; pre-serve remains 8 GiB. No engine
+arguments, GPU selection, 4,096-token context, model identity, contract schema,
+deadlines or cleanup policy change. An OOM fails the attempt; there is no
+automatic retry or increase of the ceiling.
+
+The operator must freshly gate `MemAvailable >= 640 GiB` after staging and
+before launch, with zero swap and no competing workload: 512 GiB maximum
+container allocation plus 128 GiB host reserve. This is a capacity preflight,
+not a reservation. Both independent weight packs stay in their existing tmpfs
+locations; do not copy, link or evict either to manufacture headroom. Private
+container cache and SHM tmpfs are charged within the container limit.
+
+The prior original-model [ecdd receipt](../../evidence/p2/2026-10-23-stream-600s-complete/output.log)
+reported cgroup `memory.peak = 40,861,405,184` bytes through its after-requests
+sample, below its 1 TiB cap. This is not a whole-host peak or evidence that the
+new checkpoint fits the lower ceiling. As an **estimate**, the previously
+reported 1,630,427,791,360 available bytes minus the new 510,311,056,155-byte
+pack leaves 1,120,116,735,205 bytes. Against 512 GiB plus the 128 GiB reserve,
+that leaves an estimated 432,921,967,845 bytes; fresh measurements still decide
+admission. This change is software-tested resource confinement, not hardware
+or production qualification.
+
 A successful functional run is separate from throughput, tau quality,
 public-service readiness and confidential qualification. This pack is not
 deployable until the applicable phases pass, including immutable model storage
