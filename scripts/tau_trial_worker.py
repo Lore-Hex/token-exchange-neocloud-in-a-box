@@ -451,6 +451,8 @@ def main():
             contract = decode(raw)
             require(contract.get("transport") == ("scripted-parent-pipe" if parent_pipe else None))
             require("support_probe" not in contract or parent_pipe and contract["support_probe"] is True)
+            require("agent_prefix" not in contract or contract.get("support_probe") is True
+                    and contract["agent_prefix"] is True and contract["schema"] == "nib.tau-agent-prefix-plan/v1")
             verify_tree(root, contract["files"], time.monotonic() + 60)
             tau = load(root, "scripts/tau_preflight.py")
             aggregate = load(root, "scripts/tau_aggregate.py")
@@ -478,7 +480,11 @@ def main():
                 input_fd = report_fd = None  # Channel now owns both duplicates.
                 try:
                     proxy = tau_transport.WorkerProxy(channel, time.monotonic() + SECONDS)
-                    if contract.get("support_probe") is True:
+                    if contract.get("agent_prefix") is True:
+                        prefix = load(root, "scripts/tau_agent_prefix.py")
+                        value = prefix.materialize(sys.modules[__name__], policy, manifest, contract["selection"])
+                        prefix.send(channel, value, sys.argv[1], proxy.deadline)
+                    elif contract.get("support_probe") is True:
                         tau_pipe_trial.execute(root, manifest, contract["selection"], proxy, run=run_support_probe)
                     else:
                         require("support_probe" not in contract)

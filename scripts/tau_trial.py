@@ -136,9 +136,10 @@ def check_probe_image(image):
     return {"manifest": PROBE_MANIFEST, "config": PROBE_CONFIG, "platform": "linux/amd64"}
 
 
-def identity(deadline, parent_pipe=False, *, live_local=False, support_probe=False):
+def identity(deadline, parent_pipe=False, *, live_local=False, support_probe=False, agent_prefix=False):
     require(not live_local or parent_pipe)
     require(not support_probe or parent_pipe and not live_local)
+    require(type(agent_prefix) is bool and (not agent_prefix or support_probe))
     names = (SCRIPT, WORKER, "scripts/tau_runtime.py", "scripts/tau_aggregate.py",
              runtime.CATALOG, "host/probe.py", "scripts/test_tau_trial.py", "scripts/e2e/pins.json",
              "schemas/evidence.schema.json", "schemas/common.schema.json")
@@ -147,6 +148,8 @@ def identity(deadline, parent_pipe=False, *, live_local=False, support_probe=Fal
                   "scripts/test_tau_pipe_driver.py")
     if support_probe:
         names += ("scripts/tau_support_probe.py", "scripts/tau_cpu_support_models.json")
+    if agent_prefix:
+        names += ("scripts/tau_agent_prefix.py", "scripts/test_tau_agent_prefix.py")
     if live_local:
         names += ("scripts/tau_live_trial.py", "scripts/tau_live_identity.py", "scripts/tau_local_vllm.py",
                   "scripts/test_tau_live_trial.py", "scripts/test_tau_local_vllm.py",
@@ -196,10 +199,12 @@ def add_wheel(files, owners, raw, package, expected, deadline):
 
 
 def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, deadline, *, parent_pipe=False,
-            live_binding=None, support_probe=False):
+            live_binding=None, support_probe=False, agent_prefix=False):
     require(not support_probe or parent_pipe and live_binding is None)
+    require(type(agent_prefix) is bool and (not agent_prefix or support_probe))
     toolkit = (identity(deadline, parent_pipe, live_local=True) if live_binding is not None
-               else identity(deadline, parent_pipe, **({"support_probe": True} if support_probe else {})))
+               else identity(deadline, parent_pipe, **({"support_probe": True} if support_probe else {}),
+                             **({"agent_prefix": True} if agent_prefix else {})))
     pins_raw = runtime.read_file(ROOT / tau.PINS, 1 << 20, deadline)
     require(tau.digest(pins_raw) == tau.PINS_SHA)
     pins = tau.json_value(pins_raw)
@@ -258,6 +263,8 @@ def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, de
     if support_probe:
         contract["support_probe"] = True
         contract["schema"] = "nib.tau-cpu-probe-plan/v1"
+    if agent_prefix:
+        contract.update(schema="nib.tau-agent-prefix-plan/v1", agent_prefix=True)
     files["trial.json"] = tau.encoded(contract)
     require(len(files["trial.json"]) <= 4 << 20 and time.monotonic() < deadline)
     return files, contract
@@ -285,9 +292,11 @@ def publish(destination, files):
             os.fchmod(fd, 0o555)
 
 
-def validate_plan(payload, sha, toolkit, deadline, *, parent_pipe=False, live_local=False, support_probe=False):
+def validate_plan(payload, sha, toolkit, deadline, *, parent_pipe=False, live_local=False, support_probe=False,
+                  agent_prefix=False):
     require(not live_local or parent_pipe)
     require(not support_probe or parent_pipe and not live_local)
+    require(type(agent_prefix) is bool and (not agent_prefix or support_probe))
     with runtime.directory(payload.parent) as parent:
         info = os.fstat(parent)
         require(info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700)
@@ -300,14 +309,18 @@ def validate_plan(payload, sha, toolkit, deadline, *, parent_pipe=False, live_lo
         expected_keys.add("transport")
     if support_probe:
         expected_keys.add("support_probe")
+    if agent_prefix:
+        expected_keys.add("agent_prefix")
     require(type(plan) is dict and set(plan) == expected_keys
-            and plan["schema"] == ("nib.tau-cpu-probe-plan/v1" if support_probe else "nib.tau-scripted-plan/v1")
+            and plan["schema"] == ("nib.tau-agent-prefix-plan/v1" if agent_prefix else
+                                   "nib.tau-cpu-probe-plan/v1" if support_probe else "nib.tau-scripted-plan/v1")
             and plan["image"] == runtime.TARGET["image"]
             and plan["platform"] == runtime.TARGET["platform"] and plan["environment"] == ENVIRONMENT
             and plan["seconds"] == SECONDS and plan["producer"]["git_sha"] == toolkit["git_sha"]
             and plan["producer"]["adapter_sha256"] == toolkit["files"][WORKER])
     require(not parent_pipe or plan["transport"] == "scripted-parent-pipe")
     require(not support_probe or plan["support_probe"] is True)
+    require(not agent_prefix or plan["agent_prefix"] is True)
     require(("live-binding.json" in plan["files"]) is live_local)
     for name, expected in toolkit["files"].items():
         require(plan["files"][name]["sha256"] == expected)
@@ -430,14 +443,18 @@ def check_result(value, plan, manifest, *, live_local=False):
                 and accounting["role_requests"]["simulator"] > 0)
 
 
-def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment=None, support_probe=None):
+def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment=None, support_probe=None,
+        agent_prefix=False):
     deadline = time.monotonic() + 60
     live_local = live_deployment is not None
     require(support_probe is None or parent_pipe and not live_local)
+    require(type(agent_prefix) is bool and (not agent_prefix or parent_pipe and not live_local and support_probe is None))
+    classic = support_probe is not None or agent_prefix
     toolkit = (identity(deadline, parent_pipe, live_local=True) if live_local else
-               identity(deadline, parent_pipe, **({"support_probe": True} if support_probe is not None else {})))
+               identity(deadline, parent_pipe, **({"support_probe": True} if classic else {}),
+                        **({"agent_prefix": True} if agent_prefix else {})))
     options = {"parent_pipe": parent_pipe, **({"live_local": True} if live_local else {}),
-               **({"support_probe": True} if support_probe is not None else {})}
+               **({"support_probe": True} if classic else {}), **({"agent_prefix": True} if agent_prefix else {})}
     plan, manifest = validate_plan(payload, sha, toolkit, deadline, **options)
     deployment = driver = None
     if live_local:
@@ -454,6 +471,7 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
     name = "nib-tau-" + owner
     started = now()
     result, stage, cleaned, create_unknown = None, "image", False, False
+    prefix_body = None
     with tempfile.TemporaryDirectory(prefix="nib-tau-docker-") as private:
         config = Path(private) / "config.json"
         config.write_text('{"auths":{"https://index.docker.io/v1/":{}}}\n')
@@ -473,11 +491,11 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
             raise KeyboardInterrupt
         signal.signal(signal.SIGTERM, cancelled)
         try:
-            inspect_args = [] if support_probe is not None else ["--platform", plan["platform"]]
+            inspect_args = [] if classic else ["--platform", plan["platform"]]
             rows = tau.json_value(command("image", "inspect", *inspect_args, runtime.TARGET["image"]))
             require(type(rows) is list and len(rows) == 1)
-            selected_manifest = check_probe_image(rows[0]) if support_probe is not None else check_image(rows[0])
-            inspection = {"parent_pipe": parent_pipe, **({"support_probe": True} if support_probe is not None else {})}
+            selected_manifest = check_probe_image(rows[0]) if classic else check_image(rows[0])
+            inspection = {"parent_pipe": parent_pipe, **({"support_probe": True} if classic else {})}
             stage = "create"
             # Killing the bounded client cannot cancel an in-flight daemon create.
             # Only the exact owned-container inspection establishes completion.
@@ -487,7 +505,14 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
             check_container(info, name, owner, payload, sha, selected_manifest, **inspection)
             create_unknown = False
             stage = "trial"
-            if support_probe is not None:
+            if agent_prefix:
+                prefix = load("scripts/tau_agent_prefix.py", toolkit["files"]["scripts/tau_agent_prefix.py"])
+                prefix_body = prefix.attach([docker, "--host", "unix://" + str(socket), "--config", private,
+                    "start", "--attach", "--interactive", name], env, sha,
+                    min(operation_deadline, time.monotonic() + worker.SECONDS), parent_driver(toolkit).transport)
+                observed = {"request_sha256": prefix.digest(prefix.encoded(prefix_body)),
+                            "messages": 1, "tools": len(prefix_body["tools"]), "generation_performed": False}
+            elif support_probe is not None:
                 # Fixed reviewed CPU-parent mode; no caller-supplied command or callback.
                 probe_driver = parent_driver(toolkit)
                 observed = probe_driver.attach_probe_scorer(
@@ -505,7 +530,7 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
             else:
                 raw = command("start", "--attach", name, seconds=SECONDS, limit=16384)
                 observed = tau.json_value(raw)
-            if support_probe is None:
+            if support_probe is None and not agent_prefix:
                 check_result(observed, plan, manifest, **({"live_local": True} if live_local else {}))
             # Preserve validated accounting even if the later container check fails.
             result = observed
@@ -531,6 +556,20 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
             except Exception:
                 cleaned = False
             signal.signal(signal.SIGTERM, old)
+    if agent_prefix:
+        record = {"schema": "nib.tau-agent-prefix-render/v1", "toolkit": toolkit, "plan_sha256": sha,
+                  "selection": plan["selection"], "image": plan["image"], "platform": plan["platform"],
+                  "started_utc": started, "ended_utc": now(), "stage": stage,
+                  "cleanup": "create-completion-unknown" if create_unknown else "confirmed" if cleaned else "failed",
+                  "result": "pass" if stage == "completed" and cleaned and result is not None else "fail",
+                  "prefix": result, "quality_eligible": False, "confidential": False, "full_fit_proven": False}
+        envelope = evidence_record(toolkit["git_sha"], sha, started, record, parent_pipe=True)
+        envelope.update(command="python3 -I -S -B scripts/record-tau-agent-prefix.py --source-archive PRIVATE "
+            "--wheelhouse PRIVATE --tokenizer-directory PRIVATE --docker-socket PRIVATE --output PRIVATE",
+            notes="Original static agent policy and tools only; no generated user, model generation or full-fit claim.")
+        publish_evidence(destination, {"run.json": tau.encoded(envelope), "output.log": tau.encoded(record)})
+        require(record["result"] == "pass")
+        return prefix_body, record
     if support_probe is not None:
         record = {"schema": "nib.tau-cpu-probe-scorer/v1", "toolkit": toolkit, "plan_sha256": sha,
                   "cpu_ready_sha256": support_probe["ready_sha256"], "image": plan["image"],
