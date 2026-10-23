@@ -277,7 +277,7 @@ class PayloadProfiles(unittest.TestCase):
                 host.make_payload(*self.args, **{**self.options, "model_profile": "uncensored", **options})
         for operation, family, security, replicas in (("functional", "B200", "confidential", 1),
                 ("pre-serve", "B300", "confidential", 1), ("local-correctness", "B300", "confidential", 1),
-                ("local-correctness", "B300", "nonconfidential", 2)):
+                ("local-correctness", "B200", "nonconfidential", 2)):
             with mock.patch.object(host, "load") as load, self.assertRaises(ValueError):
                 host.prepare("/unused", operation, family, security, replicas, model_profile="uncensored")
             load.assert_not_called()
@@ -631,6 +631,91 @@ class RuntimeProfiles(unittest.TestCase):
         with self.assertRaises(ValueError):
             stream_lab.validate(value, contract, "a" * 64, stream_cohort, model=NEW["served_model_name"])
         self.assertEqual(stream_cohort.stream.MODEL, profiles.select()["served_model_name"])
+
+
+class OrdinaryUncensored(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        PayloadProfiles.setUpClass()
+        cls.args = (*PayloadProfiles.args[:7], "nonconfidential", 2)
+        cls.files, cls.contract = host.make_payload(*cls.args, model_profile="uncensored")
+
+    def test_explicit_eight_gpu_profile_keeps_fixed_checkpoint_and_limits(self):
+        cc_files, cc = host.make_payload(*PayloadProfiles.args, model_profile="uncensored")
+        self.assertEqual(self.contract, {**cc, "gpu_security": "nonconfidential"})
+        self.assertEqual(self.files["pack/files.sha256"], cc_files["pack/files.sha256"])
+        for key in ("confidential", "deployable"):
+            self.assertIs(self.contract[key], False)
+        self.assertEqual(host.parallel_size(self.contract), 2)
+        self.assertEqual(fixtures.probe.parallel_size(self.contract), 2)
+        plan = PayloadProfiles.fixture.builder.recorder.prep.launch_plan()
+        with payload_tree(self.files) as root, mock.patch.object(lab, "read_source", side_effect=
+                lambda path, *_: self.files[path.removeprefix("/opt/nib/")]):
+            self.assertEqual(host.validate_model_profile(self.contract, root), NEW)
+            self.assertEqual(lab.validate_settings(self.contract, plan, 2), NEW)
+            self.assertEqual(host.memory_gib(self.contract, root), 512)
+        for key in ("tokenizer_parity", "runtime_observation", "stream_cohort", "provider_conformance"):
+            self.assertNotIn(key, self.contract)
+
+    def test_nonconfidential_cannot_enable_unreviewed_modes(self):
+        for options in ({"tokenizer_parity": True}, {"runtime_observation": True},
+                        {"tokenizer_parity": True, "tokenizer_materialization": True},
+                        {"stream_cohort": True}, {"provider_conformance": {}}):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                host.make_payload(*self.args, model_profile="uncensored", **options)
+        for change in ({"gpu_family": "B200"}, {"gpu_security": "auto"},
+                       {"gpu_security": None}, {"data_parallel_size": 1},
+                       {"model_profile": profiles.select()}, {"operation": "pre-serve"}):
+            with payload_tree(self.files) as root, self.subTest(change=change), self.assertRaises(ValueError):
+                host.validate_model_profile({**self.contract, **change}, root)
+
+    def test_cli_is_explicit_and_default_modes_stay_closed(self):
+        command = [host.SCRIPT, "--prepare-nonconfidential-uncensored-b300-dp2", "/unused"]
+        with mock.patch.object(sys, "argv", command + ["--model-profile", "uncensored"]), \
+                mock.patch.object(host, "prepare") as prepare:
+            self.assertEqual(host.main(), 0)
+            prepare.assert_called_once_with("/unused", "local-correctness", "B300", "nonconfidential", 2,
+                                            model_profile="uncensored")
+        for flags in ([], ["--model-profile", "original"],
+                      ["--model-profile", "uncensored", "--tokenizer-parity"],
+                      ["--model-profile", "uncensored", "--runtime-observation"]):
+            with mock.patch.object(sys, "argv", command + flags), mock.patch.object(host, "prepare") as prepare, \
+                    self.subTest(flags=flags), self.assertRaises(ValueError):
+                host.main()
+            prepare.assert_not_called()
+
+    def test_all_eight_ordinary_devices_are_checked_and_never_attested(self):
+        probe = fixtures.probe
+        library = fixtures.DiagnosticTests().library(count=8, name=b"NVIDIA B300", memory=250 << 20,
+                                                    feature=0, environment=0, multigpu=0)
+        library.nvmlSystemGetConfComputeGpusReadyState = mock.Mock(side_effect=AssertionError("readiness"))
+        library.nvmlDeviceGetConfComputeMemSizeInfo = mock.Mock(side_effect=AssertionError("protected"))
+        with mock.patch.object(probe.c, "CDLL", return_value=library):
+            raw = probe.NVML().observe("B300", nonconfidential=True, expected=8)
+        row = probe.validate_nonconfidential(raw, family="B300", expected=8)
+        self.assertEqual(row["selected_gpus"], 8)
+        self.assertIs(row["attestation_verified"], False)
+        library.nvmlSystemGetConfComputeGpusReadyState.assert_not_called()
+        library.nvmlDeviceGetConfComputeMemSizeInfo.assert_not_called()
+        with mock.patch.object(lab, "GPU_PROBE", probe, create=True), \
+                mock.patch.object(lab, "quiet_command", return_value=json.dumps(row).encode()):
+            self.assertEqual(lab.hardware("B300", "nonconfidential", 8), row)
+        for expected in (4, 7, True, "8", None):
+            with self.subTest(expected=expected), self.assertRaises(ValueError):
+                probe.validate_nonconfidential_report(row, family="B300", expected=expected)
+        for index in range(8):
+            changed = copy.deepcopy(raw)
+            changed["devices"][index]["total_kib"] = 199 << 20
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                probe.validate_nonconfidential(changed, family="B300", expected=8)
+        for validate, value in ((probe.validate, raw), (probe.validate_report, row)):
+            with self.assertRaises(ValueError):
+                validate(value, family="B300", expected=8)
+        with self.assertRaises(ValueError):
+            probe.validate_nonconfidential_report({**row, "attestation_verified": True}, family="B300", expected=8)
+        for family in ("B200", "H200"):
+            with self.assertRaises(ValueError):
+                probe.validate_nonconfidential(raw, family=family, expected=8)
 
 
 if __name__ == "__main__":

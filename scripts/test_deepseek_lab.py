@@ -1300,7 +1300,8 @@ class HardwareTests(unittest.TestCase):
             with self.subTest(index=index), self.assertRaises(ValueError):
                 probe.validate(bad, family="B300", expected=8)
         with mock.patch.object(probe.c, "CDLL", return_value=library), self.assertRaises(ValueError):
-            probe.NVML().observe("B300", nonconfidential=True, expected=8)
+            probe.validate_nonconfidential(probe.NVML().observe("B300", nonconfidential=True, expected=8),
+                                          family="B300", expected=8)
 
     def test_dp2_is_only_explicit_b300_cc_correctness(self):
         good = {"operation": "local-correctness", "gpu_family": "B300", "data_parallel_size": 2}
