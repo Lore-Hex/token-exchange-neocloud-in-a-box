@@ -7,6 +7,35 @@ The original local prefix and earlier native failures remain unchanged in
 [the prefix evidence](p2-t3-tau-agent-prefix.md#original-local-attempt).
 Neither failure identifies an inventory pass or proves a memory/I/O cause.
 
+## First diagnostic attempt
+
+The separately authorized native attempt at producer
+`84bec7335c9b5fc3a7d22408bf592f76c74c8310` ended in nine seconds
+(2026-10-23 03:19:09-03:19:18 UTC), before CPU application. Its
+[original final receipt](../../evidence/p2/2026-10-23-prefix-preparation-failure/result/run.json)
+and [unchanged output](../../evidence/p2/2026-10-23-prefix-preparation-failure/result/output.log)
+report `tokenizer-inputs`, with null tokenizer/observation. The sealed scorer
+render passed and confirmed cleanup; its request digest matches the prior
+attempt. The independent operational check found the recorder and all
+containers absent. The private request was not retained or inspected. There
+are no application counters, prefix count, memory/I/O conclusions or tau result.
+
+Offline reproduction with the exact original checker and public candidate
+bytes isolates a preparation bug: caller `umask 077` makes Git recreate patched
+files as `0600/0700`, while the authenticated manifest requires `0644/0755`; hashes still
+match. Git v2.50.1
+[`try_create_file`](https://github.com/git/git/blob/v2.50.1/apply.c#L4123-L4158)
+creates files using mode `0666` or `0777`, filtered by the process umask. The
+fix sets only the patch-writing child's umask to `022`, through the existing
+[`subprocess` child-only option](https://docs.python.org/3.14/library/subprocess.html#subprocess.Popen),
+inside an explicitly checked `0700` temporary workspace. It does not change
+the parent's `077`, private receipts, payload permissions, patches, manifest
+modes, hash checks, runtime settings or deadlines. No post-hoc chmod hides a
+bad patched mode. Tests cover all five stages under `000/022/027/077`, parent
+mask preservation on success and injected child failure/cancellation, and
+continued rejection of wrong modes. These offline checks are not a corrected
+native run. Any further attempt needs final review, full gates and a new proposal.
+
 ## Unchanged integrity and bounds
 
 The CPU owner includes a new exact-Git-source helper and its test in the source
