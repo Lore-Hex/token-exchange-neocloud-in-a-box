@@ -99,6 +99,7 @@ probe = load("host/probe.py")
 IMAGE_DIGEST = runtime.TARGET["image"].split("@")[1]
 PROBE_MANIFEST = "sha256:6e13e65c55e33adf203d77ee371cf8bf5d81bd4902ef07565721f46bf44917af"
 PROBE_CONFIG = "sha256:64d91f7b885eed272bba87909446b12ff408d4aaa5f1a0e9ca787bbea1a020b9"
+PREFIX_IMAGE_PROFILES = ("docker28-classic", "docker29-descriptor")
 
 
 def manifest_identity(descriptor):
@@ -444,17 +445,21 @@ def check_result(value, plan, manifest, *, live_local=False):
 
 
 def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment=None, support_probe=None,
-        agent_prefix=False):
+        agent_prefix=False, scorer_image_profile=None):
     deadline = time.monotonic() + 60
     live_local = live_deployment is not None
     require(support_probe is None or parent_pipe and not live_local)
     require(type(agent_prefix) is bool and (not agent_prefix or parent_pipe and not live_local and support_probe is None))
-    classic = support_probe is not None or agent_prefix
+    require(scorer_image_profile is None or agent_prefix and type(scorer_image_profile) is str
+            and scorer_image_profile in PREFIX_IMAGE_PROFILES)
+    prefix_profile = PREFIX_IMAGE_PROFILES[0] if scorer_image_profile is None else scorer_image_profile
+    probe_sources = support_probe is not None or agent_prefix
+    classic = support_probe is not None or agent_prefix and prefix_profile == PREFIX_IMAGE_PROFILES[0]
     toolkit = (identity(deadline, parent_pipe, live_local=True) if live_local else
-               identity(deadline, parent_pipe, **({"support_probe": True} if classic else {}),
+               identity(deadline, parent_pipe, **({"support_probe": True} if probe_sources else {}),
                         **({"agent_prefix": True} if agent_prefix else {})))
     options = {"parent_pipe": parent_pipe, **({"live_local": True} if live_local else {}),
-               **({"support_probe": True} if classic else {}), **({"agent_prefix": True} if agent_prefix else {})}
+               **({"support_probe": True} if probe_sources else {}), **({"agent_prefix": True} if agent_prefix else {})}
     plan, manifest = validate_plan(payload, sha, toolkit, deadline, **options)
     deployment = driver = None
     if live_local:
@@ -472,6 +477,7 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
     started = now()
     result, stage, cleaned, create_unknown = None, "image", False, False
     prefix_body = None
+    selected_manifest = None
     with tempfile.TemporaryDirectory(prefix="nib-tau-docker-") as private:
         config = Path(private) / "config.json"
         config.write_text('{"auths":{"https://index.docker.io/v1/":{}}}\n')
@@ -559,13 +565,15 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
     if agent_prefix:
         record = {"schema": "nib.tau-agent-prefix-render/v1", "toolkit": toolkit, "plan_sha256": sha,
                   "selection": plan["selection"], "image": plan["image"], "platform": plan["platform"],
+                  "scorer_image_profile": prefix_profile, "selected_image_identity": selected_manifest,
                   "started_utc": started, "ended_utc": now(), "stage": stage,
                   "cleanup": "create-completion-unknown" if create_unknown else "confirmed" if cleaned else "failed",
                   "result": "pass" if stage == "completed" and cleaned and result is not None else "fail",
                   "prefix": result, "quality_eligible": False, "confidential": False, "full_fit_proven": False}
         envelope = evidence_record(toolkit["git_sha"], sha, started, record, parent_pipe=True)
         envelope.update(command="python3 -I -S -B scripts/record-tau-agent-prefix.py --source-archive PRIVATE "
-            "--wheelhouse PRIVATE --tokenizer-directory PRIVATE --docker-socket PRIVATE --output PRIVATE",
+            "--wheelhouse PRIVATE --tokenizer-directory PRIVATE --docker-socket PRIVATE --output PRIVATE "
+            "--scorer-image-profile " + prefix_profile,
             notes="Original static agent policy and tools only; no generated user, model generation or full-fit claim.")
         publish_evidence(destination, {"run.json": tau.encoded(envelope), "output.log": tau.encoded(record)})
         require(record["result"] == "pass")

@@ -152,7 +152,7 @@ class AgentPrefixTests(unittest.TestCase):
                         mock.patch.object(runner, "prepare", return_value=({runner.SCRIPT: runner_raw, "trial.json": b"{}"},
                             {"producer": {"git_sha": "a" * 40}})), \
                         mock.patch.object(runner, "publish"), \
-                        mock.patch.object(runner, "run", return_value=(body(), rendered)), \
+                        mock.patch.object(runner, "run", return_value=(body(), rendered)) as render, \
                         mock.patch.object(entry, "prepare_files", return_value=(payload, contract)), \
                         mock.patch.object(entry, "publish_container_payload"), \
                         mock.patch.object(entry.recorder, "raw_metadata", return_value={}), \
@@ -161,13 +161,107 @@ class AgentPrefixTests(unittest.TestCase):
                         mock.patch.object(entry, "run_container", return_value=value), \
                         mock.patch.object(owner.tempfile, "TemporaryDirectory", side_effect=workspace), \
                         mock.patch.object(owner.signal, "signal"):
-                    code = owner.execute(root / "archive", root / "wheels", root / "model", socket, root / "out")
+                    selected = "docker29-descriptor" if change is None else None
+                    code = owner.execute(root / "archive", root / "wheels", root / "model", socket, root / "out",
+                                         scorer_image_profile=selected)
                 raw = (root / "out/result/output.log").read_bytes()
                 result = json.loads(raw)
                 self.assertEqual((code, result["result"]), (0, "pass") if change is None else (1, "fail"))
                 self.assertNotIn(b"PRIVATE", raw)
                 self.assertTrue((root / "out/pending.json").exists())
                 self.assertFalse(result["full_fit_proven"] or result["generation_performed"])
+                self.assertEqual(result["scorer_image_profile"], selected or "docker28-classic")
+                self.assertEqual(render.call_args.kwargs["scorer_image_profile"], result["scorer_image_profile"])
+
+    def test_image_profile_is_explicit_prefix_only_and_never_falls_back(self):
+        runner, tau = trial.runner, trial.runner.tau
+        for selected in (None, "docker28-classic", "docker29-descriptor"):
+            for failure in (None, "other-profile", "architecture", "container", "terminal", "isolation", "cleanup"):
+                with self.subTest(profile=selected, failure=failure), tempfile.TemporaryDirectory() as temporary:
+                    classic = selected != "docker29-descriptor"
+                    plan = {"image": runner.runtime.TARGET["image"], "platform": "linux/amd64",
+                            "selection": dict(policy.SELECTION)}
+                    toolkit = {"git_sha": "a" * 40, "files": {"scripts/tau_agent_prefix.py": "b" * 64}}
+                    state, calls, published = {"exists": False, "inspections": 0}, [], {}
+                    def capture(argv, **kwargs):
+                        args = argv[5:]
+                        calls.append(args)
+                        if args[:2] == ["image", "inspect"]:
+                            self.assertEqual(args, ["image", "inspect"] + ([] if classic else ["--platform", "linux/amd64"])
+                                             + [runner.runtime.TARGET["image"]])
+                            image = trial.image_inspection()
+                            if classic != (failure == "other-profile"):
+                                del image["Descriptor"]
+                                image["Id"] = runner.PROBE_CONFIG
+                            if failure == "architecture": image["Architecture"] = "arm64"
+                            return tau.encoded([image])
+                        if args[0] == "create":
+                            state.update(exists=True, info=trial.LifecycleTests().info(args))
+                            state["info"]["Config"]["OpenStdin"] = True
+                            if classic:
+                                state["info"]["Image"] = runner.PROBE_CONFIG
+                                del state["info"]["ImageManifestDescriptor"]
+                            return b"d" * 64
+                        if args[0] == "inspect":
+                            state["inspections"] += 1
+                            row = copy.deepcopy(state["info"])
+                            if failure == "container" or failure == "terminal" and state["inspections"] == 2:
+                                row["Image"] = "sha256:" + "f" * 64
+                            if failure == "isolation": row["Config"]["User"] = "0"
+                            return tau.encoded([row])
+                        if args[0] == "ps": return b"d" * 64 if state["exists"] else b""
+                        if args[0] == "rm":
+                            if failure == "cleanup": raise ValueError("PRIVATE-profile-error-canary")
+                            state["exists"] = False
+                            return b""
+                        self.fail("unexpected command")
+                    socket = mock.Mock()
+                    socket.is_absolute.return_value = True
+                    socket.stat.return_value = types.SimpleNamespace(st_mode=stat.S_IFSOCK)
+                    private = types.SimpleNamespace(attach=mock.Mock(return_value=body()), digest=prefix.digest, encoded=prefix.encoded)
+                    with mock.patch.object(runner, "identity", return_value=toolkit) as identity, \
+                            mock.patch.object(runner, "validate_plan", return_value=(plan, {})) as validate, \
+                            mock.patch.object(runner.shutil, "which", return_value="/fixed/docker"), \
+                            mock.patch.object(runner.probe, "capture", side_effect=capture), \
+                            mock.patch.object(runner, "load", return_value=private), \
+                            mock.patch.object(runner, "parent_driver", return_value=types.SimpleNamespace(transport=transport)), \
+                            mock.patch.object(runner, "publish_evidence", side_effect=lambda p, f: published.update(f)):
+                        args = (Path("/private/payload"), "c" * 64, Path(temporary).resolve() / "out", socket)
+                        if failure is None:
+                            self.assertEqual(runner.run(*args, parent_pipe=True, agent_prefix=True,
+                                scorer_image_profile=selected)[0], body())
+                        else:
+                            with self.assertRaises(ValueError):
+                                runner.run(*args, parent_pipe=True, agent_prefix=True, scorer_image_profile=selected)
+                    for method in (identity, validate):
+                        self.assertTrue(method.call_args.kwargs["agent_prefix"] and method.call_args.kwargs["support_probe"])
+                    record = json.loads(published["output.log"])
+                    self.assertEqual(record["scorer_image_profile"], selected or "docker28-classic")
+                    self.assertEqual(record["result"], "fail" if failure else "pass")
+                    self.assertEqual(sum(call[:2] == ["image", "inspect"] for call in calls), 1)
+                    for canary in (b"PRIVATE-policy", b"PRIVATE-profile-error-canary"):
+                        self.assertNotIn(canary, b"".join(published.values()))
+                    if failure in ("other-profile", "architecture"):
+                        self.assertFalse(any(call[0] == "create" for call in calls))
+                        self.assertIsNone(record["selected_image_identity"])
+                    if failure in ("other-profile", "architecture", "container", "isolation"):
+                        private.attach.assert_not_called()
+                    if failure in ("container", "isolation"):
+                        self.assertEqual(record["cleanup"], "create-completion-unknown")
+                    elif failure == "cleanup":
+                        self.assertEqual(record["cleanup"], "failed")
+                    else:
+                        self.assertEqual(record["cleanup"], "confirmed")
+
+    def test_image_profile_rejects_unknown_nonstring_and_nonprefix_before_execution(self):
+        runner = trial.runner
+        for options in ({"scorer_image_profile": "docker29-descriptor"},
+                        {"support_probe": {}, "scorer_image_profile": "docker28-classic"},
+                        *({"agent_prefix": True, "scorer_image_profile": value} for value in ("", "auto", 1, []))):
+            with mock.patch.object(runner, "identity") as identity, self.assertRaises(ValueError):
+                runner.run(Path("/private/payload"), "a" * 64, Path("/private/output"), mock.Mock(),
+                           parent_pipe=True, **options)
+            identity.assert_not_called()
 
     def test_prefix_plan_cannot_be_reinterpreted_as_support_probe_or_change_source(self):
         runner, tau = trial.runner, trial.runner.tau

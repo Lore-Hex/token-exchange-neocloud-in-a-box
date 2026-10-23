@@ -47,17 +47,20 @@ def tokenizer_inputs(directory, parity):
     return files
 
 
-def execute(archive, wheelhouse, tokenizer_directory, socket, destination):
+def execute(archive, wheelhouse, tokenizer_directory, socket, destination, *, scorer_image_profile=None):
     revision, bundle, extra = entry.inputs(agent_prefix=True)
     require(extra[SCRIPT] == entry.read_source(Path(__file__).absolute())
             and extra[entry.SCRIPT] == ENTRY_SOURCE
             and socket.is_absolute() and stat.S_ISSOCK(socket.stat().st_mode))
     trial, trial_source = entry.load("prefix_scorer_owner", ROOT / "scripts/tau_trial.py")
+    profile = trial.PREFIX_IMAGE_PROFILES[0] if scorer_image_profile is None else scorer_image_profile
+    require(type(profile) is str and profile in trial.PREFIX_IMAGE_PROFILES)
     parity, _ = entry.load("prefix_parity", ROOT / "scripts/engine_tokenizer_parity.py")
     models = tokenizer_inputs(tokenizer_directory, parity)
     started = trial.now()
     result = {"schema": "nib.tau-agent-prefix-record/v1", "git_sha": revision,
         "started_utc": started, "ended_utc": None, "stage": "scorer-inputs", "result": "fail",
+        "scorer_image_profile": profile,
         "render": None, "tokenizer": None, "observation": None,
         "quality_eligible": False, "confidential": False, "full_fit_proven": False,
         "generation_performed": False}
@@ -78,7 +81,7 @@ def execute(archive, wheelhouse, tokenizer_directory, socket, destination):
             scorer = work / "scorer/payload"
             result["stage"] = "scorer-render"
             body, rendered = trial.run(scorer, trial.tau.digest(files["trial.json"]), destination / "render", socket,
-                                       parent_pipe=True, agent_prefix=True)
+                                       parent_pipe=True, agent_prefix=True, scorer_image_profile=profile)
             result["render"] = rendered
             require(not entry.recorder.CANCELLED)
             result["stage"] = "tokenizer-inputs"
@@ -110,7 +113,7 @@ def execute(archive, wheelhouse, tokenizer_directory, socket, destination):
     result["ended_utc"] = trial.now()
     record = trial.evidence_record(revision, "0" * 64, started, result, parent_pipe=True)
     record.update(command="python3 -I -S -B " + SCRIPT + " --source-archive PRIVATE --wheelhouse PRIVATE "
-        "--tokenizer-directory PRIVATE --docker-socket PRIVATE --output PRIVATE",
+        "--tokenizer-directory PRIVATE --docker-socket PRIVATE --output PRIVATE --scorer-image-profile " + profile,
         notes="Original static retail task 2 policy/tools in sealed scorer, then exact pinned CPU tokenizer. "
               "A completed count is not full request fit, tau execution, model quality or confidential proof. "
               "No weights, generation, endpoint or GPU. Private request body is never an artifact.")
@@ -123,8 +126,10 @@ def main():
     parser = entry.overlay.QuietParser(description=__doc__)
     for name in ("source-archive", "wheelhouse", "tokenizer-directory", "docker-socket", "output"):
         parser.add_argument("--" + name, required=True, type=lambda raw: Path(raw).absolute())
+    parser.add_argument("--scorer-image-profile")
     args = parser.parse_args()
-    return execute(args.source_archive, args.wheelhouse, args.tokenizer_directory, args.docker_socket, args.output)
+    return execute(args.source_archive, args.wheelhouse, args.tokenizer_directory, args.docker_socket, args.output,
+                   scorer_image_profile=args.scorer_image_profile)
 
 
 if __name__ == "__main__":

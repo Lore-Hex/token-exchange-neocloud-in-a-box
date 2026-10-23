@@ -42,6 +42,13 @@ class ConformanceTests(unittest.TestCase):
                                             "body": "PRIVATE_CONTENT_CANARY"})
             for name, tier in worker.ALLOWED.items()])
 
+    def test_host_and_worker_pin_the_exact_shared_support_source(self):
+        raw = (ROOT / "scripts/tau_trial_worker.py").read_bytes()
+        self.assertEqual(prep.SUPPORT_SHA, hashlib.sha256(raw).hexdigest())
+        self.assertEqual(worker.SUPPORT_SHA, prep.SUPPORT_SHA)
+        with self.assertRaises(ValueError):
+            prep.source("scripts/tau_trial_worker.py", "0" * 64)
+
     def test_real_lock_is_unchanged_and_all_dependencies_required(self):
         raw = (ROOT / "scripts/e2e/requirements.lock").read_bytes()
         self.assertEqual(len(prep.requirements(raw)), 17)

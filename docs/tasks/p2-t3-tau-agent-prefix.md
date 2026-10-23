@@ -84,8 +84,16 @@ python3 -I -S -B scripts/record-tau-agent-prefix.py \
 ```
 
 The script performs no downloads. The exact images and existing authenticated
-inputs must already be present. It uses the existing explicit Docker 28 scorer
-image identity profile, not a fallback accepting an arbitrary image.
+inputs must already be present. The default scorer image profile remains
+`docker28-classic`, using the exact index/manifest/config chain documented in
+[CPU prompt fit](p2-t3-tau-cpu-prompt-fit.md). An explicit
+`--scorer-image-profile docker29-descriptor` selects the existing ordinary
+[single-trial image checks](p2-t3-tau-single-trial.md): image inspection explicitly
+requests `linux/amd64`, requires the pinned repository/index and matching actual
+platform/descriptor identity, and binds the created and terminal container to
+that same selected manifest. The chosen profile and observed identity are
+recorded. Neither profile falls back to the other on failure; this option exists
+only for prefix measurement, not for changing other scorer modes or isolation.
 
 The scorer retains UID 65534, private PID/network namespaces, no interfaces
 except loopback, no capabilities, read-only root, no-new-privileges, 2 CPUs,
