@@ -408,6 +408,8 @@ class UkiTests(unittest.TestCase):
         self.assertEqual(config["Unit"]["OnSuccess"], "nib-failclosed.target")
         self.assertEqual(config["Unit"]["OnFailure"], "nib-failclosed.target")
         self.assertEqual(config["Unit"]["Before"], "nib-failclosed.target")
+        self.assertNotIn("Requires", config["Unit"])
+        self.assertNotIn("After", config["Unit"])
         service = config["Service"]
         self.assertEqual(service["ExecStart"], "/run/nib-debug-boot --network-failure")
         self.assertEqual(service["CapabilityBoundingSet"], "")

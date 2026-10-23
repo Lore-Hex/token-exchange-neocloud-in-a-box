@@ -3,8 +3,6 @@
 [Unit]
 Description=Report fixed network failure status before guest shutdown
 DefaultDependencies=no
-Requires=systemd-udevd.service systemd-udev-trigger.service
-After=systemd-udevd.service systemd-udev-trigger.service
 Before=nib-failclosed.target
 OnSuccess=nib-failclosed.target
 OnFailure=nib-failclosed.target

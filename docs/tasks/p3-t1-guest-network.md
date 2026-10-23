@@ -205,7 +205,9 @@ unit names, errors, journal or nft output cross the proof channel.
 The observer has an empty capability bounding set, no new privileges, null
 standard streams, a 1.5-second hard process bound and a two-second unit bound.
 Both success and failure of the observer enter the existing failclosed
-shutdown target. The root probe still requires network success. The host
+shutdown target. It has no startup dependencies that could prevent its
+failure action; an unavailable proof port fails within its own bound.
+The root probe still requires network success. The host
 recognizes only a bounded failure frame within the existing 62-byte cap and
 continues to require exact INITRD/PASS/EOF for successful boot. A zero process
 status reported by the observer is never successful boot evidence.
