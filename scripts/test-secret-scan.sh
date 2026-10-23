@@ -206,10 +206,11 @@ pair/evaluator-tokenizer.json|compact|independent_tokens_sha256|1b7419454da94e65
 CASES
 done
 
-# The partial stream originals get the same exact field/value/path boundaries.
+# Both stream originals get the same exact field/value/path boundaries.
+for stream_set in window-exhaustion 600s-complete; do
 while IFS='|' read -r relative field known suffix; do
   format=pretty
-  target="$tmp/stream/evidence/p2/2026-10-23-stream-window-exhaustion/$relative"
+  target="$tmp/stream/evidence/p2/2026-10-23-stream-$stream_set/$relative"
   mkdir -p "$(dirname "$target")"
   write_receipt_field "$target" "$field" "$known"
   expect_receipt_scan "$target" 0
@@ -238,3 +239,4 @@ output.log|token_ids_sha256|e1fdec586d6a4fcdb513c01c85c3ae9ca4f3841215515bfccfee
 output.log|token_ids_sha256|c2b7a5883e367117f9956115c67ce31de3c8ae610396b9e214ab72faeed28cf2|
 output.log|token_ids_sha256|72cb95039dc41812098f6f9e6d40525acc5fa3c41ab9550fdb12f60ea2b0c713|
 CASES
+done

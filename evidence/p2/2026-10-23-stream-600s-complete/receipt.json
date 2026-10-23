@@ -1,0 +1,453 @@
+{
+  "confidential": false,
+  "deployable": false,
+  "files": {
+    "metadata/config.json": {
+      "bytes": 45008,
+      "sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d"
+    },
+    "metadata/manifest.json": {
+      "bytes": 8684,
+      "sha256": "6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9"
+    },
+    "payload/application/LICENSE": {
+      "bytes": 11357,
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    },
+    "payload/application/NOTICE": {
+      "bytes": 1567,
+      "sha256": "1b7d2b80c40b31e0e4650a56beaab3f94261a7cf1a9ea365dbcf08263ad5eeca"
+    },
+    "payload/application/application.py": {
+      "bytes": 12508,
+      "sha256": "ce69e94d64434294f674c4be66e1a41fe8a08864535e6dbe242db365559b7406"
+    },
+    "payload/application/contract.json": {
+      "bytes": 26797,
+      "sha256": "9c7c94716352def7eb3751d4a5196525cdefd596664585cc37dd08875b628e1d"
+    },
+    "payload/application/engine_image_diagnostic.py": {
+      "bytes": 52993,
+      "sha256": "47163a40d0727d0b9ec2de5e286a616a9db3e789ae535be4fa27f37e154433d3"
+    },
+    "payload/application/engine_overlay.py": {
+      "bytes": 34026,
+      "sha256": "deb0d99de48a2f06cba20e36d2f707ffacf2c8afd35531447df59b920f288938"
+    },
+    "payload/application/engine_python_descriptor.py": {
+      "bytes": 51180,
+      "sha256": "53c618cac49175854fa7e2c5d356ec545d6f788265273f5fac6b7076648246ab"
+    },
+    "payload/application/measurement.json": {
+      "bytes": 37220,
+      "sha256": "52a15aafc3044821740c5d408e5fc44f6635bea36c30f5af51f5866120810440"
+    },
+    "payload/application/stages/1/vllm/compilation/passes/fusion/allreduce_rms_fusion.py": {
+      "bytes": 62742,
+      "sha256": "4f2ca81d7fa365d22c23194a768ab56a5c1380d62affaa4a706a5ce8f6b2d65d"
+    },
+    "payload/application/stages/1/vllm/distributed/device_communicators/cuda_communicator.py": {
+      "bytes": 43877,
+      "sha256": "2f5368d6ca1856a7b2b49fc423cc4728483d0c9289f913a7bc7cbe0baa040ec0"
+    },
+    "payload/application/stages/1/vllm/envs.py": {
+      "bytes": 119348,
+      "sha256": "f7860ddc01333050f93a0b971b5bd6346195972d516c6fe42b345271097dbdbd"
+    },
+    "payload/application/stages/1/vllm/platforms/cuda.py": {
+      "bytes": 40803,
+      "sha256": "f8101c5da69a4a4a02e2cf0f712d2c9b9fead638ac8fb9eae999de58dad2d8da"
+    },
+    "payload/application/stages/1/vllm/platforms/interface.py": {
+      "bytes": 56767,
+      "sha256": "c22c37d71f8c7a27bfed0cc97953dc9d33187deb0ce4b44574749fe447000623"
+    },
+    "payload/application/stages/1/vllm/utils/platform_utils.py": {
+      "bytes": 2499,
+      "sha256": "2c2f6745897fe25450319e426d8938afb75144f9004bbcf8170605399768d231"
+    },
+    "payload/application/stages/1/vllm/utils/torch_utils.py": {
+      "bytes": 39924,
+      "sha256": "321211f52393ad37bcadc4f21e71156125529b45f50f20fbbca719ce8a5ddb2d"
+    },
+    "payload/application/stages/1/vllm/v1/conf_compute_utils.py": {
+      "bytes": 3533,
+      "sha256": "0078c8a2d8b52527c84aa28821327c404bfb6010b101c5ca26c7d623295d1fa5"
+    },
+    "payload/application/stages/1/vllm/v1/utils.py": {
+      "bytes": 31705,
+      "sha256": "33c4db63ebd20aa16baa0a511e5d59f3bdaacbed51466f9f3e5fb2228651d6f4"
+    },
+    "payload/application/stages/1/vllm/v1/worker/gpu/async_utils.py": {
+      "bytes": 13263,
+      "sha256": "433a64d9bed48f9ff240c1a70c56335093e7c1112f7d0117bfdd614732a6c49b"
+    },
+    "payload/application/stages/1/vllm/v1/worker/gpu/buffer_utils.py": {
+      "bytes": 13994,
+      "sha256": "fbceb63ab9989957b604a53f4bc80954d85abe62f9fbfb24ad7c17bb6a5aba22"
+    },
+    "payload/application/stages/1/vllm/v1/worker/gpu/model_states/encoder_decoder.py": {
+      "bytes": 7977,
+      "sha256": "00b0189a750d9e0601c296967bfec67bbf2ba453d0e8bea72fed7fb6c17807ab"
+    },
+    "payload/application/stages/1/vllm/v1/worker/gpu/model_states/encoder_only.py": {
+      "bytes": 9938,
+      "sha256": "57928dc3a378ce37734bdc8359d47f88c3894012fe7f1f8c2be602de88f1b69f"
+    },
+    "payload/application/stages/2/vllm/compilation/passes/fusion/allreduce_rms_fusion.py": {
+      "bytes": 62742,
+      "sha256": "4f2ca81d7fa365d22c23194a768ab56a5c1380d62affaa4a706a5ce8f6b2d65d"
+    },
+    "payload/application/stages/2/vllm/distributed/device_communicators/cuda_communicator.py": {
+      "bytes": 43877,
+      "sha256": "2f5368d6ca1856a7b2b49fc423cc4728483d0c9289f913a7bc7cbe0baa040ec0"
+    },
+    "payload/application/stages/2/vllm/envs.py": {
+      "bytes": 119348,
+      "sha256": "f7860ddc01333050f93a0b971b5bd6346195972d516c6fe42b345271097dbdbd"
+    },
+    "payload/application/stages/2/vllm/platforms/cuda.py": {
+      "bytes": 40803,
+      "sha256": "f8101c5da69a4a4a02e2cf0f712d2c9b9fead638ac8fb9eae999de58dad2d8da"
+    },
+    "payload/application/stages/2/vllm/platforms/interface.py": {
+      "bytes": 56767,
+      "sha256": "c22c37d71f8c7a27bfed0cc97953dc9d33187deb0ce4b44574749fe447000623"
+    },
+    "payload/application/stages/2/vllm/utils/platform_utils.py": {
+      "bytes": 2499,
+      "sha256": "2c2f6745897fe25450319e426d8938afb75144f9004bbcf8170605399768d231"
+    },
+    "payload/application/stages/2/vllm/utils/torch_utils.py": {
+      "bytes": 39924,
+      "sha256": "321211f52393ad37bcadc4f21e71156125529b45f50f20fbbca719ce8a5ddb2d"
+    },
+    "payload/application/stages/2/vllm/v1/conf_compute_utils.py": {
+      "bytes": 3804,
+      "sha256": "9f7ed67cd48855a6d130a2063f2f54b63740ddf5391456425b847272dd1ddbb3"
+    },
+    "payload/application/stages/2/vllm/v1/utils.py": {
+      "bytes": 31705,
+      "sha256": "33c4db63ebd20aa16baa0a511e5d59f3bdaacbed51466f9f3e5fb2228651d6f4"
+    },
+    "payload/application/stages/2/vllm/v1/worker/gpu/async_utils.py": {
+      "bytes": 13263,
+      "sha256": "433a64d9bed48f9ff240c1a70c56335093e7c1112f7d0117bfdd614732a6c49b"
+    },
+    "payload/application/stages/2/vllm/v1/worker/gpu/buffer_utils.py": {
+      "bytes": 13994,
+      "sha256": "fbceb63ab9989957b604a53f4bc80954d85abe62f9fbfb24ad7c17bb6a5aba22"
+    },
+    "payload/application/stages/2/vllm/v1/worker/gpu/model_states/encoder_decoder.py": {
+      "bytes": 7977,
+      "sha256": "00b0189a750d9e0601c296967bfec67bbf2ba453d0e8bea72fed7fb6c17807ab"
+    },
+    "payload/application/stages/2/vllm/v1/worker/gpu/model_states/encoder_only.py": {
+      "bytes": 9938,
+      "sha256": "57928dc3a378ce37734bdc8359d47f88c3894012fe7f1f8c2be602de88f1b69f"
+    },
+    "payload/application/stages/3/vllm/compilation/passes/fusion/allreduce_rms_fusion.py": {
+      "bytes": 62742,
+      "sha256": "4f2ca81d7fa365d22c23194a768ab56a5c1380d62affaa4a706a5ce8f6b2d65d"
+    },
+    "payload/application/stages/3/vllm/distributed/device_communicators/cuda_communicator.py": {
+      "bytes": 43877,
+      "sha256": "2f5368d6ca1856a7b2b49fc423cc4728483d0c9289f913a7bc7cbe0baa040ec0"
+    },
+    "payload/application/stages/3/vllm/envs.py": {
+      "bytes": 119357,
+      "sha256": "24a8d97d97e1da68710b2c85d88ae045ca78c9594377680f80cbe53a77999240"
+    },
+    "payload/application/stages/3/vllm/platforms/cuda.py": {
+      "bytes": 40927,
+      "sha256": "7b8c53159057cce5c981008b3ffa00343e4ea50bef15853ce173c30076183548"
+    },
+    "payload/application/stages/3/vllm/platforms/interface.py": {
+      "bytes": 56687,
+      "sha256": "f6a6cccacc14cdec95e98186658a9957adcfbd42b969cb81beafc76ee3e32c0e"
+    },
+    "payload/application/stages/3/vllm/utils/platform_utils.py": {
+      "bytes": 2499,
+      "sha256": "2c2f6745897fe25450319e426d8938afb75144f9004bbcf8170605399768d231"
+    },
+    "payload/application/stages/3/vllm/utils/torch_utils.py": {
+      "bytes": 39924,
+      "sha256": "321211f52393ad37bcadc4f21e71156125529b45f50f20fbbca719ce8a5ddb2d"
+    },
+    "payload/application/stages/3/vllm/v1/conf_compute_utils.py": {
+      "bytes": 3793,
+      "sha256": "6b60d27291d3ca7f53b5686610bb39cdb6230f73532ae29088c9f6d934c6723a"
+    },
+    "payload/application/stages/3/vllm/v1/utils.py": {
+      "bytes": 31705,
+      "sha256": "33c4db63ebd20aa16baa0a511e5d59f3bdaacbed51466f9f3e5fb2228651d6f4"
+    },
+    "payload/application/stages/3/vllm/v1/worker/gpu/async_utils.py": {
+      "bytes": 13263,
+      "sha256": "433a64d9bed48f9ff240c1a70c56335093e7c1112f7d0117bfdd614732a6c49b"
+    },
+    "payload/application/stages/3/vllm/v1/worker/gpu/buffer_utils.py": {
+      "bytes": 14102,
+      "sha256": "bb2f7d97265e89752a199dcfe90a99187e0b2c8dd91710e6002d579ef024dbcc"
+    },
+    "payload/application/stages/3/vllm/v1/worker/gpu/model_states/encoder_decoder.py": {
+      "bytes": 7977,
+      "sha256": "00b0189a750d9e0601c296967bfec67bbf2ba453d0e8bea72fed7fb6c17807ab"
+    },
+    "payload/application/stages/3/vllm/v1/worker/gpu/model_states/encoder_only.py": {
+      "bytes": 9938,
+      "sha256": "57928dc3a378ce37734bdc8359d47f88c3894012fe7f1f8c2be602de88f1b69f"
+    },
+    "payload/application/stages/4/vllm/compilation/passes/fusion/allreduce_rms_fusion.py": {
+      "bytes": 62742,
+      "sha256": "4f2ca81d7fa365d22c23194a768ab56a5c1380d62affaa4a706a5ce8f6b2d65d"
+    },
+    "payload/application/stages/4/vllm/distributed/device_communicators/cuda_communicator.py": {
+      "bytes": 43877,
+      "sha256": "2f5368d6ca1856a7b2b49fc423cc4728483d0c9289f913a7bc7cbe0baa040ec0"
+    },
+    "payload/application/stages/4/vllm/envs.py": {
+      "bytes": 119357,
+      "sha256": "24a8d97d97e1da68710b2c85d88ae045ca78c9594377680f80cbe53a77999240"
+    },
+    "payload/application/stages/4/vllm/platforms/cuda.py": {
+      "bytes": 40927,
+      "sha256": "7b8c53159057cce5c981008b3ffa00343e4ea50bef15853ce173c30076183548"
+    },
+    "payload/application/stages/4/vllm/platforms/interface.py": {
+      "bytes": 56687,
+      "sha256": "f6a6cccacc14cdec95e98186658a9957adcfbd42b969cb81beafc76ee3e32c0e"
+    },
+    "payload/application/stages/4/vllm/utils/platform_utils.py": {
+      "bytes": 2499,
+      "sha256": "2c2f6745897fe25450319e426d8938afb75144f9004bbcf8170605399768d231"
+    },
+    "payload/application/stages/4/vllm/utils/torch_utils.py": {
+      "bytes": 40063,
+      "sha256": "855adf407b3155b117ba3e1235b27ff05a873e13b0904749f6a7f6ca9d95bd68"
+    },
+    "payload/application/stages/4/vllm/v1/conf_compute_utils.py": {
+      "bytes": 3793,
+      "sha256": "6b60d27291d3ca7f53b5686610bb39cdb6230f73532ae29088c9f6d934c6723a"
+    },
+    "payload/application/stages/4/vllm/v1/utils.py": {
+      "bytes": 31705,
+      "sha256": "33c4db63ebd20aa16baa0a511e5d59f3bdaacbed51466f9f3e5fb2228651d6f4"
+    },
+    "payload/application/stages/4/vllm/v1/worker/gpu/async_utils.py": {
+      "bytes": 13263,
+      "sha256": "433a64d9bed48f9ff240c1a70c56335093e7c1112f7d0117bfdd614732a6c49b"
+    },
+    "payload/application/stages/4/vllm/v1/worker/gpu/buffer_utils.py": {
+      "bytes": 14102,
+      "sha256": "bb2f7d97265e89752a199dcfe90a99187e0b2c8dd91710e6002d579ef024dbcc"
+    },
+    "payload/application/stages/4/vllm/v1/worker/gpu/model_states/encoder_decoder.py": {
+      "bytes": 7977,
+      "sha256": "00b0189a750d9e0601c296967bfec67bbf2ba453d0e8bea72fed7fb6c17807ab"
+    },
+    "payload/application/stages/4/vllm/v1/worker/gpu/model_states/encoder_only.py": {
+      "bytes": 9938,
+      "sha256": "57928dc3a378ce37734bdc8359d47f88c3894012fe7f1f8c2be602de88f1b69f"
+    },
+    "payload/application/stages/5/vllm/compilation/passes/fusion/allreduce_rms_fusion.py": {
+      "bytes": 62969,
+      "sha256": "4af57a9a39e4c7d9a5a2912ac4d2bdbf6d9d0a2ba3af4cc5659130e64be6911e"
+    },
+    "payload/application/stages/5/vllm/distributed/device_communicators/cuda_communicator.py": {
+      "bytes": 44937,
+      "sha256": "98aa60f0c56d07fd0d32aae085c6f2a6becf3e2893e0198a4655e945ca1e103a"
+    },
+    "payload/application/stages/5/vllm/envs.py": {
+      "bytes": 119357,
+      "sha256": "24a8d97d97e1da68710b2c85d88ae045ca78c9594377680f80cbe53a77999240"
+    },
+    "payload/application/stages/5/vllm/platforms/cuda.py": {
+      "bytes": 40927,
+      "sha256": "7b8c53159057cce5c981008b3ffa00343e4ea50bef15853ce173c30076183548"
+    },
+    "payload/application/stages/5/vllm/platforms/interface.py": {
+      "bytes": 56687,
+      "sha256": "f6a6cccacc14cdec95e98186658a9957adcfbd42b969cb81beafc76ee3e32c0e"
+    },
+    "payload/application/stages/5/vllm/utils/platform_utils.py": {
+      "bytes": 2499,
+      "sha256": "2c2f6745897fe25450319e426d8938afb75144f9004bbcf8170605399768d231"
+    },
+    "payload/application/stages/5/vllm/utils/torch_utils.py": {
+      "bytes": 40063,
+      "sha256": "855adf407b3155b117ba3e1235b27ff05a873e13b0904749f6a7f6ca9d95bd68"
+    },
+    "payload/application/stages/5/vllm/v1/conf_compute_utils.py": {
+      "bytes": 4245,
+      "sha256": "c0559cb41facf978d999578c36c1cd6849d154a26a36642b3895b0e60c8be7c4"
+    },
+    "payload/application/stages/5/vllm/v1/utils.py": {
+      "bytes": 31705,
+      "sha256": "33c4db63ebd20aa16baa0a511e5d59f3bdaacbed51466f9f3e5fb2228651d6f4"
+    },
+    "payload/application/stages/5/vllm/v1/worker/gpu/async_utils.py": {
+      "bytes": 13263,
+      "sha256": "433a64d9bed48f9ff240c1a70c56335093e7c1112f7d0117bfdd614732a6c49b"
+    },
+    "payload/application/stages/5/vllm/v1/worker/gpu/buffer_utils.py": {
+      "bytes": 14102,
+      "sha256": "bb2f7d97265e89752a199dcfe90a99187e0b2c8dd91710e6002d579ef024dbcc"
+    },
+    "payload/application/stages/5/vllm/v1/worker/gpu/model_states/encoder_decoder.py": {
+      "bytes": 7977,
+      "sha256": "00b0189a750d9e0601c296967bfec67bbf2ba453d0e8bea72fed7fb6c17807ab"
+    },
+    "payload/application/stages/5/vllm/v1/worker/gpu/model_states/encoder_only.py": {
+      "bytes": 9938,
+      "sha256": "57928dc3a378ce37734bdc8359d47f88c3894012fe7f1f8c2be602de88f1b69f"
+    },
+    "payload/correctness.py": {
+      "bytes": 15666,
+      "sha256": "6f52e50c8c6699650d6a3e05ae55236f10987a7ab26c41c703c209868a79fb1c"
+    },
+    "payload/exception.py": {
+      "bytes": 5169,
+      "sha256": "e21b5654870ef013ec327385b61ece4a08c3176278c8a3e09cd2704f36eaa728"
+    },
+    "payload/lab.json": {
+      "bytes": 16899,
+      "sha256": "09d4f92574af24e21c4fe48861d2967bf8fb8adef11ad249ac5bf0733e9e2de3"
+    },
+    "payload/launch-plan.json": {
+      "bytes": 1629,
+      "sha256": "521b8f1bce140cd63c329c820a565edcc25d8fb36a18db69a6ea12d384f9213a"
+    },
+    "payload/launch.py": {
+      "bytes": 149751,
+      "sha256": "dd8829ba87260209cc43132e2455a24dd761f823e12fa3ec001b273531cfe8ef"
+    },
+    "payload/nib": {
+      "bytes": 15025977,
+      "sha256": "7ee5f1e7cd29697c7dfc42cff9e4fdc3ff0cf6c0861f55fe6989190d29c3361c"
+    },
+    "payload/pack/files.sha256": {
+      "bytes": 8746,
+      "sha256": "b74ae635c35372cf6c350e4b33ef60c90ff01fe6426ad0fa7bc99b1982fe5bed"
+    },
+    "payload/pack/pack.yaml": {
+      "bytes": 2925,
+      "sha256": "5e14356aec339deaad2bfdbd1a86b958d4aa4f0e4be109112388d7348598cd3f"
+    },
+    "payload/probe.py": {
+      "bytes": 21202,
+      "sha256": "11e72a7c43c5ed54f20a1b95fc973813b63fc41883ba2e4d3737498156af2442"
+    },
+    "payload/processes.py": {
+      "bytes": 12494,
+      "sha256": "e73a5a1e3ddb7a6e7b20afce39f7c080a0317d78340f224b2bd95f705bccb59c"
+    },
+    "payload/python": {
+      "bytes": 1372,
+      "sha256": "a67761b97f2df8240b4ff80eefab6fde42069a44c29ed93665c46cb8b71a5237"
+    },
+    "payload/runtime-observation.py": {
+      "bytes": 7928,
+      "sha256": "789a286bbac6b48cdf9ad13e4c68c41252d4ecd1b6608c2688bca9840110870a"
+    },
+    "payload/stream-lab.py": {
+      "bytes": 12117,
+      "sha256": "7ef2e239b01d389a4568c7b9851ad09a56c67dafc7b89d4dda216ee509e0d62e"
+    },
+    "payload/stream/engine_tokenizer_parity.py": {
+      "bytes": 11721,
+      "sha256": "09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a"
+    },
+    "payload/stream/stream_cohort.py": {
+      "bytes": 8781,
+      "sha256": "1c38f83e5c6c430a0b16d013981162cb0740b68f9dfa83545e646aebd606b3f8"
+    },
+    "payload/stream/stream_measurement.py": {
+      "bytes": 12280,
+      "sha256": "9a9e72d70a30f34194aa92a4003472629553e63b0e2f3b1344eea2b50773f126"
+    },
+    "payload/stream/stream_transport.py": {
+      "bytes": 8548,
+      "sha256": "7d7610176dd4a39436c7ac7c1d4a71c3e17d7484974c0a6955073d316025ceca"
+    },
+    "payload/stream/tau_live_identity.py": {
+      "bytes": 21767,
+      "sha256": "a51e8c271dd0dd1fef22ef41babc76ab0991de11ddcc567630309395072cf2c7"
+    },
+    "payload/stream/tau_llama_identity.py": {
+      "bytes": 2172,
+      "sha256": "f292626bc218c21e682e61d7358517432c47dd6dac7b5c0fc91434508feb35b3"
+    },
+    "payload/stream/tau_local_llama.py": {
+      "bytes": 4036,
+      "sha256": "02d8023a72010821eb84f8b9f482569a0d8419d8a2baa70ffd78f4aabdb6f911"
+    },
+    "payload/stream/tau_local_vllm.py": {
+      "bytes": 11423,
+      "sha256": "87681bef9698d261ec5209697d4dc05281d62e24739f8c6c687693270a706794"
+    },
+    "payload/stream/tau_preflight.py": {
+      "bytes": 20963,
+      "sha256": "c38f9876dbdeb78663f9ffab5d39a28c6d87c7b298215d6179ff079072822704"
+    },
+    "payload/stream/tau_transport.py": {
+      "bytes": 22641,
+      "sha256": "b8b1e14ec0eb0ac9990142f77b24ee7e3987de60b6df71a766e7c59b153cfeb2"
+    },
+    "payload/stream/tau_trial_worker.py": {
+      "bytes": 24903,
+      "sha256": "35e784639e7014f4bcb836f12cd8cc533b4f1d7ba9d9d97f66b93325ad8c73ff"
+    },
+    "payload/tokenizer-adapter.py": {
+      "bytes": 70827,
+      "sha256": "060220d1bc62f13278e5a03a3a85c39ef84f528ada2a9e39ab0c62a4a7c09960"
+    },
+    "payload/tokenizer-parity.py": {
+      "bytes": 11721,
+      "sha256": "09d704cf6d87c23b4115d40d501248a74502b37124cff57da5ad59ac7ff9951a"
+    },
+    "record-deepseek-lab.py": {
+      "bytes": 60023,
+      "sha256": "3fac045fc320d268b739d5cf63f1afe05503ee8f117f671bf2a6fa91780c6a5c"
+    },
+    "support/scripts/check-engine-candidate.py": {
+      "bytes": 17882,
+      "sha256": "a295d3ec5ccda0794e3d830570d1d78c1b562e3cdb49ceb42aef37e6b25fd266"
+    },
+    "support/scripts/e2e/snapshot.py": {
+      "bytes": 12494,
+      "sha256": "e73a5a1e3ddb7a6e7b20afce39f7c080a0317d78340f224b2bd95f705bccb59c"
+    },
+    "support/scripts/engine_image_diagnostic.py": {
+      "bytes": 52993,
+      "sha256": "47163a40d0727d0b9ec2de5e286a616a9db3e789ae535be4fa27f37e154433d3"
+    },
+    "support/scripts/engine_import_smoke.py": {
+      "bytes": 34997,
+      "sha256": "57b7fa12bc7cb972ca0f17a251aa424d9f164e3b43082b38fe6b9d239c010307"
+    },
+    "support/scripts/engine_overlay.py": {
+      "bytes": 34026,
+      "sha256": "deb0d99de48a2f06cba20e36d2f707ffacf2c8afd35531447df59b920f288938"
+    },
+    "support/scripts/engine_python_descriptor.py": {
+      "bytes": 51180,
+      "sha256": "53c618cac49175854fa7e2c5d356ec545d6f788265273f5fac6b7076648246ab"
+    },
+    "support/scripts/prepare-engine-overlay.py": {
+      "bytes": 10643,
+      "sha256": "d468e6c4eea7b2a0a29e689d37d3f6c8b83b080a0e3d5a4148000a383a09b5e2"
+    },
+    "support/scripts/record-engine-image.py": {
+      "bytes": 28388,
+      "sha256": "f5f3378d0276c5edd344ed720ddc038a143e3e94127fa96a35ceb1aa89c2114d"
+    }
+  },
+  "git_sha": "ecddc03f2fd1e39501b92048afe9ab66bc1c8c78",
+  "payload_sha256": "89ab3e2bf0b3a1b4999767b167cff2f9a63f960aeacfef9181d743ced36cb34f",
+  "platform": "linux/amd64",
+  "schema": "nib.deepseek-lab-bundle/v1",
+  "source_bundle_sha256": "2d362d5543cfe94d074ab81e9aa903b98a9701bce26f842550732b58eb6fbf39",
+  "status": "BLOCKED",
+  "validator_source_sha256": "bb4e8d5fc65df324804a95a0b6ff091550efb1eceac0c09b55be61b274feb952"
+}
