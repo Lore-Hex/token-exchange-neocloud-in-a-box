@@ -87,9 +87,11 @@ def parent(root_fd, name, export, *, create=False):
     current = os.dup(root_fd)
     try:
         for part in name.split("/")[:-1]:
+            created = False
             if create:
                 try:
                     os.mkdir(part, 0o755, dir_fd=current)
+                    created = True
                 except FileExistsError:
                     pass
             child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=current)
@@ -97,6 +99,13 @@ def parent(root_fd, name, export, *, create=False):
             current = child
             info = os.fstat(current)
             require(info.st_uid == os.getuid() and not stat.S_IMODE(info.st_mode) & 0o022)
+            if created:
+                # The service runs as nib, not the composing namespace root.
+                # Only fix our fresh directory; never chmod an existing parent.
+                os.fchmod(current, 0o755)
+                os.fsync(current)
+                info = os.fstat(current)
+            require(stat.S_IMODE(info.st_mode) == 0o755)
         yield current, name.rsplit("/", 1)[1]
     finally:
         os.close(current)

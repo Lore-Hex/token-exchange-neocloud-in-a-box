@@ -246,6 +246,70 @@ class CompositionTests(unittest.TestCase):
             self.assertFalse(any(report[k] for k in ("services_started", "network_verified", "confidentiality_verified")))
             processes.execute_process_group.assert_called_once()
 
+    def test_fresh_parent_modes_do_not_inherit_private_umask(self):
+        for mask in (0o022, 0o027, 0o077):
+            with self.subTest(umask=mask), self.fixture() as (root, payload, source, inputs, processes, _):
+                old = os.umask(mask)
+                try:
+                    self.compose(root, payload, source, processes)
+                    self.assertEqual(os.umask(mask), mask)
+                finally:
+                    os.umask(old)
+                for name in (*inputs["files"], *export.NETWORK_LINKS):
+                    for parent in (root / name).parents:
+                        if parent == root:
+                            break
+                        self.assertEqual(parent.stat().st_mode & 0o7777, 0o755)
+                self.assertEqual((root / "etc/nib/network.json").stat().st_mode & 0o7777, 0o644)
+
+    def test_existing_parent_modes_reject_without_chmod_or_child(self):
+        for mode in (0o700, 0o750, 0o711, 0o775, 0o1755):
+            with self.subTest(mode=mode), self.fixture() as (root, payload, source, _, processes, _):
+                parent = root / "etc/nib"
+                parent.mkdir()
+                parent.chmod(mode)
+                self.assertEqual(parent.stat().st_mode & 0o7777, mode)
+                with self.assertRaises(ValueError):
+                    self.compose(root, payload, source, processes)
+                self.assertEqual(parent.stat().st_mode & 0o7777, mode)
+                self.assertFalse((parent / "network.json").exists())
+                processes.execute_process_group.assert_not_called()
+
+    def test_existing_setgid_parent_metadata_rejects(self):
+        # Some host filesystems discard setgid on chmod; inject only that
+        # metadata bit so the rejection remains exercised on every host.
+        with self.fixture() as (root, payload, source, _, processes, _):
+            parent = root / "etc/nib"
+            parent.mkdir()
+            identity = parent.stat()
+            original = os.fstat
+            def observed(fd):
+                info = original(fd)
+                if (info.st_dev, info.st_ino) == (identity.st_dev, identity.st_ino):
+                    fields = list(info)
+                    fields[0] |= 0o2000
+                    return os.stat_result(fields)
+                return info
+            with mock.patch.object(network.os, "fstat", side_effect=observed), self.assertRaises(ValueError):
+                self.compose(root, payload, source, processes)
+            self.assertEqual(parent.stat().st_mode & 0o7777, 0o755)
+            self.assertFalse((parent / "network.json").exists())
+            processes.execute_process_group.assert_not_called()
+
+    def test_new_parent_mode_failure_stops_before_copy_or_account_creation(self):
+        for failure in ("chmod-error", "chmod-ignored"):
+            with self.subTest(failure=failure), self.fixture() as (root, payload, source, _, processes, _):
+                old = os.umask(0o077)
+                try:
+                    with mock.patch.object(network.os, "fchmod",
+                            side_effect=OSError("synthetic mode failure") if failure == "chmod-error" else None), \
+                            self.assertRaises((OSError, ValueError)):
+                        self.compose(root, payload, source, processes)
+                finally:
+                    os.umask(old)
+                self.assertFalse((root / "etc/nib/network.json").exists())
+                processes.execute_process_group.assert_not_called()
+
     def test_unsafe_inputs_reject_before_child_and_without_activation(self):
         for bad in ("collision", "parent-link", "hardlink", "oversize", "writable", "source", "payload", "existing-user", "tool"):
             with self.subTest(bad=bad), self.fixture() as (root, payload, source, inputs, processes, _):

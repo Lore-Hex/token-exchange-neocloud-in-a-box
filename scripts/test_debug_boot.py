@@ -45,11 +45,14 @@ class QemuTests(unittest.TestCase):
     def test_network_failure_frames_fit_original_cap_and_never_pass(self):
         self.assertEqual(qemu.MAX_PROOF_BYTES, 62)
         self.assertEqual(qemu.NETWORK_STAGES, tuple("path filesystem interfaces config-read config policy executable "
-            "initial-command initial-ruleset check create readback-command readback deadline".split()))
-        for status in (*range(64, 78), 0, 203, 226, 255):
+            "initial-command initial-ruleset check create readback-command readback deadline "
+            "config-root-open config-parent-stat config-parent-trust config-component-open config-file-stat "
+            "config-file-filesystem config-file-mode config-file-owner config-file-links config-file-size "
+            "config-duplicate config-read-io config-close config-read-length config-restat config-changed".split()))
+        for status in (*range(64, 95), 0, 203, 226, 255):
             raw = qemu.NETWORK_PREFIX + f"2 1 {status}\n".encode("ascii")
             expected = {"service_result": "exit-code", "exit_code": "exited", "exit_status": status,
-                        "stage": qemu.NETWORK_STAGES[status - 64] if 64 <= status <= 77 else None}
+                        "stage": qemu.NETWORK_STAGES[status - 64] if 64 <= status <= 93 else None}
             self.assertLessEqual(len(raw), 62)
             for split in range(1, len(raw)):
                 connection = mock.Mock()

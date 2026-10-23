@@ -47,7 +47,7 @@ func runNetwork(ctx context.Context, path string) error {
 	}
 	raw, err := networkReadFile(networkConfig, 4096, 0o644)
 	if err != nil {
-		return failedNetworkConfigRead
+		return networkConfigReadFailure(err)
 	}
 	return applyNetwork(ctx, raw, func(ctx context.Context, op networkOperation, input []byte) ([]byte, error) {
 		executable, err := networkReadFile(nftExecutable, nftSize, 0o755)
@@ -90,14 +90,17 @@ func networkReadFile(path string, limit int64, mode uint32) ([]byte, error) {
 	}
 	fd, err := syscall.Open("/", syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
 	if err != nil {
-		return nil, errNetwork
+		return nil, failedFileRoot
 	}
 	defer func() { _ = syscall.Close(fd) }()
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	for i, part := range parts {
 		var parent syscall.Stat_t
-		if syscall.Fstat(fd, &parent) != nil || parent.Uid != 0 || parent.Mode&0o022 != 0 {
-			return nil, errNetwork
+		if syscall.Fstat(fd, &parent) != nil {
+			return nil, failedFileParentStat
+		}
+		if parent.Uid != 0 || parent.Mode&0o022 != 0 {
+			return nil, failedFileParentTrust
 		}
 		flags := syscall.O_RDONLY | syscall.O_NOFOLLOW | syscall.O_NONBLOCK | syscall.O_CLOEXEC
 		if i != len(parts)-1 {
@@ -105,32 +108,62 @@ func networkReadFile(path string, limit int64, mode uint32) ([]byte, error) {
 		}
 		next, err := syscall.Openat(fd, part, flags, 0)
 		if err != nil {
-			return nil, errNetwork
+			return nil, failedFileOpen
 		}
 		_ = syscall.Close(fd)
 		fd = next
 	}
 	var before, after syscall.Stat_t
 	var fs syscall.Statfs_t
-	if syscall.Fstat(fd, &before) != nil || syscall.Fstatfs(fd, &fs) != nil ||
-		!networkInput(before, fs, limit, mode) {
-		return nil, errNetwork
+	if syscall.Fstat(fd, &before) != nil {
+		return nil, failedFileStat
+	}
+	if syscall.Fstatfs(fd, &fs) != nil {
+		return nil, failedFileFilesystem
+	}
+	if err := networkInputFailure(before, fs, limit, mode); err != nil {
+		return nil, err
 	}
 	dup, err := syscall.Dup(fd)
 	if err != nil {
-		return nil, errNetwork
+		return nil, failedFileDuplicate
 	}
 	file := os.NewFile(uintptr(dup), "network-input")
 	raw, readErr := io.ReadAll(io.LimitReader(file, limit+1))
 	closeErr := file.Close()
-	if readErr != nil || closeErr != nil || int64(len(raw)) != before.Size ||
-		syscall.Fstat(fd, &after) != nil || before != after {
-		return nil, errNetwork
+	if readErr != nil {
+		return nil, failedFileRead
+	}
+	if closeErr != nil {
+		return nil, failedFileClose
+	}
+	if int64(len(raw)) != before.Size {
+		return nil, failedFileLength
+	}
+	if syscall.Fstat(fd, &after) != nil {
+		return nil, failedFileRestat
+	}
+	if before != after {
+		return nil, failedFileChanged
 	}
 	return raw, nil
 }
 
-func networkInput(info syscall.Stat_t, fs syscall.Statfs_t, limit int64, mode uint32) bool {
-	return info.Mode == syscall.S_IFREG|mode && info.Uid == 0 && info.Gid == 0 && info.Nlink == 1 &&
-		info.Size > 0 && info.Size <= limit && networkFilesystem(fs)
+func networkInputFailure(info syscall.Stat_t, fs syscall.Statfs_t, limit int64, mode uint32) error {
+	if info.Mode != syscall.S_IFREG|mode {
+		return failedFileMode
+	}
+	if info.Uid != 0 || info.Gid != 0 {
+		return failedFileOwner
+	}
+	if info.Nlink != 1 {
+		return failedFileLinks
+	}
+	if info.Size <= 0 || info.Size > limit {
+		return failedFileSize
+	}
+	if !networkFilesystem(fs) {
+		return failedFileFilesystem
+	}
+	return nil
 }

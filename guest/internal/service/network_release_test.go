@@ -126,3 +126,28 @@ func TestNetworkExecutableFailureIsNotLostAtAnyCommand(t *testing.T) {
 		}
 	}
 }
+
+func TestNetworkConfigReadStatusesAreFiniteAndContentFree(t *testing.T) {
+	for status := 0; status <= 255; status++ {
+		stage := networkFileFailure(status)
+		got := networkConfigReadFailure(stage)
+		if status >= 78 && status <= 93 {
+			if got != stage || stage.serviceExitCode() != status {
+				t.Fatal("lost guarded-read status")
+			}
+		} else if got != failedNetworkConfigRead {
+			t.Fatal("unrecognized status forwarded")
+		}
+		if got.Error() != "network startup rejected" {
+			t.Fatal("non-fixed read diagnostic")
+		}
+	}
+	for _, err := range []error{nil, errors.New("PRIVATE FILE ERROR"), failedNetworkExecutable} {
+		if networkConfigReadFailure(err) != failedNetworkConfigRead {
+			t.Fatal("arbitrary error promoted to read status")
+		}
+	}
+	if failedFileRoot != 78 || failedFileChanged != 93 {
+		t.Fatal("read status protocol changed")
+	}
+}
