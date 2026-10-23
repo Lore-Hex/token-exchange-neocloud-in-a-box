@@ -44,6 +44,23 @@ The full-context pack profile remains a draft, not a tested 1M-context promise.
 The selected name, revision, manifest, byte count and response model must agree;
 an original-model receipt is not evidence for this variant.
 
+From a clean committed checkout, offline preparation selects the variant
+explicitly; omitting `--model-profile` preserves the original checkpoint:
+
+```sh
+python3 -I -S -B host/record-stage.py prepare \
+  --model-profile uncensored --output "$STAGE_BUNDLE"
+python3 -I -S -B host/record-deepseek-lab.py \
+  --prepare-local-correctness-b300-dp2 "$LAB_BUNDLE" \
+  --model-profile uncensored --tokenizer-parity --tokenizer-materialization \
+  --runtime-observation --stream-cohort --stream-profile chat-2k-512-c1-600s
+```
+
+These commands prepare source-bound inputs, not a public endpoint. The runtime
+uses the identity already frozen into the bundle; a launch-time model override
+is rejected. For this first variant bring-up, the older provider-conformance
+mode is rejected rather than probing it under the original model's name.
+
 A successful functional run is separate from throughput, tau quality,
 public-service readiness and confidential qualification. This pack is not
 deployable until the applicable phases pass, including immutable model storage
