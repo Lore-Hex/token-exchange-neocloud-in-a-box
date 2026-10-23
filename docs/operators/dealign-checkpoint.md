@@ -17,6 +17,13 @@ The committed generator's [metadata run](../../evidence/p0/2026-10-23T045421Z-mo
 passed. Its complete manifest matched a separate public-source audit byte for
 byte. This verified small files and published LFS identities, not weight bytes.
 
+The later [October 23 partial seed](../../evidence/p2/2026-10-23-dealign-partial-seed/README.md)
+verified and copied 48 matching regular files / 310,737,990,397 bytes from
+the original cache. Another 31 files / 199,573,065,758 bytes remain outside
+that receipt. It explicitly records `pack_complete=false`, `runtime_ready=false`
+and `confidential=false`; it does not prove subsequent full staging or model
+execution.
+
 Relative to the original pinned `1bae0e1088993b9b82de08f59de5be5a34e42170`:
 
 - The config, tokenizer, tokenizer config, weight index and encoding module

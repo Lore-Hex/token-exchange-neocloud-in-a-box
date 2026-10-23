@@ -141,4 +141,18 @@ with fakes, not a measured NFS copy:
 python3 -I -S -B -m unittest discover -s scripts -p 'test*cache*.py'
 ```
 
-No new host mount, copy, HTTP stage, cache recovery or GPU run is claimed here.
+## Actual Partial Seed
+
+The [original October 23 receipt](../../evidence/p2/2026-10-23-dealign-partial-seed/receipt.json)
+from exact producer `4578a14bf90574d88515076a625acec813d6712b` records a
+successful 48-file, 310,737,990,397-byte seed from 08:43:23.196273 to
+09:23:43.984062 UTC. Publication was confirmed with the local atomic
+no-replace mode; the worker completed and its exit was confirmed.
+`process_group_absence_verified=false` and `source_removed=false` remain unchanged.
+
+This result leaves 31 target files / 199,573,065,758 bytes missing.
+`pack_complete=false`, `runtime_ready=false` and `confidential=false` are
+preserved. It is not a complete-pack, later HTTP-stage, new-cache upload,
+restore or engine/GPU result. The [evidence notes](../../evidence/p2/2026-10-23-dealign-partial-seed/README.md)
+separate the original receipt from offline source-binding and metadata-replay
+tests; no new copy is performed by those tests.
