@@ -112,6 +112,28 @@ class BindingTests(unittest.TestCase):
             with self.subTest(mutation=mutate), self.assertRaises((ValueError, TypeError)):
                 binding.validate(value, contract(), SHA, cohort)
 
+    def test_success_cannot_exceed_request_or_cohort_deadline_but_failed_usage_survives(self):
+        # Internally consistent arithmetic must not bless an impossible success.
+        for elapsed in (cohort.stream.REQUEST_SECONDS, cohort.stream.REQUEST_SECONDS + 1):
+            value = sample(elapsed=elapsed).metadata()
+            with self.assertRaises(ValueError): binding.validate_sample(value, cohort)
+            value = sample("timeout", elapsed=elapsed).metadata()
+            binding.validate_sample(value, cohort)
+            self.assertEqual(value["completion_tokens"], 50)
+        for elapsed in (cohort.COHORT_SECONDS, cohort.COHORT_SECONDS + 1):
+            value = report()
+            value["cohort"]["elapsed_seconds"] = elapsed
+            with self.assertRaises(ValueError): binding.validate(value, contract(), SHA, cohort)
+            value["cohort"].update(completed=False, stop_reason="deadline")
+            self.assertFalse(binding.validate(value, contract(), SHA, cohort))
+            self.assertEqual(value["cohort"]["known_output_tokens"], 450)
+        value = report([sample(), sample("timeout")])
+        value["cohort"]["samples"][0]["elapsed_seconds"] = 61
+        value["cohort"]["elapsed_seconds"] = 62
+        value["cohort"]["measured"] = cohort.meter._summarize_rows(value["cohort"]["samples"],
+            scheduled=8, wall_seconds=61, gpu_count=8)
+        self.assertFalse(binding.validate(value, contract(), SHA, cohort))
+
     def test_owned_process_gate_precedes_dispatch_and_terminal_failure_preserves_usage(self):
         engine = mock.Mock(pid=12345)
         engine.poll.return_value = None

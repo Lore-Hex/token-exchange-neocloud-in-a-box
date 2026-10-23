@@ -138,7 +138,7 @@ def validate_sample(row, cohort):
     if row["status"] == "completed":
         require(row["prompt_tokens"] == cohort.PROMPT_TOKENS and row["completion_tokens"] is not None
                 and row["output_events"] > 0 and row["ttft_seconds"] is not None
-                and row["finish_reason"] is not None)
+                and row["finish_reason"] is not None and row["elapsed_seconds"] < cohort.stream.REQUEST_SECONDS)
         require(row["first_content_seconds"] is None or row["first_content_seconds"] >= row["ttft_seconds"])
         interval = row["mean_output_token_interval_estimate_seconds"]
         require(interval is None or row["completion_tokens"] > 1 and row["output_events"] > 1
@@ -199,5 +199,6 @@ def validate(value, contract, contract_sha, cohort):
                 and all(sample["status"] == "completed" for sample in measured[:-1]))
     else:
         require(all(sample["status"] == "completed" for sample in samples))
-        require(stop != "complete" or len(measured) == cohort.MEASURED_REQUESTS)
+        require(stop != "complete" or len(measured) == cohort.MEASURED_REQUESTS
+                and row["elapsed_seconds"] < cohort.COHORT_SECONDS)
     return row["completed"] and value["terminal_identity_verified"]
