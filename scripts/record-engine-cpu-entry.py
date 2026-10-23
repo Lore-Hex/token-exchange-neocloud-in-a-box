@@ -27,6 +27,8 @@ RUNTIME = "scripts/engine_cpu_entry.py"
 LAB = "scripts/engine_lab.py"
 LAB_BOOTSTRAP = "scripts/engine_lab_bootstrap.py"
 EXCEPTIONS = "scripts/engine_exception.py"
+PROGRESS = "scripts/engine_application_progress.py"
+PROGRESS_TEST = "scripts/test_engine_application_progress.py"
 TEST = "scripts/test_engine_cpu_entry.py"
 SIX_TEST = "scripts/test_botocore_six.py"
 OPENCV_TEST = "scripts/test_opencv_loader.py"
@@ -80,6 +82,8 @@ def load(name, path, expected=None, prefix=b""):
 base, BASE_SOURCE = load("cpu_entry_base", ROOT / BASE, BASE_SHA)
 EXCEPTION_SOURCE = read_source(ROOT / EXCEPTIONS)
 cpu, CPU_SOURCE = load("cpu_entry_payload", ROOT / RUNTIME, prefix=EXCEPTION_SOURCE)
+cpu.progress, PROGRESS_SOURCE = load("cpu_application_progress", ROOT / PROGRESS)
+cpu.PROGRESS_SHA = hashlib.sha256(PROGRESS_SOURCE).hexdigest()
 lab, LAB_SOURCE = load("cpu_entry_lab", ROOT / LAB)
 bootstrap, BOOTSTRAP_SOURCE = load("cpu_entry_lab_bootstrap", ROOT / LAB_BOOTSTRAP)
 cpu.require = base.overlay.require
@@ -90,7 +94,8 @@ def inputs(root=ROOT, tokenizer_continuation=False, tokenizer_materialization=Fa
     overlay.require(type(tokenizer_materialization) is bool and (not tokenizer_materialization or tokenizer_continuation))
     overlay.require(type(agent_prefix) is bool and (not agent_prefix or not tokenizer_continuation and not tokenizer_materialization))
     revision, bundle, extra = base.inputs(root)
-    for name in (SCRIPT, BASE, RUNTIME, LAB, LAB_BOOTSTRAP, EXCEPTIONS, TEST, SIX_TEST, OPENCV_TEST, "scripts/test_deepseek_lab.py",
+    for name in (SCRIPT, BASE, RUNTIME, LAB, LAB_BOOTSTRAP, EXCEPTIONS, PROGRESS, PROGRESS_TEST,
+                 TEST, SIX_TEST, OPENCV_TEST, "scripts/test_deepseek_lab.py",
                  *(TOKENIZER_FILES if tokenizer_continuation else ()),
                  *(PREFIX_FILES if agent_prefix else ()),
                  *(("scripts/test_tokenizer_materialization.py",) if tokenizer_materialization else ())):
@@ -101,6 +106,7 @@ def inputs(root=ROOT, tokenizer_continuation=False, tokenizer_materialization=Fa
     overlay.require(extra[SCRIPT] == read_source(Path(__file__).absolute())
                     and extra[BASE] == BASE_SOURCE and extra[RUNTIME] == CPU_SOURCE
                     and extra[EXCEPTIONS] == EXCEPTION_SOURCE
+                    and extra[PROGRESS] == PROGRESS_SOURCE
                     and extra[LAB] == LAB_SOURCE and extra[LAB_BOOTSTRAP] == BOOTSTRAP_SOURCE)
     return revision, bundle, extra
 
@@ -116,6 +122,7 @@ def prepare_files(revision, bundle, extra, tokenizer_continuation=False, tokeniz
     payload = {"application/" + name.removeprefix("payload/"): raw for name, raw in files.items() if name.startswith("payload/")}
     prefix = b'import sys\nif not (sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode):\n    sys.exit("Isolated CPU entry required.")\n'
     payload["launch.py"] = prefix + extra[base.BOOTSTRAP_FILE] + b"\n" + extra[EXCEPTIONS] + b"\n" + extra[RUNTIME]
+    payload["application-progress.py"] = extra[PROGRESS]
     payload["lab.py"] = extra[base.BOOTSTRAP_FILE] + b"\n" + extra[LAB_BOOTSTRAP] + b"\n" + extra[LAB]
     plan = recorder.prep.launch_plan()
     payload["launch-plan.json"] = overlay.json_bytes(plan)
@@ -145,6 +152,7 @@ def prepare_files(revision, bundle, extra, tokenizer_continuation=False, tokeniz
                 "candidate_bundle_sha256": application["candidate_bundle_sha256"],
                 "application_contract_sha256": overlay.digest(payload["application/contract.json"]),
                 "measurement_sha256": builder.application.EVIDENCE_SHA,
+                "application_progress_sha256": overlay.digest(extra[PROGRESS]),
                 "paths": measured["proposed_paths"], "arguments": lab.lab_args(plan),
                 "interpreter": {key: measured["files"][0][key] for key in ("resolved", "bytes", "sha256")},
                 "environment": lab.lab_environment(plan),

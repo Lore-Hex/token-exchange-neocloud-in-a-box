@@ -195,6 +195,7 @@ def load_module(name, raw, path):
 
 
 def context(expected):
+    global progress, PROGRESS_SHA
     import platform
     import re
     require(re.fullmatch(r"[0-9a-f]{64}", expected) and __file__ == ROOT + "/launch.py")
@@ -220,6 +221,9 @@ def context(expected):
         require(hashlib.sha256(data).hexdigest() == sha)
         sources[name] = data
     require(sum(map(len, sources.values())) <= 8 << 20)
+    PROGRESS_SHA = hashlib.sha256(sources["application-progress.py"]).hexdigest()
+    require(contract["application_progress_sha256"] == PROGRESS_SHA)
+    progress = load_module("application_progress", sources["application-progress.py"], ROOT + "/application-progress.py")
     require("model_files" not in contract or contract.get("diagnostic") == "tau-agent-prefix")
     lab = load_module("engine_lab", sources["lab.py"], ROOT + "/lab.py")
     sys.modules["engine_lab"] = lab
@@ -427,7 +431,9 @@ def apply_and_observe(contract, sources, modules, application, measured, lab):
     phase = "application-preflight"
     started = time.monotonic()
     deadline = started + APPLICATION_SECONDS
+    observer = progress.Progress(PROGRESS_SHA, started, deadline)
     try:
+        observer.boundary("layout")
         app.verify_layout(overlay, descriptor, diagnostic, application, measured)
         result["phase_elapsed_ms"][phase] = int((time.monotonic() - started) * 1000)
         phase = result["stage"] = "application"
@@ -437,9 +443,13 @@ def apply_and_observe(contract, sources, modules, application, measured, lab):
         with app.selected_tree(overlay, application, measured) as (tree, console):
             require(0 < deadline - time.monotonic() <= APPLICATION_SECONDS)
             tree.deadline = console[1].deadline = deadline
+            tree = observer.wrap(tree)
+            observer.boundary("inspection")
             before = app.inspect(overlay, tree, application, measured, console)
+            observer.boundary("application")
             result["application"] = app.apply(overlay, tree, application, stages, before, measured, console)
         require(time.monotonic() <= deadline)
+        require(observer.finish(completed=True))
         result["phase_elapsed_ms"][phase] = int((time.monotonic() - started) * 1000)
         phase = result["stage"] = "entry"
         started = time.monotonic()
@@ -458,6 +468,9 @@ def apply_and_observe(contract, sources, modules, application, measured, lab):
     except Exception:
         result["failure"] = "bounded-cpu-entry-rejected"
     finally:
+        if not observer.row["samples"] or observer.row["samples"][-1]["event"] != "terminal":
+            observer.finish()
+        result["application_progress"] = observer.row
         result["phase_elapsed_ms"][phase] = int((time.monotonic() - started) * 1000)
     return result
 
@@ -473,8 +486,8 @@ def validate(overlay, report, application, measured, receipt_validator, adapter=
         require(report.get("diagnostic") == "tokenizer-continuation")
         fixed.update(tokenizer_materialization=adapter, adapter_verified=report["entry_pass"])
     require(type(report) is dict
-            and set(report) in (set(fixed) | {"entry_pass", "stage", "application", "entry", "phase_elapsed_ms"},
-                                set(fixed) | {"entry_pass", "stage", "application", "entry", "phase_elapsed_ms", "failure"})
+            and set(report) in (set(fixed) | {"entry_pass", "stage", "application", "entry", "phase_elapsed_ms", "application_progress"},
+                                set(fixed) | {"entry_pass", "stage", "application", "entry", "phase_elapsed_ms", "application_progress", "failure"})
             and all(overlay.json_bytes(report[key]) == overlay.json_bytes(value) for key, value in fixed.items())
             and type(report["entry_pass"]) is bool
             and report["stage"] in ("application-preflight", "application", "entry", "complete"))
@@ -489,6 +502,8 @@ def validate(overlay, report, application, measured, receipt_validator, adapter=
         value = timings[name]
         require((type(value) is int and 0 <= value <= ATTACH_SECONDS * 1000) if index < reached else value is None)
     require(sum(value for value in timings.values() if value is not None) <= ATTACH_SECONDS * 1000)
+    progress.validate(report["application_progress"], PROGRESS_SHA, application_completed=reached == 3,
+                      elapsed_ms=timings["application-preflight"] + (timings["application"] or 0))
     if report["application"] is not None:
         require(report["stage"] != "application-preflight")
         # Reuse the authoritative receipt validator, not an alternate integrity

@@ -16,6 +16,7 @@ import unittest
 from unittest import mock
 
 import yaml
+from test_engine_application_progress import fixture_row as progress_fixture
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -607,7 +608,7 @@ class ContractTests(unittest.TestCase):
         fixture.SmokeTests.setUpClass()
         cls.extra = dict(fixture.SmokeTests.extra)
         for name in (tool.SCRIPT, tool.BASE, tool.RUNTIME, tool.LAB, tool.LAB_BOOTSTRAP, tool.EXCEPTIONS,
-                     tool.TEST, tool.SIX_TEST, tool.OPENCV_TEST, "scripts/test_deepseek_lab.py"):
+                     tool.TEST, tool.SIX_TEST, tool.OPENCV_TEST, tool.PROGRESS, tool.PROGRESS_TEST, "scripts/test_deepseek_lab.py"):
             cls.extra[name] = (ROOT / name).read_bytes()
         cls.bundle = tool.checker.working_bundle(ROOT)
         cls.files, cls.contract = tool.prepare_files("1" * 40, cls.bundle, cls.extra)
@@ -619,6 +620,7 @@ class ContractTests(unittest.TestCase):
                 "confidential": False, "hardware_validated": False, "abi_validated": False, "inference_started": False,
                 "entry_pass": True, "stage": "complete", "application": fixture.SmokeTests().application_receipt(),
                 "phase_elapsed_ms": {"application-preflight": 100, "application": 1000, "entry": 200},
+                "application_progress": progress_fixture(cpu.PROGRESS_SHA),
                 "entry": {"outcome": "exited", "exit_code": 0, "checkpoints": {"status": "eof", "last_id": 16},
                           "state_observation": "observed", "state_mismatches": dict.fromkeys(cpu.STATE_FIELDS, False),
                           "finder_diagnostic": cpu.decode_finders(finder_same()), "exception_diagnostic": None}}
@@ -640,6 +642,8 @@ class ContractTests(unittest.TestCase):
         self.assertNotEqual(changed_contract["source_bundle_sha256"], contract["source_bundle_sha256"])
         for name, digest in contract["sources"].items():
             self.assertEqual(tool.overlay.digest(files[name]), digest)
+        self.assertEqual(files["application-progress.py"], self.extra[tool.PROGRESS])
+        self.assertEqual(contract["application_progress_sha256"], cpu.PROGRESS_SHA)
         self.assertFalse(any(name.startswith("pack/") or name == "nib" for name in files))
         self.assertEqual(contract["arguments"], tool.lab.lab_args(tool.recorder.prep.launch_plan()))
         self.assertEqual(contract["environment"], tool.lab.lab_environment(tool.recorder.prep.launch_plan()))
@@ -689,6 +693,8 @@ class ContractTests(unittest.TestCase):
             report["phase_elapsed_ms"] = dict(zip(report["phase_elapsed_ms"], timing))
             if stage != "entry":
                 report["application"] = None
+                report["application_progress"] = progress_fixture(cpu.PROGRESS_SHA,
+                    "layout" if stage == "application-preflight" else "application")
             self.assertFalse(self.validate(report))
         report = self.valid_report()
         report["entry_pass"] = False
