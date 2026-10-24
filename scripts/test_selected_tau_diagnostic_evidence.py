@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Immutable selected tool-error evidence, with failed quality and joined cleanup."""
 
+import ast
 import copy
 import hashlib
 import json
@@ -92,6 +93,14 @@ class SelectedTauDiagnosticEvidenceTests(unittest.TestCase):
 
     def test_bounded_content_free_diagnostic_rejects_promotion(self):
         worker = self.module("tau_trial_worker.py", self.scorer["toolkit"]["files"]["scripts/tau_trial_worker.py"])
+        source = ast.parse(git(ROOT, "show", PRODUCER + ":scripts/tau_trial_worker.py"))
+        configs = [node for node in ast.walk(source) if isinstance(node, ast.Call)
+                   and isinstance(node.func, ast.Name) and node.func.id == "TextRunConfig"]
+        self.assertEqual(len(configs), 2)
+        for config in configs:
+            values = {item.arg: ast.literal_eval(item.value) for item in config.keywords if isinstance(item.value, ast.Constant)}
+            self.assertEqual({key: values[key] for key in ("max_errors", "max_retries", "hallucination_retries")},
+                             {"max_errors": 1, "max_retries": 0, "hallucination_retries": 0})
         observed = self.scorer["diagnostic"]["trial"]["upstream_termination"]
         self.assertEqual(observed, {"reason": "too_many_errors", "tool_errors": 1})
         self.assertEqual(worker.validate_upstream_termination(observed), observed)
@@ -138,6 +147,7 @@ class SelectedTauDiagnosticEvidenceTests(unittest.TestCase):
                 self.assertEqual(sha, HASHES["cpu/" + name][1])
             for role in ("simulator", "evaluator"):
                 model, tokenizer = (self.documents["cpu/" + role + "-" + name + ".json"] for name in ("runtime", "tokenizer"))
+                self.assertEqual(model["model"], "qwen/qwen3-0.6b" if role == "simulator" else "qwen/qwen3-1.7b")
                 self.assertEqual(model["producer"], tokenizer["producer"])
                 self.assertEqual(model["producer"], {"git_sha": PRODUCER, "script": "scripts/record-tau-cpu-parity.py",
                                  "source_sha256": self.cpu["sources"]["scripts/record-tau-cpu-parity.py"]})

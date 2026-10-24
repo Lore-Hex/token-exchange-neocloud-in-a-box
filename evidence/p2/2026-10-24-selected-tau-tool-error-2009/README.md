@@ -22,6 +22,12 @@ cleanup are not a successful quality result.
   remain unknown. This is more specific than the
   [earlier 1854 report](../2026-10-24-selected-tau-protocol-failure-1854/README.md),
   whose originals and inference limits are unchanged.
+- The source-pinned smoke stops at `max_errors=1`, without retrying tool errors.
+  Its CPU support profiles are Qwen3-0.6B simulator and Qwen3-1.7B evaluator
+  (the latter received no scoring requests). This strict stop and small support
+  profile are not a quality benchmark or evidence blaming the candidate alone;
+  incorrect simulator-supplied lookup inputs remain a possible contributor,
+  not an established cause.
 - GPU startup reached readiness in 830,098 ms on eight B300s, driver
   `580.178.04`, CUDA driver API `13.0`, CC disabled. Four 8K tokenizer parity
   cases passed (eight requests). Both GPU and CPU owners, scorer and controller
