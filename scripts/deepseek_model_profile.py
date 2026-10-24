@@ -51,7 +51,6 @@ def validate_contract(contract):
             or contract.get("pack_revision") != value["hf_revision"]
             or contract.get("pack_bytes") != value["total_bytes"]
             or type(contract.get("pack_bytes")) is not int
-            or contract.get("manifest_sha256") != value["manifest_sha256"]
-            or "provider_conformance" in contract):
+            or contract.get("manifest_sha256") != value["manifest_sha256"]):
         raise ValueError("model contract rejected")
     return value

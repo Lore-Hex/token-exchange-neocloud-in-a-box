@@ -22,6 +22,7 @@ import types
 SUPPORT_SHA = "35e784639e7014f4bcb836f12cd8cc533b4f1d7ba9d9d97f66b93325ad8c73ff"
 LOCK_SHA = "d5fbea8926b7410c34730593b8ebd305f01b04a160eb30e9867330c45799ade7"
 CHECKER_SHA = "591a11295d3f1e0ef20fbc51c788cabfbedf176e79ce56de8378252bd13adecd"
+PROFILE_SHA = "11475b07991fb510704d64143fcd9a0084327e586699604f14f88436960b754a"
 CONTRACT = "973e380e5ab7e6303576dd7555c186244649befdc2da5c64017611abe9918769"
 MODEL = "deepseek-v4.1-flash-1017"
 ENDPOINT = "http://127.0.0.1:8000/v1"
@@ -61,7 +62,7 @@ def audit(event, args):
         raise BoundaryAbort()
 
 
-def project(run, upstream_gate):
+def project(run, upstream_gate, *, model=MODEL):
     """Keep upstream verdicts, never measured content, assertions, errors or model IDs."""
     require(type(upstream_gate) is bool and type(run.checks) is list
             and 0 < len(run.checks) <= len(ALLOWED))
@@ -73,9 +74,9 @@ def project(run, upstream_gate):
                 and type(row.status) is str and row.status in ("pass", "fail", "warn", "skip"))
         rows[row.id] = row.status
         if row.id == "catalog.native-model-discovery":
-            native_matches = (type(row.measured) is dict and row.measured.get("model_ids") == [MODEL]
+            native_matches = (type(row.measured) is dict and row.measured.get("model_ids") == [model]
                               and row.measured.get("unreadable_row_count") == 0
-                              and run.selected_model == MODEL)
+                              and run.selected_model == model)
     require(upstream_gate == ("fail" not in rows.values()))
     accepted = (upstream_gate and native_matches and set(rows) == set(ALLOWED)
                 and rows["catalog.declared-v2"] == "skip"
@@ -106,13 +107,23 @@ def verify(root, expected):
     raw = support.read(root / "trial.json", 1 << 20)
     require(hashlib.sha256(raw).hexdigest() == expected)
     plan = support.decode(raw)
-    require(type(plan) is dict and set(plan) == {"schema", "requirements_sha256", "checker_wheel_sha256", "files"}
+    require(type(plan) is dict and set(plan) in (
+                {"schema", "requirements_sha256", "checker_wheel_sha256", "files"},
+                {"schema", "requirements_sha256", "checker_wheel_sha256", "files", "model_profile"})
             and plan["schema"] == "nib.private-provider-payload/v1"
             and plan["requirements_sha256"] == LOCK_SHA and plan["checker_wheel_sha256"] == CHECKER_SHA
             and type(plan["files"]) is dict and set(plan["files"]) >= {"worker.py", "support.py"}
-            and all(name in ("worker.py", "support.py") or name.startswith("packages/")
+            and all(name in ("worker.py", "support.py", "model-profile.py") or name.startswith("packages/")
                     for name in plan["files"]))
     support.verify_tree(root, plan["files"], time.monotonic() + 30)
+    require(("model-profile.py" in plan["files"]) == ("model_profile" in plan))
+    if "model_profile" in plan:
+        raw = support.read(root / "model-profile.py", 1 << 20)
+        require(hashlib.sha256(raw).hexdigest() == PROFILE_SHA)
+        profiles = types.ModuleType("checker_model_profiles")
+        exec(compile(raw, "model-profile.py", "exec", dont_inherit=True), profiles.__dict__)
+        require(type(plan["model_profile"]) is dict and plan["model_profile"] == profiles.select("uncensored")
+                and type(plan["model_profile"].get("total_bytes")) is int)
     return plan
 
 
@@ -129,7 +140,8 @@ def execute(root, expected):
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     resource.setrlimit(resource.RLIMIT_FSIZE, (0, 0))
     resource.setrlimit(resource.RLIMIT_CPU, (60, 60))
-    verify(root, expected)
+    plan = verify(root, expected)
+    model = plan["model_profile"]["served_model_name"] if "model_profile" in plan else MODEL
     sys.path.append(str(root / "packages"))
     sys.addaudithook(audit)
     from tr_provider_check import __version__
@@ -137,10 +149,10 @@ def execute(root, expected):
     from tr_provider_check.report import report_document
     from tr_provider_check.snapshot import contract_version
     require(__version__ == "0.1.8" and contract_version == CONTRACT)
-    run = asyncio.run(run_checks(base_url=ENDPOINT, api_key=None, model=MODEL,
+    run = asyncio.run(run_checks(base_url=ENDPOINT, api_key=None, model=model,
                                  catalog_url=None, tier=4, max_sweep_models=1))
     gate = report_document(run.checks)["summary"]["conformance_gate"]
-    return result("completed", project(run, gate))
+    return result("completed", project(run, gate, model=model))
 
 
 def main():

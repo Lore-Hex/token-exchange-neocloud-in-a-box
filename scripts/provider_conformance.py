@@ -23,8 +23,10 @@ RUNTIME_SHA = "bba26279580ed48959c571cffa9b386ce094e7ac524a0cfbcad917d442341090"
 SUPPORT_SHA = "35e784639e7014f4bcb836f12cd8cc533b4f1d7ba9d9d97f66b93325ad8c73ff"
 LOCK_SHA = "d5fbea8926b7410c34730593b8ebd305f01b04a160eb30e9867330c45799ade7"
 CHECKER_SHA = "591a11295d3f1e0ef20fbc51c788cabfbedf176e79ce56de8378252bd13adecd"
+PROFILE_SHA = "11475b07991fb510704d64143fcd9a0084327e586699604f14f88436960b754a"
+PROFILE_SOURCE = "scripts/deepseek_model_profile.py"
 SOURCES = ("scripts/provider_conformance.py", "scripts/provider_conformance_worker.py",
-           "scripts/tau_runtime.py", "scripts/tau_trial_worker.py", "scripts/e2e/requirements.lock")
+           "scripts/tau_runtime.py", "scripts/tau_trial_worker.py", "scripts/e2e/requirements.lock", PROFILE_SOURCE)
 
 
 def require(value):
@@ -96,7 +98,8 @@ def add_wheel(files, raw, expected, deadline):
     require(len(files) <= 4000 and sum(map(len, files.values())) <= 64 << 20)
 
 
-def prepare(wheelhouse, deadline):
+def prepare(wheelhouse, deadline, *, model_profile="original"):
+    require(type(model_profile) is str and model_profile in ("original", "uncensored"))
     lock = runtime.read_file(ROOT / "scripts/e2e/requirements.lock", 1 << 20, deadline)
     packages = requirements(lock)
     with runtime.directory(wheelhouse) as directory:
@@ -121,10 +124,17 @@ def prepare(wheelhouse, deadline):
                          ("support.py", "scripts/tau_trial_worker.py")):
         files[target] = runtime.read_file(ROOT / name, 1 << 20, deadline)
     require(runtime.digest(files["support.py"]) == SUPPORT_SHA)
+    identity = None
+    if model_profile == "uncensored":
+        identity = source(PROFILE_SOURCE, PROFILE_SHA).select(model_profile)
+        files["model-profile.py"] = runtime.read_file(ROOT / PROFILE_SOURCE, 1 << 20, deadline)
+        require(runtime.digest(files["model-profile.py"]) == PROFILE_SHA)
     plan = {"schema": "nib.private-provider-payload/v1", "requirements_sha256": LOCK_SHA,
             "checker_wheel_sha256": CHECKER_SHA,
             "files": {name: {"bytes": len(raw), "sha256": runtime.digest(raw)}
                       for name, raw in sorted(files.items())}}
+    if identity is not None:
+        plan["model_profile"] = identity
     files["trial.json"] = runtime.encoded(plan)
     return files
 
@@ -154,11 +164,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--wheelhouse", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--model-profile", choices=("original", "uncensored"), default="original")
     args = parser.parse_args()
     try:
         deadline = time.monotonic() + 60
         producer = identity(deadline)
-        files = prepare(args.wheelhouse, deadline)
+        files = prepare(args.wheelhouse, deadline, model_profile=args.model_profile)
         require(identity(deadline) == producer
                 and runtime.digest(files["worker.py"]) == producer["files"][SOURCES[1]])
         publish(args.output, files)

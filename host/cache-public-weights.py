@@ -35,7 +35,7 @@ scope = {'__name__': 'bound_cache_restore'}
 exec(compile(sys.argv.pop(1), '<bound-cache-restore>', 'exec'), scope)
 scope['restore_worker'](*sys.argv[1:])
 """
-PROFILE_SHA256 = "327c1f65d7d8d23838bd816a60243d1ccc4e02d48fca21a823a4f52356d64040"
+PROFILE_SHA256 = "11475b07991fb510704d64143fcd9a0084327e586699604f14f88436960b754a"
 PUBLICATION_SHA256 = "baaf98e34904b080513fdd468e83e1eb818c2e2ce69d87cf6fb6a421e7268666"
 SEED_FILES = 48
 SEED_BYTES = 310737990397
