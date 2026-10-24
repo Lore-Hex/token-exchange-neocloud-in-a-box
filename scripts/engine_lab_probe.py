@@ -408,8 +408,15 @@ def validate_diagnostic(row):
 
 def main():
     require(sys.platform == "linux" and sys.flags.isolated and sys.flags.no_site
-            and sys.dont_write_bytecode and len(sys.argv) == 1)
-    print(json.dumps(validate(NVML().observe()), sort_keys=True))
+            and sys.dont_write_bytecode)
+    arguments = sys.argv[1:]
+    require(arguments in ([], ["--nonconfidential-b300-eight"]))
+    if arguments:
+        raw = NVML().observe("B300", nonconfidential=True, expected=8)
+        result = validate_nonconfidential(raw, family="B300", expected=8)
+    else:
+        result = validate(NVML().observe())
+    print(json.dumps(result, sort_keys=True))
 
 
 if __name__ == "__main__":

@@ -1374,6 +1374,57 @@ class HardwareTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     probe.NVML().observe(nonconfidential=True)
 
+    def test_probe_cli_preserves_default_and_requires_explicit_ordinary_mode(self):
+        for arguments, count, ordinary in (([], 4, False), (["--nonconfidential-b300-eight"], 8, True)):
+            library = DiagnosticTests().library(count=count, name=b"NVIDIA B300" if ordinary else b"NVIDIA B200",
+                memory=250 << 20, **({"feature": 0, "environment": 0, "multigpu": 0} if ordinary else {}))
+            invocation = types.SimpleNamespace(platform="linux", dont_write_bytecode=True,
+                flags=types.SimpleNamespace(isolated=1, no_site=1), argv=["probe.py", *arguments])
+            with self.subTest(arguments=arguments), mock.patch.object(probe, "sys", invocation), \
+                    mock.patch.object(probe.c, "CDLL", return_value=library), mock.patch("builtins.print") as output:
+                probe.main()
+            output.assert_called_once()
+            row = json.loads(output.call_args.args[0])
+            self.assertEqual(row["selected_gpus"], count)
+            self.assertEqual(row["cc_feature"], "disabled" if ordinary else "enabled")
+            self.assertFalse(row["attestation_verified"])
+            if ordinary:
+                with self.assertRaises(ValueError):
+                    probe.validate_report(row, family="B300", expected=8)
+
+    def test_probe_cli_rejects_unsupported_invocations_before_loading_nvml(self):
+        for arguments in (["--auto"], ["--nonconfidential"], ["--nonconfidential-b300-eight", "extra"],
+                          ["--nonconfidential-b300-eight"] * 2, ["--confidential-b300-eight"]):
+            invocation = types.SimpleNamespace(platform="linux", dont_write_bytecode=True,
+                flags=types.SimpleNamespace(isolated=1, no_site=1), argv=["probe.py", *arguments])
+            with self.subTest(arguments=arguments), mock.patch.object(probe, "sys", invocation), \
+                    mock.patch.object(probe.c, "CDLL") as library, self.assertRaises(ValueError):
+                probe.main()
+            library.assert_not_called()
+        for change in ({"platform": "darwin"}, {"dont_write_bytecode": False},
+                       {"flags": types.SimpleNamespace(isolated=0, no_site=1)},
+                       {"flags": types.SimpleNamespace(isolated=1, no_site=0)}):
+            invocation = types.SimpleNamespace(**({"platform": "linux", "dont_write_bytecode": True,
+                "flags": types.SimpleNamespace(isolated=1, no_site=1),
+                "argv": ["probe.py", "--nonconfidential-b300-eight"]} | change))
+            with self.subTest(change=change), mock.patch.object(probe, "sys", invocation), \
+                    mock.patch.object(probe.c, "CDLL") as library, self.assertRaises(ValueError):
+                probe.main()
+            library.assert_not_called()
+
+    def test_probe_cli_never_retries_failed_ordinary_observation_as_confidential(self):
+        invocation = types.SimpleNamespace(platform="linux", dont_write_bytecode=True,
+            flags=types.SimpleNamespace(isolated=1, no_site=1),
+            argv=["probe.py", "--nonconfidential-b300-eight"])
+        with mock.patch.object(probe, "sys", invocation), mock.patch.object(probe, "NVML") as factory, \
+                mock.patch("builtins.print") as output:
+            factory.return_value.observe.side_effect = ValueError("unavailable")
+            with self.assertRaises(ValueError):
+                probe.main()
+            factory.assert_called_once_with()
+            factory.return_value.observe.assert_called_once_with("B300", nonconfidential=True, expected=8)
+            output.assert_not_called()
+
     def test_profile_has_no_auto_downgrade(self):
         self.assertEqual(probe.security_profile({}), "confidential")
         contract = {"operation": "local-correctness", "gpu_security": "nonconfidential"}
