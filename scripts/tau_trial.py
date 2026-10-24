@@ -137,7 +137,22 @@ def check_probe_image(image):
     return {"manifest": PROBE_MANIFEST, "config": PROBE_CONFIG, "platform": "linux/amd64"}
 
 
-def identity(deadline, parent_pipe=False, *, live_local=False, support_probe=False, agent_prefix=False):
+def selected_policy(toolkit):
+    modules = {"tau_preflight": tau}
+    for name in ("deepseek_model_profile", "tau_support_probe", "tau_selected_policy"):
+        path = "scripts/" + name + ".py"
+        modules[name] = load(path, toolkit["files"][path], modules=modules)
+    return modules["tau_selected_policy"]
+
+
+def selected_mode(value, parent_pipe, live_local, support_probe, agent_prefix):
+    require(type(value) is bool and (not value or parent_pipe is True
+            and not live_local and not support_probe and not agent_prefix))
+
+
+def identity(deadline, parent_pipe=False, *, live_local=False, support_probe=False, agent_prefix=False,
+             selected_operational=False):
+    selected_mode(selected_operational, parent_pipe, live_local, support_probe, agent_prefix)
     require(not live_local or parent_pipe)
     require(not support_probe or parent_pipe and not live_local)
     require(type(agent_prefix) is bool and (not agent_prefix or support_probe))
@@ -151,6 +166,10 @@ def identity(deadline, parent_pipe=False, *, live_local=False, support_probe=Fal
         names += ("scripts/tau_support_probe.py", "scripts/tau_cpu_support_models.json")
     if agent_prefix:
         names += ("scripts/tau_agent_prefix.py", "scripts/test_tau_agent_prefix.py")
+    if selected_operational:
+        names += ("scripts/deepseek_model_profile.py", "scripts/tau_support_probe.py",
+                  "scripts/tau_cpu_support_models.json", "scripts/tau_selected_policy.py",
+                  "scripts/test_tau_selected_scorer.py")
     if live_local:
         names += ("scripts/tau_live_trial.py", "scripts/tau_live_identity.py", "scripts/tau_local_vllm.py",
                   "scripts/test_tau_live_trial.py", "scripts/test_tau_local_vllm.py",
@@ -200,21 +219,25 @@ def add_wheel(files, owners, raw, package, expected, deadline):
 
 
 def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, deadline, *, parent_pipe=False,
-            live_binding=None, support_probe=False, agent_prefix=False):
+            live_binding=None, support_probe=False, agent_prefix=False, selected_operational=False):
+    selected_mode(selected_operational, parent_pipe, live_binding is not None, support_probe, agent_prefix)
     require(not support_probe or parent_pipe and live_binding is None)
     require(type(agent_prefix) is bool and (not agent_prefix or support_probe))
     toolkit = (identity(deadline, parent_pipe, live_local=True) if live_binding is not None
                else identity(deadline, parent_pipe, **({"support_probe": True} if support_probe else {}),
-                             **({"agent_prefix": True} if agent_prefix else {})))
+                             **({"agent_prefix": True} if agent_prefix else {}),
+                             **({"selected_operational": True} if selected_operational else {})))
     pins_raw = runtime.read_file(ROOT / tau.PINS, 1 << 20, deadline)
     require(tau.digest(pins_raw) == tau.PINS_SHA)
     pins = tau.json_value(pins_raw)
-    if support_probe:
+    if support_probe or selected_operational:
         require(manifest_path is None and manifest_sha is None and selection is None)
-        policy = load("scripts/tau_support_probe.py", modules={"tau_preflight": tau})
+        policy = (selected_policy(toolkit) if selected_operational else
+                  load("scripts/tau_support_probe.py", modules={"tau_preflight": tau}))
         manifest = policy.configuration()
         manifest_sha = tau.digest(tau.encoded(manifest))
-        chosen = dict(policy.SELECTION)
+        source_policy = policy.support if selected_operational else policy
+        chosen = dict(source_policy.SELECTION)
     else:
         raw = runtime.read_file(manifest_path, 1 << 20, deadline)
         manifest = tau.json_value(raw)
@@ -226,8 +249,8 @@ def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, de
     catalog = tau.json_value(catalog_raw)
     source_rows, sources = runtime.source_inputs(archive, pins, deadline)
     require(runtime.make_catalog(source_rows, sources) == catalog)
-    if support_probe:
-        require(policy.source_selection(sources) == chosen)
+    if support_probe or selected_operational:
+        require(source_policy.source_selection(sources) == chosen)
     else:
         rebuilt = tau.preflight(Path("/verified"), manifest["settings"], pins, manifest["toolkit"],
                                 reader=lambda path, limit, end: sources[path.relative_to("/verified").as_posix()],
@@ -248,6 +271,8 @@ def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, de
                "target": runtime.TARGET, "selected_wheels": len(catalog["wheels"]),
                "source_files": len(source_rows), "root_mode": catalog["root"]["mode"],
                "dependencies_installed": False, "upstream_executed": False, "live_transport": False}
+    if selected_operational:
+        receipt["schema"] = "nib.tau-selected-scorer-inputs/v1"
     files["inputs.json"] = tau.encoded(receipt)
     if live_binding is not None:
         require(parent_pipe)
@@ -266,6 +291,9 @@ def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, de
         contract["schema"] = "nib.tau-cpu-probe-plan/v1"
     if agent_prefix:
         contract.update(schema="nib.tau-agent-prefix-plan/v1", agent_prefix=True)
+    if selected_operational:
+        contract.update(schema="nib.tau-selected-scorer-plan/v1", selected_operational=True,
+                        seconds=policy.LIMITS["run_seconds"], transport="selected-operational-parent-pipe")
     files["trial.json"] = tau.encoded(contract)
     require(len(files["trial.json"]) <= 4 << 20 and time.monotonic() < deadline)
     return files, contract
@@ -294,7 +322,8 @@ def publish(destination, files):
 
 
 def validate_plan(payload, sha, toolkit, deadline, *, parent_pipe=False, live_local=False, support_probe=False,
-                  agent_prefix=False):
+                  agent_prefix=False, selected_operational=False):
+    selected_mode(selected_operational, parent_pipe, live_local, support_probe, agent_prefix)
     require(not live_local or parent_pipe)
     require(not support_probe or parent_pipe and not live_local)
     require(type(agent_prefix) is bool and (not agent_prefix or support_probe))
@@ -312,16 +341,24 @@ def validate_plan(payload, sha, toolkit, deadline, *, parent_pipe=False, live_lo
         expected_keys.add("support_probe")
     if agent_prefix:
         expected_keys.add("agent_prefix")
+    if selected_operational:
+        expected_keys.add("selected_operational")
+    policy = selected_policy(toolkit) if selected_operational else None
     require(type(plan) is dict and set(plan) == expected_keys
-            and plan["schema"] == ("nib.tau-agent-prefix-plan/v1" if agent_prefix else
+            and plan["schema"] == ("nib.tau-selected-scorer-plan/v1" if selected_operational else
+                                   "nib.tau-agent-prefix-plan/v1" if agent_prefix else
                                    "nib.tau-cpu-probe-plan/v1" if support_probe else "nib.tau-scripted-plan/v1")
             and plan["image"] == runtime.TARGET["image"]
             and plan["platform"] == runtime.TARGET["platform"] and plan["environment"] == ENVIRONMENT
-            and plan["seconds"] == SECONDS and plan["producer"]["git_sha"] == toolkit["git_sha"]
+            and type(plan["seconds"]) is int
+            and plan["seconds"] == (policy.LIMITS["run_seconds"] if selected_operational else SECONDS)
+            and plan["producer"]["git_sha"] == toolkit["git_sha"]
             and plan["producer"]["adapter_sha256"] == toolkit["files"][WORKER])
-    require(not parent_pipe or plan["transport"] == "scripted-parent-pipe")
+    require(not parent_pipe or plan["transport"] == ("selected-operational-parent-pipe"
+                                                   if selected_operational else "scripted-parent-pipe"))
     require(not support_probe or plan["support_probe"] is True)
     require(not agent_prefix or plan["agent_prefix"] is True)
+    require(not selected_operational or plan["selected_operational"] is True)
     require(("live-binding.json" in plan["files"]) is live_local)
     for name, expected in toolkit["files"].items():
         require(plan["files"][name]["sha256"] == expected)
@@ -329,16 +366,18 @@ def validate_plan(payload, sha, toolkit, deadline, *, parent_pipe=False, live_lo
     manifest = tau.json_value(runtime.read_file(payload / "manifest.json", 1 << 20, deadline))
     pins = tau.json_value(runtime.read_file(ROOT / tau.PINS, 1 << 20, deadline))
     selection = plan["selection"]
-    if support_probe:
-        policy = load("scripts/tau_support_probe.py", toolkit["files"]["scripts/tau_support_probe.py"],
-                      modules={"tau_preflight": tau})
+    if support_probe or selected_operational:
+        if not selected_operational:
+            policy = load("scripts/tau_support_probe.py", toolkit["files"]["scripts/tau_support_probe.py"],
+                          modules={"tau_preflight": tau})
         policy.validate(manifest, plan["manifest_sha256"])
         prefix = "data/tau2/domains/retail/"
         sources = {prefix + name: runtime.read_file(payload / "upstream" / prefix / name, 16 << 20, deadline)
                    for name in ("tasks.json", "split_tasks.json")}
         for name, raw in sources.items():
             require(tau.digest(raw) == pins["files"][name]["sha256"] and len(raw) == pins["files"][name]["bytes"])
-        require(selection == policy.source_selection(sources))
+        source_policy = policy.support if selected_operational else policy
+        require(tau.encoded(selection) == tau.encoded(source_policy.source_selection(sources)))
     else:
         aggregate.validate_manifest(manifest, plan["manifest_sha256"], pins)
         require(selection == select(manifest, selection["domain"], selection["task_id"],
@@ -348,7 +387,8 @@ def validate_plan(payload, sha, toolkit, deadline, *, parent_pipe=False, live_lo
     return plan, manifest
 
 
-def create_command(name, owner, payload, sha, *, parent_pipe=False):
+def create_command(name, owner, payload, sha, *, parent_pipe=False, selected_operational=False):
+    selected_mode(selected_operational, parent_pipe, False, False, False)
     return ["create", *(["--interactive"] if parent_pipe else []),
             "--name", name, "--label", LABEL + "=" + owner, "--pull", "never",
             "--platform", "linux/amd64", "--runtime", "runc", "--user", "65534:65534",
@@ -361,12 +401,16 @@ def create_command(name, owner, payload, sha, *, parent_pipe=False):
             "--entrypoint", "/usr/bin/env", runtime.TARGET["image"], "-i",
             *[key + "=" + value for key, value in sorted(ENVIRONMENT.items())],
             "/usr/local/bin/python3", "-I", "-S", "-B", "/opt/nib/" + WORKER, sha,
-            *(["--parent-pipe"] if parent_pipe else [])]
+            *(["--parent-pipe"] if parent_pipe else []),
+            *(["--selected-operational"] if selected_operational else [])]
 
 
-def check_container(info, name, owner, payload, sha, selected_manifest, *, parent_pipe=False, support_probe=False):
+def check_container(info, name, owner, payload, sha, selected_manifest, *, parent_pipe=False, support_probe=False,
+                    selected_operational=False):
+    selected_mode(selected_operational, parent_pipe, False, support_probe, False)
     cfg, host = info["Config"], info["HostConfig"]
-    command = create_command(name, owner, payload, sha, parent_pipe=parent_pipe)
+    command = create_command(name, owner, payload, sha, parent_pipe=parent_pipe,
+                             **({"selected_operational": True} if selected_operational else {}))
     # Moby containerd keeps the outer index in Image, not the selected manifest.
     # See the exact daemon/CLI source chain in p2-t3-tau-single-trial.md.
     if support_probe:
