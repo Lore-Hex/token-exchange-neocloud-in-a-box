@@ -45,7 +45,10 @@
     },
     {
       "if": {"properties": {"execution": {"const": "hardware"}}},
-      "then": {"properties": {"host": {"properties": {"driver": {"type": "string"}, "cuda": {"type": "string"}}}}},
+      "then": {
+        "if": {"properties": {"result": {"const": "fail"}, "hardware_validated": {"const": false}}},
+        "else": {"properties": {"host": {"properties": {"driver": {"type": "string"}, "cuda": {"type": "string"}}}}}
+      },
       "else": {"properties": {"hardware_validated": {"const": false}}}
     },
     {"if": {"properties": {"result": {"const": "fail"}}}, "then": {"properties": {"hardware_validated": {"const": false}}}}

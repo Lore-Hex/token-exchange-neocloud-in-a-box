@@ -58,6 +58,10 @@ Evidence uses `execution: not_run|software|fake|hardware`. A scaffold has
 and `hardware_validated: false`. Completed runs have `result: pass|fail` and
 UTC timestamps. Only a passing `hardware` record can claim
 `hardware_validated: true`; software, fake, unexecuted and failed tests cannot.
+Hardware passes require both driver and CUDA version strings even when
+`hardware_validated` is false. Only failed, unvalidated hardware attempts may
+record either or both as null when those facts were not collected. The fields
+remain required, and supplied strings must still satisfy the version formats.
 This is a consistency rule, not proof of truthful provenance. Never infer a
 hardware result from schema validation. Synthetic evidence is only test data.
 
