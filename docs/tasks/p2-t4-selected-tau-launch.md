@@ -12,6 +12,27 @@ The CPU inputs are the four fixed files in
 `scripts/prepare-tau-cpu-parity-native.py`'s `plan`; the scorer archive and
 wheels are pinned by the existing tau runtime lock. Nothing downloads during
 inference. Both pinned Go/Python images and the GPU image must already exist.
+Before preparing the scorer payload or starting either owner, the controller
+performs bounded read-only image checks: the existing selected-scorer descriptor
+validator on its fixed local socket, and the CPU recorder's existing base-image
+validator on the CPU owner's local Docker context. Missing images, unsupported
+image-inspection commands and incompatible metadata fail before GPU startup.
+This does not add a classic-store fallback, pull images or replace the original
+checks repeated by each consumer at use time.
+The same preflight also calls the CPU recorder's pinned `require_buildkit`
+helper in its private Docker configuration and resolved CPU context. A missing
+Docker/Buildx executable, failed version check, timeout or exhausted preflight
+deadline prevents either owner from starting. This check installs nothing,
+builds no images and does not replace the CPU owner's repeated Buildx check.
+
+Stage transferred bundles as root-owned private files. When packing on macOS,
+exclude AppleDouble and extended attributes with `COPYFILE_DISABLE=1` and tar's
+`--disable-copyfile --no-xattrs`; on the approved Linux host, extract **as root**
+with GNU tar `--no-same-owner` into a fresh private directory. Preserve file
+modes and the original receipt hash. The controller reuses the GPU recorder's
+[payload ownership validator](p2-t3-payload-ownership.md) immediately after bundle
+authentication, before image checks or owner startup. It does not repair
+ownership, widen permissions, relax receipt checks or add container capabilities.
 
 ```sh
 python3 -I -S -B scripts/record-tau-selected.py \

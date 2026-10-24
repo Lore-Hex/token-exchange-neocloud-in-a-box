@@ -15,6 +15,7 @@ from unittest import mock
 
 import tau_cpu_parity as cpu
 from test_evidence_history import git
+from test_qwen_pilot import assert_reviewed_pilot_source
 
 ROOT = Path(__file__).resolve().parent.parent
 native = types.SimpleNamespace(**runpy.run_path(str(ROOT / "scripts/prepare-tau-cpu-parity-native.py")))
@@ -57,7 +58,11 @@ class NativeCPUParityTests(unittest.TestCase):
         for path in ("scripts/tau_cpu_parity.py", "scripts/pilot/run.py",
                      "scripts/tau_cpu_parity.Dockerfile", "scripts/prepare-tau-cpu-parity-native.py",
                      ".github/workflows/tau-cpu-parity-native.yml"):
-            self.assertEqual((ROOT / path).read_bytes(), git(ROOT, "show", producer + ":" + path))
+            current, original = (ROOT / path).read_bytes(), git(ROOT, "show", producer + ":" + path)
+            if path == "scripts/pilot/run.py":
+                assert_reviewed_pilot_source(self, current, original)
+            else:
+                self.assertEqual(current, original)
         self.assert_kernel_guards_unchanged(producer)
 
     def test_base_inspection_rejects_wrong_metadata_and_command_failure_before_build(self):
@@ -122,7 +127,11 @@ class NativeCPUParityTests(unittest.TestCase):
         self.assertEqual(row["runtime"]["models"][0]["cases"], [])
         self.assertTrue(all(row[key] is False for key in ("quality_eligible", "confidential", "live_admission")))
         for name in ("scripts/tau_cpu_parity.py", "scripts/pilot/run.py"):
-            self.assertEqual((ROOT / name).read_bytes(), git(ROOT, "show", producer + ":" + name))
+            current, original = (ROOT / name).read_bytes(), git(ROOT, "show", producer + ":" + name)
+            if name == "scripts/pilot/run.py":
+                assert_reviewed_pilot_source(self, current, original)
+            else:
+                self.assertEqual(current, original)
         self.assert_kernel_guards_unchanged(producer)
 
     def test_exact_kernel_argv_stays_required_including_trailing_nul(self):
