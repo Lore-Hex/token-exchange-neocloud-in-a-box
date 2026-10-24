@@ -705,6 +705,7 @@ def run_container(bundle, sha, weights, deadline, recorder, contract, config, en
     provider = "provider_conformance" in contract
     provider_ready = None
     gpu_owner = owner_module(contract, bundle)
+    owner_errors = (gpu_owner.worker.Abort,) if gpu_owner is not None else ()
     owner_ready = owner_result = None
     if provider:
         session = load("lab_provider_live", Path(bundle) / "payload/provider-session.py",
@@ -813,7 +814,7 @@ def run_container(bundle, sha, weights, deadline, recorder, contract, config, en
         terminal = True
         report.update(experiment=experiment, functional_pass=experiment["functional_pass"],
                       stage="completed", experiment_step="completed")
-    except Exception:
+    except (Exception, *owner_errors):
         report["failure"] = "bounded-lab-stage-failed"
     finally:
         CLEANING = True
@@ -870,7 +871,12 @@ def validate_result(row, bundle, contract, recorder):
         fields.add("tau_owner")
         module = owner_module(contract, bundle)
         if row.get("tau_owner") is not None:
-            module.validate_result(row["tau_owner"])
+            try:
+                module.validate_result(row["tau_owner"])
+            except module.worker.Abort:
+                # This source-verified module owns a fresh Abort class. Normalize
+                # only its validation failure at the host reporting boundary.
+                raise ValueError("invalid tau owner result") from None
             require(row.get("stage") in ("request", "complete"))
         require(row.get("functional_pass") is not True or row.get("tau_owner") is not None
                 and row["tau_owner"]["status"] == "evaluated")

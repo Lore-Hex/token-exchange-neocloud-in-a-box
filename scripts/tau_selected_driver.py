@@ -176,30 +176,31 @@ def run_process(command, environment, payload, plan, frozen, deadline, *, candid
             raise ValueError("selected scorer setup rejected") from None
         session.result = failure(session, exc)
     finally:
-        if session is None and channel is not None:
-            channel.close()
-        for fd in descriptors:
-            os.close(fd)
-        if process is not None:
-            try:
-                if process.poll() is None:
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise worker.Abort("timeout")
-                exit_code = process.wait(timeout=min(10, remaining))
-                cleanup = "reaped"
-            except (worker.Abort, OSError, subprocess.TimeoutExpired) as exc:
-                completed = False
-                session.result = failure(session, exc)
-        if session is not None:
-            try:
+        try:
+            for fd in descriptors:
+                os.close(fd)
+            if process is not None:
+                try:
+                    if process.poll() is None:
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise worker.Abort("timeout")
+                    exit_code = process.wait(timeout=min(10, remaining))
+                    cleanup = "reaped"
+                except (worker.Abort, OSError, subprocess.TimeoutExpired) as exc:
+                    completed = False
+                    session.result = failure(session, exc)
+            if session is not None:
                 owner_finish = finish_owners(session, deadline)
-            finally:
+        finally:
+            if session is not None:
                 session.close()
+            elif channel is not None:
+                channel.close()
     return diagnostic(session, protocol_completed=completed, attach_cleanup=cleanup, exit_code=exit_code,
                       owner_finish=owner_finish)
 

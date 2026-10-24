@@ -2,10 +2,14 @@
 """GPU-free opt-in payload and actual private-pipe supervisor regressions."""
 
 import copy
+from contextlib import contextmanager
+import hashlib
 import os
+import signal
 import sys
 import threading
 import time
+import types
 import unittest
 from unittest import mock
 
@@ -119,6 +123,101 @@ class GPULabTests(unittest.TestCase):
                     time.monotonic() + .1, snapshot, contract, fixtures.SHA, read_fd=rd, write_fd=wr)
         snapshot.cleanup_process_group.assert_called_once()
         self.assertIsNotNone(snapshot.cleanup_process_group.call_args.args[0].poll())
+
+    def test_guest_owner_abort_preserves_failed_report_and_engine_teardown(self):
+        @contextmanager
+        def selected(*_):
+            yield types.SimpleNamespace(deadline=0), (None, types.SimpleNamespace(deadline=0))
+        app = types.SimpleNamespace(verify_layout=lambda *_: None, selected_tree=selected,
+                                   inspect=lambda *_: {}, apply=lambda *_: {"stages": 5})
+        contract = {**fixtures.contract(), "tau_owner": {"schema": gpu.SCHEMA}, "paths": ["/selected"]}
+        parity = types.SimpleNamespace(verify_sources=lambda *_: None,
+                                      run=lambda *a, **k: {"all_cases_pass": True})
+        for status in ("budget_abort", "timeout", "infrastructure_error", "protocol_error"):
+            engine = mock.Mock(pid=99999999)
+            engine.poll.return_value, engine.wait.return_value = None, 0
+            def observe(_engine, _contract, row, _started):
+                row["samples"].append(fixtures.runtime.sample())
+            with self.subTest(status=status), mock.patch.object(lab, "TAU_OWNER", gpu), \
+                    mock.patch.object(lab, "RUNTIME_OBSERVER", gpu.observer), \
+                    mock.patch.object(lab, "GPU_PROBE", tuning.fixtures.fixtures.probe), \
+                    mock.patch.object(lab, "CORRECTNESS", gpu.correctness), \
+                    mock.patch.object(lab, "PARITY", parity), \
+                    mock.patch.object(lab, "hashlib", hashlib, create=True), \
+                    mock.patch.object(lab, "tokenizer_adapter_options", return_value={}, create=True), \
+                    mock.patch.object(lab, "model_identity", return_value=None), \
+                    mock.patch.object(lab, "tuning_module", return_value=None), \
+                    mock.patch.object(lab, "prepare_local_tokenizer", return_value=({}, None)), \
+                    mock.patch.object(lab, "check_scratch_mounts"), \
+                    mock.patch.object(lab, "read_source", return_value=b"contract"), \
+                    mock.patch.object(lab, "hardware", return_value={"fixed": True}), \
+                    mock.patch.object(lab, "quiet_command"), mock.patch.object(lab, "observe_startup"), \
+                    mock.patch.object(lab, "observe_runtime", side_effect=observe), \
+                    mock.patch.object(lab.subprocess, "Popen", return_value=engine), \
+                    mock.patch.object(lab.os, "killpg") as kill, \
+                    mock.patch.object(gpu, "serve", side_effect=gpu.worker.Abort(status)) as serve:
+                row = lab.application_and_request(contract, {}, [None, None, None, app], {"files": []}, {})
+            serve.assert_called_once()
+            self.assertFalse(row["functional_pass"])
+            self.assertIsNone(row["tau_owner"])
+            self.assertTrue(row["engine_stopped"])
+            kill.assert_called_once_with(engine.pid, signal.SIGTERM)
+
+    def test_abort_handling_is_opt_in_and_does_not_swallow_process_signals(self):
+        for enabled in (False, True):
+            contract = {"operation": "functional", **({"tau_owner": {}} if enabled else {})}
+            errors = (KeyboardInterrupt(), SystemExit(7)) + (() if enabled else (gpu.worker.Abort("timeout"),))
+            for error in errors:
+                owner = types.SimpleNamespace(worker=gpu.worker, selected=lambda _: None)
+                with self.subTest(enabled=enabled, error=type(error)), \
+                        mock.patch.object(lab, "TAU_OWNER", owner), \
+                        mock.patch.object(lab, "check_scratch_mounts", side_effect=error), \
+                        self.assertRaises(type(error)):
+                    lab.application_and_request(contract, {}, [None] * 4, {}, {})
+
+    def test_host_owner_abort_preserves_failed_report_and_owned_cleanup(self):
+        identifier, owner = "a" * 64, "b" * 32
+        info = {"Id": identifier, "Config": {"Labels": {host.LABEL: owner}},
+                "State": {"Status": "created", "ExitCode": 0, "OOMKilled": False}}
+        for status in ("timeout", "protocol_error", "budget_abort", "infrastructure_error"):
+            recorder = types.SimpleNamespace(image_binding=lambda *_: {"fixed": True}, snapshot=mock.Mock(),
+                                             call=mock.Mock(side_effect=[b"", identifier.encode()]))
+            monitor = mock.Mock(returncode=0)
+            monitor.poll.return_value = None
+            with self.subTest(status=status), mock.patch.object(host, "CANCELLED", False), \
+                    mock.patch.object(host, "CLEANING", False), mock.patch.object(host, "owner_module", return_value=gpu), \
+                    mock.patch.object(host.uuid, "uuid4", return_value=types.SimpleNamespace(hex=owner)), \
+                    mock.patch.object(host, "inspect", return_value=info), \
+                    mock.patch.object(host.subprocess, "Popen", return_value=monitor), \
+                    mock.patch.object(host, "create_command", return_value=["docker", "create"]), \
+                    mock.patch.object(host, "check_container"), mock.patch.object(host, "read", return_value=b"contract"), \
+                    mock.patch.object(gpu, "capture", side_effect=gpu.worker.Abort(status)), \
+                    mock.patch.object(host, "cleanup") as cleanup:
+                row = host.run_container("/unused", "a" * 64, "/unused", time.time() + 60,
+                    recorder, {"base_image": "fixed"}, {}, host.controlled_env("unix:///var/run/docker.sock"))
+            self.assertEqual(row["failure"], "bounded-lab-stage-failed")
+            self.assertEqual(row["experiment_step"], "attach")
+            self.assertFalse(row["functional_pass"])
+            self.assertEqual(row["cleanup"], "confirmed")
+            cleanup.assert_called_once()
+            monitor.wait.assert_called_once()
+
+    def test_fresh_validator_abort_is_normalized_without_swallowing_signals(self):
+        files, contract = host.make_payload(*self.args, **self.options, tau_owner=True)
+        with tuning.fixtures.payload_tree(files) as path:
+            first = host.owner_module(contract, path)
+            second = host.owner_module(contract, path)
+            self.assertIsNot(first.worker.Abort, second.worker.Abort)
+            with mock.patch.object(host, "validate_model_profile", return_value=None), \
+                    self.assertRaisesRegex(ValueError, "invalid tau owner result"):
+                host.validate_result({"tau_owner": {}}, path, contract, None)
+            for error in (KeyboardInterrupt(), SystemExit(7)):
+                with self.subTest(error=type(error)), \
+                        mock.patch.object(host, "validate_model_profile", return_value=None), \
+                        mock.patch.object(host, "owner_module", return_value=second), \
+                        mock.patch.object(second, "validate_result", side_effect=error), \
+                        self.assertRaises(type(error)):
+                    host.validate_result({"tau_owner": {}}, path, contract, None)
 
     def capture(self, failure):
         contract = {**fixtures.contract(), "tau_owner": {"schema": gpu.SCHEMA}}

@@ -683,6 +683,7 @@ def application_and_request(contract, sources, modules, application, measured):
     if "tau_owner" in contract:
         TAU_OWNER.selected(contract)
         result["tau_owner"] = None
+    owner_errors = (TAU_OWNER.worker.Abort,) if "tau_owner" in contract else ()
     if "tokenizer_materialization" in contract:
         result.update(tokenizer_adapter_options(contract, require))
     if "runtime_observation" in contract:
@@ -818,7 +819,7 @@ def application_and_request(contract, sources, modules, application, measured):
             result["functional_pass"] = result["functional_pass"] and STREAM_LAB.validate(result["stream_cohort"],
                 contract, hashlib.sha256(read_source(ROOT + "/lab.json")).hexdigest(), STREAM_COHORT, **model_options)
         result["stage"] = "complete"
-    except Exception:
+    except (Exception, *owner_errors):
         result["functional_pass"] = False
     finally:
         if checkpoints is not None:
