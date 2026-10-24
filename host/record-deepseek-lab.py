@@ -705,6 +705,7 @@ def run_container(bundle, sha, weights, deadline, recorder, contract, config, en
     provider = "provider_conformance" in contract
     provider_ready = None
     gpu_owner = owner_module(contract, bundle)
+    owner_errors = (gpu_owner.worker.Abort,) if gpu_owner is not None else ()
     owner_ready = owner_result = None
     if provider:
         session = load("lab_provider_live", Path(bundle) / "payload/provider-session.py",
@@ -813,7 +814,7 @@ def run_container(bundle, sha, weights, deadline, recorder, contract, config, en
         terminal = True
         report.update(experiment=experiment, functional_pass=experiment["functional_pass"],
                       stage="completed", experiment_step="completed")
-    except Exception:
+    except (Exception, *owner_errors):
         report["failure"] = "bounded-lab-stage-failed"
     finally:
         CLEANING = True
