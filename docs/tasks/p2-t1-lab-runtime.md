@@ -53,7 +53,9 @@ This closed profile reuses the exact Python OCI index, Linux/amd64 child manifes
 and config already pinned in `scripts/e2e/pins.json` and `scripts/tau_trial.py`.
 It validates the platform, child identity and repository's index reference;
 unknown profiles, substituted images and declared volumes reject. The default
-still selects only the original engine. Both profiles discard pull logs, use
+still selects only the original engine and retains Docker 28-compatible
+inspection without `--platform`; the checker uses Docker 29's explicit platform
+inspection, as required by its runtime supervisor. Both profiles discard pull logs, use
 an isolated empty Docker credential configuration, bound the CLI to 15 minutes,
 and launch no container. The checker supervisor still independently inspects
 its image, namespace, runtime and cleanup. A successful fetch is not a passed

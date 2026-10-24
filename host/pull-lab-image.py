@@ -51,8 +51,13 @@ def selection(profile):
 
 def image_identity(env, profile="engine"):
     image, config, manifest = selection(profile)
+    # The existing hosted Docker 28 engine path has no inspect --platform flag.
+    # The checker uses Docker 29's descriptor path, like its runtime supervisor.
+    arguments = ["/usr/bin/docker", "image", "inspect"]
+    if profile == "provider-check":
+        arguments += ["--platform", "linux/amd64"]
     value = subprocess.run(
-        ["/usr/bin/docker", "image", "inspect", "--platform", "linux/amd64", image],
+        arguments + [image],
         env=env, stdin=subprocess.DEVNULL, capture_output=True, timeout=30)
     if value.returncode:
         return False

@@ -82,6 +82,21 @@ class ProviderImageCacheTests(unittest.TestCase):
                 self.assertIs(row["executed"], False)
                 self.assertIs(row["confidential_qualified"], False)
 
+    def test_docker28_default_inspection_remains_compatible(self):
+        row = {"Id": pull.CONFIG, "Os": "linux", "Architecture": "amd64", "RepoDigests": [pull.IMAGE]}
+
+        def docker28(arguments, **_kwargs):
+            if "--platform" in arguments:
+                return subprocess.CompletedProcess(arguments, 125, b"", b"unsupported inspect flag")
+            self.assertEqual(arguments, ["/usr/bin/docker", "image", "inspect", pull.IMAGE])
+            return subprocess.CompletedProcess(arguments, 0, json.dumps([row]).encode(), b"")
+
+        with mock.patch.object(pull.subprocess, "run", side_effect=docker28) as inspect, \
+                mock.patch.object(pull.subprocess, "Popen") as start, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(pull.main([]), 0)
+            self.assertEqual(inspect.call_count, 2)
+            start.assert_not_called()
+
     def test_missing_cache_has_bounded_pull_then_verification(self):
         with mock.patch.object(pull, "image_identity", side_effect=[False, True]), \
                 mock.patch.object(pull.subprocess, "Popen") as start, contextlib.redirect_stdout(io.StringIO()):
