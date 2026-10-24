@@ -28,6 +28,7 @@ import uuid
 
 import selected_service_process as process
 import selected_service_image as image_builder
+import selected_service_inference as inference
 
 service = process.service
 require, digest = service.require, process.digest
@@ -157,7 +158,8 @@ def container_command(name, token, build, base, weights, inputs, args, stop_at):
     return command + [build["image_id"], "--provider-config", "/run/nib-inputs/provider.json",
         "--api-key-file", "/run/nib-inputs/api-key", "--cert", "/run/nib-inputs/cert.pem",
         "--key", "/run/nib-inputs/key.pem", "--hostname", args.hostname,
-        "--input-price", args.input_price, "--output-price", args.output_price, "--hard-stop-at", stop_at]
+        "--input-price", args.input_price, "--output-price", args.output_price, "--hard-stop-at", stop_at] \
+        + (["--inference-smoke"] if getattr(args, "inference_smoke", False) else [])
 
 
 def check_container(info, identifier, name, token, build, image, command, weights, inputs):
@@ -285,7 +287,31 @@ def watchdog(name, token, image, wall, monotonic, life_fd, docker_host):
         os.close(int(life_fd))
 
 
-def lifecycle(raw):
+def inference_lifecycle(raw, prepared_sha256, *, failed):
+    require(type(raw) is bytes and len(raw) <= 16384, "owner-failed")
+    row = service.correctness.strict_json(raw)
+    require(type(row) is dict and row.get("schema") == service.INFERENCE_SCHEMA
+            and row.get("mode") == service.INFERENCE_MODE and "inference" in row, "owner-failed")
+    base = {key: value for key, value in row.items() if key not in ("mode", "inference")}
+    if row.get("reason") == "preparation":
+        require(failed and type(row.get("preparation_stage")) is str
+                and row["preparation_stage"] in process.PREPARATION_STAGES
+                and type(row.get("preparation_category")) is str
+                and row["preparation_category"] in service.FAILURES | {"internal"}, "owner-failed")
+        del base["preparation_stage"], base["preparation_category"]
+    base["schema"] = "nib.selected-service-lifecycle/v1"
+    (lifecycle_failure if failed else lifecycle)(inference.encoded(base))
+    if row["inference"] is not None:
+        observed = inference.validate_report(inference.encoded(row["inference"]), prepared_sha256)
+        require(row.get("ready") is True and (failed or observed["result"] == "pass"), "owner-failed")
+    else:
+        require(failed, "owner-failed")
+    return row
+
+
+def lifecycle(raw, *, inference_smoke=False, prepared_sha256=None):
+    if inference_smoke:
+        return inference_lifecycle(raw, prepared_sha256, failed=False)
     row = service.correctness.strict_json(raw)
     require(type(row) is dict and set(row) == {"schema", "reason", "status", "ready", "cleanup_confirmed",
         "cleanup", "deployable", "hardware_validated", "tools", "reasoning", "zdr", "confidential", "e2ee"}
@@ -300,8 +326,10 @@ def lifecycle(raw):
     return row
 
 
-def lifecycle_failure(raw):
+def lifecycle_failure(raw, *, inference_smoke=False, prepared_sha256=None):
     """Accept only the owner's fixed metadata on a nonzero container exit."""
+    if inference_smoke:
+        return inference_lifecycle(raw, prepared_sha256, failed=True)
     require(type(raw) is bytes and len(raw) <= 16384, "owner-failed")
     row = service.correctness.strict_json(raw)
     minimal = {"schema", "status", "reason", "deployable", "hardware_validated"}
@@ -338,6 +366,8 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
         datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     require(docker.remaining() > HOST_RESERVE + service.CLEANUP_RESERVE, "deadline")
     command = container_command(name, token, build, base, weights, inputs, args, stop_at)
+    join = {"inference_smoke": getattr(args, "inference_smoke", False),
+            "prepared_sha256": build["prepared_sha256"]}
     monitor, identifier, attempted, finished, accepted = None, None, False, False, False
     reader, writer = os.pipe()
     try:
@@ -367,9 +397,13 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
             if error.cmd == start_command and type(error.returncode) is int and -64 <= error.returncode <= 255:
                 result["start_client_exit_code"] = error.returncode
                 if error.returncode == 1:
-                    result["owner_failure"] = lifecycle_failure(error.stdout)
+                    result["owner_failure"] = lifecycle_failure(error.stdout, **join)
             raise
-        owner_result = lifecycle(raw)
+        owner_result = lifecycle(raw, **join)
+        if join["inference_smoke"]:
+            # Retain validated accounting even when the subsequent inspect or
+            # host/watchdog cleanup fails; none of these facts imply PASS.
+            result["lifecycle"] = owner_result
         info = docker.inspect(identifier)
         check_container(info, identifier, name, token, build, image, command, weights, inputs)
         require(info["State"]["Status"] == "exited" and type(info["State"]["ExitCode"]) is int
@@ -405,6 +439,8 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
 
 def preflight(args):
     result = report()
+    if getattr(args, "inference_smoke", False):
+        result.update(schema="nib.selected-service-smoke/v2", mode=service.INFERENCE_MODE)
     try:
         require(threading.current_thread() is threading.main_thread(), "contract")
         contract = service.Contract.begin(args.hard_stop_at, input_price=args.input_price,
@@ -470,6 +506,7 @@ def main(argv=None):
         modes = parser.add_mutually_exclusive_group(required=True)
         modes.add_argument("--inspect", action="store_true")
         modes.add_argument("--run", action="store_true")
+        parser.add_argument("--inference-smoke", action="store_true")
         for name in ("build-report", "build-sha256", "preparation", "preparation-sha256",
                      "docker-host", "provider-config", "api-key-file", "cert", "key",
                      "hostname", "weights", "input-price", "output-price", "hard-stop-at"):
