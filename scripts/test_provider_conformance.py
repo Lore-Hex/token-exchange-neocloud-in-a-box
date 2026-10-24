@@ -57,6 +57,27 @@ class ConformanceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             prep.prepare(self.root, time.monotonic() + 10)
 
+    def test_support_pin_rejects_a_self_consistent_modified_payload(self):
+        for changed in (False, True):
+            with self.subTest(changed=changed):
+                files = {"worker.py": (ROOT / "scripts/provider_conformance_worker.py").read_bytes(),
+                         "support.py": (ROOT / "scripts/tau_trial_worker.py").read_bytes()}
+                if changed:
+                    files["support.py"] += b"\n"
+                plan = {"schema": "nib.private-provider-payload/v1", "requirements_sha256": worker.LOCK_SHA,
+                        "checker_wheel_sha256": worker.CHECKER_SHA,
+                        "files": {name: {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+                                  for name, raw in files.items()}}
+                raw = prep.runtime.encoded(plan)
+                dest = self.root / str(changed)
+                prep.publish(dest, {**files, "trial.json": raw})
+                sha = hashlib.sha256(raw).hexdigest()
+                if changed:
+                    with self.assertRaises(ValueError):
+                        worker.verify(dest / "payload", sha)
+                else:
+                    self.assertEqual(worker.verify(dest / "payload", sha), plan)
+
     def test_import_hooks_duplicates_and_wrong_wheel_hash_rejected(self):
         for name in ("alpha.pth", "alpha.pyc", "alpha.pyo", "alpha.egg-link", "alpha.data/a",
                      "sitecustomize.py", "usercustomize/__init__.py", "../outside.py"):
