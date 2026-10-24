@@ -40,6 +40,8 @@ class TuningProfiles(unittest.TestCase):
         old = types.ModuleType("previous_host")
         old.__file__ = str(ROOT / host.SCRIPT)
         exec(compile(git(ROOT, "show", BASE + ":" + host.SCRIPT), old.__file__, "exec"), old.__dict__)
+        # Hold helper bytes constant while comparing legacy builder behavior.
+        old.MODEL_PROFILE_SHA = host.MODEL_PROFILE_SHA
         for args, options in ((self.args, {"model_profile": "uncensored"}),
                               (fixtures.PayloadProfiles.args, {}),
                               (fixtures.PayloadProfiles.args, fixtures.PayloadProfiles.options)):
