@@ -9,7 +9,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EVIDENCE = ROOT / "evidence/p2/2026-10-24-selected-weight-view-pass/run.json"
+EVIDENCE = ROOT / "evidence/p2/2026-10-24-selected-weight-view-pass/preparation.json"
 
 
 class SelectedWeightEvidenceTests(unittest.TestCase):

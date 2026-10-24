@@ -1,6 +1,6 @@
 # Selected weight view: passed
 
-The original [run.json](run.json) records one bounded preparation of a separate
+The original [preparation.json](preparation.json) records one bounded preparation of a separate
 read-only serving copy of the selected abliterated checkpoint. The producer is
 `9fe2adcf1c096387834ef3c7ad2c6e955fc16f2d` and the unchanged receipt SHA-256 is
 `9417e4f94c4b62cecd6cfcedf438fa848b2e139ab18cbb6aed1684923b9a39e2`.
