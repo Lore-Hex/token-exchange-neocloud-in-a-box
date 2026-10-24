@@ -60,6 +60,9 @@ conformance or sustained serving acceptance required by the full plan.
 payloads, runtime validation, unchanged launch isolation, malformed target
 rejection, zero-swap enforcement and denial of confidential claims. Existing
 stream/tokenizer/process-observation tests cover the reused workers.
+The CPU parity test retains its exact helper-source digest and the separate
+historical byte comparison excluding only GPU eligibility. Its digest changes
+with this eligibility update; the fixed probes and semantic checks do not.
 
 ```sh
 python3.13 -B -m unittest discover -s scripts -p 'test_deepseek_model_profile.py' -v
