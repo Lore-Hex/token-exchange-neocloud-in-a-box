@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Synthetic public files only; no weights, network, inference or privileged IO."""
 import hashlib
+from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,72 @@ cache = view.cache_helper()
 
 
 class WeightViewTests(unittest.TestCase):
+    def test_original_parent_failure_receipt_stays_failed(self):
+        raw = (ROOT / "evidence/p2/2026-10-24-selected-weight-view-parent-failure/receipt.json").read_bytes()
+        report = json.loads(raw)
+        self.assertEqual(report["producer"], "9c1fb3c62318ad83087b2ab08f8ff7c4e7ae79d9")
+        self.assertEqual(report["result"], "fail")
+        self.assertEqual(report["publication"], "unproven")
+        self.assertIsNone(report["source_preserved"])
+        self.assertFalse(report["worker_exit_confirmed"])
+        self.assertFalse(report["confidential"])
+        self.assertFalse(report["runtime_ready"])
+
+    def test_shared_parent_requires_exact_root_sticky_and_private_child(self):
+        for change in (None, "device-write", "device-owner", "shared-mode", "shared-owner", "child-mode", "child-owner", "child-link"):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+                root = Path(temporary).resolve()
+                device, shared, private = root / "dev", root / "dev/shm", root / "dev/shm/owned"
+                device.mkdir(mode=0o755)
+                shared.mkdir(mode=0o1777)
+                shared.chmod(0o1777)
+                private.mkdir(mode=0o700)
+                stack.enter_context(mock.patch.object(view, "SHARED_MEMORY", shared))
+                real_stat = os.fstat
+                device_inode, shared_inode, private_inode = device.stat().st_ino, shared.stat().st_ino, private.stat().st_ino
+                def observed(fd):
+                    info = real_stat(fd)
+                    uid, mode = info.st_uid, info.st_mode
+                    if info.st_ino in (device_inode, shared_inode): uid = 0
+                    if info.st_ino == device_inode:
+                        if change == "device-write": mode |= 0o020
+                        if change == "device-owner": uid = 98765
+                    if info.st_ino == shared_inode:
+                        if change == "shared-mode": mode &= ~stat.S_ISVTX
+                        if change == "shared-owner": uid = 98765
+                    if info.st_ino == private_inode:
+                        if change == "child-mode": mode |= 0o040
+                        if change == "child-owner": uid = 98765
+                    return types.SimpleNamespace(st_uid=uid, st_mode=mode)
+                stack.enter_context(mock.patch.object(view.os, "fstat", side_effect=observed))
+                if change == "child-link":
+                    private.rmdir()
+                    private.symlink_to(root, target_is_directory=True)
+                if change is None:
+                    with view.private_view_parent(cache, private) as fd:
+                        self.assertEqual(real_stat(fd).st_ino, private_inode)
+                    with self.assertRaises(OSError): os.fstat(fd)
+                else:
+                    with self.assertRaises((ValueError, OSError)):
+                        with view.private_view_parent(cache, private):
+                            self.fail("unsafe shared parent accepted")
+
+    @unittest.skipUnless(sys.platform == "linux" and Path("/dev/shm").is_dir(), "Linux shared-memory filesystem")
+    def test_real_linux_private_shared_memory_child(self):
+        with tempfile.TemporaryDirectory(prefix="nib-view-policy-", dir="/dev/shm") as directory:
+            path = Path(directory)
+            # The original generic cache policy rejects this ancestor. Only the
+            # selected view has the explicit root-sticky RAM-disk contract.
+            with self.assertRaises(ValueError):
+                with cache.directory(path, private=True):
+                    self.fail("generic policy unexpectedly changed")
+            with view.private_view_parent(cache, path) as fd:
+                self.assertEqual(os.fstat(fd).st_ino, path.stat().st_ino)
+            path.chmod(0o755)
+            with self.assertRaises(ValueError):
+                with view.private_view_parent(cache, path):
+                    self.fail("nonprivate RAM directory accepted")
+
     def fixture(self):
         temporary = tempfile.TemporaryDirectory()
         def clean():

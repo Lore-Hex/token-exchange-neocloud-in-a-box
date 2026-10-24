@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Create a separate read-only public checkpoint view; never relax source modes."""
 import argparse
+from contextlib import contextmanager
 import datetime
 import hashlib
 import json
@@ -17,6 +18,7 @@ import uuid
 
 CACHE_SHA256 = "30f8a0ef0fa2fcb88d6d6a63ac636cf518593ef240b74e67cd98e38e83aeca70"
 RESERVE = 60
+SHARED_MEMORY = Path("/dev/shm")
 BOOTSTRAP = """
 import sys
 scope = {'__name__': 'bound_selected_weight_view', '__file__': sys.argv.pop(1)}
@@ -38,6 +40,33 @@ def cache_helper():
     module.__file__ = str(path)
     exec(compile(raw, str(path), "exec", dont_inherit=True), module.__dict__)
     return module
+
+
+@contextmanager
+def private_view_parent(cache, path):
+    """Permit one private child of Linux's root-owned sticky RAM disk."""
+    if path.parent != SHARED_MEMORY:
+        with cache.directory(path, private=True) as fd:
+            yield fd
+        return
+    # Open relative to retained descriptors. Other users may create entries in
+    # the sticky directory, but cannot replace our owned, non-symlink child.
+    with cache.directory(SHARED_MEMORY.parent) as device:
+        info = os.fstat(device)
+        require(info.st_uid == 0 and not info.st_mode & 0o022)
+        shared = os.open(SHARED_MEMORY.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=device)
+        try:
+            info = os.fstat(shared)
+            require(info.st_uid == 0 and stat.S_IMODE(info.st_mode) == 0o1777)
+            private = os.open(path.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=shared)
+            try:
+                info = os.fstat(private)
+                require(info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700)
+                yield private
+            finally:
+                os.close(private)
+        finally:
+            os.close(shared)
 
 
 def view_modes(cache, root, rows, deadline, *, apply=False):
@@ -73,7 +102,7 @@ def prepare_view(cache, source, destination, rows, deadline):
     publication = cache.load_pinned("scripts/pilot/export.py", cache.PUBLICATION_SHA256)
     # Parent stays private. Only the new child will ever be bind-mounted into
     # the service; no source, cache, key or parent permissions are changed.
-    with cache.directory(source) as source_fd, cache.directory(destination.parent, private=True) as parent:
+    with cache.directory(source) as source_fd, private_view_parent(cache, destination.parent) as parent:
         original_root, parent_info = os.fstat(source_fd), os.fstat(parent)
         original = cache.strict_inventory(source, rows)
         require(not os.path.lexists(destination))
