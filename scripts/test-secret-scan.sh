@@ -241,7 +241,7 @@ CASES
 done
 
 # Stream originals get the same exact field/value/path boundaries.
-for stream_set in window-exhaustion 600s-complete selected-timeout; do
+for stream_set in window-exhaustion 600s-complete selected-timeout selected-provider; do
 while IFS='|' read -r relative field known suffix; do
   format=pretty
   target="$tmp/stream/evidence/p2/2026-10-23-stream-$stream_set/$relative"
@@ -250,6 +250,13 @@ while IFS='|' read -r relative field known suffix; do
     case "$field" in
       tokenizer-parity.py|stream/engine_tokenizer_parity.py)
         known=98872d2cb2e0b0874c79ef475c31db5a1d90b9024dc245f7cd0344b7173ed090 ;;
+    esac
+  fi
+  if [[ "$stream_set" == selected-provider ]]; then
+    target="$tmp/stream/evidence/p2/2026-10-24-selected-provider-conformance/$relative"
+    case "$field" in
+      stream/engine_tokenizer_parity.py|token_ids_sha256) continue ;;
+      tokenizer-parity.py) known=6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f ;;
     esac
   fi
   mkdir -p "$(dirname "$target")"
@@ -261,6 +268,8 @@ while IFS='|' read -r relative field known suffix; do
   expect_receipt_scan "$target" 42
   write_receipt_field "$tmp/stream/other.log" "$field" "$known"
   expect_receipt_scan "$tmp/stream/other.log" 42
+  printf '"%s": "%s", "api_key": "%s"\n' "$field" "$known" "$unknown" > "$target"
+  expect_receipt_scan "$target" 42
   printf 'Stream original hash exception requires exact value, field and path.\n'
 done <<'CASES'
 input-contract.json|tokenizer-adapter.py|060220d1bc62f13278e5a03a3a85c39ef84f528ada2a9e39ab0c62a4a7c09960|,
