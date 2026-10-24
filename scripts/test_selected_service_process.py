@@ -305,6 +305,32 @@ print('isolated-import-ok')
             with self.assertRaises(ValueError):
                 process.Prepared.mount_state()
 
+    def test_real_scratch_check_through_prepared_mount_state(self):
+        cases = ((6, 14, True), (6 | 1024, 14 | 1024, True),
+                 (14, 14, False), (6, 6, False), (7, 14, False), (6, 15, False),
+                 (2, 14, False), (4, 14, False), (6, 10, False), (6, 12, False))
+        for cache, temporary, accepted in cases:
+            with self.subTest(cache=cache, temporary=temporary), ExitStack() as stack:
+                stack.enter_context(mock.patch.object(process.sys, "platform", "linux"))
+                stack.enter_context(mock.patch.object(process.os, "getpid", return_value=1))
+                stack.enter_context(mock.patch.object(process.os, "getuid", return_value=65532))
+                stack.enter_context(mock.patch.object(Path, "stat",
+                    return_value=SimpleNamespace(st_dev=1, st_ino=2)))
+                stack.enter_context(mock.patch.multiple(process.os, create=True,
+                    ST_RDONLY=1, ST_NOSUID=2, ST_NODEV=4, ST_NOEXEC=8))
+                flags = {"/cache": cache, "/tmp": temporary}
+                vfs = stack.enter_context(mock.patch.object(process.os, "statvfs",
+                    side_effect=lambda path: SimpleNamespace(f_flag=flags.get(str(path), 1))))
+                # Execute the ordinary imported helper, without supplying the
+                # concatenated launcher's os/require globals or stubbing it.
+                if accepted:
+                    self.assertEqual(len(process.Prepared.mount_state()), 4)
+                    self.assertEqual(vfs.call_args_list, [mock.call("/cache"), mock.call("/tmp"),
+                        *[mock.call(path) for path in (Path("/"), process.ROOT, process.PAYLOAD, Path("/model"))]])
+                else:
+                    with self.assertRaisesRegex(ValueError, "^sealed Python bootstrap rejected$"):
+                        process.Prepared.mount_state()
+
     def test_changed_prepared_file_or_cgroup_fails(self):
         prepared = process.Prepared.__new__(process.Prepared)
         prepared.mounts, prepared.stamps = (1,), {Path("/fixture"): (2,)}
