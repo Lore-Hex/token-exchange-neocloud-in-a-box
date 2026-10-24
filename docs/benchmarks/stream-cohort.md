@@ -4,6 +4,8 @@ Implementation: [stream_cohort.py](../../scripts/stream_cohort.py).
 Tests: [test_stream_cohort.py](../../scripts/test_stream_cohort.py).
 This is a controller component tested with synthetic tokenizers and local HTTP,
 not a live-model result or the complete P2 benchmark sweep.
+The separate, explicit [c8 burst profile](stream-c8.md) reuses this workload and
+transport without changing the default or extended c1 collector.
 
 ## Workload And Limits
 

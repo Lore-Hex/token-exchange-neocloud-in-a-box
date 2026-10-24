@@ -887,6 +887,10 @@ def lab_entry():
         return
     contract, sources, modules, application, measured = lab_context(sys.argv[1])
     mode, rest = sys.argv[2], sys.argv[2:]
+    if mode == "stream-collector":
+        require(len(rest) == 1 and STREAM_LAB is not None and STREAM_LAB.concurrent(contract))
+        STREAM_COHORT.c8.child(model_identity(contract)["served_model_name"])
+        return
     if mode == "runtime-observation":
         require(len(rest) == 3 and RUNTIME_OBSERVER.enabled(contract)
                 and re.fullmatch(r"[1-9][0-9]{0,9}", rest[1]) and rest[2] in RUNTIME_OBSERVER.EVENTS)
