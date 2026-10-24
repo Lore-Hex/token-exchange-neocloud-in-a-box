@@ -1,0 +1,271 @@
+{
+  "cleanup": "confirmed",
+  "confidential": false,
+  "container_observation": {
+    "exit_code": 0,
+    "oom_killed": false,
+    "status": "exited"
+  },
+  "deployable": false,
+  "experiment": {
+    "application": {
+      "abi_validated": false,
+      "after_inventory_sha256": "0c0fa880028029cf8ebc9f76b5707a0ca01f8ffa8a731d2feb50fef575d7a0d3",
+      "alternate_roots": "unchanged-excluded-from-import-contract",
+      "application_measurement_sha256": "52a15aafc3044821740c5d408e5fc44f6635bea36c30f5af51f5866120810440",
+      "base_image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+      "before_inventory_sha256": "e702e944656badc6e136f6ddcf51f6f0cb6694f262dfaeb84afca7c91c870b0c",
+      "classified_nonhost_assets": "four-exact-published-crosscompile-assets-not-host-abi",
+      "dependency_scope": "selected-exact-upstream-pins-only",
+      "deployable": false,
+      "engine_executed": false,
+      "generic_overlay_admission": "not-granted",
+      "git_sha": "68ab473fda5b29bf85be07099494702b63aeba69",
+      "hardware_validated": false,
+      "image": null,
+      "image_origin_verified": false,
+      "import_contract_sha256": "0d1905913990c11f6094981b1bcab2578b8f68b2eaa4805f60106e25c571b516",
+      "native_inventory_unchanged": true,
+      "packaging": {
+        "bytecode_executed": false,
+        "entrypoint_scope": "exact-upstream-map-only",
+        "listed_bytecode_policy": "unchanged",
+        "plugins_loaded": false,
+        "policy_sha256": "f45b654271ca89e35e2cd94c3aa338c6de83bf673e28a1a0e9c45a449183ff85",
+        "removal_plan_sha256": "210a50805b36797d06e1d17425f6eacba6f90f1e04aaa7c0560692c05ffb3b3f",
+        "removal_verified_before_patch": true,
+        "removed_unlisted_bytecode_files": 2879
+      },
+      "removed_bytecode_files": 2879,
+      "schema": "nib.engine-overlay/v1",
+      "scope": "exact-image-experimental-application-only",
+      "source_bundle_sha256": "217d79b715e95449cc190e8da89f6203c6d982fd8d7ad680f4aa716fb57e7043",
+      "stages": 5,
+      "startup_hooks": "unchanged-inert-only-under-isolated-no-site-bootstrap",
+      "status": "BLOCKED",
+      "wheel_record": "original-preserved-overlay-receipt-required"
+    },
+    "completion": null,
+    "confidential": false,
+    "deployable": false,
+    "engine_stopped": true,
+    "functional_pass": true,
+    "hardware": {
+      "attestation_verified": false,
+      "cc_feature": "disabled",
+      "cuda_driver": "13.0",
+      "devtools": "off",
+      "driver": "580.178.04",
+      "environment": "unavailable",
+      "family": "B300",
+      "multigpu": "none",
+      "selected_gpus": 8,
+      "status": "observed",
+      "system_ready": null,
+      "total_kib": [
+        281640960,
+        281640960,
+        281640960,
+        281640960,
+        281640960,
+        281640960,
+        281640960,
+        281640960
+      ]
+    },
+    "model_profile": {
+      "hf_repo": "dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8",
+      "hf_revision": "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a",
+      "manifest_sha256": "5c6891a9649702b1ac0327b945600acb40c571a069942517cf14ba661a3cfcbc",
+      "name": "uncensored",
+      "pack": "models/deepseek-v4.1-flash-1017-uncensored-fp8/1",
+      "served_model_name": "deepseek-v4.1-flash-1017-uncensored-fp8",
+      "total_bytes": 510311056155
+    },
+    "runtime_observation": {
+      "contract_sha256": "d2586ab41b05244549e74641bd5ac312eb4b4c697e980c6aed2bc5a4d359cc3e",
+      "quality_eligible": false,
+      "samples": [
+        {
+          "argv_sha256": "e97f835ec4fdd22152376e96cdc76dfd169724a4b5a9fa1b0ec299c39fcf6d38",
+          "cgroup": {
+            "memory.current": 36770193408,
+            "memory.max": 549755813888,
+            "memory.peak": 39473754112,
+            "memory.swap.max": 0,
+            "pids.current": 574,
+            "pids.max": 1024
+          },
+          "event": "before-requests",
+          "exe_sha256": "e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f",
+          "listener_sha256": "5e6e4cdd0bd1ce6f09ee9da8dabb41f91b7ab4d635cd46aa06edee11ff65df83",
+          "process_sha256": "4bdbe94baeeffa9d551e8fb35d86d30a66c41f21a660ec1967f7439041dc7cd4",
+          "stdio_null": true
+        },
+        {
+          "argv_sha256": "e97f835ec4fdd22152376e96cdc76dfd169724a4b5a9fa1b0ec299c39fcf6d38",
+          "cgroup": {
+            "memory.current": 38055342080,
+            "memory.max": 549755813888,
+            "memory.peak": 40041926656,
+            "memory.swap.max": 0,
+            "pids.current": 575,
+            "pids.max": 1024
+          },
+          "event": "after-requests",
+          "exe_sha256": "e50d468e8b0adfb05733f5b87b3cff34829c4a8c1aea50c865aa8bdfe4bb150f",
+          "listener_sha256": "5e6e4cdd0bd1ce6f09ee9da8dabb41f91b7ab4d635cd46aa06edee11ff65df83",
+          "process_sha256": "4bdbe94baeeffa9d551e8fb35d86d30a66c41f21a660ec1967f7439041dc7cd4",
+          "stdio_null": true
+        }
+      ],
+      "schema": "nib.lab-runtime-observation/v1",
+      "tau_admission": false
+    },
+    "schema": "nib.deepseek-lab-tokenizer-parity/v1",
+    "stage": "complete",
+    "startup": {
+      "checkpoints": {
+        "last_id": 17,
+        "status": "eof"
+      },
+      "exception_diagnostic": null,
+      "exit_code": null,
+      "health_probes": 837,
+      "outcome": "ready",
+      "wait_ms": 836135,
+      "worker_exception_diagnostic": null
+    },
+    "status": "BLOCKED",
+    "tokenizer_materialization": {
+      "delegate_sha256": "8744d5e2004b2d376e34cf17de51c919bca6d81b0cc8392da138db1ef05a7c61",
+      "disk_candidate_changed": false,
+      "method": "_materialize_tool_calls_after",
+      "schema": "nib.tokenizer-materialization-adapter/v1",
+      "target_sha256": "e887a771afbc7ae3c709691d31e34da8f3d63a627eab55cc3d97d05625901c07",
+      "wrapper_sha256": "e2d0354b4ed06127c69d190d271aa6cb393991c7818005566f052aa811d847a8"
+    },
+    "tokenizer_parity": {
+      "all_cases_pass": true,
+      "binding_sha256": "35cfae89c38577e9994417cd727c7bfae9f39cb88602144c83e6fba7caa77b8d",
+      "cases": [
+        {
+          "failure": "none",
+          "id": "text",
+          "local": {
+            "count": 12,
+            "tokens_sha256": "9d6bde6f28006680e5d37e06d816356d782004f1e8dbabf46d42e81b088afc16"
+          },
+          "requests": 2,
+          "result": "pass",
+          "server": {
+            "count": 12,
+            "tokens_sha256": "9d6bde6f28006680e5d37e06d816356d782004f1e8dbabf46d42e81b088afc16"
+          },
+          "usage": {
+            "completion_tokens": 1,
+            "prompt_tokens": 12
+          }
+        },
+        {
+          "failure": "none",
+          "id": "system",
+          "local": {
+            "count": 16,
+            "tokens_sha256": "c7b86dad075d1d51e4bf9aec664d9ce392e5d04a63babe717ab9354ec0b56032"
+          },
+          "requests": 2,
+          "result": "pass",
+          "server": {
+            "count": 16,
+            "tokens_sha256": "c7b86dad075d1d51e4bf9aec664d9ce392e5d04a63babe717ab9354ec0b56032"
+          },
+          "usage": {
+            "completion_tokens": 1,
+            "prompt_tokens": 16
+          }
+        },
+        {
+          "failure": "none",
+          "id": "tools",
+          "local": {
+            "count": 275,
+            "tokens_sha256": "6ddfa5e6dbf2f45b8efc1e2ebda65f1f79c39b1a4ec8a7fce8e77fc5a0add7d5"
+          },
+          "requests": 2,
+          "result": "pass",
+          "server": {
+            "count": 275,
+            "tokens_sha256": "6ddfa5e6dbf2f45b8efc1e2ebda65f1f79c39b1a4ec8a7fce8e77fc5a0add7d5"
+          },
+          "usage": {
+            "completion_tokens": 1,
+            "prompt_tokens": 275
+          }
+        },
+        {
+          "failure": "none",
+          "id": "tool-continuation",
+          "local": {
+            "count": 332,
+            "tokens_sha256": "4e5eb88296779609b1ef81a335894e3ef5c284a94a8ceb1607421414c43c9cbe"
+          },
+          "requests": 2,
+          "result": "pass",
+          "server": {
+            "count": 332,
+            "tokens_sha256": "4e5eb88296779609b1ef81a335894e3ef5c284a94a8ceb1607421414c43c9cbe"
+          },
+          "usage": {
+            "completion_tokens": 1,
+            "prompt_tokens": 332
+          }
+        }
+      ],
+      "confidential": false,
+      "elapsed_ms": 12830,
+      "max_model_len": 8192,
+      "quality_accepted": false,
+      "requests_started": 8,
+      "schema": "nib.tokenizer-parity/v2",
+      "tau_acceptance": false
+    }
+  },
+  "experiment_step": "completed",
+  "functional_pass": true,
+  "image": {
+    "binding": "local-manifest-reference-platform-and-diffids",
+    "daemon_os_interpreter_trusted": true,
+    "docker_reported_id": "sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "local_config_bytes_rehashed": false,
+    "local_layers_rehashed": false,
+    "manifest_sha256": "6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "platform": "linux/amd64",
+    "raw_config_link_verified": true,
+    "raw_config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d"
+  },
+  "output_bytes": 6430,
+  "provenance": {
+    "config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d",
+    "execution_profile": "tau8k-eager",
+    "git_sha": "68ab473fda5b29bf85be07099494702b63aeba69",
+    "image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "manifest_sha256": "5c6891a9649702b1ac0327b945600acb40c571a069942517cf14ba661a3cfcbc",
+    "model_profile": {
+      "hf_repo": "dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8",
+      "hf_revision": "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a",
+      "manifest_sha256": "5c6891a9649702b1ac0327b945600acb40c571a069942517cf14ba661a3cfcbc",
+      "name": "uncensored",
+      "pack": "models/deepseek-v4.1-flash-1017-uncensored-fp8/1",
+      "served_model_name": "deepseek-v4.1-flash-1017-uncensored-fp8",
+      "total_bytes": 510311056155
+    },
+    "pack_revision": "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a",
+    "payload_sha256": "72ebb47fba9b88ad4eb694bc24a4df3cb4ff28a5b18c8c3ea6251a988c870cf8",
+    "receipt_sha256": "a08e63fe445c592c1b53de584cafad2bb55370028f0411f7c0d473e2681dbf74",
+    "source_bundle_sha256": "217d79b715e95449cc190e8da89f6203c6d982fd8d7ad680f4aa716fb57e7043"
+  },
+  "result": "fail",
+  "stage": "completed",
+  "status": "BLOCKED"
+}
