@@ -233,3 +233,7 @@ state/namespace/ownership, lifecycle, privacy and binding negative controls.
 They do not start a GPU, simulate conformance acceptance as hardware evidence,
 or weaken the pinned upstream checker. Before launch, notify the parent and
 coordinate with other agents; no concurrent retained-GPU job is permitted.
+
+For a host using Docker's classic image store, prepare the explicit
+[pinned classic-store profile](p2-t4-provider-classic-store.md). The default
+descriptor-aware path does not automatically fall back.

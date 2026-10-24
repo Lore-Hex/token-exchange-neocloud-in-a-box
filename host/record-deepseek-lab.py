@@ -291,8 +291,10 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
 def prepare(destination, operation="functional", family="B200", security="confidential", replicas=1, *,
             tokenizer_parity=False, tokenizer_materialization=False, runtime_observation=False,
             provider_wheelhouse=None, stream_cohort=False, stream_profile=None, model_profile="original",
-            execution_profile=None):
+            execution_profile=None, provider_image_profile=None):
     require(stream_profile is None or stream_cohort)
+    require(provider_image_profile is None or (provider_image_profile == "docker28-classic"
+            and provider_wheelhouse is not None))
     require(type(model_profile) is str and model_profile in ("original", "uncensored"))
     require(model_profile == "original" or (operation == "local-correctness"
             and model_target(family, security, replicas, model_profile)
@@ -354,6 +356,8 @@ def prepare(destination, operation="functional", family="B200", security="confid
         session = load("lab_provider_settings", ROOT / PROVIDER, digest(extra[PROVIDER]))
         provider_settings = {"schema": "nib.owned-provider-input/v1", "image": session.IMAGE,
                              "payload_sha256": digest(checker_files["trial.json"])}
+        if provider_image_profile is not None:
+            provider_settings["image_profile"] = provider_image_profile
     require(extra[SCRIPT] == read(Path(__file__).absolute()))
     recorder = builder.recorder
     with tempfile.TemporaryDirectory(prefix="nib-lab-build-") as temporary:
@@ -660,7 +664,7 @@ def run_container(bundle, sha, weights, deadline, recorder, contract, config, en
     created = started = terminal = create_finished = False
     try:
         if provider:
-            session.preflight_image(recorder, env)
+            session.preflight_image(recorder, env, image_profile=session.enabled(contract).get("image_profile"))
         image = inspect(recorder, "image", contract["base_image"], env)
         report["image"] = recorder.image_binding(image, config, contract)
         require(not CANCELLED and deadline > time.time())
@@ -729,7 +733,8 @@ def run_container(bundle, sha, weights, deadline, recorder, contract, config, en
         validate_result(experiment, bundle, contract, recorder)
         if provider:
             if provider_ready is not None:
-                session.validate_join(report["provider_conformance"], provider_ready, experiment, worker)
+                session.validate_join(report["provider_conformance"], provider_ready, experiment, worker,
+                                      image_profile=session.enabled(contract).get("image_profile"))
             else:
                 require(experiment["provider_conformance"] is None and experiment["functional_pass"] is False)
         terminal = True
@@ -992,6 +997,8 @@ def main():
                         help="Observe the owned API process and cgroup counters; not tau admission.")
     parser.add_argument("--provider-conformance-wheels", metavar="PRIVATE_LOCKED_WHEELHOUSE",
                         help="Prepare the opt-in owned CPU checker; requires DP2, parity, materialization and observation.")
+    parser.add_argument("--provider-image-profile", choices=("docker28-classic",),
+                        help="Prepare an explicitly pinned classic-store checker image; never a runtime fallback.")
     parser.add_argument("--stream-cohort", action="store_true",
                         help="Prepare one warmup plus eight 2K/512 streaming requests; requires parity, materialization and observation.")
     parser.add_argument("--stream-profile", metavar="PROFILE",
@@ -1006,6 +1013,7 @@ def main():
     parser.add_argument("--deadline", help="Required UTC hard cutoff, YYYY-MM-DDTHH:MM:SSZ, at most 80 minutes away.")
     args = parser.parse_args()
     require(args.stream_profile is None or args.stream_cohort)
+    require(args.provider_image_profile is None or args.provider_conformance_wheels)
     require(not args.tokenizer_materialization or args.tokenizer_parity)
     require(not args.stream_cohort or args.tokenizer_parity and args.tokenizer_materialization
             and args.runtime_observation and not args.provider_conformance_wheels)
@@ -1039,6 +1047,8 @@ def main():
                                             args.model_profile)
                         and args.tokenizer_parity and args.tokenizer_materialization and args.runtime_observation)
                 optional["provider_wheelhouse"] = args.provider_conformance_wheels
+                if args.provider_image_profile is not None:
+                    optional["provider_image_profile"] = args.provider_image_profile
             if args.runtime_observation:
                 require(profile[0] == "local-correctness" and target)
                 optional["runtime_observation"] = True
@@ -1052,7 +1062,7 @@ def main():
             return 0
     require(not args.tokenizer_parity and not args.tokenizer_materialization and not args.runtime_observation
             and not args.provider_conformance_wheels and not args.stream_cohort and args.stream_profile is None
-            and args.model_profile is None and args.execution_profile is None)
+            and args.model_profile is None and args.execution_profile is None and args.provider_image_profile is None)
     require(sys.platform == "linux" and all((args.receipt_sha256, args.output, args.deadline)))
     deadline = dt.datetime.strptime(args.deadline, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp()
     require(0 < deadline - time.time() <= MAX_SECONDS)

@@ -91,6 +91,17 @@ class SelectedSession(unittest.TestCase):
         session.bind_model({"model_profile": SELECTED}, self.contract)
         session.bind_model({}, original_contract())
 
+    def test_classic_profile_is_inside_source_bound_selected_contract(self):
+        settings = {**self.settings, "image_profile": session.CLASSIC_PROFILE}
+        files, selected = host.make_payload(*self.args, **self.options, provider_conformance=settings)
+        session.enabled(selected)
+        self.assertEqual(selected["provider_conformance"], settings)
+        self.assertNotEqual(files["lab.json"], self.files["lab.json"])
+        for key in ("arguments", "environment", "model_profile", "pack_revision", "manifest_sha256", "pack_bytes"):
+            self.assertEqual(selected[key], self.contract[key])
+        self.assertEqual(selected["sources"]["provider-session.py"],
+                         hashlib.sha256((ROOT / host.PROVIDER).read_bytes()).hexdigest())
+
     def test_cross_checkpoint_binding_and_unreviewed_modes_rejected(self):
         for plan in ({}, {"model_profile": None}, {"model_profile": profiles.select()},
                      {"model_profile": {**SELECTED, "hf_revision": "0" * 40}}):
