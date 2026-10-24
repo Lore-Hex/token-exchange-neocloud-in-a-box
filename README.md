@@ -50,6 +50,11 @@ with the same eight cases and ten requests, without OOM and with confirmed clean
 The overall qualification and quality gates remain blocked/unproven. The lab
 uses AMD SEV-SNP, not the plan's Intel TDX deployment.
 
+The separately selected **abliterated checkpoint** now passes all eight fixed
+correctness cases and ten requests on an ordinary eight-B300 node, with cleanup
+confirmed. GPU CC is disabled on that node; this is not confidential evidence,
+a throughput result or a tau score ([original evidence and limits](evidence/p2/2026-10-24-ordinary-selected-correctness/README.md)).
+
 | Component | State |
 |---|---|
 | Plan, sizing, phase definitions | written ([PLAN.md](PLAN.md)) |
