@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Mock owners and isolated import-only children; no listeners or hardware."""
+"""Mock owners plus Linux-only pinned-Go ephemeral listeners; no hardware."""
 
 import ast
 from contextlib import ExitStack, contextmanager
@@ -9,10 +9,13 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import socket
+import stat
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -428,15 +431,123 @@ class ProcessTests(unittest.TestCase):
         row = ("0100007F:" + format(process.TLS_PORT, "04X"), "0100007F:9C40", "01", 7)
         with mock.patch.object(service.identity, "tcp_rows", return_value=[row]), \
                 mock.patch.object(service.identity, "sockets", side_effect=[set(), {7}]):
-            self.owner.peer("tls", {"pid": 9000}, sock, 101)
+            self.owner.peer("tls", {"pid": 9000, "listener_ipv6": False}, sock, 101)
             self.assertEqual(self.clock.mono, 100.005)
         with mock.patch.object(service.identity, "tcp_rows", return_value=[row]), \
                 mock.patch.object(service.identity, "sockets", return_value=set()):
             with self.assertRaises(service.Rejected):
-                self.owner.peer("tls", {"pid": 9000}, sock, 100.02)
+                self.owner.peer("tls", {"pid": 9000, "listener_ipv6": False}, sock, 100.02)
         sock.getpeername.return_value = ("127.0.0.2", process.TLS_PORT)
         with self.assertRaises(service.Rejected):
-            self.owner.peer("tls", {"pid": 9000}, sock, 101)
+            self.owner.peer("tls", {"pid": 9000, "listener_ipv6": False}, sock, 101)
+
+    @contextmanager
+    def front_binding(self, ipv4, ipv6, *, role="tls", owned=(7,)):
+        child = self.child()
+        raw = b"synthetic binary"
+        binary = "trcs" if role == "tls" else "nib-pilot-api"
+        self.owner.commands[role] = ["/opt/nib-service/bin/" + binary]
+        self.prepared.files["bin/" + binary] = process.digest(raw)
+        argv = process.digest(os.fsencode(self.owner.commands[role][0]) + b"\0")
+        observed = {"parent": os.getpid(), "argv": argv}
+        facts = {name: value for name, value in endpoint(child.pid).expected.items()
+                 if name in ("start_ticks", "netns_inode", "boot_id_sha256", "argv_sha256")}
+        facts["argv_sha256"] = argv
+        stream = mock.MagicMock()
+        stream.__enter__.return_value = stream
+        stream.read.return_value = raw
+        with ExitStack() as stack:
+            rows = stack.enter_context(mock.patch.object(service.identity, "tcp_rows",
+                side_effect=lambda ipv6_mode=False: ipv6 if ipv6_mode else ipv4))
+            observation = stack.enter_context(mock.patch.object(service.observer, "process", return_value=observed))
+            stack.enter_context(mock.patch.object(service.identity, "process_facts", return_value=facts))
+            stack.enter_context(mock.patch.object(service.identity, "sockets", return_value=set(owned)))
+            stack.enter_context(mock.patch.object(process, "open", return_value=stream, create=True))
+            stack.enter_context(mock.patch.object(process.os, "fstat", return_value=SimpleNamespace(
+                st_mode=stat.S_IFREG, st_size=len(raw))))
+            yield child, observed, facts, rows, observation
+
+    def test_tls_accepts_exactly_one_ipv4_or_ipv6_wildcard_owned_listener(self):
+        port = format(process.TLS_PORT, "04X")
+        v4 = ("00000000:" + port, "00000000:0000", "0A", 7)
+        v6 = ("0" * 32 + ":" + port, "0" * 32 + ":0000", "0A", 7)
+        for ipv6 in (False, True):
+            self.owner.identities.clear()
+            with self.subTest(ipv6=ipv6), self.front_binding([] if ipv6 else [v4], [v6] if ipv6 else []) as values:
+                bound = self.owner.bound("tls", values[0], 110)
+                self.assertEqual(bound["pid"], values[0].pid)
+                self.assertEqual(bound["listener_inode"], 7)
+                self.assertIs(bound["listener_ipv6"], ipv6)
+                self.assertEqual(bound["argv_sha256"], values[1]["argv"])
+                self.assertEqual(bound["start_ticks"], values[2]["start_ticks"])
+
+    def test_tls_rejects_duplicate_nonwildcard_or_wrong_owner_listeners(self):
+        port = format(process.TLS_PORT, "04X")
+        v4 = ("00000000:" + port, "00000000:0000", "0A", 7)
+        v6 = ("0" * 32 + ":" + port, "0" * 32 + ":0000", "0A", 7)
+        cases = (([v4], [v6], (7,)), ([v4, v4], [], (7,)), ([], [v6, v6], (7,)),
+            ([v4], [], (8,)), ([], [v6], (8,)),
+            ([("0100007F:" + port, *v4[1:])], [], (7,)),
+            ([], [(process.TLS_MAPPED_LOOPBACK + ":" + port, *v6[1:])], (7,)))
+        for ipv4, ipv6, owned in cases:
+            with self.subTest(ipv4=ipv4, ipv6=ipv6, owned=owned), \
+                    self.front_binding(ipv4, ipv6, owned=owned) as values:
+                with self.assertRaises(service.Rejected):
+                    self.owner.bound("tls", values[0], 110)
+
+    def test_tls_process_parent_arguments_start_and_family_stay_bound(self):
+        v4 = ("00000000:" + format(process.TLS_PORT, "04X"), "00000000:0000", "0A", 7)
+        for changed in ("parent", "argv", "start", "family"):
+            self.owner.identities.clear()
+            with self.subTest(changed=changed), self.front_binding([v4], []) as values:
+                child, observed, facts, rows, _ = values
+                self.owner.bound("tls", child, 110)
+                if changed == "parent":
+                    observed["parent"] += 1
+                elif changed == "argv":
+                    observed["argv"] = process.digest(b"changed arguments")
+                elif changed == "start":
+                    facts["start_ticks"] += 1
+                else:
+                    v6 = ("0" * 32 + ":" + format(process.TLS_PORT, "04X"), "0" * 32 + ":0000", "0A", 7)
+                    rows.side_effect = lambda ipv6_mode=False: [v6] if ipv6_mode else []
+                with self.assertRaises(service.Rejected):
+                    self.owner.bound("tls", child, 110)
+
+    def test_tls_mapped_peer_is_family_bound_unique_and_owned(self):
+        sock = mock.Mock()
+        sock.getpeername.return_value = ("127.0.0.1", process.TLS_PORT)
+        sock.getsockname.return_value = ("127.0.0.1", 40000)
+        v4 = ("0100007F:" + format(process.TLS_PORT, "04X"), "0100007F:9C40", "01", 7)
+        v6 = (process.TLS_MAPPED_LOOPBACK + ":" + format(process.TLS_PORT, "04X"),
+              process.TLS_MAPPED_LOOPBACK + ":9C40", "01", 7)
+        cases = (([], [v6], True, {7}, True), ([v4], [], False, {7}, True),
+                 ([v4], [v6], True, {7}, False), ([], [v6, v6], True, {7}, False),
+                 ([], [v6], False, {7}, False), ([], [v6], True, {8}, False),
+                 ([], [("0" * 24 + "01000000:" + format(process.TLS_PORT, "04X"), *v6[1:])], True, {7}, False))
+        for ipv4, ipv6, family, inodes, succeeds in cases:
+            with self.subTest(ipv4=ipv4, ipv6=ipv6, family=family, inodes=inodes), \
+                    mock.patch.object(service.identity, "tcp_rows", side_effect=lambda ipv6_mode=False: ipv6 if ipv6_mode else ipv4), \
+                    mock.patch.object(service.identity, "sockets", return_value=inodes):
+                bound = {"pid": 9000, "listener_ipv6": family}
+                deadline = self.clock.mono + .02
+                if succeeds:
+                    self.owner.peer("tls", bound, sock, deadline)
+                else:
+                    with self.assertRaises(service.Rejected):
+                        self.owner.peer("tls", bound, sock, deadline)
+
+    def test_engine_and_guard_remain_ipv4_only(self):
+        for role, port in (("engine", 8000), ("guard", 8001)):
+            v6 = ("0" * 32 + ":" + format(port, "04X"), "0" * 32 + ":0000", "0A", 7)
+            with self.subTest(role=role), mock.patch.object(service.identity, "tcp_rows",
+                    side_effect=lambda ipv6_mode=False: [v6] if ipv6_mode else []):
+                self.assertIsNone(self.owner.bound(role, self.child(), 110))
+        v4 = ("0100007F:1F41", "00000000:0000", "0A", 7)
+        v6 = ("0" * 32 + ":1F41", "0" * 32 + ":0000", "0A", 7)
+        with self.front_binding([v4], [v6], role="guard") as values:
+            with self.assertRaises(service.Rejected):
+                self.owner.bound("guard", values[0], 110)
 
     def test_engine_binding_cannot_refresh_a_changed_process_identity(self):
         child = self.child()
@@ -556,6 +667,75 @@ class ProcessTests(unittest.TestCase):
             popen.assert_not_called()
         self.assertNotIn("PRIVATE_CANARY", output.getvalue())
         self.assertEqual(json.loads(output.getvalue())["status"], "failed")
+
+
+@unittest.skipUnless(sys.platform == "linux", "real Go/procfs listener proof requires Linux")
+class LinuxListenerTests(unittest.TestCase):
+    def test_pinned_go_wildcard_and_tcp4_listener_and_accepted_peer(self):
+        go = shutil.which("go")
+        self.assertIsNotNone(go, "pinned Go toolchain is a repository test prerequisite")
+        # Require the installed pinned compiler; never auto-download a toolchain
+        # during a software-only regression or bypass its checksum verification.
+        env = {**os.environ, "GOTOOLCHAIN": "local", "GOENV": "off", "GOWORK": "off",
+               "GOPROXY": "off", "GOSUMDB": "off", "GONOPROXY": "", "GOPRIVATE": "",
+               "GOFLAGS": "", "GO111MODULE": "off", "CGO_ENABLED": "0", "GOOS": "linux"}
+        info = subprocess.run([go, "env", "-json", "GOVERSION", "GOHOSTOS", "GOHOSTARCH"],
+            env=env, capture_output=True, timeout=10, check=True)
+        info = json.loads(info.stdout)
+        self.assertEqual((info["GOVERSION"], info["GOHOSTOS"]), ("go1.27.2", "linux"))
+        env["GOARCH"] = info["GOHOSTARCH"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            binary = root / "listener"
+            subprocess.run([go, "build", "-trimpath", "-o", str(binary),
+                str(ROOT / "scripts/fixtures/selected_tls_listener/main.go")],
+                env=env, capture_output=True, timeout=90, check=True)
+            owner = process.ProcessOwner.__new__(process.ProcessOwner)
+            owner.prepared = SimpleNamespace(files={"bin/trcs": process.digest(binary.read_bytes())})
+            owner.shutdown = threading.Event()
+            owner.processes, owner.commands, owner.identities = {}, {}, {}
+            for network in ("tcp", "tcp4"):
+                with self.subTest(network=network):
+                    owner.identities.clear()
+                    ready = root / (network + ".json")
+                    child = owner.spawn("tls", [str(binary), network, str(ready)], env)
+                    try:
+                        deadline = time.monotonic() + 10
+                        while not ready.exists():
+                            self.assertIsNone(child.poll())
+                            self.assertLess(time.monotonic(), deadline)
+                            time.sleep(.01)
+                        metadata = json.loads(ready.read_bytes())
+                        self.assertIs(type(metadata["ipv6"]), bool)
+                        self.assertTrue(0 < metadata["port"] < 65536)
+                        if network == "tcp4":
+                            self.assertFalse(metadata["ipv6"])
+                        original_read = service.observer.read_kernel
+                        def kernel(path, limit, until):
+                            # This host test is not a private container. Keep
+                            # all real PID/argv/start/ns/fd/executable checks;
+                            # only emulate the separately required cgroup root.
+                            if str(path) in ("/proc/self/cgroup", f"/proc/{child.pid}/cgroup"):
+                                return b"0::/\n"
+                            return original_read(path, limit, until)
+                        with mock.patch.object(process, "TLS_PORT", metadata["port"]), \
+                                mock.patch.object(service.observer, "read_kernel", kernel):
+                            bound = owner.bound("tls", child, deadline)
+                            self.assertIsNotNone(bound)
+                            self.assertIs(bound["listener_ipv6"], metadata["ipv6"])
+                            self.assertEqual(bound["pid"], child.pid)
+                            self.assertIn(bound["listener_inode"], service.identity.sockets(child.pid))
+                            self.assertEqual(bound["argv_sha256"], process.digest(
+                                b"\0".join(os.fsencode(value) for value in owner.commands["tls"]) + b"\0"))
+                            with socket.create_connection(("127.0.0.1", metadata["port"]), timeout=2) as connection:
+                                owner.peer("tls", bound, connection, deadline)
+                                self.assertEqual(owner.bound("tls", child, deadline), bound)
+                                with self.assertRaises(service.Rejected):
+                                    owner.peer("tls", {**bound, "pid": os.getpid()}, connection,
+                                               time.monotonic() + .05)
+                    finally:
+                        self.assertTrue(owner.reap("tls", child, time.monotonic() + 5))
+                        self.assertIsNotNone(child.poll())
 
 
 if __name__ == "__main__":

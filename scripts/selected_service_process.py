@@ -29,6 +29,10 @@ import selected_service_engine as engine_entry
 
 ROOT, PAYLOAD = Path("/opt/nib-service"), Path("/opt/nib")
 TLS_PORT = 8443
+# Linux procfs prints each native-endian 32-bit word of an IPv6 address.
+_mapped = socket.inet_pton(socket.AF_INET6, "::ffff:127.0.0.1")
+TLS_MAPPED_LOOPBACK = "".join(format(int.from_bytes(_mapped[index:index + 4], sys.byteorder), "08X")
+                              for index in range(0, 16, 4))
 snapshot = service.pilot.pilot.source_module("snapshot")
 require = service.require
 
@@ -250,6 +254,15 @@ class ProcessOwner:
         port = {"engine": 8000, "guard": 8001, "tls": TLS_PORT}[role]
         rows = [row for row in service.identity.tcp_rows() if row[2] == "0A"
                 and row[0].endswith(":" + format(port, "04X"))]
+        tls_ipv6 = False
+        if role == "tls":
+            # Pinned trcs uses Go net.Listen("tcp", "0.0.0.0:8443"). Go's
+            # wildcard selection may produce a single dual-stack tcp6 socket.
+            ipv6 = [row for row in service.identity.tcp_rows(True) if row[2] == "0A"
+                    and row[0].endswith(":" + format(port, "04X"))]
+            require(len(rows) + len(ipv6) <= 1, "identity")
+            tls_ipv6 = bool(ipv6)
+            rows += ipv6
         if not rows:
             return None
         command = self.commands[role]
@@ -263,11 +276,13 @@ class ProcessOwner:
         else:
             observed = service.observer.process(child.pid, deadline)
             require(observed["parent"] == os.getpid() and observed["argv"] == argv_sha, "identity")
-            address = ("00000000:" if role == "tls" else "0100007F:") + format(port, "04X")
-            require(len(rows) == 1 and rows[0][:3] == (address, "00000000:0000", "0A")
+            zero = "0" * (32 if tls_ipv6 else 8)
+            address = (zero if role == "tls" else "0100007F") + ":" + format(port, "04X")
+            require(len(rows) == 1 and rows[0][:3] == (address, zero + ":0000", "0A")
                     and rows[0][3] in service.identity.sockets(child.pid)
-                    and not any(row[2] == "0A" and row[0].endswith(":" + format(port, "04X"))
-                                for row in service.identity.tcp_rows(True)), "identity")
+                    and (role == "tls" or not any(row[2] == "0A"
+                        and row[0].endswith(":" + format(port, "04X"))
+                        for row in service.identity.tcp_rows(True))), "identity")
             # Deliberately follow the live /proc executable, not its original path.
             with open("/proc/" + str(child.pid) + "/exe", "rb") as stream:
                 info = os.fstat(stream.fileno())
@@ -276,6 +291,8 @@ class ProcessOwner:
                 require(len(raw) == info.st_size and digest(raw) == exe_sha, "identity")
             current = {"pid": child.pid, **service.identity.process_facts(child.pid),
                        "exe_sha256": exe_sha, "listener_inode": rows[0][3]}
+            if role == "tls":
+                current["listener_ipv6"] = tls_ipv6
             require(service.observer.process(child.pid, deadline) == observed, "identity")
             value = service.identity.Endpoint(port, {"process": current}) if role == "guard" else current
         require(role not in self.identities or self.identities[role] == current, "identity")
@@ -289,12 +306,18 @@ class ProcessOwner:
             return
         require(sock.getpeername() == ("127.0.0.1", TLS_PORT)
                 and sock.getsockname()[0] == "127.0.0.1", "identity")
-        local = "0100007F:" + format(TLS_PORT, "04X")
-        remote = "0100007F:" + format(sock.getsockname()[1], "04X")
         until = min(deadline, time.monotonic() + 1)
         while True:
-            peers = [row[3] for row in service.identity.tcp_rows() if row[:3] == (local, remote, "01")]
-            if len(peers) == 1 and peers[0] in service.identity.sockets(bound["pid"]):
+            peers = []
+            for ipv6, loopback in ((False, "0100007F"), (True, TLS_MAPPED_LOOPBACK)):
+                local = loopback + ":" + format(TLS_PORT, "04X")
+                remote = loopback + ":" + format(sock.getsockname()[1], "04X")
+                peers.extend((ipv6, row[3]) for row in service.identity.tcp_rows(ipv6)
+                             if row[:3] == (local, remote, "01"))
+            require(len(peers) <= 1, "identity")
+            if peers:
+                require(peers[0][0] == bound["listener_ipv6"], "identity")
+            if peers and peers[0][1] in service.identity.sockets(bound["pid"]):
                 return
             require(time.monotonic() < until, "identity")
             time.sleep(.005)

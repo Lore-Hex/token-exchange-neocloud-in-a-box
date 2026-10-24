@@ -65,6 +65,16 @@ sending its fixed request, with post-response identity verification. Engine
 `/v1/models` must report exactly one canonical ID and integer context 8192.
 Guard and TLS readiness verify owned listeners/binaries; TLS additionally
 checks certificate/name trust and the accepted server-side socket owner.
+TLS alone accepts either one IPv4 wildcard listener or one IPv6 wildcard
+listener, never one of each or duplicate listeners. This follows pinned trcs
+[`net.Listen("tcp", addr)`](https://github.com/Lore-Hex/trustedrouter-confidential-stack/blob/8a87d9765ceabe76bbfa5e56a72c91da6d8290d5/cmd/trcs/main.go#L117)
+and Go 1.27.2's
+[`favoriteAddrFamily`](https://github.com/golang/go/blob/go1.27.2/src/net/ipsock_posix.go#L89-L155):
+an IPv4 wildcard can select a dual-stack IPv6 socket. The chosen family,
+listener inode, PID, arguments, start time and executable stay bound. The
+internal IPv4 probe requires a unique owned accepted socket with exactly
+`127.0.0.1` on both sides, represented as IPv4-mapped IPv6 for a tcp6 listener.
+Engine and guard remain strict IPv4 loopback-only. No trcs pin changes.
 The whole probe, including slow headers/body chunks, uses the PR317 absolute
 alarm, not just per-receive socket timeouts. No public-network probe is made.
 
@@ -137,6 +147,8 @@ container creation/retirement command, not another owner abstraction. It must:
    the original test bundle/cache implicitly, mix secrets into that helper,
    or recursively relax arbitrary paths. Runtime code, pins and binaries
    likewise need final readable/traversable modes (and executable binaries).
+   The separate public-view helper exposes `destination/model` inside a private
+   `0700` atomic wrapper: bind that model subdirectory, not the wrapper itself.
 6. Stage private operator inputs separately for the runtime UID: private
    directories `0700`, API key and TLS private key `0600`, no group/world
    readability. Original root-owned secret files may need a separate securely
@@ -206,7 +218,14 @@ failure, slow-trickle bounds, denied signals and positive reap proof, mount/key
 replacement, closed CLI/preparation rejection, and missing-repository import
 closure. Import smoke copies only the packaged Python tree, pins, dummy bins
 and an empty sibling payload directory; it is not container or engine parity.
-There is no listener, fixed-port server, Docker operation or inference in these
-tests. Actual owned peers, stream drain, reaping and native cache execution
+The Linux-only listener regression compiles a small fixture with pinned Go
+1.27.2 offline and tests real ephemeral `tcp` and `tcp4` wildcard listeners,
+actual process identity, socket ownership and accepted IPv4/mapped peers. It
+emulates only the required private-cgroup root, since the test runs outside
+the proposed container. On other hosts this one test is explicitly skipped;
+it is not evidence of running trcs/TLS or the prepared image. Fixture tests
+also reject duplicates, changed identity, wrong ownership and wrong families.
+No fixed-port server, Docker operation or inference is used. Actual container
+isolation, trcs/TLS peers, stream drain, reaping and native cache execution
 still need prepared-container proof, independent final-head review, CI, and
 separate explicit hardware/network authorization.
