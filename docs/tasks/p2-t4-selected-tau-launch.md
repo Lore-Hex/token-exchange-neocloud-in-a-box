@@ -12,6 +12,13 @@ The CPU inputs are the four fixed files in
 `scripts/prepare-tau-cpu-parity-native.py`'s `plan`; the scorer archive and
 wheels are pinned by the existing tau runtime lock. Nothing downloads during
 inference. Both pinned Go/Python images and the GPU image must already exist.
+Before preparing the scorer payload or starting either owner, the controller
+performs bounded read-only image checks: the existing selected-scorer descriptor
+validator on its fixed local socket, and the CPU recorder's existing base-image
+validator on the CPU owner's local Docker context. Missing images, unsupported
+image-inspection commands and incompatible metadata fail before GPU startup.
+This does not add a classic-store fallback, pull images or replace the original
+checks repeated by each consumer at use time.
 
 ```sh
 python3 -I -S -B scripts/record-tau-selected.py \

@@ -78,6 +78,7 @@ class SelectedLaunchTests(unittest.TestCase):
                     (launch.gpu_rec, "owner_module", mock.Mock(return_value=gpu.gpu)),
                     (launch.gpu_rec, "read", mock.Mock(return_value=b"fixed")),
                     (launch.cpu_rec, "toolkit", mock.Mock()),
+                    (launch, "preflight_images", mock.Mock()),
                     (launch.runner, "prepare", prepare),
                     (cpu.session.llama.worker, "alarm", alarm),
                     (launch.runner, "publish", mock.Mock()),
@@ -99,6 +100,101 @@ class SelectedLaunchTests(unittest.TestCase):
                 self.assertEqual(report["cleanup"], "confirmed" if failure == "post-scorer-interrupt" else "unconfirmed")
                 self.assertNotIn("CANARY", repr(report))
                 self.assertFalse(report["confidential"] or report["quality_eligible"] or report["live_admission"])
+
+    def test_image_preflight_reuses_validators_and_each_consumers_daemon(self):
+        calls = []
+        bases = tau.json_value((launch.ROOT / "scripts/e2e/pins.json").read_bytes())
+        def inspect(argv, **kwargs):
+            calls.append((argv, {**kwargs, "env": dict(kwargs["env"])}))
+            raw = tau.encoded([trial.image_inspection()]) if len(calls) == 1 else b"sha256:" + b"a" * 64 + b" linux/amd64\n"
+            return subprocess.CompletedProcess(argv, 0, raw, b"")
+        with ExitStack() as stack:
+            stack.enter_context(mock.patch.object(launch.process_tools, "execute_process_group", side_effect=inspect))
+            context = stack.enter_context(mock.patch.object(launch.process_tools, "local_docker_endpoint",
+                                                            return_value="unix:///private/cpu-fixture.sock"))
+            scorer_check = stack.enter_context(mock.patch.object(launch.runner, "check_image", wraps=launch.runner.check_image))
+            cpu_check = stack.enter_context(mock.patch.object(launch.cpu_rec, "check_base_image", wraps=launch.cpu_rec.check_base_image))
+            stack.enter_context(mock.patch.dict(os.environ, {"DOCKER_HOST": "tcp://untrusted.invalid:2375",
+                                                            "DOCKER_CONFIG": "/private/untrusted"}))
+            launch.preflight_images(time.monotonic() + 5)
+        scorer_check.assert_called_once()
+        self.assertEqual(cpu_check.call_count, 2)
+        context.assert_called_once()
+        self.assertNotIn("DOCKER_HOST", context.call_args.args[0])
+        self.assertEqual(context.call_args.args[1], Path(launch.pwd.getpwuid(os.getuid()).pw_dir))
+        self.assertEqual(calls[0][0], ["docker", "image", "inspect", "--platform", "linux/amd64", launch.runner.runtime.TARGET["image"]])
+        self.assertEqual(calls[0][1]["env"]["DOCKER_HOST"], "unix:///var/run/docker.sock")
+        for index, key in enumerate(("go_image", "python_image"), 1):
+            self.assertEqual(calls[index][0], ["docker", "image", "inspect", "--format",
+                                              "{{.Id}} {{.Os}}/{{.Architecture}}", bases[key]])
+            self.assertEqual(calls[index][1]["env"]["DOCKER_HOST"], "unix:///private/cpu-fixture.sock")
+        for index, (_, kwargs) in enumerate(calls):
+            self.assertGreater(kwargs["timeout"], 0)
+            self.assertLessEqual(kwargs["timeout"], 5)
+            self.assertEqual(kwargs["max_output_bytes"], 65536 if index == 0 else 1024)
+            self.assertEqual(kwargs["max_stderr_bytes"], 1024)
+            self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
+            self.assertNotEqual(kwargs["env"]["DOCKER_CONFIG"], "/private/untrusted")
+            self.assertFalse(Path(kwargs["env"]["DOCKER_CONFIG"]).exists())
+
+    def test_incompatible_or_missing_images_never_start_either_owner(self):
+        for index in range(3):
+            for failure in ("missing", "incompatible", "malformed", "stderr", "timeout"):
+                with self.subTest(image=index, failure=failure), tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+                    root = Path(temporary).resolve()
+                    args = types.SimpleNamespace(gpu_bundle=root / "bundle", gpu_receipt_sha256="c" * 64,
+                        output=root / "output", source_archive=root / "source", wheelhouse=root / "wheels",
+                        deadline=datetime.datetime.fromtimestamp(time.time() + 2400, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+                    calls = []
+                    def inspect(argv, **kwargs):
+                        position = len(calls)
+                        calls.append(argv)
+                        raw = tau.encoded([trial.image_inspection()]) if position == 0 else b"sha256:" + b"a" * 64 + b" linux/amd64\n"
+                        code, stderr = 0, b""
+                        if position == index:
+                            if failure == "missing": code = 1
+                            if failure == "stderr": stderr = b"PRIVATE_CANARY"
+                            if failure == "timeout": raise subprocess.TimeoutExpired(argv, 15)
+                            if failure == "malformed": raw = b"not-an-image"
+                            if failure == "incompatible":
+                                raw = (tau.encoded([{**trial.image_inspection(), "Descriptor": None,
+                                                    "Id": launch.runner.PROBE_CONFIG}]) if index == 0 else raw.replace(b"amd64", b"arm64"))
+                        return subprocess.CompletedProcess(argv, code, raw, stderr)
+                    mocked = ((launch.sys, "platform", "linux"),
+                        (launch.os, "uname", mock.Mock(return_value=types.SimpleNamespace(machine="x86_64"))),
+                        (launch, "identity", mock.Mock(return_value={"git_sha": "a" * 40})),
+                        (launch.gpu_rec, "bundle_inputs", mock.Mock(return_value=({"git_sha": "a" * 40}, {}, None, None))),
+                        (launch.gpu_rec, "owner_module", mock.Mock(return_value=gpu.gpu)),
+                        (launch.gpu_rec, "read", mock.Mock(return_value=b"fixed")),
+                        (launch.cpu_rec, "toolkit", mock.Mock()),
+                        (launch.process_tools, "execute_process_group", mock.Mock(side_effect=inspect)),
+                        (launch.process_tools, "local_docker_endpoint", mock.Mock(return_value="unix:///private/cpu-fixture.sock")))
+                    for obj, name, value in mocked:
+                        stack.enter_context(mock.patch.object(obj, name, value))
+                    owners = stack.enter_context(mock.patch.object(launch.subprocess, "Popen"))
+                    prepare = stack.enter_context(mock.patch.object(launch.runner, "prepare"))
+                    with self.assertRaises((ValueError, subprocess.TimeoutExpired)):
+                        launch.run(args)
+                    self.assertEqual(len(calls), index + 1)
+                    owners.assert_not_called()
+                    prepare.assert_not_called()
+                    self.assertFalse(args.output.exists())
+
+    def test_image_preflight_expired_budget_never_inspects_or_discovers_context(self):
+        with mock.patch.object(launch.process_tools, "execute_process_group") as inspect, \
+                mock.patch.object(launch.process_tools, "local_docker_endpoint") as context, self.assertRaises(ValueError):
+            launch.preflight_images(time.monotonic() - 1)
+        inspect.assert_not_called()
+        context.assert_not_called()
+
+    def test_image_preflight_rejects_late_success_before_context_discovery(self):
+        result = subprocess.CompletedProcess([], 0, tau.encoded([trial.image_inspection()]), b"")
+        with mock.patch.object(launch.process_tools, "execute_process_group", return_value=result) as inspect, \
+                mock.patch.object(launch.process_tools, "local_docker_endpoint") as context, \
+                mock.patch.object(launch.time, "monotonic", side_effect=(10, 16)), self.assertRaises(ValueError):
+            launch.preflight_images(15)
+        self.assertEqual(inspect.call_args.kwargs["timeout"], 5)
+        context.assert_not_called()
 
     def test_original_ready_packets_bind_manifest_and_never_renew_expiry(self):
         ready, toolkit, frozen, expiry, held, image = inputs()

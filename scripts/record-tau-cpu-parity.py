@@ -95,6 +95,11 @@ def runtime_command(image, name):
             "--tmpfs", "/work:rw,exec,nosuid,nodev,size=4g,mode=0700,uid=65532,gid=65532", image]
 
 
+def check_base_image(result):
+    require(result.returncode == 0 and not result.stderr
+            and re.fullmatch(rb"sha256:[0-9a-f]{64} linux/amd64\s*", result.stdout))
+
+
 def context(source, target, inputs, pilot, probe_input=None, *, selected_owner=False):
     require(len(inputs) == 4)
     pins = json.loads((source / "scripts/tau_cpu_support_models.json").read_bytes())
@@ -170,8 +175,7 @@ def execute(source, work, env, snapshot, inputs, report, home, *, session_fd=Non
             result = snapshot.execute_process_group(["docker", "image", "inspect", "--format",
                 "{{.Id}} {{.Os}}/{{.Architecture}}", base], env=env, timeout=15,
                 max_output_bytes=1024, max_stderr_bytes=1024)
-            require(result.returncode == 0 and not result.stderr
-                    and re.fullmatch(rb"sha256:[0-9a-f]{64} linux/amd64\s*", result.stdout))
+            check_base_image(result)
         if probe is not None:
             result = snapshot.execute_process_group(["docker", "image", "inspect", runner.runtime.TARGET["image"]],
                 env=env, timeout=15, max_output_bytes=65536, max_stderr_bytes=1024)

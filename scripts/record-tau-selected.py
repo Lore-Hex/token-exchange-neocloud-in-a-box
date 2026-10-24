@@ -11,6 +11,7 @@ import argparse
 import datetime
 import os
 from pathlib import Path
+import pwd
 import selectors
 import signal
 import subprocess
@@ -53,6 +54,35 @@ def environment():
             "DOCKER_HOST": "unix:///var/run/docker.sock", "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_NO_REPLACE_OBJECTS": "1", "GIT_NO_LAZY_FETCH": "1",
             "GIT_ALLOW_PROTOCOL": "", "GIT_TERMINAL_PROMPT": "0", "PYTHONDONTWRITEBYTECODE": "1"}
+
+
+def preflight_images(deadline):
+    """Read-only prerequisites; owners still repeat their checks at use time."""
+    with tempfile.TemporaryDirectory(prefix="nib-selected-images-") as temporary:
+        env = process_tools.controlled_env(Path(temporary) / "control")
+        env["DOCKER_HOST"] = environment()["DOCKER_HOST"]
+
+        def inspect(arguments, limit):
+            remaining = deadline - time.monotonic()
+            require(remaining > 0)
+            result = process_tools.execute_process_group(["docker", "image", "inspect", *arguments],
+                env=env, timeout=min(15, remaining), stdin=subprocess.DEVNULL,
+                max_output_bytes=limit, max_stderr_bytes=1024)
+            require(time.monotonic() < deadline)
+            return result
+
+        result = inspect(["--platform", runner.runtime.TARGET["platform"], runner.runtime.TARGET["image"]], 65536)
+        require(result.returncode == 0 and not result.stderr)
+        images = tau.json_value(result.stdout)
+        require(type(images) is list and len(images) == 1)
+        runner.check_image(images[0])
+        # CPU builds use the owner's local context, not the scorer's fixed socket.
+        discovery = {key: value for key, value in env.items() if key != "DOCKER_HOST"}
+        env = {**discovery, "DOCKER_HOST": process_tools.local_docker_endpoint(
+            discovery, Path(pwd.getpwuid(os.getuid()).pw_dir))}
+        bases = tau.json_value(runner.runtime.read_file(ROOT / "scripts/e2e/pins.json", 1 << 20, deadline))
+        for key in ("go_image", "python_image"):
+            cpu_rec.check_base_image(inspect(["--format", "{{.Id}} {{.Os}}/{{.Architecture}}", bases[key]], 1024))
 
 
 def read_ready(processes, prefixes, deadline):
@@ -216,6 +246,7 @@ def run(args):
     cpu_rec.toolkit(ROOT, selected_owner=True)
     cpu = sys.modules["tau_cpu_session"]
     contract_sha = tau.digest(gpu_rec.read(args.gpu_bundle / "payload/lab.json"))
+    preflight_images(min(work_deadline, time.monotonic() + 60))
     files, plan = runner.prepare(args.source_archive, args.wheelhouse, None, None, None,
         min(work_deadline, time.monotonic() + 300), parent_pipe=True, selected_operational=True)
     require(plan["producer"]["git_sha"] == toolkit["git_sha"])
