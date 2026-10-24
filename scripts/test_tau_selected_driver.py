@@ -52,7 +52,7 @@ class SelectedDriverTests(unittest.TestCase):
         self.plan = scorer.fixture()[3]
         self.frozen = fixtures.manifest()
         self.channels = {name: fixtures.OwnerReplies(binding) for name, binding in self.frozen['owners'].items()}
-        self.owners = {name: owners.Coordinator(channel, self.frozen['owners'][name], time.monotonic() + 30)
+        self.owners = {name: owners.Coordinator(channel, self.frozen['owners'][name], time.monotonic() + 90)
                        for name, channel in self.channels.items()}
         for owner in self.owners.values():
             self.addCleanup(owner.close)
@@ -74,6 +74,11 @@ class SelectedDriverTests(unittest.TestCase):
         self.assertFalse(result['quality_accepted'] or result['confidential'] or result['live_admission'])
         self.assertNotIn('CANARY', repr(result))
         self.assertTrue(all(channel.closed for channel in self.channels.values()))
+        self.assertTrue(result['owners_finished'])
+        self.assertEqual(result['owner_finish'], {'candidate': {'status': 'evaluated', 'completed_requests': 1},
+                                                  'support': {'status': 'evaluated', 'completed_requests': 2}})
+        for channel in self.channels.values():
+            self.assertEqual(channel.sent[-1]['kind'], 'finish')
 
     def test_unknown_usage_retains_reservation_without_retry(self):
         self.channels['candidate'].error = 'infrastructure_error'
@@ -85,6 +90,48 @@ class SelectedDriverTests(unittest.TestCase):
         self.assertFalse(result['usage_known'])
         self.assertEqual(len(self.channels['candidate'].sent), 2)
         self.assertIsNone(result['trial']['reward'])
+        self.assertFalse(result['owners_finished'])
+        self.assertIsNone(result['owner_finish']['candidate'])
+        self.assertEqual(result['owner_finish']['support'],
+                         {'status': 'infrastructure_error', 'completed_requests': 1})
+
+    def test_finish_failure_removes_reward_but_preserves_usage_and_other_ack(self):
+        with mock.patch.object(self.owners['candidate'], 'finish', side_effect=OSError('PRIVATE_CANARY')):
+            result = self.run_child()
+        self.assertEqual(result['trial']['status'], 'infrastructure_error')
+        self.assertIsNone(result['trial']['reward'])
+        self.assertEqual(result['trial']['usage']['total_tokens'], 24)
+        self.assertFalse(result['owners_finished'])
+        self.assertEqual(result['owner_finish']['support'], {'status': 'evaluated', 'completed_requests': 2})
+        self.assertNotIn('CANARY', repr(result))
+        self.assertTrue(all(channel.closed for channel in self.channels.values()))
+
+    def test_owner_expiry_reserves_shutdown_time_and_never_renews(self):
+        for owner in self.owners.values():
+            owner.deadline = time.monotonic() + 2
+        with mock.patch.object(driver.subprocess, 'Popen') as popen:
+            result = self.run_child()
+        popen.assert_not_called()
+        self.assertFalse(result['scorer_protocol_completed'])
+        self.assertIsNone(result['trial']['reward'])
+        self.assertTrue(result['owners_finished'])
+        for name, channel in self.channels.items():
+            self.assertEqual(len(channel.sent), 1)
+            self.assertLessEqual(channel.sent[0]['deadline'], self.owners[name].deadline)
+
+    def test_pending_count_is_not_misreported_as_finished(self):
+        original = driver.selected.Session.serve_once
+        def pending(session):
+            original(session)
+            session.owners[0].pending = ('candidate', 'f' * 64, 7, time.monotonic() + 1)
+            raise worker.Abort('budget_abort')
+        with mock.patch.object(driver.selected.Session, 'serve_once', pending):
+            result = self.run_child()
+        self.assertEqual(result['trial']['status'], 'budget_abort')
+        self.assertFalse(result['owners_finished'])
+        self.assertIsNone(result['owner_finish']['candidate'])
+        self.assertEqual(self.channels['candidate'].sent, [])
+        self.assertTrue(all(channel.closed for channel in self.channels.values()))
 
     def test_wrong_mode_or_stale_owner_does_not_launch(self):
         for mutation in (lambda p: p.update(transport='scripted-parent-pipe'),

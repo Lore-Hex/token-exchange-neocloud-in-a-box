@@ -23,7 +23,7 @@ def failure(session, exc):
     return common.failure_result(session, exc)
 
 
-def diagnostic(session, *, protocol_completed, attach_cleanup, exit_code):
+def diagnostic(session, *, protocol_completed, attach_cleanup, exit_code, owner_finish):
     result = dict(session.result)
     if result["usage"] is not None:
         result["usage"] = {**result["usage"], "cost_usd": None}
@@ -34,13 +34,34 @@ def diagnostic(session, *, protocol_completed, attach_cleanup, exit_code):
             "scorer_protocol_completed": protocol_completed, "attach_cleanup": attach_cleanup,
             "scorer_exit_code": exit_code, "reserved_tokens": session.bridge.budget.tokens,
             "usage_known": session.bridge.usage_known, "quality_accepted": False,
+            "owner_finish": owner_finish, "owners_finished": all(row is not None for row in owner_finish.values()),
             "confidential": False, "live_admission": False, "pricing": "not-measured"}
+
+
+def finish_owners(session, deadline):
+    """A closed pipe is not an acknowledged finish; preserve partial evidence."""
+    result = {"candidate": None, "support": None}
+    status = session.result["status"]
+    for name, owner in zip(result, session.owners):
+        try:
+            require(owner.failed is None and owner.pending is None)
+            until = min(deadline, owner.deadline, time.monotonic() + 5)
+            result[name] = owner.finish(status, until)
+            if status == "evaluated":
+                counts = session.bridge.counts
+                expected = counts["agent"] if name == "candidate" else counts["simulator"] + counts["evaluator"]
+                require(result[name]["completed_requests"] == expected)
+        except BaseException as exc:
+            if session.result["status"] == "evaluated":
+                session.result = failure(session, exc)
+    return result
 
 
 def run_process(command, environment, payload, plan, frozen, deadline, *, candidate, support):
     """Internal only: fixed verified Docker attach argv, never a caller endpoint.
 
-    Closing owner channels ends this attachment, not their container lifecycles.
+    Finishing owner channels acknowledges the exact request counts before close.
+    It does not establish their container lifecycles or final result receipts.
     The enclosing owner must independently inspect/remove every owned container.
     No success here upgrades runtime admission or benchmark qualification.
     """
@@ -60,6 +81,7 @@ def run_process(command, environment, payload, plan, frozen, deadline, *, candid
     require(len(assertions) == 1)
     channel, session, process = None, None, None
     descriptors, completed, cleanup, exit_code = [], False, "not-started", None
+    owner_finish = {"candidate": None, "support": None}
     try:
         # Construct the session before starting anything. Exact Coordinator types,
         # fresh sequences and matching readiness bindings are checked there.
@@ -71,7 +93,8 @@ def run_process(command, environment, payload, plan, frozen, deadline, *, candid
         descriptors.remove(incoming)
         descriptors.remove(outgoing)
         session = selected.Session(channel, frozen, frozen_sha, candidate, support, assertions=assertions)
-        session.bridge.budget.trial_deadline = min(session.bridge.budget.trial_deadline, deadline - RESERVE)
+        session.bridge.budget.trial_deadline = min(session.bridge.budget.trial_deadline, deadline - RESERVE,
+                                                  candidate.deadline - RESERVE, support.deadline - RESERVE)
         trial_deadline = session.bridge.budget.trial_deadline
         require(time.monotonic() < trial_deadline)
         with worker.alarm(trial_deadline):
@@ -93,9 +116,7 @@ def run_process(command, environment, payload, plan, frozen, deadline, *, candid
             raise ValueError("selected scorer setup rejected") from None
         session.result = failure(session, exc)
     finally:
-        if session is not None:
-            session.close()
-        elif channel is not None:
+        if session is None and channel is not None:
             channel.close()
         for fd in descriptors:
             os.close(fd)
@@ -114,7 +135,13 @@ def run_process(command, environment, payload, plan, frozen, deadline, *, candid
             except (worker.Abort, OSError, subprocess.TimeoutExpired) as exc:
                 completed = False
                 session.result = failure(session, exc)
-    return diagnostic(session, protocol_completed=completed, attach_cleanup=cleanup, exit_code=exit_code)
+        if session is not None:
+            try:
+                owner_finish = finish_owners(session, deadline)
+            finally:
+                session.close()
+    return diagnostic(session, protocol_completed=completed, attach_cleanup=cleanup, exit_code=exit_code,
+                      owner_finish=owner_finish)
 
 
 if __name__ == "__main__":

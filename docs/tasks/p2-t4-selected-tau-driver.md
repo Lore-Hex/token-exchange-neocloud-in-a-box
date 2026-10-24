@@ -17,11 +17,20 @@ requests share the existing central budget; failures preserve reservations.
 Neither prompts nor completions are included in diagnostics.
 
 The fixed 960-second outer deadline includes a 60-second cleanup reserve;
-the trial also respects both owner deadlines and its 900-second maximum.
+the trial also reserves those 60 seconds inside each original owner expiry
+and respects its 900-second maximum. It never renews an owner deadline.
 An abnormal or hanging scorer exit invalidates a terminal reward without
 erasing known usage. The child attachment is killed and reaped on failure;
 the enclosing runner must still verify and remove the actual containers.
-Results explicitly distinguish attachment reaping from container cleanup.
+Before closing either owner pipe, the driver requests an explicit finish
+acknowledgement, bounded by the original expiry and at most five seconds per
+owner. The request counts must agree with the scorer's role counts on success.
+A pending count or failed owner cannot be reported as finished. An acknowledgement
+failure removes an otherwise successful reward without erasing usage; the other
+owner is still given bounded shutdown. Actual acknowledgements are retained
+separately from the final trial status. Results explicitly distinguish owner
+acknowledgements and attachment reaping from container cleanup. Final CPU/GPU
+receipts must still be joined by the enclosing launcher.
 
 Tests exercise actual subprocess pipes with synthetic owner replies, timeout
 and reap, abnormal post-result exit, bad mode/stale owner rejection, unknown
