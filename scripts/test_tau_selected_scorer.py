@@ -2,7 +2,9 @@
 """Closed selected scorer packaging/dispatch; synthetic interfaces, no GPU score."""
 
 import copy
+import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import time
@@ -165,6 +167,78 @@ class SelectedScorerTests(unittest.TestCase):
                 with self.assertRaises(worker.Abort) as caught:
                     worker.run_selected_upstream(None, manifest, selection, bridge)
                 self.assertEqual(caught.exception.status, status)
+
+    def test_fresh_entrypoint_preserves_canonical_abort_in_terminal_frame(self):
+        # A second source execution has a different Abort class. Exercise main's
+        # dispatch and the real pipe executor in a fresh isolated process.
+        code = r'''
+import json,os,runpy,sys,types
+sys.path.insert(0, sys.argv[1])
+import test_tau_selected_scorer as fixture
+import tau_transport as transport
+import tau_pipe_trial as pipe
+files,toolkit,manifest,plan,pins=fixture.fixture()
+raw=fixture.tau.encoded(plan)
+entry=runpy.run_path(sys.argv[1]+'/tau_trial_worker.py',run_name='entry_fixture')
+g=entry['main'].__globals__
+assert g['Abort'] is not pipe.worker.Abort
+reason=sys.argv[2]
+names=('tau2','tau2.runner','tau2.runner.batch','tau2.runner.helpers','tau2.data_model',
+       'tau2.data_model.simulation','tau2.evaluator','tau2.evaluator.evaluator','tau2.utils')
+for name in names: sys.modules[name]=types.ModuleType(name)
+task=types.SimpleNamespace(evaluation_criteria=types.SimpleNamespace(nl_assertions=['Synthetic assertion']))
+sys.modules['tau2.runner.helpers'].get_tasks=lambda *a,**kw:[task]
+sys.modules['tau2.data_model.simulation'].TextRunConfig=lambda **kw:types.SimpleNamespace(**kw)
+sys.modules['tau2.evaluator.evaluator'].EvaluationType=types.SimpleNamespace(ALL_WITH_NL_ASSERTIONS='all-nl')
+sys.modules['tau2.utils'].llm_utils=types.SimpleNamespace(set_llm_log_dir=lambda x:None)
+sys.modules['tau2.runner.batch'].run_single_task=lambda *a,**kw:types.SimpleNamespace(
+    termination_reason=types.SimpleNamespace(value=reason),reward_info=types.SimpleNamespace(reward=0.0))
+pipe.worker.configure_upstream=lambda bridge:None
+g['configure_upstream']=lambda bridge:None
+class Channel:
+    def __init__(self,read,write): self.read,self.write=read,write
+    def send(self,value,deadline): os.write(self.write,json.dumps(value).encode()+b'\n')
+    def close(self): os.close(self.read);os.close(self.write)
+class Proxy:
+    def __init__(self,channel,deadline):
+        self.channel,self.deadline=channel,deadline
+        self.finished=self.failed=False
+    def finish(self,status,reward):
+        self.channel.send({'status':status,'reward':reward},self.deadline)
+        self.finished=True
+transport.Channel,transport.WorkerProxy=Channel,Proxy
+g['sys']=types.SimpleNamespace(flags=sys.flags,dont_write_bytecode=True,version_info=(3,12,13),
+    platform='linux',argv=['worker',g['digest'](raw),'--parent-pipe','--selected-operational'],
+    path=sys.path,modules=sys.modules,addaudithook=lambda hook:None)
+g['os']=types.SimpleNamespace(**{**vars(os),'uname':lambda:types.SimpleNamespace(machine='x86_64'),
+    'confstr':lambda key:'glibc 2.36'})
+g['verify_tree']=lambda *args:None
+def load(root,name):
+    if name=='scripts/tau_preflight.py': return fixture.tau
+    if name=='scripts/tau_aggregate.py': return fixture.trial.agg
+    module=types.ModuleType(name)
+    module.__file__=str(fixture.runner.ROOT/name)
+    exec(compile(files[name],module.__file__,'exec'),module.__dict__)
+    return module
+g['load']=load
+def read(path,limit):
+    if path.name=='trial.json': return raw
+    if path.name=='manifest.json': return fixture.tau.encoded(manifest)
+    if str(path).endswith(fixture.tau.PINS): return fixture.tau.encoded(pins)
+    return files[str(path).removeprefix('/opt/nib/')]
+g['read']=read
+sys.exit(g['main']())
+'''
+        for reason, expected in (("max_steps", "truncated"), ("timeout", "timeout"),
+                                 ("agent_error", "protocol_error"), ("user_stop", "evaluated")):
+            with self.subTest(reason=reason):
+                result = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", code,
+                                         str(runner.ROOT / "scripts"), reason],
+                                        capture_output=True, timeout=10)
+                self.assertEqual(result.returncode, 0, result.stderr.decode())
+                self.assertEqual(result.stderr, b"")
+                self.assertEqual(json.loads(result.stdout), {"status": expected,
+                                                            "reward": 0.0 if expected == "evaluated" else None})
 
 
 if __name__ == "__main__":

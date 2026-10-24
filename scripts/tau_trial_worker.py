@@ -551,7 +551,10 @@ def main():
                     elif contract.get("support_probe") is True:
                         tau_pipe_trial.execute(root, manifest, contract["selection"], proxy, run=run_support_probe)
                     elif selected_operational:
-                        tau_pipe_trial.execute(root, manifest, contract["selection"], proxy, run=run_selected_upstream)
+                        # Use the same module's Abort class as execute's handler,
+                        # not the entry point's separate __main__ class.
+                        tau_pipe_trial.execute(root, manifest, contract["selection"], proxy,
+                                               run=tau_pipe_trial.worker.run_selected_upstream)
                     else:
                         require("support_probe" not in contract)
                         tau_pipe_trial.execute(root, manifest, contract["selection"], proxy)
