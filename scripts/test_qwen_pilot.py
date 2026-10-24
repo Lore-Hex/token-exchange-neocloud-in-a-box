@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+import ast
 import hashlib
 import importlib.util
 import io
@@ -19,6 +20,25 @@ SPEC.loader.exec_module(pilot)
 RECORDER_SPEC = importlib.util.spec_from_file_location("qwen_recorder", Path(__file__).parent / "record-qwen-pilot.py")
 recorder = importlib.util.module_from_spec(RECORDER_SPEC)
 RECORDER_SPEC.loader.exec_module(recorder)
+
+
+def assert_reviewed_pilot_source(test, current, original):
+    """Keep historical bytes pinned; permit only the explicit HTTP-pool bound."""
+    test.assertEqual(hashlib.sha256(original).hexdigest(),
+                     "dc4d1ebd958af0dfac10c7e0eb5d2eab21d22dd1663fd61b91ef61010a2a0022")
+    tree = ast.parse(current)
+    engine = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                  and node.name == "engine_command")
+    test.assertEqual(len(engine.body), 1)
+    test.assertIsInstance(engine.body[0], ast.Return)
+    arguments = engine.body[0].value.elts
+    indexes = [i for i, value in enumerate(arguments) if isinstance(value, ast.Constant)
+               and value.value == "--threads-http"]
+    test.assertEqual(len(indexes), 1)
+    index = indexes[0]
+    test.assertEqual(ast.literal_eval(arguments[index + 1]), "4")
+    del arguments[index:index + 2]
+    test.assertEqual(ast.dump(tree), ast.dump(ast.parse(original)))
 
 
 class QwenPilotTests(unittest.TestCase):
@@ -161,6 +181,9 @@ class QwenPilotTests(unittest.TestCase):
         args = pilot.engine_command("server", "weights", "qwen/qwen3-0.6b", 1234, "key")
         self.assertEqual(args[args.index("--host") + 1], "127.0.0.1")
         self.assertEqual(args[args.index("--device") + 1], "none")
+        for option in ("--threads", "--threads-http"):
+            self.assertEqual(args.count(option), 1)
+            self.assertEqual(args[args.index(option) + 1], "4")
         for flag in ("--offline", "--log-disable", "--no-webui", "--no-slots", "--api-key-file"):
             self.assertIn(flag, args)
         args = pilot.shim_command("trcs", 1234, 1235, "cert", "key")
@@ -168,6 +191,23 @@ class QwenPilotTests(unittest.TestCase):
         self.assertEqual(args[args.index("--evidence-source") + 1], "none")
         self.assertNotIn("--allow-remote-upstream", args)
         self.assertEqual(args[args.index("--listen") + 1], "127.0.0.1:1234")
+
+    def test_engine_http_threads_do_not_scale_with_host_cpu_count(self):
+        for count in (1, 16, 240, 1024):
+            with self.subTest(count=count), patch.object(os, "cpu_count", return_value=count):
+                args = pilot.engine_command("server", "weights", "qwen/qwen3-0.6b", 1234, "key")
+                self.assertEqual(args[args.index("--threads-http") + 1], "4")
+
+    def test_reviewed_source_change_rejects_other_behavior(self):
+        from test_evidence_history import git
+        source = Path(pilot.__file__).read_bytes()
+        original = git(pilot.ROOT, "show", "025b7be189b18900d6ebd860e344a80096069aec:scripts/pilot/run.py")
+        assert_reviewed_pilot_source(self, source, original)
+        for mutated in (source.replace(b'"--threads-http", "4"', b'"--threads-http", "8"'),
+                        source.replace(b'"--host", "127.0.0.1"', b'"--host", "0.0.0.0"'),
+                        source.replace(b'"--offline",', b'')):
+            with self.assertRaises(AssertionError):
+                assert_reviewed_pilot_source(self, mutated, original)
 
     def test_required_conformance_never_silently_skipped(self):
         report = {"suite_version": "0.1.8", "target": {"authentication": {"authorization_header_sent": True}},

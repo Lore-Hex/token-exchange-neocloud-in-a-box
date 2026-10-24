@@ -89,8 +89,11 @@ def free_port():
 
 def engine_command(binary, weights, model_id, port, keyfile):
     # All flags documented at the exact pinned tools/server/README.md revision.
+    # 620d222 server-http.cpp defaults HTTP threads to host CPU count minus one,
+    # independent of --threads and the container CPU quota. Bound both pools.
     return [str(binary), "--model", str(weights), "--alias", model_id,
             "--host", "127.0.0.1", "--port", str(port), "--threads", "4",
+            "--threads-http", "4",
             "--ctx-size", "4096", "--parallel", "1", "--n-predict", "256",
             "--device", "none", "--gpu-layers", "0", "--offline",
             "--no-webui", "--no-slots", "--log-disable", "--jinja",

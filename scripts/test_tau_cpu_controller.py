@@ -16,6 +16,7 @@ from unittest import mock
 import tau_cpu_session as session
 import test_tau_cpu_session as fixtures
 from test_evidence_history import git
+from test_qwen_pilot import assert_reviewed_pilot_source
 
 ROOT = Path(__file__).resolve().parent.parent
 control = types.SimpleNamespace(**runpy.run_path(str(ROOT / "scripts/record-tau-cpu-session.py")))
@@ -233,7 +234,12 @@ class CPUControllerTests(unittest.TestCase):
         self.assertEqual(set(path.rsplit("/", 1)[1] for path in paths), {"run.json", "output.log", *session.FILES})
         for path in (".github/workflows/tau-cpu-parity-native.yml", "scripts/prepare-tau-cpu-parity-native.py",
                      "scripts/tau_cpu_parity.py", "scripts/pilot/run.py"):
-            self.assertEqual((ROOT / path).read_bytes(), git(ROOT, "show", "0a89d7f5193fab48f1b1e3cfa8e88fd772436f4f:" + path))
+            current = (ROOT / path).read_bytes()
+            original = git(ROOT, "show", "0a89d7f5193fab48f1b1e3cfa8e88fd772436f4f:" + path)
+            if path == "scripts/pilot/run.py":
+                assert_reviewed_pilot_source(self, current, original)
+            else:
+                self.assertEqual(current, original)
         self.assertNotIn(control.SCRIPT, rec.SOURCES)
         self.assertNotIn(control.WORKFLOW, rec.SOURCES)
 
