@@ -4,6 +4,7 @@
 import math
 import os
 import signal
+import stat
 import subprocess
 import time
 
@@ -13,6 +14,65 @@ import tau_selected_session as selected
 policy, owners = selected.policy, selected.owners
 transport, worker, tau, require = common.transport, common.worker, common.tau, common.require
 RESERVE = policy.LIMITS["run_seconds"] - policy.LIMITS["trial_seconds"]
+
+
+def run_owned(command, environment, payload, plan, manifest, deadline, handles):
+    """Internal borrowed pipes from the enclosing verified owner launcher.
+
+    This validates transport shape, not provenance. The launcher must admit
+    original readiness, retain its handles until the return, and join final
+    owner evidence. Only duplicated descriptors transfer to this driver.
+    """
+    require(type(handles) is dict and set(handles) == {"candidate", "support"})
+    policy.transport_manifest(manifest, tau.digest(tau.encoded(manifest)))
+    seen, coordinators, blocking = set(), {}, {}
+    for value in handles.values():
+        require(type(value) is dict and set(value) == {"read_fd", "write_fd", "deadline"})
+        require(type(value["deadline"]) in (int, float) and math.isfinite(value["deadline"])
+                and RESERVE < value["deadline"] - time.monotonic() <= policy.LIMITS["run_seconds"])
+        for key in ("read_fd", "write_fd"):
+            fd = value[key]
+            require(type(fd) is int and fd > 2 and fd not in seen and stat.S_ISFIFO(os.fstat(fd).st_mode))
+            seen.add(fd)
+            blocking[fd] = os.get_blocking(fd)
+    try:
+        for name, value in handles.items():
+            read_fd = os.dup(value["read_fd"])
+            try:
+                write_fd = os.dup(value["write_fd"])
+            except BaseException:
+                os.close(read_fd)
+                raise
+            try:
+                channel = transport.Channel(read_fd, write_fd)
+            except BaseException:
+                for fd in (read_fd, write_fd):
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+                raise
+            try:
+                coordinators[name] = owners.Coordinator(channel, manifest["owners"][name], value["deadline"])
+            except BaseException:
+                channel.close()
+                raise
+        return run_process(command, environment, payload, plan, manifest, deadline, **coordinators)
+    finally:
+        for owner in coordinators.values():
+            owner.close()
+        for fd, mode in blocking.items():
+            os.set_blocking(fd, mode)
+
+
+def accepted(value):
+    """Scorer/pipe completion only; enclosing containers must also be clean."""
+    row = value["trial"]
+    return (value["scorer_protocol_completed"] is True and value["attach_cleanup"] == "reaped"
+            and value["scorer_exit_code"] == 0 and value["owners_finished"] is True
+            and value["usage_known"] is True and row["status"] == "evaluated"
+            and row["usage"] is not None and row["role_requests"]["agent"] > 0
+            and row["role_requests"]["simulator"] > 0)
 
 
 def failure(session, exc):
