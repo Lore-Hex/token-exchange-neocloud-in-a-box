@@ -32,6 +32,15 @@ if mode in ("malformed", "oversized", "nested", "no-ready"):
              else b"PRIVATE_CANARY" if mode == "malformed" else b"x" * 5000)
 else:
     if mode.startswith("http"):
+        if mode == "http-usage":
+            original_feed = c8.meter.StreamMeasurement.feed
+            def feed(self, *args, **kwargs):
+                original_feed(self, *args, **kwargs)
+                if self.done and self.usage == (2048, 5, None) and self.failure is None:
+                    # Test-only receipt after actual parsing, with no owner FD
+                    # inheritance or changes to the collector's metadata pipe.
+                    (Path(sys.argv[5]) / str(os.getpid())).touch()
+            c8.meter.StreamMeasurement.feed = feed
         checks = []
         def check(self, deadline, sock=None):
             assert threading.current_thread() is threading.main_thread()

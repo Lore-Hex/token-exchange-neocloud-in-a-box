@@ -11,6 +11,7 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import types
@@ -49,7 +50,7 @@ def selected():
 
 class ProcessTests(unittest.TestCase):
     @contextmanager
-    def children(self, modes=(), *, fail_at=None, inherited=()):
+    def children(self, modes=(), *, fail_at=None, inherited=(), usage_dir=None):
         created = []
         def popen(args, **kwargs):
             self.assertEqual(args, ["/opt/nib/python", "stream-collector"])
@@ -60,8 +61,12 @@ class ProcessTests(unittest.TestCase):
             if len(created) == fail_at:
                 raise OSError("PRIVATE_CANARY")
             mode = modes[len(created)] if len(created) < len(modes) else "normal"
-            process = REAL_POPEN([sys.executable, "-I", "-S", "-B", str(ROOT / "scripts/fixtures/stream_c8_child.py"),
-                                 mode, MODEL, json.dumps(inherited), json.dumps(endpoint().expected)], **kwargs)
+            command = [sys.executable, "-I", "-S", "-B", str(ROOT / "scripts/fixtures/stream_c8_child.py"),
+                       mode, MODEL, json.dumps(inherited), json.dumps(endpoint().expected)]
+            if usage_dir is not None:
+                self.assertEqual(mode, "http-usage")
+                command.append(str(usage_dir))
+            process = REAL_POPEN(command, **kwargs)
             created.append(process)
             return process
         with mock.patch.object(c8.subprocess, "Popen", side_effect=popen):
@@ -258,7 +263,7 @@ class ProcessTests(unittest.TestCase):
                     self.wfile.write(raw)
                     self.wfile.flush()
                     if hang:
-                        release.wait(8)
+                        release.wait()
                 except (threading.BrokenBarrierError, BrokenPipeError, ConnectionResetError):
                     pass
         httpd = ThreadingHTTPServer((c8.stream.HOST, c8.stream.PORT), Handler)
@@ -297,13 +302,49 @@ class ProcessTests(unittest.TestCase):
         self.assertGreater(result["requests_with_unknown_usage"], 0)
 
     def test_deadline_after_http_usage_preserves_failed_usage(self):
-        with self.http_server(hang=True), self.children(["http"] * 8):
-            result = self.run_cohort(seconds=4)
+        original_spawn, original_drain, original_cleanup = c8.spawn, c8.drain, c8.cleanup
+        expired = cleaning = False
+        with tempfile.TemporaryDirectory() as directory, self.http_server(hang=True) as seen, \
+                self.children(["http-usage"] * 8, usage_dir=directory) as children:
+            def spawn():
+                if len(children) == 7:
+                    # Exceed the old test's one-second startup/HTTP allowance.
+                    time.sleep(1.1)
+                return original_spawn()
+
+            def drain(rows, *args):
+                nonlocal expired
+                original_drain(rows, *args)
+                if not expired and not cleaning and len(children) == 8 and \
+                        {path.name for path in Path(directory).iterdir()} == {str(p.pid) for p in children}:
+                    self.assertTrue(all(row["dispatch"] is not None and row["packet"] is None
+                                        and not row["bad"] for row in rows))
+                    expired = True
+                    # Exercise the real parent alarm only after every child has
+                    # parsed usage; server writes alone do not prove delivery.
+                    signal.raise_signal(signal.SIGALRM)
+
+            def cleanup(*args):
+                nonlocal cleaning
+                cleaning = True
+                return original_cleanup(*args)
+
+            with mock.patch.object(c8, "spawn", side_effect=spawn), \
+                    mock.patch.object(c8, "drain", side_effect=drain), \
+                    mock.patch.object(c8, "cleanup", side_effect=cleanup):
+                # Bounded failure guard, not the condition that triggers expiry.
+                result = self.run_cohort(seconds=c8.stream.REQUEST_SECONDS)
+        self.assertTrue(expired)
+        self.assertEqual(len(seen), 8)
+        self.assertEqual(result["stop_reason"], "deadline")
         self.assertFalse(result["completed"])
         self.assertTrue(result["collectors_reaped"])
+        self.assertEqual(result["started_requests"], 9)
+        self.assertEqual(result["requests_with_unknown_usage"], 0)
         self.assertEqual(result["known_output_tokens"], 45)
         self.assertEqual(result["measured"]["completed_output_tokens"], 0)
         self.assertEqual(result["measured"]["reported_failed_output_tokens"], 40)
+        self.assertTrue(all(row["reported"] and row["exit_code"] == 0 for row in result["intervals"]))
 
     def test_deadline_kills_noncooperative_children_without_inventing_usage(self):
         with self.children(["stubborn"] * 8):
