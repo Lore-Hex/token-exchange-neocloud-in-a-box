@@ -5,6 +5,14 @@ one worker, with the same proof shape and pinned manifest verification.
 `host/record-stage.py run` accepts the same option and records nondefault
 worker counts in the evidence and command.
 
+Parallel workers take missing files in descending manifest-byte size, keeping
+manifest order for ties. Large shards start early instead of waiting behind
+small files and becoming a long tail. Only the pending work queue is reordered:
+the manifest, its digest, final proof and serial/default order are unchanged.
+Existing complete files still pass verification before any download starts.
+This scheduling change has fake-transport ordering/reuse tests, not a measured
+wall-clock improvement. It does not alter an already running recorder bundle.
+
 Each file has one request attempt and a body limit of its manifest byte size
 plus one byte. The total of these disjoint limits is no larger than the
 already required global byte budget. No retry loop or range-download behavior
