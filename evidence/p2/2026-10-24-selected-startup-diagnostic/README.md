@@ -11,9 +11,9 @@ No public ports or customer requests were used.
 
 Preflight passed, the container was created and cleanup was confirmed. The
 Docker start client returned 1. The newly retained, closed owner report says
-`reason=preparation`: the owner failed before entering its engine lifecycle.
-The report does not identify the failing preparation check. This does not prove
-a model-loading, GPU-capacity or inference failure. `runtime_started` remains
+`reason=preparation`, but that legacy catch-all also covers post-lifecycle input
+cleanup and output handling. It does not establish the failing stage or check.
+This does not prove a model-loading, GPU-capacity or inference failure. `runtime_started` remains
 null, and all readiness, deployment and confidentiality claims remain unproven.
 The original receipt contains no timestamps; none are added.
 
