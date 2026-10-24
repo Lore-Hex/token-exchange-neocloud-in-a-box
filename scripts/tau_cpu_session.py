@@ -429,7 +429,7 @@ def relay(argv, env, snapshot, producer, image_sha, output_fd, *, read_fd=0, wri
                                 owner_result = tau_cpu_owner.relay(process, original_ready, deadline,
                                     read_fd=read_fd, write_fd=write_fd)
                                 process.stdin.close()
-                                acknowledged = True
+                                acknowledged = owner_result is not None
                                 selector.register(process.stdout, selectors.EVENT_READ, "output")
                                 selector.register(process.stderr, selectors.EVENT_READ, "error")
                             elif probe is not None:
@@ -461,6 +461,7 @@ def relay(argv, env, snapshot, producer, image_sha, output_fd, *, read_fd=0, wri
             require((result["schema"] == "nib.tau-cpu-session/v4") is selected_owner)
             if selected_owner:
                 require(result["owner"] == owner_result)
+                require(owner_result is not None or result["result"] == "fail" and not result["acknowledged"])
             if probe is not None and probe["record"] is not None:
                 require(result["probe"] == probe["record"]["diagnostic"])
             return result

@@ -132,9 +132,13 @@ def relay(process, raw, deadline, *, read_fd=0, write_fd=1):
                     caller.send(reply, until)
                     return result
                 if reply["kind"].endswith("-error"):
-                    require(type(reply.get("status")) is str and reply["status"] in owners.ERRORS)
+                    require(set(reply) == {"schema", "binding_sha256", "kind", "sequence", "request_sha256", "status"}
+                            and reply["request_sha256"] == tau.digest(tau.encoded(packet.get("body")))
+                            and type(reply.get("status")) is str and reply["status"] in owners.ERRORS)
                     caller.send(reply, until)
-                    raise worker.Abort(reply["status"])
+                    # The worker now emits its failure/cleanup JSON. Do not
+                    # skip the supervisor's bounded collection of that report.
+                    return None
                 caller.send(reply, until)
                 sequence += 1
     finally:

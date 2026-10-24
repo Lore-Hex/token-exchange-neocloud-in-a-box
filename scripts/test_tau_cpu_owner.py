@@ -191,11 +191,20 @@ sys.stdin.buffer.read()
             worker.assert_called_once_with(["image", "revision"], selected_owner=True)
 
     def test_whole_supervisor_joins_original_ready_and_terminal_owner_record(self):
+        for failed_op in (None, "count", "complete"):
+            with self.subTest(failed_op=failed_op):
+                self.supervisor_roundtrip(failed_op)
+
+    def supervisor_roundtrip(self, failed_op):
         raw = session.probes.encoded(fixtures.packet())
         with mock.patch.object(session.identity, "source_receipt"):
             _, held = session.accept(raw, fixtures.PRODUCER, fixtures.IMAGE, time.monotonic() + 5)
         terminal = {**fixtures.result(held), "schema": "nib.tau-cpu-session/v4",
                     "owner": {"status": "evaluated", "completed_requests": 1}}
+        if failed_op:
+            terminal.update(owner=None, result="fail", stage="hold", acknowledged=False,
+                            failure={"kind": "rejected", "errno": None, "server_exit": None, "frames": []})
+            terminal["progress"]["substage"] = "hold"
         script = """
 import json,sys
 sys.stdout.buffer.write(READY);sys.stdout.flush()
@@ -210,12 +219,18 @@ for op in ('count','complete','finish'):
         r['request_sha256']=hashlib.sha256(json.dumps(p['body'],sort_keys=True,separators=(',',':')).encode()+b'\\n').hexdigest()
         if op=='count': r['prompt_tokens']=7
         else: r['response']=RESPONSE
+    if op==FAILED_OP:
+        r={k:r[k] for k in ('schema','binding_sha256','sequence','request_sha256')}
+        r.update(kind=op+'-error',status='budget_abort')
     b=json.dumps(r,separators=(',',':'),sort_keys=True).encode()
     sys.stdout.buffer.write(len(b).to_bytes(4,'big')+b);sys.stdout.flush()
+    if op==FAILED_OP: break
 sys.stdin.buffer.read()
 sys.stdout.buffer.write(FINAL);sys.stdout.flush()
+sys.exit(EXIT_CODE)
 """.replace("READY", repr(session.READY + raw + b"\n")).replace("RESPONSE", repr(rpc_fixtures.completion())).replace(
-            "FINAL", repr(session.probes.encoded(terminal)))
+            "FINAL", repr(session.probes.encoded(terminal))).replace("FAILED_OP", repr(failed_op)).replace(
+            "EXIT_CODE", "1" if failed_op else "0")
         with tempfile.TemporaryDirectory() as tmp, fixtures.pipe() as (rd, wr), fixtures.pipe() as (out_rd, out_wr):
             fd, failures, observed = os.open(tmp, os.O_DIRECTORY), [], []
             until = time.monotonic() + 4
@@ -226,9 +241,14 @@ sys.stdout.buffer.write(FINAL);sys.stdout.flush()
                         observed.append(stream.readline(32769))
                     proxy = rpc.Coordinator(rpc.transport.Channel(os.dup(out_rd), os.dup(wr)), adapter.binding(raw), until)
                     client = proxy.client("simulator")
-                    client.count(request("simulator"), 4096, until)
-                    client.complete(request("simulator"), 7, until)
-                    proxy.finish("evaluated", until)
+                    try:
+                        client.count(request("simulator"), 4096, until)
+                        client.complete(request("simulator"), 7, until)
+                        proxy.finish("evaluated", until)
+                        self.assertIsNone(failed_op)
+                    except rpc.worker.Abort as error:
+                        self.assertIsNotNone(failed_op)
+                        self.assertEqual(error.status, "budget_abort")
                 except BaseException as error:
                     failures.append(error)
                 finally:
