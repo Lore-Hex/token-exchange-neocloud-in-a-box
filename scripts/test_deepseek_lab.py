@@ -2405,13 +2405,12 @@ writer.close()
 
 class ScratchMountTests(unittest.TestCase):
     def check(self, cache=6, temporary=14, error=None):
-        platform = types.SimpleNamespace(ST_RDONLY=1, ST_NOSUID=2, ST_NODEV=4, ST_NOEXEC=8,
-                                        statvfs=mock.Mock(side_effect=error or [
-                                            types.SimpleNamespace(f_flag=cache),
-                                            types.SimpleNamespace(f_flag=temporary)]))
-        with mock.patch.object(lab, "os", platform):
+        with mock.patch.multiple(os, create=True, ST_RDONLY=1, ST_NOSUID=2, ST_NODEV=4, ST_NOEXEC=8), \
+                mock.patch.object(os, "statvfs", side_effect=error or [
+                    types.SimpleNamespace(f_flag=cache),
+                    types.SimpleNamespace(f_flag=temporary)]) as statvfs:
             lab.check_scratch_mounts()
-        self.assertEqual(platform.statvfs.call_args_list, [mock.call("/cache"), mock.call("/tmp")])
+        self.assertEqual(statvfs.call_args_list, [mock.call("/cache"), mock.call("/tmp")])
 
     def test_private_jit_exec_and_general_tmp_noexec(self):
         self.check()

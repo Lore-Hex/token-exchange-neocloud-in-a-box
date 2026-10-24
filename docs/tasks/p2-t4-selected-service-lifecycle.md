@@ -202,6 +202,23 @@ exec "$VERIFIED_PYTHON" -I -S -B /opt/nib-service/scripts/selected_service_proce
 
 ## Verification and remaining gates
 
+The shared `engine_lab.check_scratch_mounts()` is self-contained for both the
+concatenated lab launcher and the ordinary service import. Previously the latter
+raised `NameError` because `os` and `require` existed only in the concatenated
+namespace. A regression calls the real helper through `Prepared.mount_state()`
+with only OS observations mocked: both scratch mounts must remain writable,
+`nosuid` and `nodev`; `/cache` must allow execution and `/tmp` must prohibit it.
+The existing lab rejection type/message and all mount predicates are unchanged.
+This reproduces a software startup blocker, not the exact failing stage of an
+older catch-all hardware receipt.
+
+Changing this helper changes the composed launcher bytes. Before another run,
+regenerate the non-owner lab bundle from the reviewed final source, derive a new
+service payload/preparation receipt, rebuild the image and validate the new
+receipt/image handoff. Preserve old bundles, images and failure receipts; do not
+patch a staged payload or substitute hashes. The old prepared image is not fixed
+by updating the host recorder alone. No new container or hardware run is claimed.
+
 From `scripts/`:
 
 ```sh

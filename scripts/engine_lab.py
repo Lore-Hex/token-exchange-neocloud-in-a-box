@@ -638,13 +638,16 @@ def observe_pre_serve(engine, observation, checkpoints):
 
 
 def check_scratch_mounts():
+    # Also called as an ordinary module, without the concatenated bootstrap.
+    import os
     # Docker tmpfs defaults to noexec. JIT shared libraries need exec on the
     # private cache, never on the general temporary mount.
     required = os.ST_NOSUID | os.ST_NODEV
     for path, executable in (("/cache", True), ("/tmp", False)):
         flags = os.statvfs(path).f_flag
-        require(flags & required == required and not flags & os.ST_RDONLY
-                and bool(flags & os.ST_NOEXEC) != executable)
+        if not (flags & required == required and not flags & os.ST_RDONLY
+                and bool(flags & os.ST_NOEXEC) != executable):
+            raise ValueError("sealed Python bootstrap rejected")
 
 
 def observe_runtime(engine, contract, row, started):
