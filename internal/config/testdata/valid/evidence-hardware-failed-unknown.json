@@ -9,7 +9,7 @@
   "host": {
     "provider": "synthetic",
     "machine": "synthetic",
-    "gpus": "synthetic",
+    "gpus": "eight-selected-B300",
     "driver": null,
     "cuda": null
   },

@@ -59,9 +59,16 @@ and `hardware_validated: false`. Completed runs have `result: pass|fail` and
 UTC timestamps. Only a passing `hardware` record can claim
 `hardware_validated: true`; software, fake, unexecuted and failed tests cannot.
 Hardware passes require both driver and CUDA version strings even when
-`hardware_validated` is false. Only failed, unvalidated hardware attempts may
-record either or both as null when those facts were not collected. The fields
-remain required, and supplied strings must still satisfy the version formats.
+`hardware_validated` is false. Only failed, unvalidated hardware attempts with
+`host.gpus` matching `^(four|eight)-selected-(B200|B300)$` may record either or
+both versions as null when those facts were not collected. This matches the
+selected-execution target descriptors emitted by
+[the GPU lab recorder](../host/record-deepseek-lab.py) and
+[the selected controller](../scripts/record-tau-selected.py), not generic
+software diagnostics or appraisal scopes. It is a declared attempted target,
+not proof of device observation, readiness, execution success or qualification.
+The fields remain required, and supplied strings must still satisfy the
+version formats.
 This is a consistency rule, not proof of truthful provenance. Never infer a
 hardware result from schema validation. Synthetic evidence is only test data.
 

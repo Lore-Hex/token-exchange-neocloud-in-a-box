@@ -11,7 +11,7 @@ import (
 )
 
 func TestHardwareEvidenceVersionBoundary(t *testing.T) {
-	base := fixture(t, "valid/evidence-hardware-failed.json")
+	base := fixture(t, "valid/evidence-hardware-failed-unknown.json")
 	for _, result := range []string{"pass", "fail"} {
 		for _, validated := range []bool{false, true} {
 			for _, versions := range []struct {
@@ -42,6 +42,74 @@ func TestHardwareEvidenceVersionBoundary(t *testing.T) {
 					}
 				})
 			}
+		}
+	}
+}
+
+func TestFailedHardwareUnknownVersionsRequireSelectedTarget(t *testing.T) {
+	base := fixture(t, "valid/evidence-hardware-failed-unknown.json")
+	for _, target := range []struct {
+		name  string
+		gpus  any
+		valid bool
+	}{
+		{"four-b200", "four-selected-B200", true},
+		{"four-b300", "four-selected-B300", true},
+		{"eight-b200", "eight-selected-B200", true},
+		{"eight-b300", "eight-selected-B300", true},
+		{"unobserved", "unobserved", false},
+		{"none", "none", false},
+		{"unknown", "unknown", false},
+		{"appraisal-scope", "eight-device appraisal scope", false},
+		{"not-used", "not-used", false},
+		{"inventory-prose", "reported inventory only", false},
+		{"synthetic", "synthetic", false},
+		{"one", "one-selected-B300", false},
+		{"two", "two-selected-B300", false},
+		{"numeric-count", "8-selected-B300", false},
+		{"h100", "four-selected-H100", false},
+		{"h200", "eight-selected-H200", false},
+		{"unsupported-family", "eight-selected-B400", false},
+		{"lowercase-family", "eight-selected-b300", false},
+		{"prefix", "prefix-eight-selected-B300", false},
+		{"suffix", "eight-selected-B300-suffix", false},
+		{"trailing-newline", "eight-selected-B300\n", false},
+		{"empty", "", false},
+		{"missing", nil, false},
+		{"null", nil, false},
+		{"number", 8, false},
+		{"boolean", false, false},
+		{"array", []string{"eight-selected-B300"}, false},
+		{"object", map[string]any{"target": "eight-selected-B300"}, false},
+	} {
+		for _, versions := range []struct {
+			name         string
+			driver, cuda any
+		}{
+			{"unknown-both", nil, nil},
+			{"unknown-driver", nil, "1.2.3"},
+			{"unknown-cuda", "1.2.3", nil},
+		} {
+			t.Run(target.name+"/"+versions.name, func(t *testing.T) {
+				var doc map[string]any
+				if err := json.Unmarshal(base, &doc); err != nil {
+					t.Fatal(err)
+				}
+				host := doc["host"].(map[string]any)
+				host["driver"], host["cuda"] = versions.driver, versions.cuda
+				if target.name == "missing" {
+					delete(host, "gpus")
+				} else {
+					host["gpus"] = target.gpus
+				}
+				raw, err := json.Marshal(doc)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := ValidateEvidence(raw); (err == nil) != target.valid {
+					t.Fatalf("validity = %v, want %v: %v", err == nil, target.valid, err)
+				}
+			})
 		}
 	}
 }

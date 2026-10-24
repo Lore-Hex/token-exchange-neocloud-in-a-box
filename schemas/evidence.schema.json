@@ -46,7 +46,10 @@
     {
       "if": {"properties": {"execution": {"const": "hardware"}}},
       "then": {
-        "if": {"properties": {"result": {"const": "fail"}, "hardware_validated": {"const": false}}},
+        "if": {"properties": {
+          "result": {"const": "fail"}, "hardware_validated": {"const": false},
+          "host": {"properties": {"gpus": {"pattern": "^(four|eight)-selected-(B200|B300)$"}}}
+        }},
         "else": {"properties": {"host": {"properties": {"driver": {"type": "string"}, "cuda": {"type": "string"}}}}}
       },
       "else": {"properties": {"hardware_validated": {"const": false}}}
