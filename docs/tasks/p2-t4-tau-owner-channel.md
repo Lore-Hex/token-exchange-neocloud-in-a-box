@@ -31,6 +31,12 @@ bounds are checked on both sides. A failed dispatch cannot be retried using
 the same count. Bodies exist only transiently in memory and bounded pipes;
 no body logging or persistent transcript is introduced.
 
+Known owner failures use a bound terminal frame with only an allowed status
+and the request digest when the existing deadline still allows delivery. The
+coordinator preserves that category, closes the channel and never retries.
+Malformed or unbound error frames remain protocol failures; expired deadlines
+are not extended to deliver an error.
+
 Reuse: the existing bounded `tau_transport.Channel`, strict JSON codec,
 `GuardedClient`, `GuardedLlamaClient` and CPU parity `MeasuredClient` retain
 their own HTTP and process identity checks. The owner accepts only these exact

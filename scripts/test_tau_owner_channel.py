@@ -205,6 +205,75 @@ class OwnerTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
         self.assertFalse(failures)
 
+    def test_private_pipe_preserves_known_failures_without_retry(self):
+        for operation in ("count", "complete"):
+            for reason in rpc.ERRORS:
+                with self.subTest(operation=operation, reason=reason):
+                    r1, w1 = os.pipe()
+                    r2, w2 = os.pipe()
+                    deadline = time.monotonic() + 3
+                    client = FakeClient()
+                    with mock.patch.object(rpc.identity, "GuardedClient", FakeClient):
+                        owner = rpc.Owner(rpc.transport.Channel(r1, w2), admitted(), deadline,
+                                          {"candidate": client})
+                    coordinator = rpc.Coordinator(rpc.transport.Channel(r2, w1), admitted(), deadline)
+                    failures = []
+
+                    def serve():
+                        try:
+                            owner.serve_once()
+                            if operation == "complete":
+                                owner.serve_once()
+                        except rpc.worker.Abort as exc:
+                            failures.append(exc.status)
+                        finally:
+                            owner.close()
+
+                    with mock.patch.object(client, operation, side_effect=rpc.worker.Abort(reason)) as dispatch:
+                        thread = threading.Thread(target=serve)
+                        thread.start()
+                        try:
+                            proxy = coordinator.client("candidate")
+                            if operation == "complete":
+                                self.assertEqual(proxy.count(body(), 8192, deadline), 7)
+                            with self.assertRaises(rpc.worker.Abort) as caught:
+                                if operation == "count":
+                                    proxy.count(body(), 8192, deadline)
+                                else:
+                                    proxy.complete(body(), 7, deadline)
+                            self.assertEqual(caught.exception.status, reason)
+                            with self.assertRaises(rpc.worker.Abort) as repeated:
+                                proxy.count(body(), 8192, deadline)
+                            self.assertEqual(repeated.exception.status, reason)
+                        finally:
+                            coordinator.close()
+                            thread.join(4)
+                            owner.close()
+                        self.assertEqual(dispatch.call_count, 1)
+                    self.assertFalse(thread.is_alive())
+                    self.assertEqual(failures, [reason])
+                    self.assertIsNone(coordinator.pending)
+
+    def test_terminal_frame_is_sanitized_and_never_extends_deadline(self):
+        owner, channel, clients = self.owner()
+        channel.packets = [self.packet(owner)]
+        with mock.patch.object(clients["candidate"], "count", side_effect=RuntimeError(fixtures.CANARY)):
+            with self.assertRaises(rpc.worker.Abort):
+                owner.serve_once()
+        self.assertEqual(channel.sent, [{**owner.envelope("count-error", 1),
+            "request_sha256": rpc.tau.digest(rpc.tau.encoded(body())), "status": "protocol_error"}])
+        self.assertNotIn(fixtures.CANARY, repr(channel.sent))
+        owner, channel, clients = self.owner()
+        channel.packets = [self.packet(owner)]
+        def expire(*_):
+            owner.clock = lambda: 91
+            raise rpc.worker.Abort("timeout")
+        with mock.patch.object(clients["candidate"], "count", side_effect=expire):
+            with self.assertRaises(rpc.worker.Abort):
+                owner.serve_once()
+        self.assertEqual(channel.sent, [])
+        self.assertTrue(channel.closed)
+
 
 class CoordinatorTests(unittest.TestCase):
     def coordinator(self, cpu=False):
@@ -231,6 +300,29 @@ class CoordinatorTests(unittest.TestCase):
                 coordinator.client("candidate").complete(body(), 7, 90)
             self.assertTrue(channel.closed)
             self.assertEqual(len(channel.sent), 1)
+
+    def test_unbound_malformed_or_success_error_is_rejected(self):
+        for operation in ("count", "complete"):
+            mutations = [lambda row: row.update(binding_sha256="b" * 64),
+                         lambda row: row.update(sequence=True), lambda row: row.update(sequence=99),
+                         lambda row: row.update(schema="wrong"), lambda row: row.update(kind="wrong-error"),
+                         lambda row: row.update(request_sha256="b" * 64),
+                         lambda row: row.update(status="evaluated"), lambda row: row.update(status="unknown"),
+                         lambda row: row.update(status={}), lambda row: row.update(body=fixtures.CANARY)]
+            for mutation in mutations:
+                coordinator, channel = self.coordinator()
+                if operation == "complete":
+                    channel.packets = [self.counted(coordinator)]
+                    coordinator.client("candidate").count(body(), 8192, 90)
+                packet = {**coordinator.envelope(operation + "-error", coordinator.sequence + 1),
+                    "request_sha256": rpc.tau.digest(rpc.tau.encoded(body())), "status": "infrastructure_error"}
+                mutation(packet)
+                channel.packets = [packet]
+                with self.assertRaises(rpc.worker.Abort) as caught:
+                    coordinator.exchange(operation, "candidate", body(), 90, 8192 if operation == "count" else 7)
+                self.assertEqual(caught.exception.status, "protocol_error")
+                self.assertTrue(channel.closed)
+                self.assertIsNone(coordinator.pending)
 
     def test_missing_count_changed_body_count_deadline_or_role_never_sent(self):
         for mutation in (lambda row: row.update(temperature=1), lambda row: row.update(model="other")):

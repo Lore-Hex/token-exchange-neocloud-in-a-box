@@ -11,6 +11,7 @@ import tau_transport as transport
 
 tau, worker, require = transport.tau, transport.worker, transport.require
 SCHEMA = "nib.tau-owner-channel/v1"
+ERRORS = frozenset(worker.STATUSES) - {"evaluated"}
 
 
 def binding(value):
@@ -100,6 +101,7 @@ class Owner(State):
     def serve_once(self):
         if not self.busy.acquire(blocking=False):
             self.fail("protocol_error")
+        terminal = None
         try:
             self.check(self.deadline)
             packet = self.channel.receive(self.deadline)
@@ -110,6 +112,7 @@ class Owner(State):
             deadline, role = packet["deadline"], packet["role"]
             self.check(deadline)
             body, digest = self.body(role, packet["body"])
+            terminal = (operation, digest, deadline)
             context = self.binding["roles"][role]["context_tokens"]
             client = self.clients[role]
             if operation == "count":
@@ -135,7 +138,19 @@ class Owner(State):
             self.channel.send({**self.envelope(operation + "-result", self.sequence + 1), **reply}, deadline)
             self.sequence += 1
         except BaseException as exc:
-            self.fail(transport.status(exc))
+            reason = transport.status(exc)
+            # A known owner failure must not become EOF/protocol_error. Only
+            # publish a fixed status for an admitted request, without extending
+            # its deadline or retaining its body; broken pipes remain terminal.
+            if terminal is not None and not self.failed:
+                operation, digest, deadline = terminal
+                try:
+                    self.check(deadline)
+                    self.channel.send({**self.envelope(operation + "-error", self.sequence + 1),
+                                       "request_sha256": digest, "status": reason}, deadline)
+                except BaseException:
+                    pass
+            self.fail(reason)
         finally:
             self.busy.release()
 
@@ -163,6 +178,13 @@ class Coordinator(State):
             self.channel.send({**self.envelope(operation, self.sequence + 1), "role": role,
                                "body": body, "deadline": deadline, field: value}, deadline)
             reply = self.channel.receive(deadline)
+            if type(reply) is dict and reply.get("kind") == operation + "-error":
+                self.check_envelope(reply, operation + "-error", self.sequence + 1,
+                                    {"request_sha256", "status"})
+                require(reply["request_sha256"] == digest and type(reply["status"]) is str
+                        and reply["status"] in ERRORS)
+                self.check(deadline)
+                raise worker.Abort(reply["status"])
             self.check_envelope(reply, operation + "-result", self.sequence + 1, reply_fields)
             require(reply["request_sha256"] == digest)
             self.check(deadline)
