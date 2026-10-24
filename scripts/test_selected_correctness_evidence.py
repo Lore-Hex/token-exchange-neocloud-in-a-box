@@ -21,16 +21,22 @@ HASHES = {
 }
 
 
-def original(name):
-    raw = (EVIDENCE / name).read_bytes()
-    if len(raw) > 65536 or hashlib.sha256(raw).hexdigest() != HASHES[name]:
+def original(name, directory, hashes):
+    raw = (directory / name).read_bytes()
+    if len(raw) > 65536 or hashlib.sha256(raw).hexdigest() != hashes[name]:
         raise AssertionError("original receipt changed")
     return json.loads(raw)
 
 
 class SelectedCorrectnessEvidenceTests(unittest.TestCase):
+    directory, hashes = EVIDENCE, HASHES
+    execution_profile, sequences = None, "1"
+    request_ms, startup_ms = 34109, 1153420
+    window = ("2026-10-24T09:18:03Z", "2026-10-24T09:51:02Z")
+
     def setUp(self):
-        self.run, self.report, self.contract, self.receipt = (original(name) for name in HASHES)
+        self.run, self.report, self.contract, self.receipt = (
+            original(name, self.directory, self.hashes) for name in self.hashes)
         source = git(ROOT, "show", PRODUCER + ":scripts/engine_local_correctness.py")
         self.assertEqual(hashlib.sha256(source).hexdigest(), self.contract["sources"]["correctness.py"])
         self.validator = types.ModuleType("selected_correctness_original")
@@ -42,9 +48,9 @@ class SelectedCorrectnessEvidenceTests(unittest.TestCase):
         for row in (self.run, self.report["provenance"], self.contract, self.receipt):
             self.assertEqual(row["git_sha"], PRODUCER)
         provenance = self.report["provenance"]
-        self.assertEqual(provenance["receipt_sha256"], HASHES["receipt.json"])
+        self.assertEqual(provenance["receipt_sha256"], self.hashes["receipt.json"])
         self.assertEqual(self.receipt["files"]["payload/lab.json"], {
-            "sha256": HASHES["input-contract.json"], "bytes": (EVIDENCE / "input-contract.json").stat().st_size})
+            "sha256": self.hashes["input-contract.json"], "bytes": (self.directory / "input-contract.json").stat().st_size})
         self.assertEqual(provenance["payload_sha256"], self.receipt["payload_sha256"])
         self.assertEqual(provenance["source_bundle_sha256"], self.receipt["source_bundle_sha256"])
         self.assertEqual(provenance["image"], self.contract["base_image"])
@@ -59,11 +65,13 @@ class SelectedCorrectnessEvidenceTests(unittest.TestCase):
             sources["payload/" + name] = "scripts/" + path
         sources.update({name: name.removeprefix("support/") for name in self.receipt["files"]
                         if name.startswith("support/")})
+        if self.execution_profile is not None:
+            sources["payload/tuning.py"] = "scripts/deepseek_tuning.py"
         for name, source in sources.items():
             raw = git(ROOT, "show", PRODUCER + ":" + source)
             self.assertEqual(self.receipt["files"][name], {"sha256": hashlib.sha256(raw).hexdigest(), "bytes": len(raw)})
 
-    def test_selected_checkpoint_and_fixed_launch_are_not_original_or_tuned(self):
+    def test_selected_checkpoint_and_exact_launch_profile(self):
         identity = {
             "name": "uncensored", "hf_repo": "dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8",
             "hf_revision": "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a",
@@ -76,23 +84,31 @@ class SelectedCorrectnessEvidenceTests(unittest.TestCase):
             self.assertEqual(self.report["provenance"][name], self.contract[name])
         args = self.contract["arguments"]
         for flag, value in (("--tensor-parallel-size", "4"), ("--data-parallel-size", "2"),
-                            ("--max-model-len", "4096"), ("--max-num-seqs", "1"),
+                            ("--max-model-len", "4096"), ("--max-num-seqs", self.sequences),
                             ("--served-model-name", identity["served_model_name"])):
             self.assertEqual(args.count(flag), 1)
             self.assertEqual(args[args.index(flag) + 1], value)
-        self.assertIn("--enforce-eager", args)
-        self.assertNotIn("execution_profile", self.contract)
+        self.assertEqual(self.contract.get("execution_profile"), self.execution_profile)
+        if self.execution_profile is None:
+            self.assertIn("--enforce-eager", args)
+            self.assertNotIn("execution_profile", self.contract)
+        else:
+            source = git(ROOT, "show", PRODUCER + ":scripts/deepseek_tuning.py")
+            tuning = types.ModuleType("original_graph_profile")
+            exec(compile(source, "deepseek_tuning.py", "exec"), tuning.__dict__)
+            tuning.enabled(self.contract)
+            baseline = json.loads((EVIDENCE / "input-contract.json").read_bytes())
+            self.assertEqual(args, tuning.arguments(baseline["arguments"], self.execution_profile))
         self.assertEqual((self.contract["gpu_family"], self.contract["gpu_security"]), ("B300", "nonconfidential"))
 
     def test_real_correctness_and_cleanup_keep_their_narrow_meaning(self):
         experiment = self.report["experiment"]
         row = self.validator.validate(experiment["correctness"])
         self.assertIs(row["all_cases_pass"], True)
-        self.assertEqual((len(row["cases"]), row["requests_started"], row["request_phase_elapsed_ms"]), (8, 10, 34109))
+        self.assertEqual((len(row["cases"]), row["requests_started"], row["request_phase_elapsed_ms"]), (8, 10, self.request_ms))
         self.assertEqual([len(case["requests"]) for case in row["cases"]], [1, 1, 1, 1, 1, 1, 2, 2])
-        self.assertEqual((self.run["started_utc"], self.run["ended_utc"]),
-                         ("2026-10-24T09:18:03Z", "2026-10-24T09:51:02Z"))
-        self.assertEqual((experiment["startup"]["outcome"], experiment["startup"]["wait_ms"]), ("ready", 1153420))
+        self.assertEqual((self.run["started_utc"], self.run["ended_utc"]), self.window)
+        self.assertEqual((experiment["startup"]["outcome"], experiment["startup"]["wait_ms"]), ("ready", self.startup_ms))
         self.assertEqual(self.report["cleanup"], "confirmed")
         self.assertIs(experiment["engine_stopped"], True)
         self.assertEqual(self.report["container_observation"], {"exit_code": 0, "oom_killed": False, "status": "exited"})
