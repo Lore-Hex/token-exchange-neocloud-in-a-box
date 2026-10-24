@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import signal
 import stat
+import threading
 import time
 import types
 
@@ -179,14 +180,20 @@ class Abort(BaseException):
 
 @contextlib.contextmanager
 def alarm(deadline, clock=time.monotonic):
+    """Own SIGALRM on the main thread; never mutate another thread's timer."""
+    require(threading.current_thread() is threading.main_thread())
     start = time.monotonic()
     previous = signal.getsignal(signal.SIGALRM)
     timer = signal.getitimer(signal.ITIMER_REAL)
     require(timer[1] == 0.0)
     if timer[0]:
         deadline = min(deadline, clock() + timer[0] - (time.monotonic() - start))
+    restoring, expired_seen = False, False
     def expired(signum, frame):
-        raise Abort("timeout")
+        nonlocal expired_seen
+        expired_seen = True
+        if not restoring:
+            raise Abort("timeout")
     try:
         signal.signal(signal.SIGALRM, expired)
         if deadline <= clock():
@@ -196,6 +203,9 @@ def alarm(deadline, clock=time.monotonic):
         if clock() >= deadline:
             raise Abort("timeout")
     finally:
+        # Another unblocked thread may already have received SIGALRM in C;
+        # its deferred Python handler must not interrupt restoration here.
+        restoring = True
         # Disarming does not discard a pending signal. Consume it while blocked
         # before restoring SIG_DFL, which would otherwise terminate the process.
         mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
@@ -216,7 +226,7 @@ def alarm(deadline, clock=time.monotonic):
             if callable(previous):
                 previous(signal.SIGALRM, None)
             raise Abort("timeout")
-        if pending:
+        if pending or expired_seen:
             raise Abort("timeout")
 
 

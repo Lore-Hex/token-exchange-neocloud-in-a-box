@@ -32,6 +32,7 @@ def clean():
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stderr, "")
 
     def test_pending_expiry_is_consumed_before_default_handler_restored(self):
         self.child("""
@@ -169,6 +170,105 @@ for _ in range(100):
     else:
         raise AssertionError('expired body accepted')
     clean()
+""")
+
+    def test_late_background_delivery_does_not_interrupt_restoration(self):
+        self.child("""
+import threading
+stop, ready = threading.Event(), threading.Event()
+def background():
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGALRM})
+    ready.set()
+    stop.wait(5)
+thread = threading.Thread(target=background)
+thread.start()
+assert ready.wait(2)
+real_timer, delivered = signal.setitimer, []
+def timer(kind, seconds, *args):
+    result = real_timer(kind, seconds, *args)
+    if seconds == 0 and not delivered:
+        # Force an in-flight C-handler delivery on another unblocked thread
+        # after disarm but before the original Python handler is restored.
+        delivered.append(True)
+        signal.pthread_kill(thread.ident, signal.SIGALRM)
+        time.sleep(.01)
+    return result
+signal.setitimer = timer
+try:
+    try:
+        with worker.alarm(time.monotonic() + 5):
+            pass
+    except worker.Abort as exc:
+        assert exc.status == 'timeout'
+    else:
+        raise AssertionError('late signal accepted')
+finally:
+    signal.setitimer = real_timer
+    stop.set()
+    thread.join(2)
+assert delivered == [True] and not thread.is_alive()
+clean()
+""")
+
+    def test_non_main_rejection_preserves_enclosing_timer(self):
+        self.child("""
+import threading
+errors = []
+def background():
+    try:
+        with worker.alarm(time.monotonic() + 2):
+            raise AssertionError('non-main body entered')
+    except ValueError:
+        errors.append('rejected')
+until = time.monotonic() + 5
+with worker.alarm(until):
+    handler = signal.getsignal(signal.SIGALRM)
+    thread = threading.Thread(target=background)
+    thread.start()
+    thread.join(2)
+    assert not thread.is_alive() and errors == ['rejected']
+    assert signal.getsignal(signal.SIGALRM) is handler
+    left, interval = signal.getitimer(signal.ITIMER_REAL)
+    assert 0 < left <= until - time.monotonic() + .001 and interval == 0
+clean()
+""")
+
+    def test_stress_with_unblocked_background_thread_and_both_main_masks(self):
+        for block_main in (False, True):
+            with self.subTest(block_main=block_main):
+                self.child(f"""
+import threading
+stop, ready = threading.Event(), threading.Event()
+def background():
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, {{signal.SIGALRM}})
+    assert signal.SIGALRM not in signal.pthread_sigmask(signal.SIG_BLOCK, set())
+    ready.set()
+    while not stop.wait(.0001):
+        pass
+thread = threading.Thread(target=background)
+thread.start()
+assert ready.wait(2)
+mask = signal.pthread_sigmask(signal.SIG_BLOCK, {{signal.SIGALRM}} if {block_main!r} else set())
+try:
+    for _ in range(100):
+        try:
+            until = time.monotonic() + .002
+            with worker.alarm(until):
+                with worker.alarm(until):
+                    time.sleep(.01)
+        except worker.Abort as exc:
+            assert exc.status == 'timeout'
+        else:
+            raise AssertionError('expiry accepted')
+        assert signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0)
+        assert signal.getsignal(signal.SIGALRM) == original_handler
+        assert signal.pthread_sigmask(signal.SIG_BLOCK, set()) == mask | ({{signal.SIGALRM}} if {block_main!r} else set())
+finally:
+    signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+    stop.set()
+    thread.join(2)
+assert not thread.is_alive()
+clean()
 """)
 
 
