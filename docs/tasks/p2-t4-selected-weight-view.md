@@ -33,6 +33,18 @@ rename. Thus the container bind source is **`DESTINATION/model`**, not
 The wrapper also avoids requiring a rename of a non-writable directory on
 platforms that reject that operation for non-root users.
 
+The selected helper also permits a destination parent that is a **direct**
+private child of `/dev/shm`. It retains directory descriptors and requires a
+root-owned non-writable `/dev`, an exact root-owned `1777` `/dev/shm`, and an
+operator-owned `0700` child, with no symlinks. This is not permission to write
+directly into the shared directory or use arbitrary writable ancestors. Other
+paths still use the unchanged generic cache policy. Linux normally mounts its
+shared-memory tmpfs at `/dev/shm`; the sticky bit prevents other users from
+removing an entry owned by the operator. Host root remains trusted, as before.
+[Linux shared-memory filesystem](https://man7.org/linux/man-pages/man7/shm_overview.7.html),
+[sticky-directory ownership checks](https://man7.org/linux/man-pages/man2/unlink.2.html),
+accessed 2026-10-24.
+
 Publication fails closed if the filesystem does not support the exact
 no-replace primitive. A concurrent destination is never replaced. Failed
 partial copies remain in private staging for inspection; nothing is deleted
@@ -82,3 +94,12 @@ filesystem failures, insufficient space, deadline expiry, links, unexpected
 private files, pinned manifest totals, and closed receipt/signal behavior.
 These are software tests, **not a 510 GB copy or non-root GPU inference
 result**. Actual prepared-container verification remains separate.
+
+The [first actual attempt](../../evidence/p2/2026-10-24-selected-weight-view-parent-failure/README.md)
+failed in 0.119 seconds. The original generic helper rejects `/dev/shm` as a
+writable ancestor even when the operator's child is private. The focused Linux
+regression proves that rejection and the new narrow directory admission using
+a temporary private directory in the real `/dev/shm`; it copies no model files.
+On non-Linux hosts this test is explicitly skipped. Synthetic controls reject
+wrong ownership, missing sticky mode, nonprivate children and symlinks. No
+successful full weight preparation or serving result is claimed by this fix.
