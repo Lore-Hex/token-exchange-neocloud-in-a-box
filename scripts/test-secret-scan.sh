@@ -240,20 +240,53 @@ pair/evaluator-tokenizer.json|compact|independent_tokens_sha256|1b7419454da94e65
 CASES
 done
 
+# CPU retry originals require the exact observed source/token hashes.
+while IFS='|' read -r relative field known suffix; do
+  format=pretty
+  target="$tmp/cpu-retry/evidence/p2/$relative"
+  mkdir -p "$(dirname "$target")"
+  write_receipt_field "$target" "$field" "$known"
+  expect_receipt_scan "$target" 0
+  write_receipt_field "$target" "$field" "$unknown"
+  expect_receipt_scan "$target" 42
+  write_receipt_field "$target" api_key "$known"
+  expect_receipt_scan "$target" 42
+  write_receipt_field "$tmp/cpu-retry/other.log" "$field" "$known"
+  expect_receipt_scan "$tmp/cpu-retry/other.log" 42
+  printf '"%s": "%s", "api_key": "%s"\n' "$field" "$known" "$unknown" > "$target"
+  expect_receipt_scan "$target" 42
+  printf 'CPU retry original hash exception requires exact value, field and path.\n'
+done <<'CASES'
+2026-10-24-selected-tau-readiness-failure-1800/cpu/output.log|scripts/engine_tokenizer_parity.py|6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f|,
+2026-10-24-cpu-http-threads-pass/output.log|scripts/engine_tokenizer_parity.py|6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f|,
+2026-10-24-cpu-http-threads-pass/output.log|tokens_sha256|1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|
+2026-10-24-cpu-http-threads-pass/output.log|tokens_sha256|fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4|
+2026-10-24-cpu-http-threads-pass/output.log|tokens_sha256|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|
+2026-10-24-cpu-http-threads-pass/output.log|tokens_sha256|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe|
+CASES
+
 # Stream originals get the same exact field/value/path boundaries.
-for stream_set in window-exhaustion 600s-complete selected-timeout selected-provider; do
+for stream_set in window-exhaustion 600s-complete selected-timeout selected-provider selected-tau8k selected-graphs; do
 while IFS='|' read -r relative field known suffix; do
   format=pretty
   target="$tmp/stream/evidence/p2/2026-10-23-stream-$stream_set/$relative"
-  if [[ "$stream_set" == selected-timeout ]]; then
+  if [[ "$stream_set" == selected-timeout || "$stream_set" == selected-graphs ]]; then
     target="$tmp/stream/evidence/p2/2026-10-24-selected-stream-timeout/$relative"
+    if [[ "$stream_set" == selected-graphs ]]; then
+      target="$tmp/stream/evidence/p2/2026-10-24-selected-graphs-stream/$relative"
+      [[ "$field" != tokenizer-parity.py ]] || suffix=,
+    fi
     case "$field" in
       tokenizer-parity.py|stream/engine_tokenizer_parity.py)
         known=98872d2cb2e0b0874c79ef475c31db5a1d90b9024dc245f7cd0344b7173ed090 ;;
     esac
   fi
-  if [[ "$stream_set" == selected-provider ]]; then
+  if [[ "$stream_set" == selected-provider || "$stream_set" == selected-tau8k ]]; then
     target="$tmp/stream/evidence/p2/2026-10-24-selected-provider-conformance/$relative"
+    if [[ "$stream_set" == selected-tau8k ]]; then
+      target="$tmp/stream/evidence/p2/2026-10-24-selected-tau8k-parity/$relative"
+      [[ "$field" != tokenizer-parity.py ]] || suffix=,
+    fi
     case "$field" in
       stream/engine_tokenizer_parity.py|token_ids_sha256) continue ;;
       tokenizer-parity.py) known=6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f ;;

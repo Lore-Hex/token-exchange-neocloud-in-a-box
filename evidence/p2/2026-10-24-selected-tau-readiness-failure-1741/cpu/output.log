@@ -1,0 +1,20 @@
+{
+  "base_images": {},
+  "cleanup": {
+    "build_completion": "confirmed",
+    "container": "confirmed",
+    "image": "confirmed"
+  },
+  "confidential": false,
+  "context_sha256": null,
+  "git_sha": "025b7be189b18900d6ebd860e344a80096069aec",
+  "image_id": null,
+  "live_admission": false,
+  "quality_eligible": false,
+  "result": "fail",
+  "runtime": null,
+  "schema": "nib.tau-cpu-owner-run/v1",
+  "source_archive_sha256": "acb408ae38ffa016e1f75bfea76dff7b78de4651aaaa677df061c5e099cf6292",
+  "sources": {},
+  "stage": "inputs"
+}
