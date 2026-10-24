@@ -130,13 +130,21 @@ class SelectedDriverTests(unittest.TestCase):
         self.assertTrue(all(channel.closed for channel in self.channels.values()))
 
     def test_upstream_tool_error_reaches_both_owner_finishes_without_reward(self):
+        self.tool_error_result({'reason': 'too_many_errors', 'tool_errors': 1})
+
+    def test_attributed_tool_error_reaches_final_diagnostic_without_content(self):
+        observer = worker.ToolErrors()
+        observer.record('assistant', True, ValueError('PRIVATE_CANARY'))
+        self.tool_error_result({'reason': 'too_many_errors', 'tool_errors': 1,
+                               'tool_error_attribution': observer.project(1)})
+
+    def tool_error_result(self, upstream):
         code = CHILD.replace("('simulator', 'agent', 'evaluator')", "('simulator', 'agent')")
-        code = code.replace("{'reason': 'user_stop', 'tool_errors': 0}",
-                            "{'reason': 'too_many_errors', 'tool_errors': 1}")
+        code = code.replace("{'reason': 'user_stop', 'tool_errors': 0}", repr(upstream))
         code = code.replace("return 1.0", "raise transport.worker.Abort('protocol_error')")
         result = self.run_child(code)
         row = result['trial']
-        self.assertEqual(row['upstream_termination'], {'reason': 'too_many_errors', 'tool_errors': 1})
+        self.assertEqual(row['upstream_termination'], upstream)
         self.assertEqual((row['status'], row['requests'], row['usage']['total_tokens']), ('protocol_error', 2, 16))
         self.assertIsNone(row['reward'])
         self.assertFalse(driver.accepted(result))

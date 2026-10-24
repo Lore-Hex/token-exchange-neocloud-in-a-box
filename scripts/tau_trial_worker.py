@@ -5,6 +5,7 @@
 import sys
 import contextlib
 from decimal import Decimal
+import functools
 import hashlib
 import json
 import math
@@ -35,6 +36,10 @@ UPSTREAM_STATUSES = {"user_stop": "evaluated", "agent_stop": "evaluated",
                      "timeout": "timeout", "too_many_errors": "protocol_error",
                      "agent_error": "protocol_error", "user_error": "protocol_error",
                      "infrastructure_error": "infrastructure_error", "unexpected_error": "infrastructure_error"}
+TOOL_ERROR_CATEGORIES = {ValueError: "value_error", TypeError: "type_error", KeyError: "key_error",
+                         IndexError: "index_error", AssertionError: "assertion_error",
+                         RuntimeError: "runtime_error"}
+TOOL_ERROR_REQUESTORS = ("assistant", "user", "other")
 
 
 def require(value):
@@ -47,7 +52,8 @@ def validate_upstream_termination(value, *, evaluated=False):
     if value is None:
         require(not evaluated)
         return None
-    require(type(value) is dict and set(value) == {"reason", "tool_errors"})
+    require(type(value) is dict and set(value) in ({"reason", "tool_errors"},
+            {"reason", "tool_errors", "tool_error_attribution"}))
     reason, errors = value["reason"], value["tool_errors"]
     require(type(reason) is str and reason in UPSTREAM_STATUSES
             and type(errors) is int and 0 <= errors <= MAX_TOOL_CALLS)
@@ -56,7 +62,108 @@ def validate_upstream_termination(value, *, evaluated=False):
     require((reason != "too_many_errors" or errors > 0)
             and (errors == 0 or reason in ("too_many_errors", "timeout"))
             and (not evaluated or UPSTREAM_STATUSES[reason] == "evaluated"))
-    return {"reason": reason, "tool_errors": errors}
+    result = {"reason": reason, "tool_errors": errors}
+    if "tool_error_attribution" in value:
+        result["tool_error_attribution"] = validate_tool_error_attribution(value["tool_error_attribution"], errors)
+    return result
+
+
+def validate_tool_error_attribution(value, errors):
+    require(type(value) is dict and set(value) == {"path", "counts", "unattributed"}
+            and type(value["path"]) is str and value["path"] == "live_make_tool_call"
+            and type(value["counts"]) is list and len(value["counts"]) <= MAX_TOOL_CALLS
+            and type(value["unattributed"]) is int and 0 <= value["unattributed"] <= errors)
+    rows, seen, total = [], set(), value["unattributed"]
+    for row in value["counts"]:
+        require(type(row) is dict and set(row) == {"requestor", "known_tool", "category", "count"}
+                and type(row["requestor"]) is str and row["requestor"] in TOOL_ERROR_REQUESTORS
+                and type(row["known_tool"]) is bool and type(row["category"]) is str
+                and row["category"] in (*TOOL_ERROR_CATEGORIES.values(), "other_exception")
+                and type(row["count"]) is int and 1 <= row["count"] <= MAX_TOOL_CALLS)
+        key = (row["requestor"], row["known_tool"], row["category"])
+        require(key not in seen)
+        seen.add(key)
+        total += row["count"]
+        rows.append(dict(row))
+    require(total == errors)
+    return {"path": "live_make_tool_call", "counts": rows, "unattributed": value["unattributed"]}
+
+
+class ToolErrors:
+    """Bounded aggregate only; never retain an exception, name, argument or result."""
+    def __init__(self):
+        self.counts, self.total, self.overflow = {}, 0, False
+
+    def record(self, requestor, known, error):
+        if self.total == MAX_TOOL_CALLS:
+            self.overflow = True
+            return
+        requestor = requestor if type(requestor) is str and requestor in TOOL_ERROR_REQUESTORS[:2] else "other"
+        category = TOOL_ERROR_CATEGORIES.get(type(error), "other_exception")
+        key = (requestor, known, category)
+        self.counts[key] = self.counts.get(key, 0) + 1
+        self.total += 1
+
+    def project(self, errors):
+        # Do not invent attribution if observations cannot join the completed
+        # simulation. Argument binding and sync_tools errors are not observed.
+        counts = {} if self.overflow or self.total > errors else self.counts
+        rows = [{"requestor": requestor, "known_tool": known, "category": category, "count": count}
+                for (requestor, known, category), count in sorted(counts.items())]
+        return validate_tool_error_attribution({"path": "live_make_tool_call", "counts": rows,
+            "unattributed": errors - sum(counts.values())}, errors)
+
+
+@contextlib.contextmanager
+def observe_selected_tools():
+    # Hash-verified fc0055dc source: get_response catches Exception, including
+    # sync_tools; set_state also replays get_response during evaluation. Observe
+    # only the synchronous live batch, not initialization or evaluation replay.
+    from tau2.environment.environment import Environment
+    from tau2.orchestrator.orchestrator import BaseOrchestrator
+    observer = ToolErrors()
+    execute = BaseOrchestrator._execute_tool_calls
+
+    def batch(orchestrator, tool_calls):
+        env = orchestrator.environment
+        if type(env) is not Environment or env.solo_mode is not False:
+            return execute(orchestrator, tool_calls)
+        original = env.make_tool_call
+        present = "make_tool_call" in vars(env)
+        saved = vars(env).get("make_tool_call")
+
+        @functools.wraps(original)
+        def call(*args, **kwargs):
+            tool_name = args[0] if args else kwargs.get("tool_name")
+            requestor = args[1] if len(args) > 1 else kwargs.get("requestor", "assistant")
+            known = None
+            try:
+                toolkit = (env.tools if type(requestor) is str and requestor == "assistant" else
+                           env.user_tools if type(requestor) is str and requestor == "user" else None)
+                known = type(tool_name) is str and toolkit is not None and toolkit.has_tool(tool_name)
+            except Exception:
+                pass  # Unsupported observation must not replace the original outcome.
+            try:
+                return original(*args, **kwargs)
+            except Exception as error:
+                if type(known) is bool:
+                    observer.record(requestor, known, error)
+                raise
+
+        try:
+            env.make_tool_call = call
+            return execute(orchestrator, tool_calls)
+        finally:
+            if present:
+                env.make_tool_call = saved
+            else:
+                del env.make_tool_call
+
+    try:
+        BaseOrchestrator._execute_tool_calls = batch
+        yield observer
+    finally:
+        BaseOrchestrator._execute_tool_calls = execute
 
 
 def selected_termination(simulation, turns):
@@ -466,11 +573,14 @@ def run_upstream(root, manifest, selection, bridge, *, selected_operational=Fals
         max_retries=0, hallucination_retries=0, auto_review=False, auto_resume=False,
         verbose_logs=False, seed=selection["seed"], save_to=None)
     try:
-        simulation = run_single_task(config, task, seed=selection["seed"], save_dir=None,
-                                     verbose_logs=False, audio_debug=False, audio_taps=False, auto_review=False,
-                                     evaluation_type=EvaluationType.ALL_WITH_NL_ASSERTIONS)
+        with observe_selected_tools() if selected_operational else contextlib.nullcontext() as observer:
+            simulation = run_single_task(config, task, seed=selection["seed"], save_dir=None,
+                                         verbose_logs=False, audio_debug=False, audio_taps=False, auto_review=False,
+                                         evaluation_type=EvaluationType.ALL_WITH_NL_ASSERTIONS)
         if selected_operational:
-            bridge.upstream_termination = selected_termination(simulation, settings["limits"]["turns"])
+            termination = selected_termination(simulation, settings["limits"]["turns"])
+            termination["tool_error_attribution"] = observer.project(termination["tool_errors"])
+            bridge.upstream_termination = validate_upstream_termination(termination)
         reason = simulation.termination_reason.value
         if reason not in ("user_stop", "agent_stop"):
             raise Abort(UPSTREAM_STATUSES.get(reason, "protocol_error"))

@@ -13,6 +13,16 @@ from test_evidence_history import git
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = {
+    "selected-c8-stream": {
+        "producer": "a53d31450b5ce801596218b9988b31f44025c15e", "profile": "batch8-graphs", "file_count": 114,
+        "window": ("2026-10-24T21:12:36Z", "2026-10-24T21:32:44Z"),
+        "hashes": {
+            "run.json": "a34214981a0c7bb9a217680d3d798aa32a3a0ff9dedf97c6342e5058ab8ace33",
+            "output.log": "ee0651e4a7c7aaac7b1111e6a3f15160c2ec1f4940ee28ddce328a27e9ed5237",
+            "input-contract.json": "d2c43c54b2d3040f90a7cb5a639e9bdc8dd12f597075ae8c9c28426d86c42401",
+            "receipt.json": "bd43b85b713322ccb476f43e6f00ab9068dc46fd25a53e3e3a47ade9b4ad7af6",
+        },
+    },
     "selected-tau8k-parity": {
         "producer": "68ab473fda5b29bf85be07099494702b63aeba69", "profile": "tau8k-eager", "file_count": 100,
         "window": ("2026-10-24T12:55:30Z", "2026-10-24T13:14:34Z"),
@@ -92,12 +102,11 @@ class SelectedOperationalEvidenceTests(unittest.TestCase):
         exec(compile(raw, module.__file__, "exec", dont_inherit=True), module.__dict__)
         return module
 
-    def stream(self):
-        key = "selected-graphs-stream"
+    def stream(self, key="selected-graphs-stream"):
         contract = documents(key)[2]
         binding = self.module(key, "stream-lab.py")
-        sources = {"stream/" + name + ".py": source(RUNS[key]["producer"], "scripts/" + name + ".py")
-                   for name in binding.NAMES}
+        sources = {name: source(RUNS[key]["producer"], "scripts/" + name.removeprefix("stream/"))
+                   for name in contract["sources"] if name.startswith("stream/")}
         return binding, binding.load(sources, contract["sources"])
 
     def test_original_hashes_producer_and_source_receipt_joins(self):
@@ -169,7 +178,8 @@ class SelectedOperationalEvidenceTests(unittest.TestCase):
                 self.assertEqual(report["container_observation"], {"status": "exited", "exit_code": 0, "oom_killed": False})
 
     def test_parity_and_runtime_identity_are_validated_by_original_sources(self):
-        for key, context in (("selected-tau8k-parity", 8192), ("selected-graphs-stream", 4096)):
+        for key, context in (("selected-tau8k-parity", 8192), ("selected-graphs-stream", 4096),
+                             ("selected-c8-stream", 4096)):
             with self.subTest(run=key):
                 run, report, contract, _ = documents(key)
                 experiment = report["experiment"]
@@ -227,6 +237,52 @@ class SelectedOperationalEvidenceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 binding.validate(changed, contract, RUNS[key]["hashes"]["input-contract.json"], cohort,
                                  model=contract["model_profile"]["served_model_name"])
+
+    def test_c8_stream_preserves_real_overlap_usage_latency_and_limits(self):
+        key = "selected-c8-stream"
+        _, report, contract, _ = documents(key)
+        binding, cohort = self.stream(key)
+        stream = report["experiment"]["stream_cohort"]
+        contract_sha = RUNS[key]["hashes"]["input-contract.json"]
+        model = contract["model_profile"]["served_model_name"]
+        self.assertTrue(binding.validate(stream, contract, contract_sha, cohort, model=model))
+        self.assertEqual(contract["stream_cohort"]["profile"], "chat-2k-512-c8-600s")
+        self.assertEqual(report["experiment"]["startup"]["wait_ms"], 892130)
+        row, measured = stream["cohort"], stream["cohort"]["measured"]
+        self.assertEqual((row["concurrency"], row["peak_in_flight"], row["started_requests"]), (8, 8, 9))
+        self.assertTrue(row["completed"] and row["collectors_reaped"] and stream["terminal_identity_verified"])
+        self.assertEqual((row["stop_reason"], row["not_run_requests"], row["reserved_total_tokens"]),
+                         ("complete", 0, 23040))
+        self.assertEqual((row["known_prompt_tokens"], row["known_output_tokens"], row["requests_with_unknown_usage"]),
+                         (18432, 3600, 0))
+        self.assertEqual((measured["scheduled"], measured["completed"], measured["failed"], measured["not_run"]),
+                         (8, 8, 0, 0))
+        self.assertEqual(measured["completed_output_tokens"], 3200)
+        self.assertAlmostEqual(measured["wall_seconds"], 4.959102934997645)
+        rate = measured["completed_output_tokens"] / measured["wall_seconds"]
+        self.assertEqual(round(rate, 2), 645.28)
+        self.assertAlmostEqual(measured["completed_output_tokens_per_second_per_gpu"], rate / 8)
+        self.assertEqual(round(1000 * measured["ttft_seconds"]["p50"], 2), 1835.91)
+        self.assertEqual(round(1000 * measured["ttft_seconds"]["p95"], 2), 1933.63)
+        self.assertLess(max(r["start"] for r in row["intervals"]), min(r["end"] for r in row["intervals"]))
+        self.assertAlmostEqual(row["warmup"]["elapsed_seconds"], 6.821974957994826)
+        for sample in [row["warmup"], *row["samples"]]:
+            self.assertEqual((sample["status"], sample["prompt_tokens"], sample["completion_tokens"]),
+                             ("completed", 2048, 400))
+            self.assertEqual((sample["finish_reason"], sample["output_events"]), ("stop", 399))
+            self.assertIsNone(sample["cached_prompt_tokens"])
+        for flag in ("quality_accepted", "sweep_accepted", "confidential", "pricing_measured"):
+            self.assertIs(row[flag], False)
+        for mutate in (lambda r: r["cohort"].update(quality_accepted=True),
+                       lambda r: r["cohort"].update(confidential=True),
+                       lambda r: r["cohort"].update(peak_in_flight=1),
+                       lambda r: r["cohort"].update(known_output_tokens=4608),
+                       lambda r: r["cohort"]["measured"].update(completed_output_tokens=3600),
+                       lambda r: r["cohort"]["intervals"][0].update(end=999)):
+            changed = copy.deepcopy(stream)
+            mutate(changed)
+            with self.assertRaises(ValueError):
+                binding.validate(changed, contract, contract_sha, cohort, model=model)
 
     def test_dspark_failures_preserve_legacy_and_cause_chain_diagnostics(self):
         for key, wait in (("selected-dspark-startup-failure", 331044), ("selected-dspark-cause-diagnostics", 323065)):
