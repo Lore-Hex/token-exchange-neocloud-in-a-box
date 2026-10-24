@@ -127,6 +127,10 @@ class OwnerReplies(fixtures.FakeChannel):
         super().send(packet, deadline)
         operation = packet["kind"]
         reply = {key: packet[key] for key in ("schema", "binding_sha256", "sequence")}
+        if operation == "finish":
+            self.packets.append({**reply, "kind": "finish-result", "status": packet["status"],
+                                 "completed_requests": (packet["sequence"] - 1) // 2})
+            return
         reply.update(kind=operation + "-result", request_sha256=tau.digest(tau.encoded(packet["body"])))
         if self.error and operation == "complete":
             reply.update(kind="complete-error", status=self.error)
