@@ -1,8 +1,10 @@
 # Ordinary B300 streaming measurements
 
-Status: implemented and tested with synthetic fixtures only. This change is
-not a hardware result, measured throughput, quality score, public endpoint or
-confidential qualification.
+Status: the first [selected-checkpoint hardware run](../../evidence/p2/2026-10-24-selected-stream-timeout/README.md)
+passed tokenizer parity but timed out during the 60-second streaming warmup.
+There is no completed measured cohort, throughput or TTFT result. The receipt
+preserves unknown usage and confirmed cleanup; no quality score, public endpoint
+or confidential qualification follows from it.
 
 The explicit ordinary B300 TP4 x DP2 profile can now opt into the existing
 tokenizer-parity, owned-process observation and fixed streaming-cohort paths.

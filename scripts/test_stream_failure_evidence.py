@@ -24,6 +24,8 @@ def document(name):
 
 
 class SourceBoundStreamEvidence:
+    file_count = 110
+
     def test_original_bytes_and_source_bound_bundle(self):
         directory, hashes, producer = self.directory, self.hashes, self.producer
         for name, expected in hashes.items():
@@ -39,7 +41,7 @@ class SourceBoundStreamEvidence:
         for key in ("source_bundle_sha256", "manifest_sha256", "pack_revision"):
             self.assertEqual(report["provenance"][key], contract[key])
         self.assertEqual(report["provenance"]["payload_sha256"], receipt["payload_sha256"])
-        self.assertEqual(len(receipt["files"]), 110)
+        self.assertEqual(len(receipt["files"]), self.file_count)
         for name, sha in contract["sources"].items():
             self.assertEqual(receipt["files"]["payload/" + name]["sha256"], sha)
         source_map = {"record-deepseek-lab.py": "host/record-deepseek-lab.py",
