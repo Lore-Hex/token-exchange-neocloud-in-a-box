@@ -19,7 +19,7 @@ DONE = b"NIB-TAU-CPU-DONE "
 RESERVE = 60
 SUBSTAGES = ("inputs", "build", "local-tokenizer", "launch", "endpoint", "health",
              "comparison", "rehash", "receipts", "pair-check", "publish", "hold", "released")
-FAILURE_SOURCES = cpu.FAILURE_SOURCES + ("scripts/tau_cpu_session.py", "scripts/tau_llama_identity.py",
+FAILURE_SOURCES = cpu.FAILURE_SOURCES + ("scripts/tau_cpu_session.py", "scripts/tau_cpu_owner.py", "scripts/tau_owner_channel.py", "scripts/tau_llama_identity.py",
                                       "scripts/tau_preflight.py", "scripts/tau_trial_worker.py")
 
 
@@ -147,7 +147,8 @@ def receipts(role, model, endpoint, rows, producer, image_sha, helper_sha, deadl
     return {role + "-runtime.json": raw, role + "-tokenizer.json": tau.encoded(tokenizer)}
 
 
-def run(archive, models, work, producer, image_sha, *, read_fd=0, write_fd=1, probe=None):
+def run(archive, models, work, producer, image_sha, *, read_fd=0, write_fd=1, probe=None, selected_owner=False):
+    require(type(selected_owner) is bool and not (selected_owner and probe is not None))
     deadline = time.monotonic() + cpu.TOTAL_SECONDS - RESERVE
     report = {"schema": "nib.tau-cpu-session/v2", "result": "fail", "stage": "inputs",
               "receipts": {}, "ready_sha256": None, "acknowledged": False,
@@ -155,6 +156,8 @@ def run(archive, models, work, producer, image_sha, *, read_fd=0, write_fd=1, pr
               "progress": progress(), "failure": None}
     if probe is not None:
         report.update(schema="nib.tau-cpu-session/v3", probe=None)
+    if selected_owner:
+        report.update(schema="nib.tau-cpu-session/v4", owner=None)
     checkpoint, parity = report["progress"], report["progress"]["parity"]
     processes, owned, originals = [], [], {}
     pilot, process = None, None
@@ -241,7 +244,11 @@ def run(archive, models, work, producer, image_sha, *, read_fd=0, write_fd=1, pr
             report.update(stage="hold", receipts={name: tau.digest(originals[name]) for name in FILES},
                           ready_sha256=tau.digest(raw))
             checkpoint["substage"] = "hold"
-            if probe is not None:
+            if selected_owner:
+                import tau_cpu_owner
+                report["owner"] = tau_cpu_owner.serve(raw, owned, processes, producer, image_sha,
+                    deadline, read_fd=read_fd, write_fd=write_fd)
+            elif probe is not None:
                 import tau_cpu_probe
                 send(write_fd, READY + raw + b"\n", min(deadline, time.monotonic() + 5))
                 report["probe"] = tau_cpu_probe.execute(probe, dict(zip(ROLES, owned)),
@@ -256,6 +263,8 @@ def run(archive, models, work, producer, image_sha, *, read_fd=0, write_fd=1, pr
                 hold(raw, owned, processes, deadline, read_fd, write_fd)
             report.update(result="pass" if probe is None or report["probe"]["result"] == "pass" else "fail",
                           stage="released", acknowledged=True)
+            if selected_owner and report["owner"]["status"] != "evaluated":
+                report["result"] = "fail"
             checkpoint["substage"] = "released"
     except BaseException as error:
         report["result"] = "fail"
@@ -276,10 +285,11 @@ def run(archive, models, work, producer, image_sha, *, read_fd=0, write_fd=1, pr
 
 def validate(row):
     probing = type(row) is dict and row.get("schema") == "nib.tau-cpu-session/v3"
+    selected = type(row) is dict and row.get("schema") == "nib.tau-cpu-session/v4"
     identity.keys(row, ("schema", "result", "stage", "receipts", "ready_sha256", "acknowledged",
                         "cleanup", "quality_eligible", "confidential", "live_admission", "progress", "failure")
-                        + (("probe",) if probing else ()))
-    require(row["schema"] == ("nib.tau-cpu-session/v3" if probing else "nib.tau-cpu-session/v2")
+                        + (("probe",) if probing else ("owner",) if selected else ()))
+    require(row["schema"] == ("nib.tau-cpu-session/v4" if selected else "nib.tau-cpu-session/v3" if probing else "nib.tau-cpu-session/v2")
             and row["result"] in ("pass", "fail")
             and row["stage"] in ("inputs", "build", "parity", "hold", "released")
             and type(row["acknowledged"]) is bool and row["cleanup"] in ("confirmed", "unknown")
@@ -309,6 +319,12 @@ def validate(row):
         if row["probe"] is not None:
             tau_cpu_probe.validate(row["probe"])
         require(row["result"] != "pass" or row["probe"] is not None and row["probe"]["result"] == "pass")
+    if selected:
+        import tau_cpu_owner
+        if row["owner"] is not None:
+            tau_cpu_owner.validate(row["owner"])
+            require(row["acknowledged"] and row["stage"] == "released" and row["ready_sha256"] is not None)
+        require(row["result"] != "pass" or row["owner"] is not None and row["owner"]["status"] == "evaluated")
     return row
 
 
@@ -355,14 +371,15 @@ def accept(raw, producer, image_sha, deadline):
                        "receipts": {name: tau.digest(originals[name]) for name in FILES}}
 
 
-def relay(argv, env, snapshot, producer, image_sha, output_fd, *, read_fd=0, write_fd=1, probe=None):
+def relay(argv, env, snapshot, producer, image_sha, output_fd, *, read_fd=0, write_fd=1, probe=None, selected_owner=False):
     """A private controller pipe, never an HTTP endpoint or arbitrary command."""
     require(all(stat.S_ISFIFO(os.fstat(fd).st_mode) for fd in (read_fd, write_fd)))
+    require(type(selected_owner) is bool and not (selected_owner and probe is not None))
     deadline = time.monotonic() + cpu.TOTAL_SECONDS
     process = subprocess.Popen(argv, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, bufsize=0, start_new_session=True)
     output, errors, ack = bytearray(), bytearray(), bytearray()
-    held, acknowledged, total = None, False, 0
+    held, acknowledged, total, owner_result = None, False, 0, None
     try:
         with selectors.DefaultSelector() as selector:
             selector.register(process.stdout, selectors.EVENT_READ, "output")
@@ -396,13 +413,26 @@ def relay(argv, env, snapshot, producer, image_sha, output_fd, *, read_fd=0, wri
                         if held is None and b"\n" in output and output.startswith(READY):
                             line, rest = bytes(output).split(b"\n", 1)
                             require(not rest)
-                            originals, held = accept(line[len(READY):], producer, image_sha, deadline)
+                            original_ready = line[len(READY):]
+                            originals, held = accept(original_ready, producer, image_sha, deadline)
                             for name in FILES:
                                 write_exact(output_fd, name, originals[name])
                             os.fsync(output_fd)
-                            send(write_fd, READY + probes.encoded(held) + b"\n", min(deadline, time.monotonic() + 5))
+                            send(write_fd, READY + (original_ready if selected_owner else probes.encoded(held)) + b"\n",
+                                 min(deadline, time.monotonic() + 5))
                             output.clear()
-                            if probe is not None:
+                            if selected_owner:
+                                import tau_cpu_owner
+                                selector.unregister(process.stdout)
+                                selector.unregister(process.stderr)
+                                selector.unregister(read_fd)
+                                owner_result = tau_cpu_owner.relay(process, original_ready, deadline,
+                                    read_fd=read_fd, write_fd=write_fd)
+                                process.stdin.close()
+                                acknowledged = owner_result is not None
+                                selector.register(process.stdout, selectors.EVENT_READ, "output")
+                                selector.register(process.stderr, selectors.EVENT_READ, "error")
+                            elif probe is not None:
                                 runner = cpu.module(cpu.ROOT / "scripts/tau_trial.py", "cpu_probe_runner")
                                 selector.unregister(process.stdout)
                                 selector.unregister(process.stderr)
@@ -428,6 +458,10 @@ def relay(argv, env, snapshot, producer, image_sha, output_fd, *, read_fd=0, wri
                 require(result["ready_sha256"] is None and not result["receipts"])
             require(not result["acknowledged"] or acknowledged)
             require((result["schema"] == "nib.tau-cpu-session/v3") is (probe is not None))
+            require((result["schema"] == "nib.tau-cpu-session/v4") is selected_owner)
+            if selected_owner:
+                require(result["owner"] == owner_result)
+                require(owner_result is not None or result["result"] == "fail" and not result["acknowledged"])
             if probe is not None and probe["record"] is not None:
                 require(result["probe"] == probe["record"]["diagnostic"])
             return result

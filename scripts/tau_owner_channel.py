@@ -43,6 +43,7 @@ class State:
         require(type(deadline) in (int, float) and math.isfinite(deadline)
                 and 0 < deadline - clock() <= transport.MAX_WAIT_SECONDS)
         self.deadline, self.sequence, self.failed, self.pending = deadline, 0, None, None
+        self.finished = None
         self.binding_sha = tau.digest(tau.encoded(self.binding))
         self.busy = threading.Lock()
 
@@ -58,6 +59,7 @@ class State:
     def check(self, deadline):
         if self.failed:
             self.fail(self.failed)
+        require(self.finished is None)
         require(type(deadline) in (int, float) and math.isfinite(deadline)
                 and deadline <= self.deadline)
         if deadline <= self.clock():
@@ -105,6 +107,17 @@ class Owner(State):
         try:
             self.check(self.deadline)
             packet = self.channel.receive(self.deadline)
+            if type(packet) is dict and packet.get("kind") == "finish":
+                self.check_envelope(packet, "finish", self.sequence + 1, {"status", "deadline"})
+                self.check(packet["deadline"])
+                require(self.pending is None and type(packet["status"]) is str
+                        and packet["status"] in worker.STATUSES
+                        and (packet["status"] != "evaluated" or self.sequence > 0))
+                result = {"status": packet["status"], "completed_requests": self.sequence // 2}
+                self.channel.send({**self.envelope("finish-result", self.sequence + 1), **result}, packet["deadline"])
+                self.sequence += 1
+                self.finished = result
+                return True
             operation = "count" if self.pending is None else "complete"
             fields = {"role", "body", "deadline", "context_tokens" if operation == "count" else "prompt_tokens"}
             self.check_envelope(packet, operation, self.sequence + 1, fields)
@@ -205,6 +218,28 @@ class Coordinator(State):
     def client(self, role):
         require(type(role) is str and role in self.binding["roles"])
         return Client(self, role)
+
+    def finish(self, status, deadline):
+        if not self.busy.acquire(blocking=False):
+            self.fail("protocol_error")
+        try:
+            self.check(deadline)
+            require(self.pending is None and type(status) is str and status in worker.STATUSES
+                    and (status != "evaluated" or self.sequence > 0))
+            self.channel.send({**self.envelope("finish", self.sequence + 1),
+                               "status": status, "deadline": deadline}, deadline)
+            reply = self.channel.receive(deadline)
+            self.check_envelope(reply, "finish-result", self.sequence + 1, {"status", "completed_requests"})
+            require(reply["status"] == status and type(reply["completed_requests"]) is int
+                    and reply["completed_requests"] == self.sequence // 2)
+            self.check(deadline)
+            self.sequence += 1
+            self.finished = {"status": status, "completed_requests": reply["completed_requests"]}
+            return dict(self.finished)
+        except BaseException as exc:
+            self.fail(transport.status(exc))
+        finally:
+            self.busy.release()
 
 
 class Client:

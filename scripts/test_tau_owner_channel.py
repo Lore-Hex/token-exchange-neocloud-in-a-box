@@ -186,6 +186,7 @@ class OwnerTests(unittest.TestCase):
             try:
                 owner.serve_once()
                 owner.serve_once()
+                self.assertTrue(owner.serve_once())
             except BaseException as error:
                 failures.append(type(error).__name__)
             finally:
@@ -198,12 +199,50 @@ class OwnerTests(unittest.TestCase):
             count = proxy.count(body(), 8192, deadline)
             self.assertEqual(count, 7)
             self.assertEqual(proxy.complete(body(), count, deadline), completion())
+            self.assertEqual(coordinator.finish("evaluated", deadline),
+                             {"status": "evaluated", "completed_requests": 1})
+            with self.assertRaises(rpc.worker.Abort):
+                proxy.count(body(), 8192, deadline)
         finally:
             coordinator.close()
             thread.join(4)
             owner.close()
         self.assertFalse(thread.is_alive())
         self.assertFalse(failures)
+        self.assertEqual(owner.finished, coordinator.finished)
+
+    def test_finish_requires_exact_nonempty_or_abort_state_and_cannot_repeat(self):
+        for status in ("evaluated", "unexpected", True):
+            owner, channel, clients = self.owner()
+            self.assert_rejected(owner, channel, clients,
+                {**owner.envelope("finish", 1), "status": status, "deadline": 90})
+        owner, channel, clients = self.owner()
+        channel.packets = [{**owner.envelope("finish", 1), "status": "budget_abort", "deadline": 90}]
+        self.assertTrue(owner.serve_once())
+        self.assertEqual(owner.finished, {"status": "budget_abort", "completed_requests": 0})
+        self.assert_rejected(owner, channel, clients,
+            {**owner.envelope("finish", 2), "status": "budget_abort", "deadline": 90})
+        owner, channel, clients = self.owner()
+        channel.packets = [self.packet(owner)]
+        owner.serve_once()
+        self.assert_rejected(owner, channel, clients,
+            {**owner.envelope("finish", 2), "status": "budget_abort", "deadline": 90})
+
+    def test_finish_ack_must_match_status_count_sequence_and_bound_deadline(self):
+        changes = (lambda r: r.update(status="timeout"), lambda r: r.update(completed_requests=1),
+                   lambda r: r.update(completed_requests=False), lambda r: r.update(sequence=True),
+                   lambda r: r.update(sequence=2), lambda r: r.update(extra=1),
+                   lambda r: r.update(binding_sha256="c" * 64), lambda r: r.clear())
+        for change in changes:
+            channel = FakeChannel()
+            proxy = rpc.Coordinator(channel, admitted(), 100, clock=lambda: 1)
+            reply = {**proxy.envelope("finish-result", 1), "status": "budget_abort", "completed_requests": 0}
+            change(reply)
+            channel.packets.append(reply)
+            with self.assertRaises(rpc.worker.Abort):
+                proxy.finish("budget_abort", 90)
+            self.assertTrue(channel.closed)
+            self.assertIsNone(proxy.finished)
 
     def test_private_pipe_preserves_known_failures_without_retry(self):
         for operation in ("count", "complete"):
