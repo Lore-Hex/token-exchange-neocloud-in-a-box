@@ -20,6 +20,8 @@ MAX_RESPONSE = 256 << 10
 MAX_FILES = 11000
 MAX_PAYLOAD = 512 << 20
 SECONDS = 180
+SELECTED_TRIAL_SECONDS = 900
+SELECTED_RUN_SECONDS = 960
 MODEL_ROLES = {"nib-scripted-agent": "agent", "nib-scripted-simulator": "simulator",
                "nib-scripted-evaluator": "evaluator"}
 STATUSES = ("evaluated", "infrastructure_error", "timeout", "truncated",
@@ -354,7 +356,21 @@ def run_support_probe(root, manifest, selection, bridge):
         llm_utils.set_llm_log_dir(None)
 
 
-def run_upstream(root, manifest, selection, bridge):
+def run_selected_upstream(root, manifest, selection, bridge):
+    return run_upstream(root, manifest, selection, bridge, selected_operational=True)
+
+
+def run_upstream(root, manifest, selection, bridge, *, selected_operational=False):
+    require(type(selected_operational) is bool)
+    if selected_operational:
+        import tau_selected_policy as policy
+        policy.validate(manifest)
+        require(encoded(selection) == encoded(policy.support.SELECTION)
+                and policy.LIMITS["trial_seconds"] == SELECTED_TRIAL_SECONDS
+                and policy.LIMITS["run_seconds"] == SELECTED_RUN_SECONDS)
+        settings, seconds = policy.settings(manifest), SELECTED_TRIAL_SECONDS
+    else:
+        settings, seconds = manifest["settings"], SECONDS
     configure_upstream(bridge)
     from tau2.runner.batch import run_single_task
     from tau2.runner.helpers import get_tasks
@@ -364,14 +380,15 @@ def run_upstream(root, manifest, selection, bridge):
     task = get_tasks(selection["domain"], task_split_name="base",
                      task_ids=[selection["task_id"]], num_tasks=1)[0]
     bridge.assertions = list(task.evaluation_criteria.nl_assertions or []) if task.evaluation_criteria else []
+    require(not selected_operational or len(bridge.assertions) == 1)
     args = {"temperature": 0, "num_retries": 0}
     config = TextRunConfig(
         domain=selection["domain"], task_set_name=selection["domain"], task_split_name="base",
         task_ids=[selection["task_id"]], num_tasks=1, llm_agent="nib-scripted-agent",
         llm_args_agent=args, llm_user="nib-scripted-simulator", llm_args_user=args,
         agent="llm_agent", user="user_simulator", num_trials=1, max_concurrency=1,
-        max_steps=manifest["settings"]["limits"]["turns"], max_errors=1,
-        timeout=min(SECONDS, manifest["settings"]["limits"]["trial_seconds"]),
+        max_steps=settings["limits"]["turns"], max_errors=1,
+        timeout=min(seconds, settings["limits"]["trial_seconds"]),
         max_retries=0, hallucination_retries=0, auto_review=False, auto_resume=False,
         verbose_logs=False, seed=selection["seed"], save_to=None)
     try:
@@ -430,12 +447,40 @@ def evaluate(tau, aggregate, manifest, selection, producer, execute=run_upstream
                     "usage_known": bridge.usage_known}
 
 
+def invocation(arguments):
+    require(len(arguments) in (2, 3, 4) and type(arguments[1]) is str and len(arguments[1]) == 64
+            and all(c in "0123456789abcdef" for c in arguments[1]))
+    flags = arguments[2:]
+    require(flags in ([], ["--parent-pipe"], ["--parent-pipe", "--selected-operational"]))
+    return bool(flags), len(flags) == 2
+
+
+def validate_dispatch(contract, parent_pipe, selected_operational):
+    require(type(parent_pipe) is bool and type(selected_operational) is bool
+            and (not selected_operational or parent_pipe))
+    require(contract.get("transport") == ("selected-operational-parent-pipe" if selected_operational
+            else "scripted-parent-pipe" if parent_pipe else None))
+    if selected_operational:
+        require(contract.get("schema") == "nib.tau-selected-scorer-plan/v1"
+                and contract.get("selected_operational") is True
+                and type(contract.get("seconds")) is int and contract["seconds"] == SELECTED_RUN_SECONDS
+                and "support_probe" not in contract and "agent_prefix" not in contract
+                and "live-binding.json" not in contract["files"])
+    else:
+        require("selected_operational" not in contract)
+    require("support_probe" not in contract or parent_pipe and contract["support_probe"] is True)
+    require("agent_prefix" not in contract or contract.get("support_probe") is True
+            and contract["agent_prefix"] is True and contract["schema"] == "nib.tau-agent-prefix-plan/v1")
+
+
 def main():
     # Save only a private, non-inheritable report descriptor. Native writes and
     # upstream exceptions on stdout/stderr go to /dev/null, never Docker logs.
     report_fd = os.dup(1)
     os.set_inheritable(report_fd, False)
-    parent_pipe = len(sys.argv) == 3 and sys.argv[2] == "--parent-pipe"
+    # Invalid invocations fail after output suppression, without an exception log.
+    parent_pipe = sys.argv[2:3] == ["--parent-pipe"]
+    selected_operational = sys.argv[2:] == ["--parent-pipe", "--selected-operational"]
     input_fd = os.dup(0) if parent_pipe else None
     if input_fd is not None:
         os.set_inheritable(input_fd, False)
@@ -446,30 +491,42 @@ def main():
               "report": None, "accounting": None, "quality_accepted": False, "confidential": False,
               "live_transport": False, "token_usage": "synthetic-not-tokenized", "upstream_executed": False}
     try:
-        with alarm(time.monotonic() + 240):
+        operation_deadline = time.monotonic() + (SELECTED_RUN_SECONDS if selected_operational else 240)
+        with alarm(operation_deadline):
             require(sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode
                     and sys.version_info[:3] == (3, 12, 13) and sys.platform == "linux"
                     and os.uname().machine == "x86_64" and os.confstr("CS_GNU_LIBC_VERSION") == "glibc 2.36"
-                    and len(sys.argv) == (3 if parent_pipe else 2) and len(sys.argv[1]) == 64)
+                    and invocation(sys.argv) == (parent_pipe, selected_operational))
             root = Path("/opt/nib")
             raw = read(root / "trial.json", 4 << 20)
             require(digest(raw) == sys.argv[1])
             contract = decode(raw)
-            require(contract.get("transport") == ("scripted-parent-pipe" if parent_pipe else None))
-            require("support_probe" not in contract or parent_pipe and contract["support_probe"] is True)
-            require("agent_prefix" not in contract or contract.get("support_probe") is True
-                    and contract["agent_prefix"] is True and contract["schema"] == "nib.tau-agent-prefix-plan/v1")
-            verify_tree(root, contract["files"], time.monotonic() + 60)
+            validate_dispatch(contract, parent_pipe, selected_operational)
+            verify_tree(root, contract["files"], min(operation_deadline, time.monotonic() + 60))
             tau = load(root, "scripts/tau_preflight.py")
             aggregate = load(root, "scripts/tau_aggregate.py")
             manifest = decode(read(root / "manifest.json", 1 << 20))
             pins = decode(read(root / tau.PINS, 1 << 20))
-            if contract.get("support_probe") is True:
+            if contract.get("support_probe") is True or selected_operational:
                 sys.modules["tau_preflight"] = tau
                 policy = load(root, "scripts/tau_support_probe.py")
                 sys.modules["tau_support_probe"] = policy
+                if selected_operational:
+                    sys.modules["deepseek_model_profile"] = load(root, "scripts/deepseek_model_profile.py")
+                    policy = load(root, "scripts/tau_selected_policy.py")
+                    sys.modules["tau_selected_policy"] = policy
                 policy.validate(manifest, contract["manifest_sha256"])
-                require(contract["selection"] == policy.SELECTION)
+                source_policy = policy.support if selected_operational else policy
+                if selected_operational:
+                    prefix = "data/tau2/domains/retail/"
+                    sources = {prefix + name: read(root / "upstream" / prefix / name, 16 << 20)
+                               for name in ("tasks.json", "split_tasks.json")}
+                    for name, raw in sources.items():
+                        require(digest(raw) == pins["files"][name]["sha256"]
+                                and len(raw) == pins["files"][name]["bytes"])
+                    require(encoded(contract["selection"]) == encoded(source_policy.source_selection(sources)))
+                else:
+                    require(contract["selection"] == source_policy.SELECTION)
             else:
                 aggregate.validate_manifest(manifest, contract["manifest_sha256"], pins)
             sys.path[:] = [p for p in sys.path if p and "site-packages" not in p]
@@ -485,13 +542,19 @@ def main():
                 channel = tau_transport.Channel(input_fd, report_fd)
                 input_fd = report_fd = None  # Channel now owns both duplicates.
                 try:
-                    proxy = tau_transport.WorkerProxy(channel, time.monotonic() + SECONDS)
+                    seconds = SELECTED_TRIAL_SECONDS if selected_operational else SECONDS
+                    proxy = tau_transport.WorkerProxy(channel, min(operation_deadline, time.monotonic() + seconds))
                     if contract.get("agent_prefix") is True:
                         prefix = load(root, "scripts/tau_agent_prefix.py")
                         value = prefix.materialize(sys.modules[__name__], policy, manifest, contract["selection"])
                         prefix.send(channel, value, sys.argv[1], proxy.deadline)
                     elif contract.get("support_probe") is True:
                         tau_pipe_trial.execute(root, manifest, contract["selection"], proxy, run=run_support_probe)
+                    elif selected_operational:
+                        # Use the same module's Abort class as execute's handler,
+                        # not the entry point's separate __main__ class.
+                        tau_pipe_trial.execute(root, manifest, contract["selection"], proxy,
+                                               run=tau_pipe_trial.worker.run_selected_upstream)
                     else:
                         require("support_probe" not in contract)
                         tau_pipe_trial.execute(root, manifest, contract["selection"], proxy)

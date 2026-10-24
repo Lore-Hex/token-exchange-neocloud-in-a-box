@@ -42,6 +42,11 @@ Reuse: the existing bounded `tau_transport.Channel`, strict JSON codec,
 their own HTTP and process identity checks. The owner accepts only these exact
 client types. Transport framing changes do not qualify arbitrary clients.
 
+The [CPU owner adapter](p2-t4-tau-cpu-owner.md) adds an explicit measured-pair
+mode and bound finish acknowledgement. EOF is never a successful release.
+The [GPU owner adapter](p2-t4-tau-gpu-owner.md) supplies the matching selected
+8K candidate library; live lab/host wiring remains separate work.
+
 Remaining work: receipt admission and live owner/scorer launcher wiring,
 selected-checkpoint operational policy, fresh full-prefix/history fitting,
 and an actual upstream tau trial. The frozen original-model quality benchmark

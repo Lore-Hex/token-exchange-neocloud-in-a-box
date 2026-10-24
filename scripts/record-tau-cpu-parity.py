@@ -37,6 +37,8 @@ SOURCES = (SCRIPT, SNAPSHOT, "scripts/e2e/exercise.py", "scripts/pilot/run.py",
            "scripts/tau_local_llama.py", "scripts/tau_llama_identity.py", "scripts/tau_local_vllm.py", "scripts/tau_transport.py",
            "scripts/tau_preflight.py", "scripts/tau_trial_worker.py",
            "scripts/prepare-tau-cpu-parity-native.py", ".github/workflows/tau-cpu-parity-native.yml")
+OWNER_SOURCES = ("scripts/tau_cpu_owner.py", "scripts/tau_owner_channel.py",
+                 "scripts/tau_selected_policy.py", "scripts/deepseek_model_profile.py")
 BOOTSTRAP = Path(__file__).read_bytes()
 
 
@@ -56,12 +58,15 @@ def load(path, name, raw=None):
     return result
 
 
-def toolkit(root):
+def toolkit(root, *, selected_owner=False):
     # This path is private and freshly extracted, with no ignored bytecode.
     # Order the explicit source closure instead of importing ambient modules.
-    for name in ("engine_tokenizer_parity", "tau_preflight", "tau_support_probe", "tau_trial_worker", "tau_transport",
+    names = ("engine_tokenizer_parity", "tau_preflight", "tau_support_probe", "tau_trial_worker", "tau_transport",
                  "tau_local_vllm", "tau_local_llama", "tau_llama_identity", "tau_live_identity", "tau_cpu_parity",
-                 "tau_aggregate", "tau_pipe_driver", "tau_cpu_probe", "tau_cpu_session"):
+                 "tau_aggregate", "tau_pipe_driver", "tau_cpu_probe", "tau_cpu_session")
+    if selected_owner:
+        names += ("deepseek_model_profile", "tau_selected_policy", "tau_owner_channel", "tau_cpu_owner")
+    for name in names:
         sys.modules[name] = load(root / "scripts" / (name + ".py"), name)
     return sys.modules["tau_cpu_parity"]
 
@@ -90,11 +95,11 @@ def runtime_command(image, name):
             "--tmpfs", "/work:rw,exec,nosuid,nodev,size=4g,mode=0700,uid=65532,gid=65532", image]
 
 
-def context(source, target, inputs, pilot, probe_input=None):
+def context(source, target, inputs, pilot, probe_input=None, *, selected_owner=False):
     require(len(inputs) == 4)
     pins = json.loads((source / "scripts/tau_cpu_support_models.json").read_bytes())
     files = {}
-    for relative in SOURCES:
+    for relative in SOURCES + (OWNER_SOURCES if selected_owner else ()):
         raw = (source / relative).read_bytes()
         require(len(raw) <= 1 << 20)
         destination = target / "repo" / relative
@@ -124,8 +129,10 @@ def context(source, target, inputs, pilot, probe_input=None):
     return digest(json.dumps(hashes, sort_keys=True, separators=(",", ":")).encode()), files
 
 
-def execute(source, work, env, snapshot, inputs, report, home, *, session_fd=None, probe=None):
-    cpu = toolkit(source)
+def execute(source, work, env, snapshot, inputs, report, home, *, session_fd=None, probe=None, selected_owner=False):
+    require(type(selected_owner) is bool and not (selected_owner and probe is not None)
+            and (not selected_owner or session_fd is not None))
+    cpu = toolkit(source, **({"selected_owner": True} if selected_owner else {}))
     pilot, _ = cpu.tools()
     cleanup = load(source / "scripts/e2e/run.py", "cpu_cleanup").cleanup_resources
     name = "nib-cpu-parity-" + uuid.uuid4().hex
@@ -152,7 +159,8 @@ def execute(source, work, env, snapshot, inputs, report, home, *, session_fd=Non
         target = work / "context"
         target.mkdir()
         report["context_sha256"], report["sources"] = context(source, target, inputs, pilot,
-            **({"probe_input": prepared} if prepared is not None else {}))
+            **({"probe_input": prepared} if prepared is not None else {}),
+            **({"selected_owner": True} if selected_owner else {}))
         bases = json.loads((source / "scripts/e2e/pins.json").read_bytes())
         report["base_images"] = {key: bases[key] for key in ("go_image", "python_image")}
         # Docker 28.0.4 inspect has no --platform flag; verify returned platform.
@@ -196,13 +204,15 @@ def execute(source, work, env, snapshot, inputs, report, home, *, session_fd=Non
             command = runtime_command(image_id, name)
             command[2:2] = ["-i", "--entrypoint", "python3"]
             command += ["-I", "-S", "-B", SCRIPT,
-                        "--probe-worker" if prepared is not None else "--session-worker", image_id, report["git_sha"]]
+                        "--selected-owner-worker" if selected_owner else "--probe-worker" if prepared is not None else "--session-worker",
+                        image_id, report["git_sha"]]
             if prepared is not None:
                 command.append(digest(cpu.identity.tau.encoded(prepared)))
             producer = {"git_sha": report["git_sha"], "script": SCRIPT,
                         "source_sha256": report["sources"][SCRIPT]}
             runtime = session.relay(command, env, snapshot, producer, image_id.removeprefix("sha256:"), session_fd,
-                                    **({"probe": probe} if probe is not None else {}))
+                                    **({"probe": probe} if probe is not None else {}),
+                                    **({"selected_owner": True} if selected_owner else {}))
         report["runtime"] = runtime
         report["result"] = runtime["result"]
         if probe is not None and (probe["record"] is None or probe["record"]["result"] != "pass"):
@@ -222,14 +232,16 @@ def execute(source, work, env, snapshot, inputs, report, home, *, session_fd=Non
             report["result"] = "fail"
 
 
-def worker(session_args=None, probe_sha=None):
+def worker(session_args=None, probe_sha=None, *, selected_owner=False):
+    require(type(selected_owner) is bool and not (selected_owner and probe_sha is not None)
+            and (not selected_owner or session_args is not None))
     # No ambient imports or bytecode. Every dependency comes from the parent's
     # exact source snapshot embedded in the read-only, identity-bound image.
     expected = json.loads((ROOT / "source.json").read_bytes())
-    require(set(expected) == set(SOURCES))
+    require(set(expected) == set(SOURCES + (OWNER_SOURCES if selected_owner else ())))
     for path, sha in expected.items():
         require(digest((ROOT / path).read_bytes()) == sha)
-    cpu = toolkit(ROOT)
+    cpu = toolkit(ROOT, **({"selected_owner": True} if selected_owner else {}))
     if session_args is None:
         result = cpu.validate(cpu.run(Path("/inputs/llama.tar.gz"),
             [Path("/inputs/0.gguf"), Path("/inputs/1.gguf")], Path("/work")))
@@ -244,7 +256,8 @@ def worker(session_args=None, probe_sha=None):
             prepared = sys.modules["tau_cpu_probe"].prepared_input(cpu.llama.worker.decode(raw))
         result = sys.modules["tau_cpu_session"].run(Path("/inputs/llama.tar.gz"),
             [Path("/inputs/0.gguf"), Path("/inputs/1.gguf")], Path("/work"), producer,
-            image.removeprefix("sha256:"), **({"probe": prepared} if prepared is not None else {}))
+            image.removeprefix("sha256:"), **({"probe": prepared} if prepared is not None else {}),
+            **({"selected_owner": True} if selected_owner else {}))
     raw = cpu.probes.encoded(result)
     require(len(raw) <= 65536)
     sys.stdout.buffer.write(raw)
@@ -267,6 +280,8 @@ def main():
         return worker()
     if len(sys.argv) == 4 and sys.argv[1] == "--session-worker":
         return worker(sys.argv[2:])
+    if len(sys.argv) == 4 and sys.argv[1] == "--selected-owner-worker":
+        return worker(sys.argv[2:], selected_owner=True)
     if len(sys.argv) == 5 and sys.argv[1] == "--probe-worker":
         return worker(sys.argv[2:4], sys.argv[4])
     class Parser(argparse.ArgumentParser):
@@ -277,13 +292,15 @@ def main():
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--host-kind", choices=("local", "github-actions"), default="local")
     parser.add_argument("--session", action="store_true", help="fresh held CPU pair; private FIFO stdin/stdout controller required")
+    parser.add_argument("--selected-owner", action="store_true", help="bounded selected-trial CPU owner over private FIFO stdin/stdout")
     parser.add_argument("--probe-payload", type=Path)
     parser.add_argument("--probe-plan-sha256")
     args = parser.parse_args()
     facts = host(args.host_kind)
     probing = args.probe_payload is not None or args.probe_plan_sha256 is not None
     require(not probing or args.probe_payload is not None and args.probe_plan_sha256 is not None and not args.session)
-    if args.session or probing:
+    require(not args.selected_owner or not (probing or args.session))
+    if args.session or probing or args.selected_owner:
         require(args.host_kind == "local" and all(stat.S_ISFIFO(os.fstat(fd).st_mode) for fd in (0, 1)))
     os.umask(0o077)
     raw = (ROOT / SNAPSHOT).read_bytes()
@@ -326,11 +343,16 @@ def main():
                 report.update(schema="nib.tau-cpu-probe-run/v1", scorer=None)
                 record["command"] += " --probe-payload PRIVATE --probe-plan-sha256 " + args.probe_plan_sha256
                 record["notes"] = "Fixed original tau CPU support probe with scripted target only. No full tau trial, target quality, live admission or confidential claim. Pending until output.log and final receipt are present."
+            if args.selected_owner:
+                report["schema"] = "nib.tau-cpu-owner-run/v1"
+                record["command"] += " --selected-owner"
+                record["notes"] = "Measured CPU owner and explicit finish acknowledgement only. No target quality, live admission or confidential claim. Pending until output.log and final receipt are present."
             if args.host_kind != "local":
                 record["command"] += " --host-kind " + args.host_kind
             write(fd, "run.json", record)
             execute(source, work, env, snapshot, [args.archive, args.model_06, args.model_17, args.cmake_wheel],
-                    report, Path(pwd.getpwuid(os.getuid()).pw_dir), session_fd=fd if args.session or probing else None,
+                    report, Path(pwd.getpwuid(os.getuid()).pw_dir), session_fd=fd if args.session or probing or args.selected_owner else None,
+                    **({"selected_owner": True} if args.selected_owner else {}),
                     **({"probe": {"payload": args.probe_payload, "sha": args.probe_plan_sha256,
                                    "output": args.output / "scorer"}} if probing else {}))
             try:
@@ -343,7 +365,7 @@ def main():
             write(fd, "run.json.pending", record)
             os.replace("run.json.pending", "run.json", src_dir_fd=fd, dst_dir_fd=fd)
             os.fsync(fd)
-            if args.session or probing:
+            if args.session or probing or args.selected_owner:
                 print("CPU session: " + report["result"] + "; no qualification claim.", file=sys.stderr)
             else:
                 print("CPU parity: " + report["result"] + "; no qualification claim.")
