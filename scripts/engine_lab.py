@@ -637,6 +637,12 @@ def observe_pre_serve(engine, observation, checkpoints):
         observation["wait_ms"] = int((time.monotonic() - started) * 1000)
 
 
+def initialize_cache():
+    for path in ("/cache/home", "/cache/tmp", "/cache/hf", "/cache/deep-gemm", "/cache/triton",
+                 "/cache/inductor", "/cache/torch", "/cache/xdg"):
+        Path(path).mkdir(mode=0o700, parents=True, exist_ok=True)
+
+
 def check_scratch_mounts():
     # Also called as an ordinary module, without the concatenated bootstrap.
     import os
@@ -915,9 +921,7 @@ def lab_entry():
         return
     require(contract["operation"] in ("functional", "local-correctness", "pre-serve"))
     if mode == "apply" and len(rest) == 1:
-        for path in ("/cache/home", "/cache/tmp", "/cache/hf", "/cache/deep-gemm", "/cache/triton",
-                     "/cache/inductor", "/cache/torch", "/cache/xdg"):
-            Path(path).mkdir(mode=0o700, parents=True, exist_ok=True)
+        initialize_cache()
         # Persistent alarm covers native probes, HTTP reads, application and all
         # error paths. The independent host watchdog also enforces the deadline.
         signal.signal(signal.SIGALRM, lambda *_: os._exit(124))

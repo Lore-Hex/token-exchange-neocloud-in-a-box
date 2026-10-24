@@ -39,6 +39,7 @@ def selected_engine_entry():
     contract, _, modules, application, _ = lab_context(sys.argv[1])
     arguments = canonical_arguments(contract)
     recheck_sources(modules[0], application, contract["paths"])
+    initialize_cache()
 
     class QuietCheckpoints:
         def bootstrap(self, stage, index):
