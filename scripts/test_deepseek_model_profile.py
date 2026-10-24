@@ -207,7 +207,7 @@ class PayloadProfiles(unittest.TestCase):
                        {"model_profile": {**NEW, "hf_revision": "0" * 40}},
                        {"manifest_sha256": "0" * 64}, {"pack_bytes": NEW["total_bytes"] - 1},
                        {"operation": "pre-serve"}, {"gpu_family": "H200"},
-                       {"gpu_security": "nonconfidential"}, {"data_parallel_size": 1})
+                       {"gpu_security": "auto"}, {"data_parallel_size": 1})
             for change in changes:
                 with self.subTest(change=change), self.assertRaises(ValueError):
                     host.memory_gib({**self.contract, **change}, root)
@@ -229,7 +229,7 @@ class PayloadProfiles(unittest.TestCase):
             with self.subTest(name=name, value=value), self.assertRaises(ValueError):
                 observation.validate_sample(changed, self.contract)
         for change in ({"model_profile": None}, {"model_profile": profiles.select()},
-                       {"gpu_security": "nonconfidential"}, {"gpu_family": "H200"},
+                       {"gpu_security": "auto"}, {"gpu_family": "H200"},
                        {"data_parallel_size": 1}, {"operation": "pre-serve"}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 observation.validate_sample(row, {**self.contract, **change})
@@ -241,7 +241,7 @@ class PayloadProfiles(unittest.TestCase):
             self.assertEqual(lab.validate_settings(self.contract, plan, 2), NEW)
             changes = [{"pack_revision": profiles.select()["hf_revision"]}, {"pack_bytes": profiles.select()["total_bytes"]},
                        {"manifest_sha256": profiles.select()["manifest_sha256"]}, {"model_profile": profiles.select()},
-                       {"model_profile": None}, {"data_parallel_size": 1}, {"gpu_security": "nonconfidential"},
+                       {"model_profile": None}, {"data_parallel_size": 1}, {"gpu_security": "auto"},
                        {"operation": "pre-serve"}, {"provider_conformance": {}}]
             for key in NEW:
                 identity = {**NEW, key: "changed" if type(NEW[key]) is str else NEW[key] + 1}
@@ -658,8 +658,7 @@ class OrdinaryUncensored(unittest.TestCase):
             self.assertNotIn(key, self.contract)
 
     def test_nonconfidential_cannot_enable_unreviewed_modes(self):
-        for options in ({"tokenizer_parity": True}, {"runtime_observation": True},
-                        {"tokenizer_parity": True, "tokenizer_materialization": True},
+        for options in ({"tokenizer_materialization": True},
                         {"stream_cohort": True}, {"provider_conformance": {}}):
             with self.subTest(options=options), self.assertRaises(ValueError):
                 host.make_payload(*self.args, model_profile="uncensored", **options)
@@ -677,12 +676,59 @@ class OrdinaryUncensored(unittest.TestCase):
             prepare.assert_called_once_with("/unused", "local-correctness", "B300", "nonconfidential", 2,
                                             model_profile="uncensored")
         for flags in ([], ["--model-profile", "original"],
-                      ["--model-profile", "uncensored", "--tokenizer-parity"],
-                      ["--model-profile", "uncensored", "--runtime-observation"]):
+                      ["--model-profile", "uncensored", "--stream-cohort"],
+                      ["--model-profile", "uncensored", "--provider-conformance-wheels", "/unused"]):
             with mock.patch.object(sys, "argv", command + flags), mock.patch.object(host, "prepare") as prepare, \
                     self.subTest(flags=flags), self.assertRaises(ValueError):
                 host.main()
             prepare.assert_not_called()
+
+    def test_explicit_measurements_reuse_cc_harness_without_cc_claims(self):
+        options = {"tokenizer_parity": True, "tokenizer_materialization": True,
+                   "runtime_observation": True, "stream_cohort": True}
+        cc_files, cc = host.make_payload(*PayloadProfiles.args, model_profile="uncensored", **options)
+        files, contract = host.make_payload(*self.args, model_profile="uncensored", **options)
+        self.assertEqual(contract, {**cc, "gpu_security": "nonconfidential"})
+        for name in files.keys() - {"lab.json", "python"}:
+            self.assertEqual(files[name], cc_files[name])
+        self.assertNotEqual(files["python"], cc_files["python"])
+        for key in ("confidential", "deployable"):
+            self.assertIs(contract[key], False)
+        plan = PayloadProfiles.fixture.builder.recorder.prep.launch_plan()
+        with payload_tree(files) as root, mock.patch.object(lab, "read_source", side_effect=
+                lambda path, *_: files[path.removeprefix("/opt/nib/")]):
+            self.assertEqual(host.validate_model_profile(contract, root), NEW)
+            self.assertEqual(lab.validate_settings(contract, plan, 2), NEW)
+            command = host.create_command("owned", "owner", root, "/weights", contract, {"config": {"Env": []}})
+            self.assertEqual(command[command.index("--network") + 1], "none")
+            self.assertEqual(command[command.index("--memory") + 1], "512g")
+            self.assertEqual(command[command.index("--memory-swap") + 1], "512g")
+        stream_lab.load(files, contract["sources"])
+        for check in (parity.enabled, observation.enabled, stream_lab.enabled):
+            check(contract)
+            for change in ({"gpu_family": "B200"}, {"gpu_family": "H200"}, {"gpu_security": "auto"},
+                           {"model_profile": None}, {"model_profile": profiles.select()},
+                           {"data_parallel_size": 1}, {"data_parallel_size": True}, {"data_parallel_size": 2.0},
+                           {"operation": "functional"}, {"provider_conformance": {}},
+                           {"execution_profile": "batch8-eager"}):
+                with self.subTest(check=check.__module__, change=change), self.assertRaises(ValueError):
+                    check({**contract, **change})
+        sample = observation_fixtures.sample()
+        sample["exe_sha256"] = contract["interpreter"]["sha256"]
+        observation.validate_sample(sample, contract)
+        sample["cgroup"]["memory.swap.max"] = 1
+        with self.assertRaises(ValueError):
+            observation.validate_sample(sample, contract)
+
+    def test_measurement_cli_requires_explicit_model_and_ordinary_profile(self):
+        command = [host.SCRIPT, "--prepare-nonconfidential-uncensored-b300-dp2", "/unused",
+                   "--model-profile", "uncensored", "--tokenizer-parity", "--tokenizer-materialization",
+                   "--runtime-observation", "--stream-cohort", "--stream-profile", stream_lab.EXTENDED_PROFILE]
+        with mock.patch.object(sys, "argv", command), mock.patch.object(host, "prepare") as prepare:
+            self.assertEqual(host.main(), 0)
+            prepare.assert_called_once_with("/unused", "local-correctness", "B300", "nonconfidential", 2,
+                model_profile="uncensored", tokenizer_parity=True, tokenizer_materialization=True,
+                runtime_observation=True, stream_cohort=True, stream_profile=stream_lab.EXTENDED_PROFILE)
 
     def test_all_eight_ordinary_devices_are_checked_and_never_attested(self):
         probe = fixtures.probe

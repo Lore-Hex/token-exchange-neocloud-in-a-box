@@ -86,6 +86,9 @@ is rejected. For this first variant bring-up, the older provider-conformance
 mode is rejected rather than probing it under the original model's name.
 
 For ordinary eight-B300 experiments, the separately opt-in
+[streaming measurement path](../tasks/p2-t3-ordinary-measurement.md) reuses
+tokenizer parity and owned-process observation without claiming confidentiality.
+The separate
 [batching, CUDA-graph and DSpark profiles](../tasks/p2-t3-deepseek-tuning.md)
 keep this exact checkpoint. They are not measured performance improvements
 and cannot be selected for the confidential profile above.

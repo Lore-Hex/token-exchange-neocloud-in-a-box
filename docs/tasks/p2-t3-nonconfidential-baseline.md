@@ -52,11 +52,14 @@ This selects the existing hash-pinned model manifest, not arbitrary weights.
 It checks all eight devices for explicitly disabled CC and ordinary memory
 capacity. It keeps the existing 4,096-token context, single sequence per
 replica, GPU-resident Engram, no added swap, isolated container, eight bounded
-correctness cases and cleanup. It does not enable parity/stream cohorts,
+correctness cases and cleanup. By default it does not enable parity/stream cohorts,
 provider conformance, persistent public serving or automatic fallback. Those
 require their own reviewed admission paths and actual measurements. This
 preparation is unit-tested with synthetic hardware only; no ordinary eight-GPU
 run, production serving, billing or confidential claim follows from it.
+An explicit [ordinary measurement opt-in](p2-t3-ordinary-measurement.md) now
+reuses parity, runtime observation and streaming after baseline correctness;
+provider conformance and public serving remain outside that path.
 
 The baseline requires NVML to return feature disabled, environment unavailable,
 development tools off and no protected multi-GPU mode. A missing/unsupported

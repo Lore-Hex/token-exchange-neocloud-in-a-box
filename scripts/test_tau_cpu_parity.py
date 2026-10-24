@@ -141,7 +141,7 @@ class CPUParityTests(unittest.TestCase):
     def test_same_fixed_probes_and_no_semantic_repair(self):
         source = ROOT / "scripts/engine_tokenizer_parity.py"
         self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(),
-                         "1f0a6be98d400cdddae64db78baba7128d96fd8d861466c88326b9c7d5c22bea")
+                         "69610d370d4f4a5a0e9ed4b623085fbfc7879dd8172181503acec645a04d5221")
         for model in cpu.MODEL_IDS:
             for probe in cpu.probes.probes():
                 original = copy.deepcopy(probe)

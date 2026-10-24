@@ -38,7 +38,12 @@ def enabled(contract):
                  (contract.get("gpu_family") == "B200" and type(contract.get("data_parallel_size")) is int
                   and contract["data_parallel_size"] == 2 and type(contract.get("model_profile")) is dict
                   and contract["model_profile"].get("name") == "uncensored"))
-            and contract.get("gpu_security", "confidential") == "confidential")
+            and (contract.get("gpu_security", "confidential") == "confidential" or
+                 (contract.get("gpu_security") == "nonconfidential" and contract.get("gpu_family") == "B300"
+                  and type(contract.get("data_parallel_size")) is int and contract["data_parallel_size"] == 2
+                  and type(contract.get("model_profile")) is dict
+                  and contract["model_profile"].get("name") == "uncensored"
+                  and "provider_conformance" not in contract and "execution_profile" not in contract)))
     return True
 
 
