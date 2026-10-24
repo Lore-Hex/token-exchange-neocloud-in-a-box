@@ -1,9 +1,11 @@
 # Private selected-service smoke owner
 
-This software-only host owner is a bounded follow-up to the
+This host owner is a bounded follow-up to the
 [service lifecycle](p2-t4-selected-service-lifecycle.md) and
-[image preparation](p2-t4-selected-service-image.md). It has not launched
-Docker, used a GPU, served a public endpoint or demonstrated hardware success.
+[image preparation](p2-t4-selected-service-image.md). Its
+[first actual private smoke](../../evidence/p2/2026-10-24-selected-service-smoke-failure/README.md)
+failed at the lifecycle stage with container cleanup confirmed; readiness and
+inference were not established. It has not served a public endpoint.
 Independent final-head review and complete validation gates are required before
 an operator separately authorizes a run.
 
@@ -159,6 +161,7 @@ python3.12 -B -W error::ResourceWarning -m unittest -v \
   test_selected_service_smoke test_selected_service_image
 ```
 
-No full suite, fixed-port test, Docker command or hardware action was executed
-for this increment. Final integration with the builder must retain its exact
-reviewed source and pass independent review and complete gates before a run.
+The initial implementation was software-only. Before the first recorded private
+attempt, its integrated head passed full local and hosted checks and independent
+review. Any subsequent diagnostic or runtime change still requires its own
+reviewed source and complete gates before another run.
