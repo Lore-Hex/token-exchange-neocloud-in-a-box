@@ -252,8 +252,10 @@ def check_bounds(receipt, manifest, manifest_sha, role, body):
 
 class WorkerProxy:
     """Completion-shaped proxy only: no Budget, model destination or credentials."""
-    def __init__(self, channel, deadline):
+    def __init__(self, channel, deadline, *, selected_operational=False):
+        require(type(selected_operational) is bool)
         self.channel, self.deadline, self.sequence, self.failed = channel, deadline, 0, None
+        self.selected_operational, self.upstream_termination = selected_operational, None
         self.finished = False
         self.assertions = []
         self.busy = threading.Lock()
@@ -296,9 +298,12 @@ class WorkerProxy:
             require(type(self.assertions) is list and all(type(item) is str for item in self.assertions))
             assertion_hash = tau.digest(worker.bounded_json(self.assertions, worker.MAX_RESPONSE))
             sequence = self.sequence + 1
-            self.channel.send({"schema": SCHEMA, "kind": "finished", "sequence": sequence,
-                               "status": outcome, "reward": reward,
-                               "assertions_sha256": assertion_hash}, self.deadline)
+            packet = {"schema": SCHEMA, "kind": "finished", "sequence": sequence,
+                      "status": outcome, "reward": reward, "assertions_sha256": assertion_hash}
+            if self.selected_operational:
+                packet["upstream_termination"] = worker.validate_upstream_termination(
+                    self.upstream_termination, evaluated=outcome == "evaluated")
+            self.channel.send(packet, self.deadline)
             reply = self.channel.receive(self.deadline)
             require(type(reply) is dict and set(reply) == {"schema", "kind", "sequence"}
                     and reply["schema"] == SCHEMA and reply["kind"] == "accepted"

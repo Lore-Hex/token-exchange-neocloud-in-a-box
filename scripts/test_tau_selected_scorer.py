@@ -49,6 +49,7 @@ class SelectedScorerTests(unittest.TestCase):
             paths = {name for call in load.call_args_list for name in call.kwargs.get("extra_files", ())}
             self.assertTrue(set(SOURCES) <= paths)
             self.assertIn("scripts/test_tau_selected_scorer.py", paths)
+            self.assertIn("scripts/test_tau_selected_termination.py", paths)
         for kwargs in ({"parent_pipe": False}, {"live_local": True}, {"support_probe": True},
                        {"agent_prefix": True, "support_probe": True}, {"selected_operational": 1}):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
@@ -129,15 +130,16 @@ class SelectedScorerTests(unittest.TestCase):
 
     def test_original_runner_and_evaluator_with_distinct_bounded_timeouts(self):
         names = ("tau2", "tau2.runner", "tau2.runner.batch", "tau2.runner.helpers", "tau2.data_model",
-                 "tau2.data_model.simulation", "tau2.evaluator", "tau2.evaluator.evaluator", "tau2.utils")
+                 "tau2.data_model.simulation", "tau2.data_model.message", "tau2.evaluator", "tau2.evaluator.evaluator", "tau2.utils")
         modules = {name: types.ModuleType(name) for name in names}
+        modules["tau2.data_model.message"].ToolMessage = type("ToolMessage", (), {})
         task = types.SimpleNamespace(evaluation_criteria=types.SimpleNamespace(nl_assertions=["Synthetic assertion"]))
         tasks = modules["tau2.runner.helpers"].get_tasks = mock.Mock(return_value=[task])
         config = modules["tau2.data_model.simulation"].TextRunConfig = mock.Mock(side_effect=lambda **kw: types.SimpleNamespace(**kw))
         modules["tau2.evaluator.evaluator"].EvaluationType = types.SimpleNamespace(ALL_WITH_NL_ASSERTIONS="all-nl")
         logs = modules["tau2.utils"].llm_utils = types.SimpleNamespace(set_llm_log_dir=mock.Mock())
         single = modules["tau2.runner.batch"].run_single_task = mock.Mock(return_value=types.SimpleNamespace(
-            termination_reason=types.SimpleNamespace(value="user_stop"), reward_info=types.SimpleNamespace(reward=0.0)))
+            termination_reason=types.SimpleNamespace(value="user_stop"), messages=[], reward_info=types.SimpleNamespace(reward=0.0)))
         manifest, selection, bridge = policy.configuration(), dict(policy.support.SELECTION), mock.Mock()
         with mock.patch.dict(sys.modules, modules), mock.patch.object(worker, "configure_upstream") as configure:
             self.assertEqual(worker.run_selected_upstream(None, manifest, selection, bridge), 0.0)
@@ -145,6 +147,7 @@ class SelectedScorerTests(unittest.TestCase):
             tasks.assert_called_once_with("retail", task_split_name="base", task_ids=["2"], num_tasks=1)
             kwargs = config.call_args.kwargs
             self.assertEqual((kwargs["timeout"], kwargs["max_steps"], kwargs["seed"]), (900, 32, 42))
+            self.assertEqual(kwargs["max_errors"], 1)
             self.assertEqual((kwargs["max_retries"], kwargs["hallucination_retries"], kwargs["max_concurrency"]), (0, 0, 1))
             self.assertFalse(kwargs["auto_review"] or kwargs["auto_resume"] or kwargs["verbose_logs"])
             self.assertIsNone(kwargs["save_to"])
@@ -184,15 +187,16 @@ g=entry['main'].__globals__
 assert g['Abort'] is not pipe.worker.Abort
 reason=sys.argv[2]
 names=('tau2','tau2.runner','tau2.runner.batch','tau2.runner.helpers','tau2.data_model',
-       'tau2.data_model.simulation','tau2.evaluator','tau2.evaluator.evaluator','tau2.utils')
+       'tau2.data_model.simulation','tau2.data_model.message','tau2.evaluator','tau2.evaluator.evaluator','tau2.utils')
 for name in names: sys.modules[name]=types.ModuleType(name)
+sys.modules['tau2.data_model.message'].ToolMessage=type('ToolMessage',(),{})
 task=types.SimpleNamespace(evaluation_criteria=types.SimpleNamespace(nl_assertions=['Synthetic assertion']))
 sys.modules['tau2.runner.helpers'].get_tasks=lambda *a,**kw:[task]
 sys.modules['tau2.data_model.simulation'].TextRunConfig=lambda **kw:types.SimpleNamespace(**kw)
 sys.modules['tau2.evaluator.evaluator'].EvaluationType=types.SimpleNamespace(ALL_WITH_NL_ASSERTIONS='all-nl')
 sys.modules['tau2.utils'].llm_utils=types.SimpleNamespace(set_llm_log_dir=lambda x:None)
 sys.modules['tau2.runner.batch'].run_single_task=lambda *a,**kw:types.SimpleNamespace(
-    termination_reason=types.SimpleNamespace(value=reason),reward_info=types.SimpleNamespace(reward=0.0))
+    termination_reason=types.SimpleNamespace(value=reason),messages=[],reward_info=types.SimpleNamespace(reward=0.0))
 pipe.worker.configure_upstream=lambda bridge:None
 g['configure_upstream']=lambda bridge:None
 class Channel:
@@ -200,7 +204,7 @@ class Channel:
     def send(self,value,deadline): os.write(self.write,json.dumps(value).encode()+b'\n')
     def close(self): os.close(self.read);os.close(self.write)
 class Proxy:
-    def __init__(self,channel,deadline):
+    def __init__(self,channel,deadline,*,selected_operational=False):
         self.channel,self.deadline=channel,deadline
         self.finished=self.failed=False
     def finish(self,status,reward):

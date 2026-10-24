@@ -17,6 +17,7 @@ import types
 
 MAX_REQUEST = 1 << 20
 MAX_RESPONSE = 256 << 10
+MAX_TOOL_CALLS = 16
 MAX_FILES = 11000
 MAX_PAYLOAD = 512 << 20
 SECONDS = 180
@@ -26,11 +27,47 @@ MODEL_ROLES = {"nib-scripted-agent": "agent", "nib-scripted-simulator": "simulat
                "nib-scripted-evaluator": "evaluator"}
 STATUSES = ("evaluated", "infrastructure_error", "timeout", "truncated",
             "protocol_error", "budget_abort", "cancelled")
+# Pinned tau2 TerminationReason and the existing terminal-status mapping.
+# https://github.com/sierra-research/tau2-bench/blob/fc0055dc4e0a316c3f83133267fbd6faaa770992/src/tau2/data_model/simulation.py#L1234-L1245
+UPSTREAM_STATUSES = {"user_stop": "evaluated", "agent_stop": "evaluated",
+                     "max_steps": "truncated", "context_window_exceeded": "truncated",
+                     "timeout": "timeout", "too_many_errors": "protocol_error",
+                     "agent_error": "protocol_error", "user_error": "protocol_error",
+                     "infrastructure_error": "infrastructure_error", "unexpected_error": "infrastructure_error"}
 
 
 def require(value):
     if not value:
         raise ValueError("tau trial rejected")
+
+
+def validate_upstream_termination(value, *, evaluated=False):
+    """Only completed selected simulations have upstream termination facts."""
+    if value is None:
+        require(not evaluated)
+        return None
+    require(type(value) is dict and set(value) == {"reason", "tool_errors"})
+    reason, errors = value["reason"], value["tool_errors"]
+    require(type(reason) is str and reason in UPSTREAM_STATUSES
+            and type(errors) is int and 0 <= errors <= MAX_TOOL_CALLS)
+    # max_errors=1 stops after the first failing batch, not its first tool.
+    # Timeout may supersede that reason in the same termination check.
+    require((reason != "too_many_errors" or errors > 0)
+            and (errors == 0 or reason in ("too_many_errors", "timeout"))
+            and (not evaluated or UPSTREAM_STATUSES[reason] == "evaluated"))
+    return {"reason": reason, "tool_errors": errors}
+
+
+def selected_termination(simulation, turns):
+    from tau2.data_model.message import ToolMessage
+    messages = simulation.messages
+    require(type(messages) is list and len(messages) <= 1 + turns * (MAX_TOOL_CALLS + 1))
+    errors = 0
+    for message in messages:
+        if type(message) is ToolMessage:
+            require(type(message.error) is bool)
+            errors += int(message.error)
+    return validate_upstream_termination({"reason": simulation.termination_reason.value, "tool_errors": errors})
 
 
 def encoded(value):
@@ -229,7 +266,7 @@ class Bridge:
                     and message.get("role") == "assistant"
                     and (message.get("content") is None or type(message["content"]) is str))
             calls = message.get("tool_calls")
-            require(calls is None or type(calls) is list and 0 < len(calls) <= 16)
+            require(calls is None or type(calls) is list and 0 < len(calls) <= MAX_TOOL_CALLS)
             if calls:
                 ids = set()
                 for call in calls:
@@ -371,6 +408,7 @@ def run_selected_upstream(root, manifest, selection, bridge):
 def run_upstream(root, manifest, selection, bridge, *, selected_operational=False):
     require(type(selected_operational) is bool)
     if selected_operational:
+        bridge.upstream_termination = None
         import tau_selected_policy as policy
         policy.validate(manifest)
         require(encoded(selection) == encoded(policy.support.SELECTION)
@@ -403,13 +441,11 @@ def run_upstream(root, manifest, selection, bridge, *, selected_operational=Fals
         simulation = run_single_task(config, task, seed=selection["seed"], save_dir=None,
                                      verbose_logs=False, audio_debug=False, audio_taps=False, auto_review=False,
                                      evaluation_type=EvaluationType.ALL_WITH_NL_ASSERTIONS)
+        if selected_operational:
+            bridge.upstream_termination = selected_termination(simulation, settings["limits"]["turns"])
         reason = simulation.termination_reason.value
         if reason not in ("user_stop", "agent_stop"):
-            raise Abort({"max_steps": "truncated", "context_window_exceeded": "truncated",
-                         "timeout": "timeout", "too_many_errors": "protocol_error",
-                         "agent_error": "protocol_error", "user_error": "protocol_error",
-                         "infrastructure_error": "infrastructure_error",
-                         "unexpected_error": "infrastructure_error"}.get(reason, "protocol_error"))
+            raise Abort(UPSTREAM_STATUSES.get(reason, "protocol_error"))
         require(simulation.reward_info is not None)
         return float(simulation.reward_info.reward)
     finally:
@@ -551,7 +587,8 @@ def main():
                 input_fd = report_fd = None  # Channel now owns both duplicates.
                 try:
                     seconds = SELECTED_TRIAL_SECONDS if selected_operational else SECONDS
-                    proxy = tau_transport.WorkerProxy(channel, min(operation_deadline, time.monotonic() + seconds))
+                    proxy = tau_transport.WorkerProxy(channel, min(operation_deadline, time.monotonic() + seconds),
+                                                     selected_operational=selected_operational)
                     if contract.get("agent_prefix") is True:
                         prefix = load(root, "scripts/tau_agent_prefix.py")
                         value = prefix.materialize(sys.modules[__name__], policy, manifest, contract["selection"])

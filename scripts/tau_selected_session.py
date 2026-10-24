@@ -32,9 +32,15 @@ class Session(local.CountedSession):
                                                candidate.deadline, support.deadline)
 
     def accept_result(self, packet, deadline):
+        require(type(packet) is dict and "upstream_termination" in packet)
+        upstream = local.worker.validate_upstream_termination(packet["upstream_termination"],
+                                                              evaluated=packet.get("status") == "evaluated")
+        require(upstream is None or upstream["tool_errors"] <= local.worker.MAX_TOOL_CALLS * (
+            self.bridge.counts["agent"] + self.bridge.counts["simulator"]))
+        packet = {key: value for key, value in packet.items() if key != "upstream_termination"}
         sequence, result = super().accept_result(packet, deadline)
         result.update(schema="nib.tau-selected-operational-trial/v1", pricing="not-measured",
-                      selection=dict(policy.support.SELECTION), live_admission=False)
+                      selection=dict(policy.support.SELECTION), live_admission=False, upstream_termination=upstream)
         if result["usage"] is not None:
             result["usage"]["cost_usd"] = None
         return sequence, result

@@ -25,6 +25,7 @@ def diagnostic():
     return {"scorer_protocol_completed": True, "attach_cleanup": "reaped", "scorer_exit_code": 0,
             "owners_finished": True, "usage_known": True,
             "trial": {"status": "evaluated", "usage": {"total_tokens": 24},
+                      "upstream_termination": {"reason": "user_stop", "tool_errors": 0},
                       "role_requests": {"agent": 1, "simulator": 1, "evaluator": 1}}}
 
 
@@ -151,6 +152,16 @@ class SelectedRunTests(unittest.TestCase):
                     self.assertEqual(private.run_owned.call_args.args[-2], selection["deadline"])
                 if failure in ("create", "isolation"):
                     self.assertEqual(result["cleanup"], "create-completion-unknown")
+
+    def test_report_diagnostic_validation_cannot_upgrade_missing_or_failed_reason(self):
+        for value in (None, {"reason": "too_many_errors", "tool_errors": 1},
+                      {"reason": "PRIVATE_CANARY", "tool_errors": 0},
+                      {"reason": "user_stop", "tool_errors": False},
+                      {"reason": "user_stop", "tool_errors": 0, "content": "PRIVATE_CANARY"}):
+            report = diagnostic()
+            report["trial"]["upstream_termination"] = value
+            with self.assertRaises(ValueError):
+                driver.accepted(report)
 
     def test_selected_mode_never_mixes_legacy_or_external_modes(self):
         for kwargs in ({}, {"parent_pipe": True, "live_deployment": ()},

@@ -266,7 +266,8 @@ class SessionTests(unittest.TestCase):
                 self.assertLessEqual(completion["deadline"], count["deadline"])
             self.assertEqual(len({tau.digest(tau.encoded(p["body"])) for p in packets[::2]}), expected // 2)
         channel.packets.append({"schema": transport.SCHEMA, "kind": "finished", "sequence": 6,
-            "status": "evaluated", "reward": 1.0, "assertions_sha256": tau.digest(tau.encoded(["assertion"]))})
+            "status": "evaluated", "reward": 1.0, "assertions_sha256": tau.digest(tau.encoded(["assertion"])),
+            "upstream_termination": {"reason": "user_stop", "tool_errors": 0}})
         self.assertTrue(session.serve_once())
         self.assertFalse(session.result["quality_eligible"])
         self.assertFalse(session.result["live_admission"])
@@ -287,6 +288,72 @@ class SessionTests(unittest.TestCase):
                 self.request(session, channel, category)
             self.assertEqual([p["kind"] for p in channels[name].sent], ["count"])
             self.assertEqual(session.bridge.budget.requests, 0)
+
+    def finish_packet(self, session, upstream, *, status="protocol_error"):
+        return {"schema": transport.SCHEMA, "kind": "finished", "sequence": session.sequence + 1,
+                "status": status, "reward": None, "assertions_sha256": tau.digest(tau.encoded(["assertion"])),
+                "upstream_termination": upstream}
+
+    def test_failed_upstream_terminal_preserves_known_usage(self):
+        for upstream in (None, {"reason": "too_many_errors", "tool_errors": 1},
+                         {"reason": "too_many_errors", "tool_errors": 16}):
+            session, channel, _, _ = self.session()
+            self.request(session, channel)
+            channel.packets.append(self.finish_packet(session, upstream))
+            self.assertTrue(session.serve_once())
+            self.assertEqual(session.result["upstream_termination"], upstream)
+            self.assertEqual(session.result["status"], "protocol_error")
+            self.assertEqual(session.result["usage"]["total_tokens"], 8)
+            self.assertIsNone(session.result["reward"])
+            self.assertEqual(channel.sent[-1]["kind"], "accepted")
+
+    def test_termination_tampering_is_not_acknowledged_or_retained(self):
+        bad = ("PRIVATE_CANARY", {}, {"reason": "PRIVATE_CANARY", "tool_errors": 1},
+               {"reason": "too_many_errors", "tool_errors": True},
+               {"reason": "too_many_errors", "tool_errors": -1},
+               {"reason": "too_many_errors", "tool_errors": 0},
+               {"reason": "too_many_errors", "tool_errors": 17},
+               {"reason": "too_many_errors", "tool_errors": 1.0},
+               {"reason": "too_many_errors", "tool_errors": "PRIVATE_CANARY"},
+               {"reason": "user_stop", "tool_errors": 1},
+               {"reason": "too_many_errors", "tool_errors": 1, "exception": "PRIVATE_CANARY"})
+        for upstream in bad:
+            with self.subTest(upstream=upstream):
+                session, channel, _, _ = self.session()
+                self.request(session, channel)
+                channel.packets.append(self.finish_packet(session, upstream))
+                with self.assertRaises(worker.Abort):
+                    session.serve_once()
+                self.assertIsNone(session.result)
+                self.assertEqual(session.bridge.usage()["total_tokens"], 8)
+                self.assertTrue(channel.closed)
+                self.assertFalse(any(packet["kind"] == "accepted" for packet in channel.sent))
+                self.assertNotIn("PRIVATE_CANARY", repr(channel.sent))
+
+    def test_termination_requires_field_and_cannot_invent_tool_errors_without_responses(self):
+        for mutation in (lambda p: p.pop("upstream_termination"),
+                         lambda p: p.update(extra="PRIVATE_CANARY"), lambda p: None):
+            session, channel, _, _ = self.session()
+            packet = self.finish_packet(session, {"reason": "too_many_errors", "tool_errors": 1})
+            mutation(packet)
+            channel.packets.append(packet)
+            with self.assertRaises(worker.Abort):
+                session.serve_once()
+            self.assertIsNone(session.result)
+            self.assertEqual(channel.sent, [])
+
+    def test_failed_reason_cannot_promote_evaluated_reward(self):
+        for upstream in (None, {"reason": "too_many_errors", "tool_errors": 1}):
+            session, channel, _, _ = self.session()
+            for role in ("simulator", "agent", "evaluator"):
+                self.request(session, channel, role)
+            packet = self.finish_packet(session, upstream, status="evaluated")
+            packet["reward"] = 1.0
+            channel.packets.append(packet)
+            with self.assertRaises(worker.Abort):
+                session.serve_once()
+            self.assertIsNone(session.result)
+            self.assertEqual(session.bridge.usage()["total_tokens"], 24)
 
     def test_owner_failure_retains_unknown_reservation_without_retry(self):
         session, channel, channels, _ = self.session()
@@ -348,7 +415,8 @@ class SessionTests(unittest.TestCase):
         self.request(session, channel, "simulator")
         self.request(session, channel)
         channel.packets.append({"schema": transport.SCHEMA, "kind": "finished", "sequence": 3,
-            "status": "evaluated", "reward": 1.0, "assertions_sha256": tau.digest(tau.encoded(["assertion"]))})
+            "status": "evaluated", "reward": 1.0, "assertions_sha256": tau.digest(tau.encoded(["assertion"])),
+            "upstream_termination": {"reason": "user_stop", "tool_errors": 0}})
         with self.assertRaises(worker.Abort):
             session.serve_once()
         self.assertIsNone(session.result)
