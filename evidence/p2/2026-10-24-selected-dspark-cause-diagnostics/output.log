@@ -1,0 +1,267 @@
+{
+  "cleanup": "confirmed",
+  "confidential": false,
+  "container_observation": {
+    "exit_code": 0,
+    "oom_killed": false,
+    "status": "exited"
+  },
+  "deployable": false,
+  "experiment": {
+    "application": {
+      "abi_validated": false,
+      "after_inventory_sha256": "0c0fa880028029cf8ebc9f76b5707a0ca01f8ffa8a731d2feb50fef575d7a0d3",
+      "alternate_roots": "unchanged-excluded-from-import-contract",
+      "application_measurement_sha256": "52a15aafc3044821740c5d408e5fc44f6635bea36c30f5af51f5866120810440",
+      "base_image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+      "before_inventory_sha256": "e702e944656badc6e136f6ddcf51f6f0cb6694f262dfaeb84afca7c91c870b0c",
+      "classified_nonhost_assets": "four-exact-published-crosscompile-assets-not-host-abi",
+      "dependency_scope": "selected-exact-upstream-pins-only",
+      "deployable": false,
+      "engine_executed": false,
+      "generic_overlay_admission": "not-granted",
+      "git_sha": "e627eac092f42fdeb172aab747f71bd5d7d61660",
+      "hardware_validated": false,
+      "image": null,
+      "image_origin_verified": false,
+      "import_contract_sha256": "0d1905913990c11f6094981b1bcab2578b8f68b2eaa4805f60106e25c571b516",
+      "native_inventory_unchanged": true,
+      "packaging": {
+        "bytecode_executed": false,
+        "entrypoint_scope": "exact-upstream-map-only",
+        "listed_bytecode_policy": "unchanged",
+        "plugins_loaded": false,
+        "policy_sha256": "f45b654271ca89e35e2cd94c3aa338c6de83bf673e28a1a0e9c45a449183ff85",
+        "removal_plan_sha256": "210a50805b36797d06e1d17425f6eacba6f90f1e04aaa7c0560692c05ffb3b3f",
+        "removal_verified_before_patch": true,
+        "removed_unlisted_bytecode_files": 2879
+      },
+      "removed_bytecode_files": 2879,
+      "schema": "nib.engine-overlay/v1",
+      "scope": "exact-image-experimental-application-only",
+      "source_bundle_sha256": "e526b596edac8c13fe3d9f07d9ff9017b9072bae9ca8bb2c990ddde6e3d500d2",
+      "stages": 5,
+      "startup_hooks": "unchanged-inert-only-under-isolated-no-site-bootstrap",
+      "status": "BLOCKED",
+      "wheel_record": "original-preserved-overlay-receipt-required"
+    },
+    "completion": null,
+    "confidential": false,
+    "correctness": null,
+    "deployable": false,
+    "engine_stopped": true,
+    "functional_pass": false,
+    "hardware": {
+      "attestation_verified": false,
+      "cc_feature": "disabled",
+      "cuda_driver": "13.0",
+      "devtools": "off",
+      "driver": "580.178.04",
+      "environment": "unavailable",
+      "family": "B300",
+      "multigpu": "none",
+      "selected_gpus": 8,
+      "status": "observed",
+      "system_ready": null,
+      "total_kib": [
+        281640960,
+        281640960,
+        281640960,
+        281640960,
+        281640960,
+        281640960,
+        281640960,
+        281640960
+      ]
+    },
+    "model_profile": {
+      "hf_repo": "dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8",
+      "hf_revision": "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a",
+      "manifest_sha256": "5c6891a9649702b1ac0327b945600acb40c571a069942517cf14ba661a3cfcbc",
+      "name": "uncensored",
+      "pack": "models/deepseek-v4.1-flash-1017-uncensored-fp8/1",
+      "served_model_name": "deepseek-v4.1-flash-1017-uncensored-fp8",
+      "total_bytes": 510311056155
+    },
+    "schema": "nib.deepseek-lab-correctness-result/v2",
+    "stage": "startup",
+    "startup": {
+      "checkpoints": {
+        "last_id": 17,
+        "status": "eof"
+      },
+      "exception_diagnostic": {
+        "frames": [
+          {
+            "line": 1625,
+            "source_sha256": "386b528a69029507f80a2df4d6df2a4fa6ba2ba811501dc3449ceea58b5cd90a"
+          },
+          {
+            "line": 1435,
+            "source_sha256": "386b528a69029507f80a2df4d6df2a4fa6ba2ba811501dc3449ceea58b5cd90a"
+          },
+          {
+            "line": 175,
+            "source_sha256": "481f62779faa29b87a5b7a1f003a90b94eec81d84fbe6fd8e4e2e843297149bf"
+          },
+          {
+            "line": 1120,
+            "source_sha256": "386b528a69029507f80a2df4d6df2a4fa6ba2ba811501dc3449ceea58b5cd90a"
+          },
+          {
+            "line": 682,
+            "source_sha256": "386b528a69029507f80a2df4d6df2a4fa6ba2ba811501dc3449ceea58b5cd90a"
+          },
+          {
+            "line": 144,
+            "source_sha256": "8b7a477f978a8532852fd81e241c78182516bc4975d672d580a5848a76e11eb6"
+          },
+          {
+            "line": 1351,
+            "source_sha256": "8740c9af331597573d59941d3d65a58dbfd93c92f0144fd187b44bb25a6e4a2e"
+          },
+          {
+            "line": 1431,
+            "source_sha256": "8740c9af331597573d59941d3d65a58dbfd93c92f0144fd187b44bb25a6e4a2e"
+          }
+        ],
+        "observer_failed": false,
+        "source_unavailable": true,
+        "truncated": true,
+        "type": "runtime"
+      },
+      "exit_code": 1,
+      "health_probes": 323,
+      "outcome": "child-exited",
+      "wait_ms": 323065,
+      "worker_exception_diagnostic": {
+        "exceptions": [
+          {
+            "cause": null,
+            "context": 1,
+            "frames": [
+              {
+                "line": 124,
+                "source_sha256": "87ddcd20996e0eef4d91c73a72bf943a49d4a76acc6f01174b101a599cc618ac"
+              },
+              {
+                "line": 704,
+                "source_sha256": "e970aa29a738aa15cd963d9f9202ca6d3d504e98fd344959fd998e940472a5a0"
+              },
+              {
+                "line": 124,
+                "source_sha256": "87ddcd20996e0eef4d91c73a72bf943a49d4a76acc6f01174b101a599cc618ac"
+              },
+              {
+                "line": 1040,
+                "source_sha256": "5240fe8d62d403e466a4aa07a28fb7af5c0f1e9b9c3bb08c4003185bde461f87"
+              },
+              {
+                "line": 124,
+                "source_sha256": "87ddcd20996e0eef4d91c73a72bf943a49d4a76acc6f01174b101a599cc618ac"
+              },
+              {
+                "line": 974,
+                "source_sha256": "ef2aae2eb3ec5ea97d4732f65c886b7a4688247721aacf23e536485e0ffc05ab"
+              },
+              {
+                "line": 1020,
+                "source_sha256": "ef2aae2eb3ec5ea97d4732f65c886b7a4688247721aacf23e536485e0ffc05ab"
+              },
+              {
+                "line": 270,
+                "source_sha256": "5258e4552792fc48a9058766d3f7892d1a508bd1b0dbd567ca3af140e270dccc"
+              }
+            ],
+            "observer_failed": false,
+            "source_unavailable": false,
+            "truncated": true,
+            "type": "accelerator"
+          },
+          {
+            "cause": null,
+            "context": null,
+            "frames": [
+              {
+                "line": 1789,
+                "source_sha256": "341153e4099444f923f5b0766e8e41b45fbe909b87f4737cb28c828f297b7baa"
+              },
+              {
+                "line": 591,
+                "source_sha256": "5fe8b4a758ab586dd24ac218873a2c064cd3d72687b196dec4edf1b5e53f83a3"
+              },
+              {
+                "line": 1778,
+                "source_sha256": "341153e4099444f923f5b0766e8e41b45fbe909b87f4737cb28c828f297b7baa"
+              },
+              {
+                "line": 1789,
+                "source_sha256": "341153e4099444f923f5b0766e8e41b45fbe909b87f4737cb28c828f297b7baa"
+              },
+              {
+                "line": 672,
+                "source_sha256": "dd146642fc7d7034f32feecf35ff4d7d9460f59a8a57444c0dd6f367fe8f15fb"
+              },
+              {
+                "line": 973,
+                "source_sha256": "dd146642fc7d7034f32feecf35ff4d7d9460f59a8a57444c0dd6f367fe8f15fb"
+              },
+              {
+                "line": 132,
+                "source_sha256": "015ff402a7c91929fa89672ff4cb31fa29cfd4f865c32bd03eb0a016b33a4644"
+              },
+              {
+                "line": 955,
+                "source_sha256": "dd146642fc7d7034f32feecf35ff4d7d9460f59a8a57444c0dd6f367fe8f15fb"
+              }
+            ],
+            "observer_failed": false,
+            "source_unavailable": false,
+            "truncated": true,
+            "type": "runtime"
+          }
+        ],
+        "schema": "nib.engine-worker-exception/v2",
+        "truncated": false
+      }
+    },
+    "status": "BLOCKED"
+  },
+  "experiment_step": "completed",
+  "functional_pass": false,
+  "image": {
+    "binding": "local-manifest-reference-platform-and-diffids",
+    "daemon_os_interpreter_trusted": true,
+    "docker_reported_id": "sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "local_config_bytes_rehashed": false,
+    "local_layers_rehashed": false,
+    "manifest_sha256": "6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "platform": "linux/amd64",
+    "raw_config_link_verified": true,
+    "raw_config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d"
+  },
+  "output_bytes": 5872,
+  "provenance": {
+    "config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d",
+    "execution_profile": "batch8-dspark",
+    "git_sha": "e627eac092f42fdeb172aab747f71bd5d7d61660",
+    "image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "manifest_sha256": "5c6891a9649702b1ac0327b945600acb40c571a069942517cf14ba661a3cfcbc",
+    "model_profile": {
+      "hf_repo": "dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8",
+      "hf_revision": "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a",
+      "manifest_sha256": "5c6891a9649702b1ac0327b945600acb40c571a069942517cf14ba661a3cfcbc",
+      "name": "uncensored",
+      "pack": "models/deepseek-v4.1-flash-1017-uncensored-fp8/1",
+      "served_model_name": "deepseek-v4.1-flash-1017-uncensored-fp8",
+      "total_bytes": 510311056155
+    },
+    "pack_revision": "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a",
+    "payload_sha256": "e1ff0a2587c463660ba9c7cb30f2d509214f8274ab2ba3525b80c3e352666cf2",
+    "receipt_sha256": "10595f028b60118f9149e164c0870f0b92316197d94bc74c45dfaaf1cdbbf327",
+    "source_bundle_sha256": "e526b596edac8c13fe3d9f07d9ff9017b9072bae9ca8bb2c990ddde6e3d500d2"
+  },
+  "result": "fail",
+  "stage": "completed",
+  "status": "BLOCKED"
+}
