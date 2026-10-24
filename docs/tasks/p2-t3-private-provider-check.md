@@ -189,7 +189,9 @@ exercise the positive path and cross-model/source/identity/CLI negative controls
 Preparation requires a committed source tree and the existing authenticated raw
 engine metadata. Transfer the prepared bundle privately without changing bytes.
 The retained engine image, exact verified model cache and pinned CPU image must
-already be present. Runtime uses `--pull never`; CPU image inspection precedes
+already be present. A fresh node can cache the fixed CPU image with the
+[explicit checker image profile](p2-t1-lab-runtime.md), before the GPU run.
+Runtime uses `--pull never`; CPU image inspection precedes
 engine creation, and failure does not trigger a pull, installation or fallback.
 Docker may report the pinned repository in tagless `python@sha256:...` form
 after a digest pull ([digest-reference semantics](https://docs.docker.com/reference/cli/docker/image/pull/#pull-an-image-by-digest-immutable-identifier)).

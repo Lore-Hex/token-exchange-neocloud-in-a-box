@@ -42,6 +42,23 @@ downloads; inspect the daemon and retain the independent rental deadline after
 a timeout. Image download is not image qualification; the separate engine
 recorder still verifies its source, layers and application inputs.
 
+On a replacement node, the private provider checker also needs its own CPU
+image. Cache it separately before starting the expensive GPU run:
+
+```sh
+python3 -I -S host/pull-lab-image.py --profile provider-check
+```
+
+This closed profile reuses the exact Python OCI index, Linux/amd64 child manifest
+and config already pinned in `scripts/e2e/pins.json` and `scripts/tau_trial.py`.
+It validates the platform, child identity and repository's index reference;
+unknown profiles, substituted images and declared volumes reject. The default
+still selects only the original engine. Both profiles discard pull logs, use
+an isolated empty Docker credential configuration, bound the CLI to 15 minutes,
+and launch no container. The checker supervisor still independently inspects
+its image, namespace, runtime and cleanup. A successful fetch is not a passed
+provider check. This code change itself claims no image-fetch or GPU result.
+
 The initial fetch downloaded the image but rejected Docker's containerd image
 store reporting the manifest digest as `Id`. The corrected helper accepts only
 the pinned config ID or pinned manifest ID, still requires the exact immutable

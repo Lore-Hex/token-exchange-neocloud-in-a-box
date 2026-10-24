@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Fetch the reviewed immutable engine image; never launch it."""
+"""Fetch one of the reviewed immutable lab images; never launch it."""
 
 import sys
 
 if __name__ == "__main__" and not (sys.flags.isolated and sys.flags.no_site):
     sys.exit("Use python3 -I -S pull-lab-image.py")
 
+import argparse
 import hashlib
 from contextlib import contextmanager
 import json
@@ -19,6 +20,11 @@ import tempfile
 IMAGE = "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9"
 CONFIG = "sha256:bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d"
 MANIFEST = IMAGE.rsplit("@", 1)[1]
+# Same OCI index -> linux/amd64 manifest -> config as scripts/tau_trial.py
+# and scripts/e2e/pins.json; no floating tag or caller-supplied reference.
+CHECKER_IMAGE = "docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2"
+CHECKER_MANIFEST = "sha256:6e13e65c55e33adf203d77ee371cf8bf5d81bd4902ef07565721f46bf44917af"
+CHECKER_CONFIG = "sha256:64d91f7b885eed272bba87909446b12ff408d4aaa5f1a0e9ca787bbea1a020b9"
 ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/nonexistent",
        "LANG": "C", "LC_ALL": "C"}
 
@@ -35,9 +41,18 @@ def docker_environment():
         yield {**ENV, "DOCKER_CONFIG": temporary}
 
 
-def image_identity(env):
+def selection(profile):
+    if profile == "engine":
+        return IMAGE, CONFIG, MANIFEST
+    if profile == "provider-check":
+        return CHECKER_IMAGE, CHECKER_CONFIG, CHECKER_MANIFEST
+    raise ValueError("image-profile-rejected")
+
+
+def image_identity(env, profile="engine"):
+    image, config, manifest = selection(profile)
     value = subprocess.run(
-        ["/usr/bin/docker", "image", "inspect", IMAGE],
+        ["/usr/bin/docker", "image", "inspect", "--platform", "linux/amd64", image],
         env=env, stdin=subprocess.DEVNULL, capture_output=True, timeout=30)
     if value.returncode:
         return False
@@ -51,22 +66,34 @@ def image_identity(env):
     digests = row.get("RepoDigests") or []
     # Docker's classic store reports the config ID; its containerd store reports
     # the manifest ID. Both must still identify this exact requested manifest.
-    if (row.get("Id") not in (CONFIG, MANIFEST) or row.get("Os") != "linux"
+    if (row.get("Id") not in (config, manifest) or row.get("Os") != "linux"
             or row.get("Architecture") != "amd64" or not isinstance(descriptor, dict)
             or not isinstance(digests, list) or not all(isinstance(item, str) for item in digests)
-            or (descriptor and descriptor.get("digest") != MANIFEST)
-            or (IMAGE not in digests
-                and descriptor.get("digest") != MANIFEST)):
+            or (descriptor and descriptor.get("digest") != manifest)
+            or (profile == "engine" and image not in digests
+                and descriptor.get("digest") != manifest)):
         raise ValueError("image-identity-mismatch")
+    if profile == "provider-check":
+        references = {name + "@" + image.rsplit("@", 1)[1] for name in
+                      ("python", "library/python", "docker.io/library/python")}
+        if (not references.intersection(digests) or row.get("Variant") not in (None, "")
+                or not isinstance(row.get("Config"), dict) or row["Config"].get("Volumes")
+                or (descriptor and (descriptor.get("mediaType") != "application/vnd.oci.image.manifest.v1+json"
+                    or descriptor.get("platform") != {"os": "linux", "architecture": "amd64"}))):
+            raise ValueError("image-identity-mismatch")
     return True
 
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--profile", choices=("engine", "provider-check"), default="engine")
+    args = parser.parse_args(argv)
+    image, config, _manifest = selection(args.profile)
     with docker_environment() as env:
-        cached = image_identity(env)
+        cached = image_identity(env, args.profile)
         if not cached:
             child = subprocess.Popen(
-                ["/usr/bin/docker", "pull", "--platform", "linux/amd64", IMAGE],
+                ["/usr/bin/docker", "pull", "--platform", "linux/amd64", image],
                 env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL, start_new_session=True)
             try:
@@ -76,10 +103,10 @@ def main():
                 if child.poll() is None:
                     os.killpg(child.pid, signal.SIGKILL)
                     child.wait(timeout=5)
-        if not image_identity(env):
+        if not image_identity(env, args.profile):
             raise ValueError("image-not-present")
-    print(json.dumps({"result": "pass", "cached": cached, "image": IMAGE,
-                      "expected_config": CONFIG, "binding": "manifest-reference-and-platform",
+    print(json.dumps({"result": "pass", "cached": cached, "image": image,
+                      "expected_config": config, "binding": "manifest-reference-and-platform",
                       "config_bytes_verified": False, "executed": False, "confidential_qualified": False,
                       "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()},
                      sort_keys=True))

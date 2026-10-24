@@ -1,0 +1,303 @@
+{
+  "cleanup": "confirmed",
+  "confidential": false,
+  "container_observation": {
+    "exit_code": 0,
+    "oom_killed": false,
+    "status": "exited"
+  },
+  "deployable": false,
+  "experiment": {
+    "application": {
+      "abi_validated": false,
+      "after_inventory_sha256": "0c0fa880028029cf8ebc9f76b5707a0ca01f8ffa8a731d2feb50fef575d7a0d3",
+      "alternate_roots": "unchanged-excluded-from-import-contract",
+      "application_measurement_sha256": "52a15aafc3044821740c5d408e5fc44f6635bea36c30f5af51f5866120810440",
+      "base_image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+      "before_inventory_sha256": "e702e944656badc6e136f6ddcf51f6f0cb6694f262dfaeb84afca7c91c870b0c",
+      "classified_nonhost_assets": "four-exact-published-crosscompile-assets-not-host-abi",
+      "dependency_scope": "selected-exact-upstream-pins-only",
+      "deployable": false,
+      "engine_executed": false,
+      "generic_overlay_admission": "not-granted",
+      "git_sha": "5b4e2f54f2b9c14ff46fb9c1efcfbcdbf37b49f1",
+      "hardware_validated": false,
+      "image": null,
+      "image_origin_verified": false,
+      "import_contract_sha256": "0d1905913990c11f6094981b1bcab2578b8f68b2eaa4805f60106e25c571b516",
+      "native_inventory_unchanged": true,
+      "packaging": {
+        "bytecode_executed": false,
+        "entrypoint_scope": "exact-upstream-map-only",
+        "listed_bytecode_policy": "unchanged",
+        "plugins_loaded": false,
+        "policy_sha256": "f45b654271ca89e35e2cd94c3aa338c6de83bf673e28a1a0e9c45a449183ff85",
+        "removal_plan_sha256": "210a50805b36797d06e1d17425f6eacba6f90f1e04aaa7c0560692c05ffb3b3f",
+        "removal_verified_before_patch": true,
+        "removed_unlisted_bytecode_files": 2879
+      },
+      "removed_bytecode_files": 2879,
+      "schema": "nib.engine-overlay/v1",
+      "scope": "exact-image-experimental-application-only",
+      "source_bundle_sha256": "6591c11a8799afbe75d2c51e76766cf249b52f6baf8b27f21dac22bd2e1d290d",
+      "stages": 5,
+      "startup_hooks": "unchanged-inert-only-under-isolated-no-site-bootstrap",
+      "status": "BLOCKED",
+      "wheel_record": "original-preserved-overlay-receipt-required"
+    },
+    "completion": null,
+    "confidential": false,
+    "correctness": {
+      "all_cases_pass": true,
+      "case_sha256": "f59ae7cee2852d4259b340c1bd5e5d6aae0451bc776d303ea559162b46d649ac",
+      "cases": [
+        {
+          "failure": "none",
+          "id": "arithmetic",
+          "requests": [
+            {
+              "elapsed_ms": 2884,
+              "failure": "none",
+              "result": "pass",
+              "turn": 1,
+              "usage": {
+                "completion_tokens": 2,
+                "prompt_tokens": 18
+              }
+            }
+          ],
+          "result": "pass"
+        },
+        {
+          "failure": "none",
+          "id": "ordering",
+          "requests": [
+            {
+              "elapsed_ms": 1656,
+              "failure": "none",
+              "result": "pass",
+              "turn": 1,
+              "usage": {
+                "completion_tokens": 6,
+                "prompt_tokens": 31
+              }
+            }
+          ],
+          "result": "pass"
+        },
+        {
+          "failure": "none",
+          "id": "logic",
+          "requests": [
+            {
+              "elapsed_ms": 1015,
+              "failure": "none",
+              "result": "pass",
+              "turn": 1,
+              "usage": {
+                "completion_tokens": 2,
+                "prompt_tokens": 43
+              }
+            }
+          ],
+          "result": "pass"
+        },
+        {
+          "failure": "none",
+          "id": "extraction",
+          "requests": [
+            {
+              "elapsed_ms": 1213,
+              "failure": "none",
+              "result": "pass",
+              "turn": 1,
+              "usage": {
+                "completion_tokens": 3,
+                "prompt_tokens": 29
+              }
+            }
+          ],
+          "result": "pass"
+        },
+        {
+          "failure": "none",
+          "id": "json-count",
+          "requests": [
+            {
+              "elapsed_ms": 2214,
+              "failure": "none",
+              "result": "pass",
+              "turn": 1,
+              "usage": {
+                "completion_tokens": 10,
+                "prompt_tokens": 29
+              }
+            }
+          ],
+          "result": "pass"
+        },
+        {
+          "failure": "none",
+          "id": "json-record",
+          "requests": [
+            {
+              "elapsed_ms": 2257,
+              "failure": "none",
+              "result": "pass",
+              "turn": 1,
+              "usage": {
+                "completion_tokens": 11,
+                "prompt_tokens": 32
+              }
+            }
+          ],
+          "result": "pass"
+        },
+        {
+          "failure": "none",
+          "id": "tool-blue",
+          "requests": [
+            {
+              "elapsed_ms": 11968,
+              "failure": "none",
+              "result": "pass",
+              "turn": 1,
+              "usage": {
+                "completion_tokens": 39,
+                "prompt_tokens": 301
+              }
+            },
+            {
+              "elapsed_ms": 2909,
+              "failure": "none",
+              "result": "pass",
+              "turn": 2,
+              "usage": {
+                "completion_tokens": 3,
+                "prompt_tokens": 358
+              }
+            }
+          ],
+          "result": "pass"
+        },
+        {
+          "failure": "none",
+          "id": "tool-gold",
+          "requests": [
+            {
+              "elapsed_ms": 7422,
+              "failure": "none",
+              "result": "pass",
+              "turn": 1,
+              "usage": {
+                "completion_tokens": 39,
+                "prompt_tokens": 301
+              }
+            },
+            {
+              "elapsed_ms": 566,
+              "failure": "none",
+              "result": "pass",
+              "turn": 2,
+              "usage": {
+                "completion_tokens": 3,
+                "prompt_tokens": 358
+              }
+            }
+          ],
+          "result": "pass"
+        }
+      ],
+      "request_phase_elapsed_ms": 34109,
+      "requests_started": 10,
+      "schema": "nib.local-correctness-smoke/v3",
+      "tau_acceptance": false
+    },
+    "deployable": false,
+    "engine_stopped": true,
+    "functional_pass": true,
+    "hardware": {
+      "attestation_verified": false,
+      "cc_feature": "disabled",
+      "cuda_driver": "13.0",
+      "devtools": "off",
+      "driver": "580.173.02",
+      "environment": "unavailable",
+      "family": "B300",
+      "multigpu": "none",
+      "selected_gpus": 8,
+      "status": "observed",
+      "system_ready": null,
+      "total_kib": [
+        281640960,
+        281640960,
+        281640960,
+        281640960,
+        281640960,
+        281640960,
+        281640960,
+        281640960
+      ]
+    },
+    "model_profile": {
+      "hf_repo": "dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8",
+      "hf_revision": "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a",
+      "manifest_sha256": "5c6891a9649702b1ac0327b945600acb40c571a069942517cf14ba661a3cfcbc",
+      "name": "uncensored",
+      "pack": "models/deepseek-v4.1-flash-1017-uncensored-fp8/1",
+      "served_model_name": "deepseek-v4.1-flash-1017-uncensored-fp8",
+      "total_bytes": 510311056155
+    },
+    "schema": "nib.deepseek-lab-correctness-result/v2",
+    "stage": "complete",
+    "startup": {
+      "checkpoints": {
+        "last_id": 17,
+        "status": "eof"
+      },
+      "exception_diagnostic": null,
+      "exit_code": null,
+      "health_probes": 1154,
+      "outcome": "ready",
+      "wait_ms": 1153420,
+      "worker_exception_diagnostic": null
+    },
+    "status": "BLOCKED"
+  },
+  "experiment_step": "completed",
+  "functional_pass": true,
+  "image": {
+    "binding": "local-manifest-reference-platform-and-diffids",
+    "daemon_os_interpreter_trusted": true,
+    "docker_reported_id": "sha256:bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d",
+    "local_config_bytes_rehashed": false,
+    "local_layers_rehashed": false,
+    "manifest_sha256": "6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "platform": "linux/amd64",
+    "raw_config_link_verified": true,
+    "raw_config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d"
+  },
+  "output_bytes": 5091,
+  "provenance": {
+    "config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d",
+    "git_sha": "5b4e2f54f2b9c14ff46fb9c1efcfbcdbf37b49f1",
+    "image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "manifest_sha256": "5c6891a9649702b1ac0327b945600acb40c571a069942517cf14ba661a3cfcbc",
+    "model_profile": {
+      "hf_repo": "dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8",
+      "hf_revision": "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a",
+      "manifest_sha256": "5c6891a9649702b1ac0327b945600acb40c571a069942517cf14ba661a3cfcbc",
+      "name": "uncensored",
+      "pack": "models/deepseek-v4.1-flash-1017-uncensored-fp8/1",
+      "served_model_name": "deepseek-v4.1-flash-1017-uncensored-fp8",
+      "total_bytes": 510311056155
+    },
+    "pack_revision": "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a",
+    "payload_sha256": "831df8938d993e4bb713cb39e79d1acd23830a5e3bed1734883b4fcc9506d37e",
+    "receipt_sha256": "021fab9a9d54c5f15dc212f9c7dfbd9134170ae379db99063c951d9791105960",
+    "source_bundle_sha256": "6591c11a8799afbe75d2c51e76766cf249b52f6baf8b27f21dac22bd2e1d290d"
+  },
+  "result": "fail",
+  "stage": "completed",
+  "status": "BLOCKED"
+}
