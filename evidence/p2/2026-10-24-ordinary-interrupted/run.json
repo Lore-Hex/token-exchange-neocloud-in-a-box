@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S host/record-deepseek-lab.py --run <private-bundle> --receipt-sha256 <digest> --weights <private-weights> --output <private-evidence> --deadline <approved-UTC-cutoff>",
+  "ended_utc": "2026-10-24T01:16:42Z",
+  "execution": "software",
+  "git_sha": "323ab0eedacee474e5b12fcc80a169ef43400075",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "unobserved",
+    "machine": "approved-isolated-lab",
+    "provider": "spheron"
+  },
+  "notes": "Partial Spheron functional experiment, not GCP gates or full P2 acceptance. Candidate BLOCKED; deployable=false; confidential=false; no attestation or ABI qualification. Generated JIT code is private output, not verified native provenance. CUDA field is the observed driver-supported CUDA API version, not a runtime measurement. Explicit nonconfidential baseline; CC-disabled observations are not confidential evidence.",
+  "phase": "P2",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-24T01:05:32Z",
+  "task": "T3"
+}

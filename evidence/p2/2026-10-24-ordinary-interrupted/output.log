@@ -1,0 +1,47 @@
+{
+  "cleanup": "unconfirmed",
+  "confidential": false,
+  "container_observation": {
+    "exit_code": 0,
+    "oom_killed": false,
+    "status": "running"
+  },
+  "deployable": false,
+  "experiment_step": "decode",
+  "failure": "bounded-lab-stage-failed",
+  "functional_pass": false,
+  "image": {
+    "binding": "local-manifest-reference-platform-and-diffids",
+    "daemon_os_interpreter_trusted": true,
+    "docker_reported_id": "sha256:bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d",
+    "local_config_bytes_rehashed": false,
+    "local_layers_rehashed": false,
+    "manifest_sha256": "6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "platform": "linux/amd64",
+    "raw_config_link_verified": true,
+    "raw_config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d"
+  },
+  "output_bytes": 0,
+  "provenance": {
+    "config_sha256": "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d",
+    "git_sha": "323ab0eedacee474e5b12fcc80a169ef43400075",
+    "image": "vllm/vllm-openai@sha256:6ee133356d49ed24cee03dd0cda3d3980279a11c107ce3e752c89e76540f41c9",
+    "manifest_sha256": "5c6891a9649702b1ac0327b945600acb40c571a069942517cf14ba661a3cfcbc",
+    "model_profile": {
+      "hf_repo": "dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8",
+      "hf_revision": "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a",
+      "manifest_sha256": "5c6891a9649702b1ac0327b945600acb40c571a069942517cf14ba661a3cfcbc",
+      "name": "uncensored",
+      "pack": "models/deepseek-v4.1-flash-1017-uncensored-fp8/1",
+      "served_model_name": "deepseek-v4.1-flash-1017-uncensored-fp8",
+      "total_bytes": 510311056155
+    },
+    "pack_revision": "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a",
+    "payload_sha256": "5e778b6bc91488ab39fe72c2124e02d547ae967c974bae34f06715f6eb027bda",
+    "receipt_sha256": "0dffcf28802a6a41fe7f8ac61925eb8fc5a79cc7fb33a8e6424fd9cd930b0f43",
+    "source_bundle_sha256": "4217f884f33ff786585f12cb3d582a65c5742283bf00ee69bc0dd542b4d1fcae"
+  },
+  "result": "fail",
+  "stage": "experiment",
+  "status": "BLOCKED"
+}
