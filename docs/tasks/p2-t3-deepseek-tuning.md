@@ -47,10 +47,16 @@ above are the basis for the changes.
 | No flag: existing baseline | 1 | Eager | None |
 | `batch8-eager` | 8 | Eager | None |
 | `batch8-graphs` | 8 | 1, 2, 4, 8 | None |
-| `batch8-dspark` | 8 | 6, 12, 24, 48 | Five-token DSpark, real block rejection |
+| `batch8-dspark` | 8 | 6, 12, 24, 40, 48 | Five-token DSpark, real block rejection |
 
 The graph sizes are bounded experiment choices, not upstream measured
-presets: eight requests times six target/draft positions gives 48 rows.
+presets: eight requests times six target positions gives 48 rows; the
+drafter needs five positions per request and its own 40-row coverage. Without
+40, the drafter rounds 48 to 50, excludes it above its 40-row cap, and falls
+back to eager at six through eight requests. CPU regression tests execute
+unchanged candidate-building and dispatch definitions from the pinned vLLM
+`cudagraph_utils.py`, including variable-length adaptive target queries.
+These are graph-selection tests, not GPU capture or speed measurements.
 These steps isolate batching, graph replay, and drafting. DSpark acceptance
 and quality must be checked on the **abliterated** weights, not inferred from
 the original model. Synthetic acceptance is never enabled.
@@ -59,7 +65,8 @@ the original model. Synthetic acceptance is never enabled.
 transformation. Both preparation and runtime use that source-bound helper;
 there is no second launch command to drift. Changes replace the one existing
 flag rather than adding last-wins duplicates. Prelaunch checks hash the
-three audited upstream configuration files before starting the engine.
+three audited upstream configuration files and graph-candidate implementation
+before starting the engine.
 
 All profiles retain GPU-resident Engram, the same attention backend and KV
 dtype, TP4 x DP2, disabled custom/fused collectives, 512 GiB host memory/no

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """CPU-only profile and tamper tests; these do not measure GPU throughput."""
 
+import ast
 import copy
 import hashlib
 import json
@@ -11,6 +12,7 @@ from unittest import mock
 
 import deepseek_tuning as tuning
 import test_deepseek_model_profile as fixtures
+from fixtures import vllm_cudagraph as graphs
 from test_evidence_history import git
 
 ROOT, host, lab = fixtures.ROOT, fixtures.host, fixtures.lab
@@ -89,7 +91,7 @@ class TuningProfiles(unittest.TestCase):
             if name != "batch8-eager":
                 self.assertEqual(compilation["cudagraph_mode"], "FULL_DECODE_ONLY")
                 self.assertEqual(compilation["cudagraph_capture_sizes"],
-                                 [6, 12, 24, 48] if name == "batch8-dspark" else [1, 2, 4, 8])
+                                 [6, 12, 24, 40, 48] if name == "batch8-dspark" else [1, 2, 4, 8])
             if name == "batch8-dspark":
                 spec = json.loads(args[args.index("--speculative-config") + 1])
                 self.assertEqual(spec, {"method": "dspark", "num_speculative_tokens": 5,
@@ -97,6 +99,55 @@ class TuningProfiles(unittest.TestCase):
                                        "enable_adaptive_verification": True})
                 self.assertNotIn("model", spec)
         self.assertEqual(original, self.baseline["arguments"])
+
+    def test_graph_dispatch_covers_target_and_drafter_through_eight_requests(self):
+        def manager(sizes, query_len, varlen):
+            state = types.SimpleNamespace(
+                compilation_config=types.SimpleNamespace(
+                    cudagraph_capture_sizes=sizes, max_cudagraph_capture_size=max(sizes)),
+                cudagraph_mode=graphs.CUDAGraphMode.FULL_DECODE_ONLY,
+                max_num_reqs=8, decode_query_len=query_len, varlen_decode=varlen,
+                lora_capture_cases=[0], vllm_config=types.SimpleNamespace(
+                    speculative_config=types.SimpleNamespace(uses_dynamic_speculative_decoding=lambda: False)),
+                _maybe_ubatch_twin=lambda desc: None, _resolve_effective_loras=lambda n: n,
+                _capture_descs={}, _candidates={}, _graphs_captured=True)
+            graphs._init_candidates(state)
+            return state
+
+        def mode(state, n, query_len):
+            return graphs.dispatch(state, n, n * query_len, query_len, 0, query_len).cg_mode
+
+        for name in ("batch8-graphs", "batch8-dspark"):
+            args = tuning.arguments(self.baseline["arguments"], name)
+            sizes = json.loads(args[args.index("--compilation-config") + 1])["cudagraph_capture_sizes"]
+            stages = ((6, True), (5, False)) if name == "batch8-dspark" else ((1, False),)
+            for query_len, varlen in stages:
+                state = manager(sizes, query_len, varlen)
+                for n in range(1, 9):
+                    # Adaptive verification also uses shorter target queries.
+                    for actual_len in range(1 if varlen else query_len, query_len + 1):
+                        with self.subTest(name=name, requests=n, stage=query_len, actual=actual_len):
+                            self.assertEqual(mode(state, n, actual_len), graphs.CUDAGraphMode.FULL)
+                self.assertEqual(mode(state, 9, query_len), graphs.CUDAGraphMode.NONE)
+                self.assertTrue(all(d.num_tokens <= 8 * query_len and d.num_reqs <= 8
+                                    for d in state._capture_descs[graphs.CUDAGraphMode.FULL]))
+        # Regression witness: the original list fell back to eager for batches 6-8.
+        old = manager([6, 12, 24, 48], 5, False)
+        self.assertEqual([mode(old, n, 5) for n in range(1, 9)],
+                         [graphs.CUDAGraphMode.FULL] * 5 + [graphs.CUDAGraphMode.NONE] * 3)
+
+    def test_graph_fixture_is_unchanged_pinned_upstream_code(self):
+        raw = (ROOT / "scripts/fixtures/vllm_cudagraph.py").read_text()
+        expected = {
+            "CUDAGraphMode": "d427649439700560464333632836b9fc20dc5a14a8285a4cf1b614d020be4c15",
+            "BatchExecutionDescriptor": "8e506b7a9ed032e33cfea1d908ddbd563484820bcf95a03db2e60909ab5298f5",
+            "_is_compatible": "632d7dc5ac5946d32cd83e4df96cc3fa3d8b4d620462f09d54a584bd192fc65a",
+            "_init_candidates": "f6e08e07ccbd40e75f834d81d082c6e271a97f86318b67510db3ca61153fe29f",
+            "dispatch": "cba5513cda0b78020bd5f282dfdfe765cc128e7ceca91054a524734a3c88ba32",
+        }
+        self.assertEqual({node.name: hashlib.sha256(ast.get_source_segment(raw, node).encode()).hexdigest()
+                          for node in ast.parse(raw).body if isinstance(node, (ast.ClassDef, ast.FunctionDef))
+                          and node.name != "round_up"}, expected)
 
     def test_reject_unknown_profiles_and_wrong_base_flags(self):
         for name in (True, 8, {}, [], "", "auto", "batch8-graphs --host 0.0.0.0", "../profile"):

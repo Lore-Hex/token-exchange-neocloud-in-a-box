@@ -7,11 +7,12 @@ import json
 NAMES = ("batch8-eager", "batch8-graphs", "batch8-dspark")
 REVISION = "5df63a7203cdb9328d824a27b682e77c7b9928be"
 # https://github.com/vllm-project/vllm/tree/5df63a7203cdb9328d824a27b682e77c7b9928be
-# CompilationConfig, SchedulerConfig and SpeculativeConfig, respectively.
+# Configuration and graph-candidate implementation used by these profiles.
 SOURCES = {
     "vllm/config/compilation.py": "d8a8086166e3f344b75d98d8350a77592f7b6c145319b3a9f0b9c8cb36bc39cb",
     "vllm/config/scheduler.py": "2fb86b1572a4925be59f304d13b4f6ec03d496b67a7c4abbb976ecda2232839a",
     "vllm/config/speculative.py": "ce135651a7a0343ff526f72e9545932617378161abd03135d67eda6de89c617c",
+    "vllm/v1/worker/gpu/cudagraph_utils.py": "ef2aae2eb3ec5ea97d4732f65c886b7a4688247721aacf23e536485e0ffc05ab",
 }
 
 
@@ -60,8 +61,9 @@ def arguments(baseline, name):
     if name != "batch8-eager":
         result.remove("--enforce-eager")
         # Full decode graphs isolate graph replay from prefill compilation.
-        # 8 requests * (1 target + 5 draft tokens) = 48 captured rows for DSpark.
-        sizes = [6, 12, 24, 48] if name == "batch8-dspark" else [1, 2, 4, 8]
+        # DSpark shares this list: target needs 8*6 rows, drafter needs 8*5.
+        # Without 40, drafter rounds 48 to 50 and drops it above its 40-row cap.
+        sizes = [6, 12, 24, 40, 48] if name == "batch8-dspark" else [1, 2, 4, 8]
         compilation = {"pass_config": {"fuse_allreduce_rms": False},
                        "cudagraph_mode": "FULL_DECODE_ONLY", "cudagraph_capture_sizes": sizes}
         replace("--compilation-config", '{"pass_config":{"fuse_allreduce_rms":false}}',
