@@ -35,13 +35,14 @@ class WorkerIdentity(unittest.TestCase):
         source = (ROOT / prep.PROFILE_SOURCE).read_bytes()
         self.assertEqual(hashlib.sha256(source).hexdigest(), worker.PROFILE_SHA)
         self.assertEqual(worker.PROFILE_SHA, prep.PROFILE_SHA)
-        for change in ("none", "source", "identity", "original", "extra", "missing-source", "missing-identity"):
+        for change in ("none", "source", "support", "identity", "original", "extra", "missing-source", "missing-identity"):
             with self.subTest(change=change):
                 files = {"worker.py": (ROOT / "scripts/provider_conformance_worker.py").read_bytes(),
                          "support.py": (ROOT / "scripts/tau_trial_worker.py").read_bytes(),
                          "model-profile.py": source}
                 identity = dict(SELECTED)
                 if change == "source": files["model-profile.py"] += b"\n"
+                if change == "support": files["support.py"] += b"\n"
                 if change == "identity": identity["served_model_name"] = worker.MODEL
                 if change == "original": identity = profiles.select()
                 if change == "extra": identity["endpoint"] = "untrusted"
