@@ -265,6 +265,64 @@ done <<'CASES'
 2026-10-24-cpu-http-threads-pass/output.log|tokens_sha256|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe|
 CASES
 
+# Selected 1854 originals retain exact public hashes, not whole-line exemptions.
+while IFS='|' read -r relative format field known suffix; do
+  target="$tmp/selected-trial/evidence/p2/2026-10-24-selected-tau-protocol-failure-1854/$relative"
+  mkdir -p "$(dirname "$target")"
+  write_receipt_field "$target" "$field" "$known"
+  expect_receipt_scan "$target" 0
+  write_receipt_field "$target" "$field" "$unknown"
+  expect_receipt_scan "$target" 42
+  write_receipt_field "$target" api_key "$known"
+  expect_receipt_scan "$target" 42
+  write_receipt_field "$tmp/selected-trial/other.log" "$field" "$known"
+  expect_receipt_scan "$tmp/selected-trial/other.log" 42
+  printf '{"%s":"%s","api_key":"%s"}\n' "$field" "$known" "$unknown" > "$target"
+  expect_receipt_scan "$target" 42
+  python3 - "$tmp/held-report.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    findings = json.load(stream)
+assert any(row["RuleID"] == "generic-api-key" and row["Match"].startswith("api_key") for row in findings)
+PY
+  printf 'Selected trial exact value/field/path and same-line secret boundaries passed.\n'
+done <<'CASES'
+gpu/output.log|pretty|tokens_sha256|9d6bde6f28006680e5d37e06d816356d782004f1e8dbabf46d42e81b088afc16|
+gpu/output.log|pretty|tokens_sha256|c7b86dad075d1d51e4bf9aec664d9ce392e5d04a63babe717ab9354ec0b56032|
+gpu/output.log|pretty|tokens_sha256|6ddfa5e6dbf2f45b8efc1e2ebda65f1f79c39b1a4ec8a7fce8e77fc5a0add7d5|
+gpu/output.log|pretty|tokens_sha256|4e5eb88296779609b1ef81a335894e3ef5c284a94a8ceb1607421414c43c9cbe|
+cpu/output.log|pretty|scripts/engine_tokenizer_parity.py|6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f|,
+cpu/output.log|pretty|evaluator-tokenizer.json|25c731a878fa4f13f4e158b58c1784d2da90ed8c9115b2f68365fd3901213bd4|,
+cpu/output.log|pretty|simulator-tokenizer.json|ac949d6497e9084feaa0dc6b3ce4e3f6e98aafda700431ad6e12708917fb3f38|
+scorer/output.log|compact|scripts/engine_tokenizer_parity.py|6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f|
+evidence/output.log|compact|scripts/engine_tokenizer_parity.py|6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f|
+cpu/output.log|pretty|tokens_sha256|1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|
+cpu/output.log|pretty|tokens_sha256|fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4|
+cpu/output.log|pretty|tokens_sha256|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|
+cpu/output.log|pretty|tokens_sha256|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe|
+cpu/simulator-runtime.json|compact|tokenizer_sha256|554324f21418252a59edb045493a143a783b499d67b8680883e310e0f2ee77d9|
+cpu/simulator-tokenizer.json|compact|tokenizer_sha256|554324f21418252a59edb045493a143a783b499d67b8680883e310e0f2ee77d9|
+cpu/simulator-tokenizer.json|compact|endpoint_tokens_sha256|1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|
+cpu/simulator-tokenizer.json|compact|endpoint_tokens_sha256|fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4|
+cpu/simulator-tokenizer.json|compact|endpoint_tokens_sha256|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|
+cpu/simulator-tokenizer.json|compact|endpoint_tokens_sha256|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe|
+cpu/simulator-tokenizer.json|compact|independent_tokens_sha256|1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|
+cpu/simulator-tokenizer.json|compact|independent_tokens_sha256|fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4|
+cpu/simulator-tokenizer.json|compact|independent_tokens_sha256|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|
+cpu/simulator-tokenizer.json|compact|independent_tokens_sha256|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe|
+cpu/evaluator-runtime.json|compact|tokenizer_sha256|604363ffa22647728e0dd56e84926ad3ca1422999e356af99628fe2535b010a8|
+cpu/evaluator-tokenizer.json|compact|tokenizer_sha256|604363ffa22647728e0dd56e84926ad3ca1422999e356af99628fe2535b010a8|
+cpu/evaluator-tokenizer.json|compact|endpoint_tokens_sha256|1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|
+cpu/evaluator-tokenizer.json|compact|endpoint_tokens_sha256|fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4|
+cpu/evaluator-tokenizer.json|compact|endpoint_tokens_sha256|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|
+cpu/evaluator-tokenizer.json|compact|endpoint_tokens_sha256|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe|
+cpu/evaluator-tokenizer.json|compact|independent_tokens_sha256|1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|
+cpu/evaluator-tokenizer.json|compact|independent_tokens_sha256|fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4|
+cpu/evaluator-tokenizer.json|compact|independent_tokens_sha256|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|
+cpu/evaluator-tokenizer.json|compact|independent_tokens_sha256|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe|
+CASES
+
 # Stream originals get the same exact field/value/path boundaries.
 for stream_set in window-exhaustion 600s-complete selected-timeout selected-provider selected-tau8k selected-graphs; do
 while IFS='|' read -r relative field known suffix; do
