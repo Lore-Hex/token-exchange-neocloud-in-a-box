@@ -1,16 +1,30 @@
 # DeepSeek serving-quality validation
 
-Status: **offline manifest/budget, aggregation, closed-network scripted trials,
-and a bounded local vLLM transport implemented; live evaluation not run**
-(2026-10-21). The
+Status: **manifest/budget, aggregation, isolated scorer/container wiring,
+runtime-identity checks and selected-owner lifecycle implemented;
+original-revision full quality gate unproven** (2026-10-24). The
 [preflight foundation](../tasks/p2-t3-tau-preflight.md) verifies pinned public
 inputs without importing upstream or contacting endpoints. The
 [content-free aggregator](../tasks/p2-t3-tau-aggregation.md) checks frozen coverage
-and computes fixture-tested arithmetic; no benchmark score has been measured.
+and computes fixture-tested arithmetic; no full tau benchmark score has been measured.
 The [local transport](../tasks/p2-t3-tau-local-vllm.md) tests actual loopback
 HTTP against synthetic endpoints, including engine-reported input counts and
-the shared cost ledger. Container wiring and runtime-identity checks are still
-pending; it does not establish model quality or confidentiality.
+the shared cost ledger. The [isolated runner](../tasks/p2-t3-tau-container-pipes.md),
+[live runtime-identity checks](../tasks/p2-t3-tau-live-runner.md),
+[selected scorer lifecycle](../tasks/p2-t4-selected-tau-lifecycle.md) and
+[enclosing controller](../tasks/p2-t4-selected-tau-launch.md) are implemented,
+not proof of model quality or confidentiality.
+
+Separate selected abliterated-checkpoint observations include
+[8K tokenizer parity](../../evidence/p2/2026-10-24-selected-tau8k-parity/output.log)
+and [eight concurrency-one graph-stream requests](../../evidence/p2/2026-10-24-selected-graphs-stream/output.log),
+not scored tau tasks. The latest retained
+[selected controller failure](../../evidence/p2/2026-10-24-selected-tau-readiness-failure-1800/evidence/output.log)
+has no READY/scorer result and unconfirmed cleanup. The later
+[CPU-only parity pass](../../evidence/p2/2026-10-24-cpu-http-threads-pass/output.log)
+does not promote that failure or prove an end-to-end selected trial. These
+operational experiments use a different checkpoint from the original revision
+required below and cannot satisfy its matched-reference quality gate.
 This is an additional
 P2.T3 acceptance requirement requested by Joseph, repeated under confidential
 computing in P5.T5. We serve DeepSeek's existing weights; this is not a new
@@ -109,8 +123,10 @@ smokes and throughput/load testing; none substitutes for another.
 
 ## Evidence, safety and remaining work
 
-Implement a committed runner with fake-endpoint tests before a paid run. It
-must enforce the frozen target, resource limits and cleanup, then export
+The committed runners and fake-endpoint tests are implemented; the remaining
+acceptance work is measured execution with the required original-revision
+deployments and reference. Each run must enforce the frozen target, resource
+limits and cleanup, then export
 allowlisted per-task/trial numeric outcomes, error classes, metrics and
 configuration hashes to `evidence/p2/<date>-tau-validation/` (P5 for the repeat).
 Use the standard `run.json`/scrubbed `output.log` evidence envelope and verify
@@ -132,7 +148,10 @@ reference calls separately; use measured smoke usage and current verified
 rates for the full-run estimate. Benchmarks stay outside the guest image and
 do not add benchmark dependencies or debug logging to the attested service.
 
-The serving endpoint, reference identity, simulator/evaluator versions,
-live non-content runner, measured limits and run-cost approvals are still pending. Follow
+Reviewed original-revision serving/reference identities, matched simulator and
+evaluator settings, measured smoke limits, complete scored coverage and separate
+run-cost approvals remain prerequisites for the full quality gate. A successful
+selected operational trial also needs its own original joined report; none is
+established by the retained startup failures or CPU-only pass. Follow
 the [run gates](../gates.md); this plan does not rent resources, spend credits,
 extend a rental or publish a score.

@@ -2,11 +2,16 @@
 """Original controller failures; CPU-only cleanup is not whole-run cleanup."""
 
 import ast
+import copy
+from contextlib import contextmanager
 import hashlib
 import json
 from pathlib import Path
+import sys
+import tempfile
 import types
 import unittest
+from unittest import mock
 
 from test_evidence_history import git
 
@@ -35,7 +40,43 @@ RUNS = {
             "cpu/output.log": (532, "dcff3ecb22012c906786d941593f51249ee29d5c54400a6d74c2480b3b27fe72"),
         },
     },
+    "1800": {
+        "controller": "evidence/",
+        "window": ("2026-10-24T17:59:09Z", "2026-10-24T18:05:41Z"),
+        "exits": {},
+        "hashes": {
+            "evidence/run.json": (886, "79d3ba73d71a953201cd189ffcc44d9b6d3e3ca5df70ce1ef0a7b58ff678ac0c"),
+            "evidence/output.log": (405, "f5c4d1ad2f2f5054c1b6c7a6089219843b095825219377c5436201117fb71a8e"),
+            "cpu/run.json": (737, "c05d5ecca6f1a24597239475566192b577be11ccca0fd793325e7921c9e15937"),
+            "cpu/output.log": (6080, "f5bb21cb236f9454c8f050fbe392c1db2cb44f1173f2c5d7802d9a9db0d31516"),
+        },
+    },
 }
+
+
+@contextmanager
+def historical_cpu(producer, report):
+    """Validate with the exact recorded source closure, without launching it."""
+    git(ROOT, "merge-base", "--is-ancestor", producer, "HEAD")
+    with tempfile.TemporaryDirectory() as temporary, mock.patch.dict(sys.modules):
+        root = Path(temporary).resolve()
+        for path, sha in report["sources"].items():
+            raw = git(ROOT, "show", producer + ":" + path)
+            if hashlib.sha256(raw).hexdigest() != sha:
+                raise AssertionError("original CPU source identity changed")
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(raw)
+        path = root / "scripts/record-tau-cpu-parity.py"
+        recorder = types.ModuleType("historical_cpu_recorder")
+        recorder.__file__ = str(path)
+        exec(compile(path.read_bytes(), str(path), "exec", dont_inherit=True), recorder.__dict__)
+        selected = report["schema"] == "nib.tau-cpu-owner-run/v1"
+        expected = set(recorder.SOURCES + (recorder.OWNER_SOURCES if selected else ()))
+        if set(report["sources"]) != expected:
+            raise AssertionError("original CPU source closure changed")
+        cpu = recorder.toolkit(root, selected_owner=selected)
+        yield recorder, cpu, sys.modules["tau_cpu_session"]
 
 
 class SelectedTauFailureEvidenceTests(unittest.TestCase):
@@ -139,6 +180,57 @@ class SelectedTau1741FailureEvidenceTests(SelectedTauFailureEvidenceTests):
         self.assertEqual(expected["result"], "fail")
         self.assertIsNone(expected["runtime"])
         self.assertEqual(expected["sources"], {})
+        self.assertEqual(self.report["cleanup"], "unconfirmed")
+        self.assertIsNone(self.report["owner_reports"])
+
+
+class SelectedTau1800FailureEvidenceTests(SelectedTauFailureEvidenceTests):
+    case = "1800"
+
+    def test_cpu_runtime_failure_is_source_bound_without_promoting_controller(self):
+        run, report = self.documents["cpu/run.json"], self.documents["cpu/output.log"]
+        self.assertEqual((run["git_sha"], report["git_sha"]), (PRODUCER, PRODUCER))
+        self.assertEqual((run["started_utc"], run["ended_utc"]),
+                         ("2026-10-24T17:59:09Z", "2026-10-24T18:02:31Z"))
+        self.assertEqual((run["result"], report["result"], report["stage"]), ("fail", "fail", "runtime"))
+        self.assertEqual(run["execution"], "software")
+        self.assertIs(run["hardware_validated"], False)
+        self.assertEqual(report["cleanup"], dict.fromkeys(("container", "image", "build_completion"), "confirmed"))
+        self.assertEqual(report["source_archive_sha256"],
+                         "acb408ae38ffa016e1f75bfea76dff7b78de4651aaaa677df061c5e099cf6292")
+        self.assertTrue(all(report[key] is False for key in ("quality_eligible", "confidential", "live_admission")))
+        with historical_cpu(PRODUCER, report) as (recorder, cpu, session):
+            self.assertEqual(len(report["sources"]), 31)
+            pins = json.loads((cpu.ROOT / "scripts/e2e/pins.json").read_bytes())
+            self.assertEqual(report["base_images"], {key: pins[key] for key in ("go_image", "python_image")})
+            self.assertIs(session.validate(report["runtime"]), report["runtime"])
+            runtime = report["runtime"]
+            self.assertEqual((runtime["schema"], runtime["stage"], runtime["result"], runtime["cleanup"]),
+                             ("nib.tau-cpu-session/v4", "parity", "fail", "confirmed"))
+            self.assertFalse(runtime["acknowledged"])
+            self.assertEqual(runtime["receipts"], {})
+            self.assertIsNone(runtime["ready_sha256"])
+            self.assertIsNone(runtime["owner"])
+            self.assertEqual((runtime["progress"]["model_index"], runtime["progress"]["substage"]), (0, "health"))
+            parity = runtime["progress"]["parity"]
+            self.assertEqual((parity["result"], parity["stage"]), ("fail", "readiness"))
+            self.assertEqual(len(parity["models"]), 1)
+            self.assertEqual(parity["models"][0]["cases"], [])
+            self.assertIsNone(parity["models"][0]["process"])
+            self.assertIsNone(parity["models"][0]["ready_ms"])
+            self.assertEqual((runtime["failure"]["kind"], runtime["failure"]["errno"], runtime["failure"]["server_exit"]),
+                             ("other", None, -6))
+            self.assertEqual([(frame["source"], frame["line"]) for frame in runtime["failure"]["frames"]],
+                             [("scripts/tau_cpu_session.py", 209), ("scripts/pilot/run.py", 128), ("scripts/pilot/run.py", 47)])
+            for frame in runtime["failure"]["frames"]:
+                self.assertEqual(frame["source_sha256"], report["sources"][frame["source"]])
+            for mutate in (lambda row: row.update(result="pass"), lambda row: row.update(quality_eligible=True),
+                           lambda row: row["failure"].update(message="private-canary"),
+                           lambda row: row["failure"]["frames"][0].update(source_sha256="0" * 64)):
+                changed = copy.deepcopy(runtime)
+                mutate(changed)
+                with self.assertRaises((ValueError, cpu.llama.worker.Abort)):
+                    session.validate(changed)
         self.assertEqual(self.report["cleanup"], "unconfirmed")
         self.assertIsNone(self.report["owner_reports"])
 
