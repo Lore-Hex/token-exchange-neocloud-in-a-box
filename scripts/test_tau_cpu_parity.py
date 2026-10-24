@@ -121,7 +121,7 @@ class CPUParityTests(unittest.TestCase):
             self.assertEqual(report["models"][0]["cases"], [])
             self.assertNotIn(fixtures.CANARY, json.dumps(report))
 
-    def test_shared_parity_change_is_only_gpu_eligibility(self):
+    def test_shared_cpu_parity_logic_unchanged_by_gpu_context_extension(self):
         path = "scripts/engine_tokenizer_parity.py"
         previous = git(ROOT, "show", "f9885c6405bdc8675dacf3c04ecd583223d0dfbd:" + path)
         self.assertEqual(hashlib.sha256(previous).hexdigest(),
@@ -136,12 +136,25 @@ class CPUParityTests(unittest.TestCase):
             lines = raw.splitlines(keepends=True)
             return b"".join(lines[:definition.lineno - 1] + lines[definition.end_lineno:])
 
-        self.assertEqual(without_eligibility((ROOT / path).read_bytes()), without_eligibility(previous))
+        baseline = git(ROOT, "show", "cff27405db07870702029b963236897f463c06bc:" + path)
+        self.assertEqual(hashlib.sha256(baseline).hexdigest(),
+                         "d9953b09e9adfe07bafd6aa659cd449e32034f8af01ac2f38372384596dfcfda")
+        self.assertEqual(without_eligibility(baseline), without_eligibility(previous))
+
+        # Only the GPU runtime receipt gets an explicit context identity. All
+        # shared CPU probes, token hashes, templates and local validation stay
+        # identical. GPU v1 byte parity is exercised in the runtime tests.
+        def without_gpu_runtime(raw):
+            tree = ast.parse(raw)
+            tree.body = [node for node in tree.body if not isinstance(node, ast.FunctionDef)
+                         or node.name not in ("runtime_identity", "run", "validate")]
+            return ast.dump(tree, include_attributes=False)
+        self.assertEqual(without_gpu_runtime((ROOT / path).read_bytes()), without_gpu_runtime(baseline))
 
     def test_same_fixed_probes_and_no_semantic_repair(self):
         source = ROOT / "scripts/engine_tokenizer_parity.py"
         self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(),
-                         "d9953b09e9adfe07bafd6aa659cd449e32034f8af01ac2f38372384596dfcfda")
+                         "6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f")
         for model in cpu.MODEL_IDS:
             for probe in cpu.probes.probes():
                 original = copy.deepcopy(probe)

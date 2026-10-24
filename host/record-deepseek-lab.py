@@ -120,10 +120,22 @@ def model_target(family, security, replicas, model_profile):
             or ordinary_uncensored_target(family, security, replicas, model_profile))
 
 
-def tuning_measurement_options(parity, materialization, observation, cohort, profile, provider):
+def tuning_measurement_options(parity, materialization, observation, cohort, profile, provider, execution_profile=None):
     options = (parity, materialization, observation, cohort)
-    require(provider is None and all(type(value) is bool for value in options)
-            and (all(options) or not any(options) and profile is None))
+    require(provider is None and all(type(value) is bool for value in options))
+    if execution_profile == "tau8k-eager":
+        require(parity and materialization and observation and not cohort and profile is None)
+    else:
+        require(all(options) or not any(options) and profile is None)
+
+
+def tuning_module(contract, path):
+    if "execution_profile" not in contract:
+        require("tuning.py" not in contract.get("sources", {}))
+        return None
+    tuning = load("lab_tuning_profile", Path(path) / "payload/tuning.py", contract["sources"]["tuning.py"])
+    tuning.enabled(contract)
+    return tuning
 
 
 def provider_target(family, security, replicas, model_profile):
@@ -317,7 +329,7 @@ def prepare(destination, operation="functional", family="B200", security="confid
         require(operation == "local-correctness" and ordinary_uncensored_target(family, security, replicas, model_profile)
                 and provider_wheelhouse is None)
         tuning_measurement_options(tokenizer_parity, tokenizer_materialization, runtime_observation,
-                                   stream_cohort, stream_profile, provider_wheelhouse)
+                                   stream_cohort, stream_profile, provider_wheelhouse, execution_profile)
         for name in (TUNING, "scripts/test_deepseek_tuning.py"):
             extra[name] = committed(builder, revision, name)
         load("lab_tuning_selection", ROOT / TUNING, digest(extra[TUNING])).select(execution_profile)
@@ -438,11 +450,7 @@ def bundle_inputs(path, expected):
     probe.security_profile(contract)
     require(probe.parallel_size(contract) == parallel_size(contract))
     validate_model_profile(contract, path)
-    if "execution_profile" in contract:
-        tuning = load("lab_tuning_profile", path / "payload/tuning.py", contract["sources"]["tuning.py"])
-        tuning.enabled(contract)
-    else:
-        require("tuning.py" not in contract["sources"])
+    tuning_module(contract, path)
     if "tokenizer_parity" in contract:
         checker = load("lab_parity_profile", path / "payload/tokenizer-parity.py", contract["sources"]["tokenizer-parity.py"])
         require(checker.enabled(contract))
@@ -934,7 +942,9 @@ def validate_result(row, bundle, contract, recorder):
                 parity_checker = load("lab_parity_validation", Path(bundle) / "payload/tokenizer-parity.py",
                                       contract["sources"]["tokenizer-parity.py"])
                 require(parity_checker.enabled(contract))
-                parity_checker.validate(row[field], checker)
+                tuning = tuning_module(contract, bundle)
+                options = {"max_model_len": tuning.context_limit(contract)} if tuning else {}
+                parity_checker.validate(row[field], checker, **options)
             else:
                 checker.validate(row[field])
             require(row["hardware"] is not None and row["application"] is not None)
@@ -1022,7 +1032,8 @@ def main():
                 require(option == "prepare-nonconfidential-uncensored-b300-dp2"
                         and args.model_profile == "uncensored")
                 tuning_measurement_options(args.tokenizer_parity, args.tokenizer_materialization,
-                    args.runtime_observation, args.stream_cohort, args.stream_profile, args.provider_conformance_wheels)
+                    args.runtime_observation, args.stream_cohort, args.stream_profile, args.provider_conformance_wheels,
+                    args.execution_profile)
                 optional["execution_profile"] = args.execution_profile
             if args.model_profile == "uncensored":
                 require(profile[0] == "local-correctness" and len(profile) == 4 and profile[3] == 2

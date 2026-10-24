@@ -54,7 +54,7 @@ class TuningProfiles(unittest.TestCase):
         self.assertEqual(self.validate(self.baseline_files, self.baseline), fixtures.NEW)
 
     def test_only_profile_arguments_and_binding_change(self):
-        for name in tuning.NAMES:
+        for name in tuning.BATCH_NAMES:
             files, contract = self.payload(name)
             with self.subTest(name=name):
                 self.assertEqual(self.validate(files, contract), fixtures.NEW)
@@ -79,7 +79,7 @@ class TuningProfiles(unittest.TestCase):
 
     def test_graph_sizes_and_real_drafting_are_bounded(self):
         original = copy.deepcopy(self.baseline["arguments"])
-        for name in tuning.NAMES:
+        for name in tuning.BATCH_NAMES:
             args = tuning.arguments(original, name)
             flags = [x for x in args if x.startswith("--")]
             self.assertEqual(len(flags), len(set(flags)))
@@ -107,7 +107,7 @@ class TuningProfiles(unittest.TestCase):
         options = fixtures.PayloadProfiles.options
         for profile in (None, fixtures.stream_lab.EXTENDED_PROFILE):
             baseline_files, baseline = self.payload(None, **options, stream_profile=profile)
-            for name in tuning.NAMES:
+            for name in tuning.BATCH_NAMES:
                 files, contract = self.payload(name, **options, stream_profile=profile)
                 with self.subTest(name=name, profile=profile):
                     self.assertEqual(self.validate(files, contract), fixtures.NEW)
@@ -159,6 +159,64 @@ class TuningProfiles(unittest.TestCase):
         for value in (None, 1, "true"):
             with self.assertRaises(ValueError):
                 host.tuning_measurement_options(value, True, True, True, None, None)
+
+    def test_tau_context_changes_only_two_limits_and_requires_all_prerequisites(self):
+        options = {name: True for name in ("tokenizer_parity", "tokenizer_materialization", "runtime_observation")}
+        baseline_files, baseline = self.payload(None, **options)
+        files, contract = self.payload("tau8k-eager", **options)
+        self.assertEqual(self.validate(files, contract), fixtures.NEW)
+        self.assertEqual(tuning.context_limit(contract), 8192)
+        self.assertEqual(tuning.context_limit(baseline), 4096)
+        expected = list(baseline["arguments"])
+        for flag in ("--max-model-len", "--max-num-batched-tokens"):
+            expected[expected.index(flag) + 1] = "8192"
+        self.assertEqual(contract["arguments"], expected)
+        for path in baseline_files.keys() - {"lab.json", "python"}:
+            self.assertEqual(files[path], baseline_files[path])
+        with fixtures.payload_tree(files) as root:
+            self.assertEqual(host.tuning_module(contract, root).context_limit(contract), 8192)
+            command = host.create_command("owned", "owner", root, "/weights", contract, {"config": {"Env": []}})
+            for flag, value in (("--network", "none"), ("--memory", "512g"), ("--memory-swap", "512g")):
+                self.assertEqual(command[command.index(flag) + 1], value)
+        for changes in ({}, {"tokenizer_parity": True}, {**options, "stream_cohort": True},
+                        {**options, "stream_profile": "anything"}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.payload("tau8k-eager", **changes)
+        for key in (*options, "execution_profile"):
+            bad = copy.deepcopy(contract)
+            del bad[key]
+            with self.assertRaises(ValueError): self.validate(files, bad)
+        for changes in ({"stream_cohort": {}}, {"provider_conformance": {}}, {"gpu_security": "confidential"},
+                        {"gpu_family": "B200"}, {"data_parallel_size": 1}, {"model_profile": fixtures.profiles.select()}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.validate(files, {**contract, **changes})
+        with self.assertRaises(ValueError):
+            self.validate({**files, "tuning.py": files["tuning.py"] + b"\n"}, contract)
+        for flag in ("--max-model-len", "--max-num-batched-tokens", "--max-num-seqs"):
+            for value in ("4096", "16384", "8"):
+                bad = copy.deepcopy(contract)
+                bad["arguments"][bad["arguments"].index(flag) + 1] = value
+                with self.subTest(flag=flag, value=value), self.assertRaises(ValueError):
+                    self.validate(files, bad)
+            with self.assertRaises(ValueError):
+                tuning.arguments(baseline["arguments"] + [flag, "1"], "tau8k-eager")
+
+    def test_tau_cli_accepts_only_the_explicit_prerequisite_set(self):
+        names = tuple(fixtures.PayloadProfiles.options)
+        command = [host.SCRIPT, "--prepare-nonconfidential-uncensored-b300-dp2", "/unused",
+                   "--model-profile", "uncensored", "--execution-profile", "tau8k-eager"]
+        for choices in itertools.product((False, True), repeat=len(names)):
+            selected = {name: True for name, chosen in zip(names, choices) if chosen}
+            flags = ["--" + name.replace("_", "-") for name in selected]
+            with self.subTest(selected=selected), mock.patch.object(sys, "argv", command + flags), \
+                    mock.patch.object(host, "prepare") as prepare:
+                if set(selected) == {"tokenizer_parity", "tokenizer_materialization", "runtime_observation"}:
+                    self.assertEqual(host.main(), 0)
+                    prepare.assert_called_once_with("/unused", "local-correctness", "B300", "nonconfidential", 2,
+                        model_profile="uncensored", execution_profile="tau8k-eager", **selected)
+                else:
+                    with self.assertRaises(ValueError): host.main()
+                    prepare.assert_not_called()
 
     def test_graph_dispatch_covers_target_and_drafter_through_eight_requests(self):
         def manager(sizes, query_len, varlen):

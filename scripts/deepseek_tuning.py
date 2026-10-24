@@ -4,7 +4,8 @@
 import hashlib
 import json
 
-NAMES = ("batch8-eager", "batch8-graphs", "batch8-dspark")
+BATCH_NAMES = ("batch8-eager", "batch8-graphs", "batch8-dspark")
+NAMES = (*BATCH_NAMES, "tau8k-eager")
 REVISION = "5df63a7203cdb9328d824a27b682e77c7b9928be"
 # https://github.com/vllm-project/vllm/tree/5df63a7203cdb9328d824a27b682e77c7b9928be
 # Configuration and graph-candidate implementation used by these profiles.
@@ -42,11 +43,19 @@ def enabled(contract):
             and "tuning.py" in contract.get("sources", {})
             and "provider_conformance" not in contract)
     measurement_keys = ("tokenizer_parity", "tokenizer_materialization", "runtime_observation", "stream_cohort")
-    if any(key in contract for key in measurement_keys):
+    if name == "tau8k-eager":
+        require(contract.get("tokenizer_parity") is True and contract.get("runtime_observation") is True
+                and type(contract.get("tokenizer_materialization")) is dict
+                and "stream_cohort" not in contract)
+    elif any(key in contract for key in measurement_keys):
         require(contract.get("tokenizer_parity") is True and contract.get("runtime_observation") is True
                 and type(contract.get("tokenizer_materialization")) is dict
                 and type(contract.get("stream_cohort")) is dict)
     return name
+
+
+def context_limit(contract):
+    return 8192 if enabled(contract) == "tau8k-eager" else 4096
 
 
 def arguments(baseline, name):
@@ -61,6 +70,13 @@ def arguments(baseline, name):
         result[index] = value
 
     require("--speculative-config" not in result and result.count("--enforce-eager") == 1)
+    if name == "tau8k-eager":
+        # Pinned SchedulerConfig.verify_max_model_len requires a batch token
+        # budget >= context when chunked prefill is disabled. Keep one sequence.
+        replace("--max-num-seqs", "1", "1")
+        replace("--max-model-len", "4096", "8192")
+        replace("--max-num-batched-tokens", "4096", "8192")
+        return result
     replace("--max-num-seqs", "1", "8")
     if name != "batch8-eager":
         result.remove("--enforce-eager")

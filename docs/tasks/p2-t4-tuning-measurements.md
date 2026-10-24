@@ -42,3 +42,6 @@ tau2, production, concurrent-load or confidential qualification is implied.
 
 Focused checks: `test_deepseek_tuning.py`, `test_deepseek_model_profile.py`,
 `test_stream_lab.py`, and `test_tau_cpu_parity.py`; also run `make check`.
+
+The separate [8K tau prerequisite](p2-t4-tau-context.md) is not a streaming
+performance profile and cannot be combined with these cohorts.

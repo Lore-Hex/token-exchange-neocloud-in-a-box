@@ -767,7 +767,8 @@ def application_and_request(contract, sources, modules, application, measured):
             else:
                 local, _ = prepare_local_tokenizer(contract, started)
             result["tokenizer_parity"] = PARITY.run(bounded_request, local, model, CORRECTNESS,
-                deadline=started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE)
+                deadline=started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE,
+                **({"max_model_len": tuning.context_limit(contract)} if tuning else {}))
         elif correctness:
             result["correctness"] = CORRECTNESS.run(
                 correctness_request, model, deadline=started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE)

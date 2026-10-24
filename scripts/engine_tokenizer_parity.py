@@ -82,6 +82,15 @@ def binding(correctness):
                    "probes": probes(), "template": TEMPLATE, "max_completion_tokens": 1})
 
 
+def runtime_identity(correctness, max_model_len):
+    require(type(max_model_len) is int and max_model_len in (4096, 8192))
+    if max_model_len == 4096:
+        return {"schema": "nib.tokenizer-parity/v1", "binding_sha256": binding(correctness)}
+    return {"schema": "nib.tokenizer-parity/v2", "max_model_len": max_model_len,
+            "binding_sha256": digest({"parity_binding_sha256": binding(correctness),
+                                      "max_model_len": max_model_len})}
+
+
 def verify_sources(read_source, selected_root, correctness):
     correctness.verify_sources(read_source, selected_root)
     for name, sha in SOURCES.items():
@@ -127,14 +136,15 @@ def validate_local(row, correctness):
     return row
 
 
-def run(request, local, model, correctness, *, deadline, clock=time.monotonic):
+def run(request, local, model, correctness, *, deadline, clock=time.monotonic, max_model_len=4096):
+    identity = runtime_identity(correctness, max_model_len)
     validate_local(local, correctness)
     started = clock()
     deadline = min(deadline, started + TOTAL_SECONDS)
     rows = [{"id": name, "result": "not_run", "failure": "not-run", "requests": 0,
              "local": {k: item[k] for k in ("count", "tokens_sha256")}, "server": None, "usage": None}
             for name, item in zip(IDS, local["cases"])]
-    result = {"schema": "nib.tokenizer-parity/v1", "binding_sha256": binding(correctness), "cases": rows,
+    result = {**identity, "cases": rows,
               "requests_started": 0, "all_cases_pass": False, "elapsed_ms": 0,
               "quality_accepted": False, "confidential": False, "tau_acceptance": False}
     for probe, row in zip(probes(), rows):
@@ -159,7 +169,7 @@ def run(request, local, model, correctness, *, deadline, clock=time.monotonic):
             response = correctness.strict_json(call("/tokenize", {**common, "return_token_strs": False}))
             require(type(response) is dict and set(response) == {"count", "max_model_len", "tokens", "token_strs"}
                     and response["token_strs"] is None and type(response["max_model_len"]) is int
-                    and response["max_model_len"] == 4096)
+                    and response["max_model_len"] == max_model_len)
             row["server"] = tokens(response["tokens"])
             require(type(response["count"]) is int and response["count"] == row["server"]["count"])
             row["failure"] = "token-ids"
@@ -187,13 +197,14 @@ def run(request, local, model, correctness, *, deadline, clock=time.monotonic):
             break
     result["elapsed_ms"] = max(0, int((clock() - started) * 1000))
     result["all_cases_pass"] = all(row["result"] == "pass" for row in rows)
-    return validate(result, correctness)
+    return validate(result, correctness, max_model_len=max_model_len)
 
 
-def validate(row, correctness):
-    require(type(row) is dict and set(row) == {"schema", "binding_sha256", "cases", "requests_started",
+def validate(row, correctness, *, max_model_len=4096):
+    identity = runtime_identity(correctness, max_model_len)
+    require(type(row) is dict and set(row) == set(identity) | {"cases", "requests_started",
             "all_cases_pass", "elapsed_ms", "quality_accepted", "confidential", "tau_acceptance"}
-            and row["schema"] == "nib.tokenizer-parity/v1" and row["binding_sha256"] == binding(correctness)
+            and all(type(row[key]) is type(value) and row[key] == value for key, value in identity.items())
             and all(row[k] is False for k in ("quality_accepted", "confidential", "tau_acceptance"))
             and type(row["all_cases_pass"]) is bool and type(row["requests_started"]) is int
             and 0 <= row["requests_started"] <= 8 and type(row["elapsed_ms"]) is int
@@ -213,7 +224,7 @@ def validate(row, correctness):
         usage = item["usage"]
         if usage is not None:
             require(type(usage) is dict and set(usage) == {"prompt_tokens", "completion_tokens"}
-                    and type(usage["prompt_tokens"]) is int and 0 < usage["prompt_tokens"] <= 4096
+                    and type(usage["prompt_tokens"]) is int and 0 < usage["prompt_tokens"] <= max_model_len
                     and type(usage["completion_tokens"]) is int and usage["completion_tokens"] == 1
                     and item["requests"] == 2 and item["server"] == item["local"])
         if item["requests"] == 2:
