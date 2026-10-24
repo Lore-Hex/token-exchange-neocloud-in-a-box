@@ -17,6 +17,7 @@ from unittest import mock
 import engine_tokenizer_parity as parity
 import engine_local_correctness as correctness
 import test_deepseek_lab as fixtures
+from test_evidence_history import git
 
 lab, host, ROOT = fixtures.lab, fixtures.host, fixtures.ROOT
 CANARY = "private-response-canary"
@@ -30,9 +31,9 @@ def local():
     return parity.local_measure(tokenizer, tool_type, correctness)
 
 
-def response(path, payload, deadline):
+def response(path, payload, deadline, *, max_model_len=4096):
     if path == "/tokenize":
-        return parity.encoded({"count": len(TOKEN_IDS), "max_model_len": 4096,
+        return parity.encoded({"count": len(TOKEN_IDS), "max_model_len": max_model_len,
                                "tokens": TOKEN_IDS, "token_strs": None})
     return parity.encoded({"object": "chat.completion", "model": lab.MODEL,
         "choices": [{"index": 0, "finish_reason": "length", "message": {"role": "assistant", "content": CANARY}}],
@@ -63,6 +64,46 @@ class ParityTests(unittest.TestCase):
             self.assertFalse(tokenize["add_special_tokens"])
             self.assertFalse(tokenize["return_token_strs"])
             self.assertLessEqual(first.args[2] - time.monotonic(), parity.REQUEST_SECONDS)
+
+    def test_legacy_default_receipts_remain_byte_identical(self):
+        old = types.ModuleType("previous_parity")
+        raw = git(ROOT, "show", "cff27405db07870702029b963236897f463c06bc:scripts/engine_tokenizer_parity.py")
+        exec(compile(raw, "previous_parity", "exec"), old.__dict__)
+        for request in (response, lambda *_: b"{}", mock.Mock(side_effect=TimeoutError)):
+            args = (request, local(), lab.MODEL, correctness)
+            before = old.run(*args, deadline=10, clock=lambda: 1)
+            after = parity.run(*args, deadline=10, clock=lambda: 1)
+            self.assertEqual(parity.encoded(after), old.encoded(before))
+
+    def test_8k_runtime_context_is_explicit_bound_and_never_downgraded(self):
+        def extended(path, payload, deadline):
+            value = json.loads(response(path, payload, deadline))
+            if path == "/tokenize":
+                value["max_model_len"] = 8192
+            return parity.encoded(value)
+        row = self.run_probe(extended, max_model_len=8192)
+        self.assertTrue(row["all_cases_pass"])
+        self.assertEqual(row["max_model_len"], 8192)
+        self.assertEqual(row["schema"], "nib.tokenizer-parity/v2")
+        self.assertNotEqual(row["binding_sha256"], parity.binding(correctness))
+        self.assertFalse(row["tau_acceptance"])
+        parity.validate(row, correctness, max_model_len=8192)
+        with self.assertRaises(ValueError): parity.validate(row, correctness)
+        with self.assertRaises(ValueError): parity.validate(self.run_probe(), correctness, max_model_len=8192)
+        for changes in ({"max_model_len": 4096}, {"max_model_len": 8192.0}, {"max_model_len": True},
+                        {"binding_sha256": parity.binding(correctness)}, {"tau_acceptance": True}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                parity.validate({**row, **changes}, correctness, max_model_len=8192)
+        for request, limit in ((extended, 4096), (response, 8192)):
+            failed = self.run_probe(request, max_model_len=limit)
+            self.assertFalse(failed["all_cases_pass"])
+            self.assertEqual(failed["requests_started"], 1)
+            self.assertEqual(failed["cases"][0]["failure"], "protocol")
+        for limit in (None, True, 8192.0, "8192", 8193, 1048576):
+            request = mock.Mock()
+            with self.subTest(limit=limit), self.assertRaises(ValueError):
+                self.run_probe(request, max_model_len=limit)
+            request.assert_not_called()
 
     def test_local_invocation_uses_pinned_tool_normalizer_and_explicit_framing(self):
         tokenizer, tool = mock.Mock(), mock.Mock()
@@ -216,7 +257,11 @@ class HarnessTests(unittest.TestCase):
                                    inspect=lambda *args: {}, apply=lambda *args: {"stages": 5})
         contract = {"operation": "local-correctness", "gpu_family": "B300", "tokenizer_parity": True,
                     "paths": ["/selected"]}
-        for failure in (None, "sources", "child", "usage"):
+        for failure in (None, "sources", "child", "usage", "8k"):
+            limit = 8192 if failure == "8k" else 4096
+            tuning = mock.Mock() if failure == "8k" else None
+            if tuning is not None:
+                tuning.context_limit.return_value = limit
             engine = mock.Mock(pid=99999999)
             engine.poll.return_value = None
             engine.wait.return_value = 0
@@ -229,13 +274,14 @@ class HarnessTests(unittest.TestCase):
             def http(path, **kwargs):
                 return b"ok" if path == "/health" else json.dumps({"data": [{"id": lab.MODEL}]}).encode()
             def request(*args):
-                raw = response(*args)
+                raw = response(*args, max_model_len=limit)
                 if failure == "usage" and args[0] == "/v1/chat/completions":
                     row = json.loads(raw)
                     row["usage"].update(prompt_tokens=4, total_tokens=5)
                     return parity.encoded(row)
                 return raw
             with mock.patch.object(lab, "CORRECTNESS", correctness), mock.patch.object(lab, "PARITY", parity), \
+                    mock.patch.object(lab, "tuning_module", return_value=tuning), \
                     mock.patch.object(correctness, "verify_sources"), \
                     mock.patch.object(parity, "verify_sources", side_effect=ValueError() if failure == "sources" else None), \
                     mock.patch.object(lab, "check_scratch_mounts"), \
@@ -248,14 +294,17 @@ class HarnessTests(unittest.TestCase):
                     mock.patch.object(lab.subprocess, "Popen", return_value=engine) as start, \
                     mock.patch.object(lab.os, "killpg"):
                 row = lab.application_and_request(contract, {}, [None, None, None, app], {"files": []}, {})
-            self.assertEqual(row["functional_pass"], failure is None)
+            self.assertEqual(row["functional_pass"], failure in (None, "8k"))
             self.assertEqual(start.call_count, int(failure != "sources"))
             self.assertEqual(row["engine_stopped"], failure != "sources")
             self.assertNotIn("correctness", row)
             self.assertIsNone(row["completion"])
             self.assertNotIn(CANARY, json.dumps(row))
             unchanged.assert_not_called()
-            self.assertEqual(requested.call_count, 8 if failure is None else 2 if failure == "usage" else 0)
+            self.assertEqual(requested.call_count, 8 if failure in (None, "8k") else 2 if failure == "usage" else 0)
+            if failure == "8k":
+                tuning.context_limit.assert_called_once_with(contract)
+                parity.validate(row["tokenizer_parity"], correctness, max_model_len=8192)
             if failure != "sources":
                 engine.wait.assert_called()
 
@@ -287,6 +336,17 @@ class HarnessTests(unittest.TestCase):
             # the new host validator loads both comparison helpers by exact hash.
             with mock.patch.object(host, "load", side_effect=load):
                 host.validate_result(row, root, contract, self.fixture.builder.recorder)
+                extended = parity.run(lambda *args: response(*args, max_model_len=8192), local(), lab.MODEL,
+                                      correctness, deadline=time.monotonic() + 5, max_model_len=8192)
+                tuning = mock.Mock()
+                tuning.context_limit.return_value = 8192
+                with mock.patch.object(host, "tuning_module", return_value=tuning):
+                    host.validate_result({**row, "tokenizer_parity": extended}, root, contract, self.fixture.builder.recorder)
+                    tuning.context_limit.assert_called_once_with(contract)
+                    with self.assertRaises(ValueError):
+                        host.validate_result(row, root, contract, self.fixture.builder.recorder)
+                with self.assertRaises(ValueError):
+                    host.validate_result({**row, "tokenizer_parity": extended}, root, contract, self.fixture.builder.recorder)
                 for changes in ({"schema": "nib.deepseek-lab-correctness-result/v2"},
                                 {"correctness": row["tokenizer_parity"]}, {"tokenizer_parity": None},
                                 {"engine_stopped": False}, {"completion": {"private": CANARY}}):
