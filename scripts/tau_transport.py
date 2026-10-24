@@ -327,11 +327,17 @@ class ParentSession:
     counts are synthetic in tests; a real count verifier/endpoint adapter is absent.
     """
     def __init__(self, channel, manifest, manifest_sha, role, records, *, assertions=(), clock=time.monotonic,
-                 support_probe=False):
-        if support_probe:
-            import tau_support_probe
+                 support_probe=False, selected_operational=False):
+        require(type(support_probe) is bool and type(selected_operational) is bool
+                and not (support_probe and selected_operational))
+        resource_only = support_probe or selected_operational
+        if resource_only:
+            if selected_operational:
+                import tau_selected_policy as policy
+            else:
+                import tau_support_probe as policy
             require(role == "candidate" and records == [])
-            self.manifest = tau_support_probe.transport_manifest(snapshot(manifest, worker.MAX_REQUEST), manifest_sha)
+            self.manifest = policy.transport_manifest(snapshot(manifest, worker.MAX_REQUEST), manifest_sha)
         else:
             self.manifest = smoke_manifest(manifest, manifest_sha)
         require(role in ("candidate", "reference") and type(records) is list and len(records) <= 128)
@@ -339,8 +345,9 @@ class ParentSession:
         for record in self.records:
             require(type(record) is dict and set(record) == {"bounds", "response"})
         self.channel, self.manifest_sha, self.role, self.sequence = channel, manifest_sha, role, 0
-        self.bridge = worker.Bridge(tau, self.manifest["input"] if support_probe else self.manifest["settings"],
-                                    role, self.dispatch, clock=clock, **({"support_probe": True} if support_probe else {}))
+        self.bridge = worker.Bridge(tau, self.manifest["input"] if resource_only else self.manifest["settings"],
+                                    role, self.dispatch, clock=clock, support_probe=support_probe,
+                                    selected_operational=selected_operational)
         self.started, self.result = clock(), None
         require(type(assertions) in (list, tuple) and all(type(item) is str for item in assertions))
         self.bridge.assertions = snapshot(list(assertions), worker.MAX_RESPONSE)

@@ -45,6 +45,8 @@ Still required: a live 8K prerequisite run, a fresh selected-model prefix
 measurement, live wiring of the [process-owner channel](p2-t4-tau-owner-channel.md), and actual bounded tau
 trials with distinct pinned CPU user/verifier models. Keep original benchmark
 qualification separate from an operational selected-weight trial.
+The [selected-checkpoint session](p2-t4-selected-tau-session.md) defines that
+separate policy and shared-budget transport; it is not yet a live launch.
 
 Focused tests: `test_deepseek_tuning.py`, `test_engine_tokenizer_parity.py`,
 `test_tokenizer_materialization.py`, `test_tau_cpu_parity.py` and

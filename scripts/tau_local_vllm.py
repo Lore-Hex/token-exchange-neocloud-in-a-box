@@ -162,26 +162,8 @@ def trial_roles(role):
     return (role, "simulator", "evaluator")
 
 
-class LocalVllmSession(transport.ParentSession):
-    """Use real local HTTP only through the existing pipe, Bridge and Budget.
-
-    The separate smoke manifest remains quality_eligible=false. Remote model
-    APIs, container-worker wiring and runtime-identity proof are not added here.
-    """
-    def __init__(self, channel, manifest, manifest_sha, role, ports, *, assertions=(),
-                 selected_target_only=False, clock=time.monotonic):
-        super().__init__(channel, manifest, manifest_sha, role, [], assertions=assertions, clock=clock)
-        require(type(selected_target_only) is bool)
-        roles = trial_roles(role) if selected_target_only else tau.ROLES
-        require(type(ports) is dict and set(ports) == set(roles))
-        self.endpoints = {name: LocalVllm(port, clock=clock) for name, port in ports.items()}
-        # The model under test cannot also act as its own user or evaluator.
-        if selected_target_only:
-            require(len(set(ports.values())) == len(roles))
-        else:
-            require(ports["candidate"] != ports["reference"]
-                    and all(ports[name] not in (ports["candidate"], ports["reference"])
-                            for name in ("simulator", "evaluator")))
+class CountedSession(transport.ParentSession):
+    """Shared count-before-generation path; concrete sessions own admission."""
 
     def prepare_record(self, role, body, deadline):
         # Tokenization is local and non-generating; it must finish within the
@@ -207,6 +189,28 @@ class LocalVllmSession(transport.ParentSession):
     def close(self):
         super().close()
         self.endpoints.clear()
+
+
+class LocalVllmSession(CountedSession):
+    """Use real local HTTP only through the existing pipe, Bridge and Budget.
+
+    The separate smoke manifest remains quality_eligible=false. Remote model
+    APIs, container-worker wiring and runtime-identity proof are not added here.
+    """
+    def __init__(self, channel, manifest, manifest_sha, role, ports, *, assertions=(),
+                 selected_target_only=False, clock=time.monotonic):
+        super().__init__(channel, manifest, manifest_sha, role, [], assertions=assertions, clock=clock)
+        require(type(selected_target_only) is bool)
+        roles = trial_roles(role) if selected_target_only else tau.ROLES
+        require(type(ports) is dict and set(ports) == set(roles))
+        self.endpoints = {name: LocalVllm(port, clock=clock) for name, port in ports.items()}
+        # The model under test cannot also act as its own user or evaluator.
+        if selected_target_only:
+            require(len(set(ports.values())) == len(roles))
+        else:
+            require(ports["candidate"] != ports["reference"]
+                    and all(ports[name] not in (ports["candidate"], ports["reference"])
+                            for name in ("simulator", "evaluator")))
 
 
 if __name__ == "__main__":
