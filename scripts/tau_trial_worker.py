@@ -179,12 +179,12 @@ class Abort(BaseException):
 
 @contextlib.contextmanager
 def alarm(deadline, clock=time.monotonic):
+    start = time.monotonic()
     previous = signal.getsignal(signal.SIGALRM)
     timer = signal.getitimer(signal.ITIMER_REAL)
     require(timer[1] == 0.0)
-    start = time.monotonic()
     if timer[0]:
-        deadline = min(deadline, clock() + timer[0])
+        deadline = min(deadline, clock() + timer[0] - (time.monotonic() - start))
     def expired(signum, frame):
         raise Abort("timeout")
     try:
@@ -196,10 +196,28 @@ def alarm(deadline, clock=time.monotonic):
         if clock() >= deadline:
             raise Abort("timeout")
     finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous)
-        if timer[0]:
-            signal.setitimer(signal.ITIMER_REAL, max(0.000001, timer[0] - (time.monotonic() - start)))
+        # Disarming does not discard a pending signal. Consume it while blocked
+        # before restoring SIG_DFL, which would otherwise terminate the process.
+        mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGALRM})
+        try:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            pending = signal.SIGALRM in signal.sigpending()
+            if pending:
+                signal.sigwait({signal.SIGALRM})
+            signal.signal(signal.SIGALRM, previous)
+            remaining = timer[0] - (time.monotonic() - start)
+            if timer[0] and remaining > 0:
+                signal.setitimer(signal.ITIMER_REAL, remaining)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+        if timer[0] and remaining <= 0:
+            # Never rearm an expired outer timer for one microsecond during
+            # unwinding. Deliver its original handler (and Abort type) now.
+            if callable(previous):
+                previous(signal.SIGALRM, None)
+            raise Abort("timeout")
+        if pending:
+            raise Abort("timeout")
 
 
 class Bridge:
