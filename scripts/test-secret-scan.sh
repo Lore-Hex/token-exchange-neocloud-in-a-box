@@ -265,9 +265,16 @@ done <<'CASES'
 2026-10-24-cpu-http-threads-pass/output.log|tokens_sha256|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe|
 CASES
 
-# Selected 1854 originals retain exact public hashes, not whole-line exemptions.
+# Selected trial originals retain exact public hashes, not whole-line exemptions.
+for trial_set in protocol-failure-1854 tool-error-2009; do
 while IFS='|' read -r relative format field known suffix; do
-  target="$tmp/selected-trial/evidence/p2/2026-10-24-selected-tau-protocol-failure-1854/$relative"
+  target="$tmp/selected-trial/evidence/p2/2026-10-24-selected-tau-$trial_set/$relative"
+  if [[ "$trial_set" == tool-error-2009 ]]; then
+    case "$field" in
+      evaluator-tokenizer.json) known=07ed74d0563fd884342188b317a55e28bfa9a24563b3b705b16868dfd99e68e0 ;;
+      simulator-tokenizer.json) known=db0c5e83d5b746a7f5e6c5f33a0e3d9e1cbb47c46961d8ac0a4a9bcc41437229 ;;
+    esac
+  fi
   mkdir -p "$(dirname "$target")"
   write_receipt_field "$target" "$field" "$known"
   expect_receipt_scan "$target" 0
@@ -322,6 +329,7 @@ cpu/evaluator-tokenizer.json|compact|independent_tokens_sha256|fbaf9b9465ebf0380
 cpu/evaluator-tokenizer.json|compact|independent_tokens_sha256|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|
 cpu/evaluator-tokenizer.json|compact|independent_tokens_sha256|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe|
 CASES
+done
 
 # Stream originals get the same exact field/value/path boundaries.
 for stream_set in window-exhaustion 600s-complete selected-timeout selected-provider selected-tau8k selected-graphs; do
