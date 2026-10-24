@@ -4,6 +4,7 @@
 import copy
 from contextlib import ExitStack, contextmanager
 import datetime
+from itertools import product
 import os
 from pathlib import Path
 import signal
@@ -31,6 +32,7 @@ def inputs():
     ready = {"support": cpu.session.probes.encoded(c), "candidate": gpu.gpu.observer.encoded(g)}
     toolkit = {"git_sha": cpu.PRODUCER["git_sha"], "files": {
         name: cpu.PRODUCER["source_sha256"] for name in (*launch.cpu_rec.SOURCES, *launch.cpu_rec.OWNER_SOURCES)}}
+    toolkit["files"][launch.gpu_rec.PROBE] = tau.digest((launch.ROOT / launch.gpu_rec.PROBE).read_bytes())
     with mock.patch.object(cpu.session.identity, "source_receipt"), \
             mock.patch.object(launch.runner, "selected_policy", return_value=gpu.gpu.policy):
         frozen, expiry, held, image = launch.admit(ready, toolkit, cpu.session, gpu.gpu, gpu.contract(),
@@ -39,8 +41,8 @@ def inputs():
 
 
 class SelectedLaunchTests(unittest.TestCase):
-    def test_launch_failure_reaps_started_peer_and_records_no_false_success(self):
-        for failure in ("second-spawn", "readiness", "scorer", "join", "post-scorer-interrupt"):
+    def test_launch_joins_cleanup_without_promoting_failed_trials(self):
+        for failure in (None, "second-spawn", "readiness", "scorer", "join", "post-scorer-interrupt", "scorer-fail"):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
                 root = Path(temporary).resolve()
                 ready, toolkit, frozen, expiry, held, image = inputs()
@@ -60,7 +62,7 @@ class SelectedLaunchTests(unittest.TestCase):
                     processes.append(process)
                     return process
                 def cleanup(owned, deadline, *, abort):
-                    self.assertEqual(abort, failure != "join")
+                    self.assertEqual(abort, failure not in (None, "join", "scorer-fail"))
                     observed.update(owned)
                     return {name: 1 if name == "candidate" else 0 for name in owned}
                 def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, deadline,
@@ -90,17 +92,22 @@ class SelectedLaunchTests(unittest.TestCase):
                                                      return_value=ready)),
                     (launch, "admit", mock.Mock(return_value=(frozen, expiry, held, image))),
                     (launch.runner, "run", mock.Mock(side_effect=ValueError("PRIVATE_CANARY") if failure == "scorer" else None,
-                                                     return_value={"result": "pass"})),
+                                                     return_value={"result": "fail" if failure == "scorer-fail" else "pass"})),
                     (launch, "close_and_reap", mock.Mock(side_effect=cleanup)),
                     (launch, "final_join", mock.Mock(side_effect=ValueError("PRIVATE_CANARY") if failure == "join" else None,
-                                                      return_value={"cpu": {}, "gpu": {}})))
+                                                      return_value={"owner_reports": {"cpu": {}, "gpu": {}},
+                                                          "result": "fail" if failure == "scorer-fail" else "pass",
+                                                          "host": {"driver": "580.178.04", "cuda": "13.0"}})))
                 for obj, name, value in mocked:
                     stack.enter_context(mock.patch.object(obj, name, value))
-                self.assertEqual(launch.run(args), 1)
+                self.assertEqual(launch.run(args), 0 if failure is None else 1)
                 self.assertEqual(len(observed), 1 if failure == "second-spawn" else 2)
                 report = tau.json_value((args.output / "evidence/output.log").read_bytes())
-                self.assertEqual(report["result"], "fail")
-                self.assertEqual(report["cleanup"], "confirmed" if failure == "post-scorer-interrupt" else "unconfirmed")
+                self.assertEqual(report["result"], "pass" if failure is None else "fail")
+                self.assertEqual(report["cleanup"], "confirmed" if failure in (None, "post-scorer-interrupt", "scorer-fail") else "unconfirmed")
+                envelope = tau.json_value((args.output / "evidence/run.json").read_bytes())
+                self.assertEqual(envelope["result"], report["result"])
+                self.assertEqual(envelope["host"]["driver"], "580.178.04" if report["cleanup"] == "confirmed" else None)
                 if failure in ("second-spawn", "readiness"):
                     self.assertEqual(report["ready_sha256"], {})
                     self.assertIsNone(report["scorer"])
@@ -506,12 +513,17 @@ class SelectedLaunchTests(unittest.TestCase):
                   "support": {"status": "evaluated", "completed_requests": 2}}
         runtime = {**cpu.result(held), "schema": "nib.tau-cpu-session/v4", "owner": finish["support"]}
         c = {"schema": "nib.tau-cpu-owner-run/v1", "git_sha": toolkit["git_sha"],
-            "image_id": "sha256:" + image, "sources": toolkit["files"], "result": "pass",
+            "image_id": "sha256:" + image, "sources": {name: toolkit["files"][name]
+                for name in (*launch.cpu_rec.SOURCES, *launch.cpu_rec.OWNER_SOURCES)}, "result": "pass",
             "cleanup": dict.fromkeys(("container", "image", "build_completion"), "confirmed"), "runtime": runtime}
         packet = gpu.gpu.worker.decode(ready["candidate"])
         experiment = {"tau_owner": {"ready_sha256": tau.digest(ready["candidate"]), **finish["candidate"]},
             "tokenizer_parity": packet["parity"], "runtime_observation": {"samples": [packet["sample"]]},
-            "engine_stopped": True, "functional_pass": True}
+            "engine_stopped": True, "functional_pass": True,
+            "hardware": {"status": "observed", "selected_gpus": 8, "family": "B300", "cc_feature": "disabled",
+                "environment": "unavailable", "devtools": "off", "multigpu": "none", "system_ready": None,
+                "driver": "580.178.04", "cuda_driver": "13.0", "total_kib": [281640960] * 8,
+                "attestation_verified": False}}
         g = {"provenance": {"git_sha": toolkit["git_sha"], "receipt_sha256": "c" * 64},
             "cleanup": "confirmed", "functional_pass": True, "experiment": experiment,
             "status": "BLOCKED", "deployable": False, "confidential": False}
@@ -522,27 +534,44 @@ class SelectedLaunchTests(unittest.TestCase):
                    lambda c, g, s: g["provenance"].update(receipt_sha256="f" * 64),
                    lambda c, g, s: g["experiment"].update(engine_stopped=False),
                    lambda c, g, s: g.update(cleanup="unconfirmed"),
-                   lambda c, g, s: s.update(result="fail"))
-        for change in changes:
-            with tempfile.TemporaryDirectory() as temporary:
+                   lambda c, g, s: s.update(result="fail" if s["result"] == "pass" else "pass"),
+                   lambda c, g, s: g["experiment"]["hardware"].update(driver="PRIVATE_CANARY"),
+                   lambda c, g, s: g["experiment"]["hardware"].update(driver="595.91.07"),
+                   lambda c, g, s: g["experiment"]["hardware"].update(cuda_driver=None),
+                   lambda c, g, s: g["experiment"]["hardware"].update(attestation_verified=True),
+                   lambda c, g, s: g["experiment"]["hardware"].update(selected_gpus=4))
+        for failed, change in product((False, True), changes):
+            with self.subTest(failed=failed, change=change), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary).resolve()
                 dc, dg, ds = copy.deepcopy(c), copy.deepcopy(g), copy.deepcopy(scorer)
+                if failed:
+                    dc["result"] = dc["runtime"]["result"] = ds["result"] = "fail"
+                    dc["runtime"]["owner"]["status"] = "protocol_error"
+                    dg["functional_pass"] = dg["experiment"]["functional_pass"] = False
+                    dg["experiment"]["tau_owner"]["status"] = "protocol_error"
+                    for owner in ds["diagnostic"]["owner_finish"].values():
+                        owner["status"] = "protocol_error"
                 if change: change(dc, dg, ds)
                 for name, report in (("cpu", dc), ("gpu", dg)):
                     directory = root / name
                     directory.mkdir()
-                    documents = {"run.json": {"git_sha": toolkit["git_sha"], "result": "pass" if name == "cpu" else "fail"},
+                    documents = {"run.json": {"git_sha": toolkit["git_sha"],
+                        "result": dc["result"] if name == "cpu" else "fail", "execution": "hardware",
+                        "hardware_validated": False, "host": {"gpus": "eight-selected-B300", "driver": "580.178.04", "cuda": "13.0"}},
                                  "output.log": report}
                     if name == "cpu": documents.update({key: cpu.session.llama.worker.decode(value.encode())
                         for key, value in cpu.session.llama.worker.decode(ready["support"])["receipts"].items()})
                     for file, row in documents.items():
                         (directory / file).write_bytes(tau.encoded(row))
                 args = (root, ready, held, image, toolkit, gpu.gpu, gpu.contract(), "c" * 64, ds,
-                        {"candidate": 1, "support": 0}, time.monotonic() + 3)
+                        {"candidate": 1, "support": 1 if failed else 0}, time.monotonic() + 3)
                 if change:
                     with self.assertRaises((ValueError, gpu.gpu.worker.Abort)): launch.final_join(*args)
                 else:
-                    self.assertEqual(set(launch.final_join(*args)), {"cpu", "gpu"})
+                    joined = launch.final_join(*args)
+                    self.assertEqual(set(joined["owner_reports"]), {"cpu", "gpu"})
+                    self.assertEqual(joined["result"], "fail" if failed else "pass")
+                    self.assertEqual(joined["host"], {"gpus": "eight-selected-B300", "driver": "580.178.04", "cuda": "13.0"})
 
 
 if __name__ == "__main__":
