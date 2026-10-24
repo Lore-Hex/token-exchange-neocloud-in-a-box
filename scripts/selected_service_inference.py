@@ -53,16 +53,31 @@ def require(condition, category):
 @contextmanager
 def cancellation(shutdown):
     handlers = {number: signal.getsignal(number) for number in (signal.SIGINT, signal.SIGTERM)}
+    restoring, cancelled = False, False
     def stopped(*_):
+        nonlocal cancelled
+        if cancelled or shutdown.is_set():
+            return
+        cancelled = True  # Latch before entering the event's lock.
         shutdown.set()
-        raise Rejected("cancelled")
+        if not restoring:
+            raise Rejected("cancelled")
     try:
         for number in handlers:
             signal.signal(number, stopped)
         yield
     finally:
-        for number, handler in handlers.items():
-            signal.signal(number, handler)
+        restoring = True
+        mask = signal.pthread_sigmask(signal.SIG_BLOCK, set(handlers))
+        try:
+            for number, handler in handlers.items():
+                signal.signal(number, handler)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+    # A first signal during restoration still fails success, but cannot replace
+    # an exception already unwinding or leave the other helper handler installed.
+    if shutdown.is_set():
+        raise Rejected("cancelled")
 
 
 def checkpoint(supervisor, identities, deadline):

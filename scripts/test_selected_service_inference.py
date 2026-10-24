@@ -331,6 +331,47 @@ class InferenceTests(unittest.TestCase):
                 self.assertTrue(result["usage_unknown"])
                 state.responses[2].__exit__.assert_called_once()
 
+    def test_cancellation_during_handler_restoration_finishes_and_preserves_original(self):
+        for mode in ("repeat", "first-at-restore", "preserve-error", "already-marked"):
+            with self.subTest(mode=mode), ExitStack() as stack:
+                shutdown = threading.Event()
+                originals = {number: mock.Mock() for number in (signal.SIGINT, signal.SIGTERM)}
+                handlers, deliveries = dict(originals), []
+                def install(number, handler):
+                    previous, handlers[number] = handlers[number], handler
+                    if number == signal.SIGINT and handler is originals[number]:
+                        # An already-dispatched Python callback can run even
+                        # after the bounded restoration mask has been applied.
+                        deliveries.append(number)
+                        handlers[signal.SIGTERM](signal.SIGTERM, None)
+                    return previous
+                old_mask = {signal.SIGUSR1}
+                mask = stack.enter_context(mock.patch.object(inference.signal, "pthread_sigmask", return_value=old_mask))
+                stack.enter_context(mock.patch.object(inference.signal, "getsignal", side_effect=handlers.__getitem__))
+                setter = stack.enter_context(mock.patch.object(inference.signal, "signal", side_effect=install))
+                original = ValueError(CANARY) if mode == "preserve-error" else None
+                expected = ValueError if original is not None else inference.Rejected
+                if mode == "already-marked":
+                    shutdown.set()
+                with self.assertRaises(expected) as caught:
+                    with inference.cancellation(shutdown):
+                        if mode == "repeat":
+                            try:
+                                handlers[signal.SIGINT](signal.SIGINT, None)
+                            except inference.Rejected as error:
+                                original = error
+                                raise
+                        elif mode == "preserve-error":
+                            raise original
+                if original is not None:
+                    self.assertIs(caught.exception, original)
+                self.assertTrue(shutdown.is_set())
+                self.assertEqual(handlers, originals)
+                self.assertEqual(deliveries, [signal.SIGINT])
+                self.assertEqual(mask.call_args_list, [
+                    mock.call(signal.SIG_BLOCK, set(originals)), mock.call(signal.SIG_SETMASK, old_mask)])
+                self.assertFalse(any(call.args[1] == signal.SIG_IGN for call in setter.call_args_list))
+
     def test_report_tampering_bounds_order_types_claims_and_provenance(self):
         with self.fixture() as state:
             result = self.result(state)
