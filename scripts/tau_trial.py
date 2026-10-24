@@ -74,18 +74,29 @@ def load(name, expected=None, *, modules=None):
     return module
 
 
-def parent_driver(toolkit, *, live_local=False):
+SELECTED_PARENT_MODULES = ("deepseek_model_profile", "tau_support_probe", "tau_selected_policy",
+    "tau_local_vllm", "tau_local_llama", "engine_tokenizer_parity", "tau_llama_identity",
+    "tau_live_identity", "tau_cpu_parity", "tau_owner_channel", "tau_selected_session")
+
+
+def parent_driver(toolkit, *, live_local=False, selected_operational=False):
     # Compile the exact verified closure, never timestamp-valid .pyc files or
     # preexisting same-name modules from an ambient import path.
     modules = {}
+    require(type(selected_operational) is bool and not (selected_operational and live_local))
     names = ("tau_preflight", "tau_trial_worker", "tau_aggregate", "tau_transport")
     if live_local:
         names += ("tau_local_vllm", "tau_local_llama", "engine_tokenizer_parity",
                   "tau_llama_identity", "tau_live_identity")
-    for name in (*names, "tau_pipe_driver"):
+    if selected_operational:
+        names += SELECTED_PARENT_MODULES
+    names += ("tau_pipe_driver",)
+    if selected_operational:
+        names += ("tau_selected_driver",)
+    for name in names:
         path = "scripts/" + name + ".py"
         modules[name] = load(path, toolkit["files"][path], modules=modules)
-    driver = modules["tau_pipe_driver"]
+    driver = modules["tau_selected_driver" if selected_operational else "tau_pipe_driver"]
     if live_local:
         driver.live = modules["tau_live_identity"]
     return driver
@@ -170,6 +181,9 @@ def identity(deadline, parent_pipe=False, *, live_local=False, support_probe=Fal
         names += ("scripts/deepseek_model_profile.py", "scripts/tau_support_probe.py",
                   "scripts/tau_cpu_support_models.json", "scripts/tau_selected_policy.py",
                   "scripts/test_tau_selected_scorer.py")
+        names += tuple("scripts/" + name + ".py" for name in SELECTED_PARENT_MODULES)
+        names += ("scripts/tau_selected_driver.py", "scripts/test_tau_selected_driver.py",
+                  "scripts/tau_cpu_parity.cpp")
     if live_local:
         names += ("scripts/tau_live_trial.py", "scripts/tau_live_identity.py", "scripts/tau_local_vllm.py",
                   "scripts/test_tau_live_trial.py", "scripts/test_tau_local_vllm.py",
