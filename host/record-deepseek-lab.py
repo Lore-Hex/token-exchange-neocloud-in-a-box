@@ -871,7 +871,12 @@ def validate_result(row, bundle, contract, recorder):
         fields.add("tau_owner")
         module = owner_module(contract, bundle)
         if row.get("tau_owner") is not None:
-            module.validate_result(row["tau_owner"])
+            try:
+                module.validate_result(row["tau_owner"])
+            except module.worker.Abort:
+                # This source-verified module owns a fresh Abort class. Normalize
+                # only its validation failure at the host reporting boundary.
+                raise ValueError("invalid tau owner result") from None
             require(row.get("stage") in ("request", "complete"))
         require(row.get("functional_pass") is not True or row.get("tau_owner") is not None
                 and row["tau_owner"]["status"] == "evaluated")

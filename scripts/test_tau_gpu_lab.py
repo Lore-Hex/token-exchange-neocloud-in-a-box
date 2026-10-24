@@ -202,6 +202,23 @@ class GPULabTests(unittest.TestCase):
             cleanup.assert_called_once()
             monitor.wait.assert_called_once()
 
+    def test_fresh_validator_abort_is_normalized_without_swallowing_signals(self):
+        files, contract = host.make_payload(*self.args, **self.options, tau_owner=True)
+        with tuning.fixtures.payload_tree(files) as path:
+            first = host.owner_module(contract, path)
+            second = host.owner_module(contract, path)
+            self.assertIsNot(first.worker.Abort, second.worker.Abort)
+            with mock.patch.object(host, "validate_model_profile", return_value=None), \
+                    self.assertRaisesRegex(ValueError, "invalid tau owner result"):
+                host.validate_result({"tau_owner": {}}, path, contract, None)
+            for error in (KeyboardInterrupt(), SystemExit(7)):
+                with self.subTest(error=type(error)), \
+                        mock.patch.object(host, "validate_model_profile", return_value=None), \
+                        mock.patch.object(host, "owner_module", return_value=second), \
+                        mock.patch.object(second, "validate_result", side_effect=error), \
+                        self.assertRaises(type(error)):
+                    host.validate_result({"tau_owner": {}}, path, contract, None)
+
     def capture(self, failure):
         contract = {**fixtures.contract(), "tau_owner": {"schema": gpu.SCHEMA}}
         raw = gpu.observer.encoded(fixtures.packet())
