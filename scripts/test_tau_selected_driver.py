@@ -165,6 +165,35 @@ class SelectedDriverTests(unittest.TestCase):
         self.assertTrue(all(child.poll() is not None for child in children))
         self.assertTrue(all(channel.closed for channel in self.channels.values()))
 
+    def assert_reap_failure_closes_channels(self, error):
+        sessions = []
+        def abort_trial(session):
+            sessions.append(session)
+            self.addCleanup(session.close)
+            raise worker.Abort('timeout')
+        process = mock.Mock()
+        process.poll.return_value = 0
+        process.wait.side_effect = error
+        with mock.patch.object(driver.subprocess, 'Popen', return_value=process), \
+                mock.patch.object(driver.selected.Session, 'serve_once', autospec=True, side_effect=abort_trial), \
+                self.assertRaises(type(error)) as caught:
+            self.run_child()
+        self.assertIs(caught.exception, error)
+        process.wait.assert_called_once()
+        self.assertEqual(len(sessions), 1)
+        self.assertTrue(all(channel.closed for channel in self.channels.values()))
+        self.assertEqual((sessions[0].channel.read_fd, sessions[0].channel.write_fd), (-1, -1))
+        self.assertTrue(all(not channel.sent for channel in self.channels.values()))
+
+    def test_keyboard_interrupt_during_reap_closes_channels_and_propagates(self):
+        self.assert_reap_failure_closes_channels(KeyboardInterrupt())
+
+    def test_system_exit_during_reap_closes_channels_and_propagates(self):
+        self.assert_reap_failure_closes_channels(SystemExit(7))
+
+    def test_unexpected_reap_error_closes_channels_and_propagates(self):
+        self.assert_reap_failure_closes_channels(RuntimeError('PRIVATE_ERROR_CANARY'))
+
     def test_bad_exit_after_finished_does_not_publish_reward_or_erase_usage(self):
         result = self.run_child(CHILD + '\nraise SystemExit(9)\n')
         self.assertEqual(result['trial']['status'], 'protocol_error')
