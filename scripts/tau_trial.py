@@ -175,6 +175,8 @@ def identity(deadline, parent_pipe=False, *, live_local=False, support_probe=Fal
                   "scripts/test_tau_pipe_driver.py")
     if support_probe:
         names += ("scripts/tau_support_probe.py", "scripts/tau_cpu_support_models.json")
+        if not agent_prefix:
+            names += ("scripts/e2e/snapshot.py",)
     if agent_prefix:
         names += ("scripts/tau_agent_prefix.py", "scripts/test_tau_agent_prefix.py")
     if selected_operational:
@@ -600,7 +602,8 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
                 observed = probe_driver.attach_probe_scorer(
                     [docker, "--host", "unix://" + str(socket), "--config", private,
                      "start", "--attach", "--interactive", name], env, support_probe,
-                    min(operation_deadline, time.monotonic() + worker.SECONDS))
+                    min(operation_deadline, time.monotonic() + worker.SECONDS),
+                    load("scripts/e2e/snapshot.py", toolkit["files"]["scripts/e2e/snapshot.py"]))
                 probe_driver.validate_support_probe(observed)
                 require(observed["plan_sha256"] == sha and observed["selection"] == plan["selection"])
             elif parent_pipe:
