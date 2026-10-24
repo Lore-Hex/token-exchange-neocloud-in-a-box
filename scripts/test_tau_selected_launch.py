@@ -75,6 +75,7 @@ class SelectedLaunchTests(unittest.TestCase):
                     (launch.os, "uname", mock.Mock(return_value=types.SimpleNamespace(machine="x86_64"))),
                     (launch, "identity", mock.Mock(return_value=toolkit)),
                     (launch.gpu_rec, "bundle_inputs", mock.Mock(return_value=({"git_sha": toolkit["git_sha"]}, {}, None, None))),
+                    (launch.gpu_rec, "validate_runtime_payload", mock.Mock()),
                     (launch.gpu_rec, "owner_module", mock.Mock(return_value=gpu.gpu)),
                     (launch.gpu_rec, "read", mock.Mock(return_value=b"fixed")),
                     (launch.cpu_rec, "toolkit", mock.Mock()),
@@ -164,6 +165,7 @@ class SelectedLaunchTests(unittest.TestCase):
                         (launch.os, "uname", mock.Mock(return_value=types.SimpleNamespace(machine="x86_64"))),
                         (launch, "identity", mock.Mock(return_value={"git_sha": "a" * 40})),
                         (launch.gpu_rec, "bundle_inputs", mock.Mock(return_value=({"git_sha": "a" * 40}, {}, None, None))),
+                        (launch.gpu_rec, "validate_runtime_payload", mock.Mock()),
                         (launch.gpu_rec, "owner_module", mock.Mock(return_value=gpu.gpu)),
                         (launch.gpu_rec, "read", mock.Mock(return_value=b"fixed")),
                         (launch.cpu_rec, "toolkit", mock.Mock()),
@@ -179,6 +181,51 @@ class SelectedLaunchTests(unittest.TestCase):
                     owners.assert_not_called()
                     prepare.assert_not_called()
                     self.assertFalse(args.output.exists())
+
+    def test_payload_ownership_preflight_precedes_images_preparation_and_owners(self):
+        for bad_owner in ("", "launch.py", None):
+            with self.subTest(bad_owner=bad_owner), tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+                root = Path(temporary).resolve()
+                bundle = root / "bundle"
+                payload = bundle / "payload"
+                payload.mkdir(parents=True, mode=0o700)
+                for name in ("launch.py", "python", "nib"):
+                    (payload / name).write_bytes(b"fixture")
+                    (payload / name).chmod(0o600 if name == "launch.py" else 0o500)
+                args = types.SimpleNamespace(gpu_bundle=bundle, gpu_receipt_sha256="c" * 64, output=root / "output",
+                    deadline=datetime.datetime.fromtimestamp(time.time() + 2400, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+                real_stat = Path.lstat
+                def observed(path, *args, **kwargs):
+                    row = real_stat(path, *args, **kwargs)
+                    uid = 501 if bad_owner is not None and path == payload / bad_owner else 0
+                    return types.SimpleNamespace(st_uid=uid, st_mode=row.st_mode, st_nlink=row.st_nlink)
+                stop = RuntimeError("stop before Docker")
+                images = mock.Mock(side_effect=stop)
+                mocked = ((launch.sys, "platform", "linux"),
+                    (launch.os, "uname", mock.Mock(return_value=types.SimpleNamespace(machine="x86_64"))),
+                    (launch, "identity", mock.Mock(return_value={"git_sha": "a" * 40})),
+                    (launch.gpu_rec, "bundle_inputs", mock.Mock(return_value=({"git_sha": "a" * 40}, {}, None, None))),
+                    (launch.gpu_rec, "owner_module", mock.Mock(return_value=gpu.gpu)),
+                    (launch.gpu_rec, "read", mock.Mock(return_value=b"fixed")),
+                    (launch.cpu_rec, "toolkit", mock.Mock()),
+                    (launch, "preflight_images", images), (Path, "lstat", observed))
+                for obj, name, value in mocked:
+                    stack.enter_context(mock.patch.object(obj, name, value))
+                validator = stack.enter_context(mock.patch.object(launch.gpu_rec, "validate_runtime_payload",
+                                                                  wraps=launch.gpu_rec.validate_runtime_payload))
+                owners = stack.enter_context(mock.patch.object(launch.subprocess, "Popen"))
+                prepare = stack.enter_context(mock.patch.object(launch.runner, "prepare"))
+                with self.assertRaises(ValueError if bad_owner is not None else RuntimeError) as caught:
+                    launch.run(args)
+                validator.assert_called_once_with(bundle)
+                if bad_owner is not None:
+                    images.assert_not_called()
+                else:
+                    self.assertIs(caught.exception, stop)
+                    images.assert_called_once()
+                owners.assert_not_called()
+                prepare.assert_not_called()
+                self.assertFalse(args.output.exists())
 
     def test_image_preflight_expired_budget_never_inspects_or_discovers_context(self):
         with mock.patch.object(launch.process_tools, "execute_process_group") as inspect, \

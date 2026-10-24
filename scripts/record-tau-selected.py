@@ -241,6 +241,7 @@ def run(args):
     toolkit = identity(time.monotonic() + 120)
     receipt, contract, _, _ = gpu_rec.bundle_inputs(args.gpu_bundle, args.gpu_receipt_sha256)
     require(receipt["git_sha"] == toolkit["git_sha"])
+    gpu_rec.validate_runtime_payload(args.gpu_bundle)
     gpu = gpu_rec.owner_module(contract, args.gpu_bundle)
     require(gpu is not None)
     cpu_rec.toolkit(ROOT, selected_owner=True)

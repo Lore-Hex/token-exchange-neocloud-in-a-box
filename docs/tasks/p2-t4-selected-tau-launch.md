@@ -20,6 +20,15 @@ image-inspection commands and incompatible metadata fail before GPU startup.
 This does not add a classic-store fallback, pull images or replace the original
 checks repeated by each consumer at use time.
 
+Stage transferred bundles as root-owned private files. When packing on macOS,
+exclude AppleDouble and extended attributes with `COPYFILE_DISABLE=1` and tar's
+`--disable-copyfile --no-xattrs`; on the approved Linux host, extract **as root**
+with GNU tar `--no-same-owner` into a fresh private directory. Preserve file
+modes and the original receipt hash. The controller reuses the GPU recorder's
+[payload ownership validator](p2-t3-payload-ownership.md) immediately after bundle
+authentication, before image checks or owner startup. It does not repair
+ownership, widen permissions, relax receipt checks or add container capabilities.
+
 ```sh
 python3 -I -S -B scripts/record-tau-selected.py \
   --gpu-bundle /private/gpu-bundle --gpu-receipt-sha256 EXACT_HASH \
