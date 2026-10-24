@@ -51,7 +51,7 @@ def validate_support_probe(row):
     return row
 
 
-def attach_probe_scorer(command, environment, held, deadline):
+def attach_probe_scorer(command, environment, held, deadline, snapshot):
     """The existing sealed-scorer owner supplies its fixed Docker attach argv."""
     require(type(held) is dict and set(held) == {"process", "ready_sha256", "controller_fd"})
     process = held["process"]
@@ -59,7 +59,7 @@ def attach_probe_scorer(command, environment, held, deadline):
     require(isinstance(process, subprocess.Popen) and process.poll() is None
             and type(held["controller_fd"]) is int and held["controller_fd"] >= 0
             and stat.S_ISFIFO(os.fstat(held["controller_fd"]).st_mode))
-    scorer, data, observed = None, bytearray(), None
+    scorer, data, observed, failure = None, bytearray(), None, None
     try:
         scorer = subprocess.Popen(command, env=environment, stdin=process.stdout, stdout=process.stdin,
                                   stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True)
@@ -81,13 +81,20 @@ def attach_probe_scorer(command, environment, held, deadline):
         if observed["result"] == "pass":
             require(scorer.wait(timeout=max(0.001, min(10, deadline - time.monotonic()))) == 0)
         return observed
+    except BaseException as exc:
+        failure = exc
+        raise
     finally:
-        if scorer is not None and scorer.poll() is None:
+        if scorer is not None:
             try:
-                os.killpg(scorer.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            scorer.wait(timeout=10)
+                snapshot.cleanup_process_group(scorer)
+            except (OSError, ValueError, subprocess.TimeoutExpired):
+                # Retain the original protocol/cancellation identity without
+                # treating denied signals or an unreaped group as cleanup proof.
+                cleanup = ValueError("tau probe scorer cleanup unconfirmed")
+                if failure is not None:
+                    raise failure from cleanup
+                raise cleanup from None
 
 
 def scripted_manifest(manifest):
