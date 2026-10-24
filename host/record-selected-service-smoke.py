@@ -364,8 +364,10 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
         except subprocess.CalledProcessError as error:
             # The shared bounded process helper retains stdout on nonzero exit.
             # Never expose stderr, exception text or unvalidated output.
-            if error.cmd == start_command and type(error.returncode) is int and error.returncode == 1:
-                result["owner_failure"] = lifecycle_failure(error.stdout)
+            if error.cmd == start_command and type(error.returncode) is int and -64 <= error.returncode <= 255:
+                result["start_client_exit_code"] = error.returncode
+                if error.returncode == 1:
+                    result["owner_failure"] = lifecycle_failure(error.stdout)
             raise
         owner_result = lifecycle(raw)
         info = docker.inspect(identifier)

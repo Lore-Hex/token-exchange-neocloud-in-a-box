@@ -253,6 +253,7 @@ class SmokeTests(unittest.TestCase):
             self.recorder.call.side_effect = call
             self.run_owner(contract, result)
         self.assertEqual(result["owner_failure"], failed)
+        self.assertEqual(result["start_client_exit_code"], 1)
         self.assertEqual(result["result"], "fail")
         self.assertEqual(result["cleanup"], "confirmed")
         self.assertIsNone(result["runtime_started"])
@@ -272,6 +273,23 @@ class SmokeTests(unittest.TestCase):
         for raw in (b"PRIVATE_CANARY", b"x" * 16385, b'{}', None):
             with self.subTest(raw_type=type(raw)), self.assertRaises(ValueError):
                 smoke.lifecycle_failure(raw)
+
+    def test_nonzero_client_code_survives_rejected_output_without_runtime_claim(self):
+        for code in (1, 125, 126, 127):
+            with self.subTest(code=code), self.running() as (contract, result):
+                original = self.recorder.call.side_effect
+                def call(command, env, **kwargs):
+                    if command[2] == "start":
+                        raise subprocess.CalledProcessError(code, command, output=b"PRIVATE_CANARY",
+                                                            stderr=b"PRIVATE_CANARY")
+                    return original(command, env, **kwargs)
+                self.recorder.call.side_effect = call
+                self.run_owner(contract, result)
+            self.assertEqual(result["start_client_exit_code"], code)
+            self.assertNotIn("owner_failure", result)
+            self.assertNotIn("PRIVATE_CANARY", encoded(result).decode())
+            self.assertIsNone(result["runtime_started"])
+            self.assertEqual(result["cleanup"], "confirmed")
 
     def test_cleanup_or_watchdog_failure_cannot_pass(self):
         for failure, code in (("cleanup", 0), (None, 1)):

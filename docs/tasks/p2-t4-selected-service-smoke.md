@@ -125,6 +125,8 @@ preparation failure or a full failed lifecycle with partial cleanup. It never
 retains stderr, exception text, arbitrary fields or raw output. The result
 stays failed, attempted runtime completion stays unknown, and container cleanup
 still runs. This diagnostic projection neither retries nor relaxes admission.
+The numeric start-client exit code is retained even when stdout is rejected;
+it is not evidence that the in-container owner ran or reached readiness.
 
 ## Operator interface
 
