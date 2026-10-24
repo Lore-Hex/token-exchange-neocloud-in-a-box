@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -169,6 +170,9 @@ func stageWithSync(ctx context.Context, packPath, directory string, options Stag
 			}
 			pending = append(pending, f)
 		}
+		// Start large shards early so they do not become a mostly idle tail.
+		// Sort only missing work; the canonical manifest and proof stay unchanged.
+		sort.SliceStable(pending, func(i, j int) bool { return pending[i].Bytes > pending[j].Bytes })
 		downloaded, err = stageParallel(ctx, root, in.pack, pending, workers, download, syncDirectory)
 		if err != nil {
 			return nil, err
