@@ -39,9 +39,10 @@ Results carry a separate schema and `quality_eligible=false`,
 `usage.cost_usd` is null, not a claim of free inference. GPU rental remains an
 external finite approved cost. Raw task histories are not returned in results.
 
-Still required: live GPU/CPU owner launch integration, a selected-model prefix
-measurement, scorer packaging and execution of the unmodified upstream trial
-with all evaluators. The earlier two-step CPU support probe is not a substitute.
+The [selected scorer](p2-t4-selected-tau-scorer.md) packages the fixed upstream
+trial and all evaluators in its own explicit mode. Still required: live GPU/CPU
+owner launch integration, a selected-model prefix measurement and an actual
+upstream trial. The earlier two-step CPU support probe is not a substitute.
 
 Verification: `test_tau_selected_session.py`, existing `test_tau*.py`, full
 `make check`, hosted CI, and independent final-head review. Synthetic tests
