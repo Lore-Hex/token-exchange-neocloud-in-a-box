@@ -86,3 +86,7 @@ trial is required to identify the exact rejected condition.
 
 The following trial identified the changed path and its pinned CuTe compiler
 source. See the [source-backed compatibility fix](p2-t3-cutlass-compiler.md).
+
+The later [bounded cause/context diagnostic](p2-t4-dspark-cause-diagnostics.md)
+adds a versioned worker-only packet for cleanup-masked exceptions. The original
+entry/CPU packet and historical receipts described above remain unchanged.

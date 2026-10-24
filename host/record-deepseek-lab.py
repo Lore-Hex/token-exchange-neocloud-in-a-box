@@ -880,7 +880,11 @@ def validate_result(row, bundle, contract, recorder):
         errors.require = require
         errors.validate_exception(startup["exception_diagnostic"])
         require(startup["exception_diagnostic"] is None or startup["outcome"] == "child-exited")
-        errors.validate_exception(startup.get("worker_exception_diagnostic"))
+        worker_error = startup.get("worker_exception_diagnostic")
+        if type(worker_error) is dict and worker_error.get("schema") == "nib.engine-worker-exception/v2":
+            errors.validate_worker_exception(worker_error)
+        else:
+            errors.validate_exception(worker_error)
         require(startup.get("worker_exception_diagnostic") is None or startup["outcome"] == "child-exited")
         outcomes = ("launch-failed", "child-exited", "startup-timeout", "supervisor-failure")
         outcomes += ("prepared",) if pre_serve else ("models-rejected", "ready")
