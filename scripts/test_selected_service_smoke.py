@@ -133,6 +133,16 @@ class SmokeTests(unittest.TestCase):
         self.assertNotIn("--init", command)
         self.assertNotIn("--rm", command)
         self.assertIn('"device=0,1,2,3,4,5,6,7"', command)
+        # Docker 28.0.4 --tmpfs uses HostConfig.Tmpfs, not inspect Mounts;
+        # the task doc binds this synthetic fixture to the upstream source.
+        self.assertEqual([command[i + 1] for i, item in enumerate(command) if item == "--tmpfs"],
+                         [f"{path}:{options}" for path, options in smoke.TMPFS.items()])
+        self.assertEqual(info["HostConfig"]["Tmpfs"], smoke.TMPFS)
+        self.assertEqual([mount["Type"] for mount in info["Mounts"]], ["bind", "bind"])
+        row = copy.deepcopy(info)
+        row["Mounts"].append({"Type": "tmpfs", "Destination": "/tmp", "RW": True})
+        with self.assertRaises(ValueError):
+            validate(row)
         for scope, field, value in (("HostConfig", "NetworkMode", "host"),
                 ("HostConfig", "ReadonlyRootfs", False), ("HostConfig", "Privileged", True),
                 ("HostConfig", "Memory", 1 << 40), ("HostConfig", "MemorySwap", -1),

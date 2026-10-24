@@ -63,6 +63,18 @@ from a public TLS networking policy. See [none networking](https://docs.docker.c
 [container create](https://docs.docker.com/reference/cli/docker/container/create/)
 (accessed 2026-10-24). Nonroot native cache behavior remains unvalidated.
 
+The inspect fixture follows the recorded Docker 28.0.4 source, not a hardware
+observation: [`--tmpfs` parsing](https://github.com/docker/cli/blob/v28.0.4/cli/command/container/opts.go#L375-L380)
+fills [`HostConfig.Tmpfs`](https://github.com/docker/cli/blob/v28.0.4/cli/command/container/opts.go#L655-L659).
+Moby commit `6430e49a55babd9b8f4d08e70ecb2b68900770fe`
+[registers binds and `HostConfig.Mounts` separately](https://github.com/moby/moby/blob/6430e49a55babd9b8f4d08e70ecb2b68900770fe/daemon/volumes.go#L137-L280).
+Its [`GetMountPoints`](https://github.com/moby/moby/blob/6430e49a55babd9b8f4d08e70ecb2b68900770fe/container/container_unix.go#L372-L413)
+feeds [inspect `.Mounts`](https://github.com/moby/moby/blob/6430e49a55babd9b8f4d08e70ecb2b68900770fe/daemon/inspect.go#L42-L85)
+without adding `HostConfig.Tmpfs`. Thus this command requires exactly two bind
+rows in `.Mounts` and both tmpfs entries in `HostConfig.Tmpfs`. Substituting
+`--mount type=tmpfs` would use a different inspect representation and is not
+accepted by this closed command/fixture contract.
+
 The caller supplies one UTC cutoff, at most 80 minutes ahead. Setup counts
 against it. The container receives a derived cutoff 180 seconds earlier for
 host teardown; this is never a renewed duration. PR320 retains its shared
