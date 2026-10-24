@@ -223,7 +223,8 @@ class SmokeTests(unittest.TestCase):
 
     def test_failed_or_interrupted_start_still_cleans_owned_id(self):
         for failure in (KeyboardInterrupt("PRIVATE_CANARY"), SystemExit("PRIVATE_CANARY"),
-                ValueError("PRIVATE_CANARY"), smoke.service.identity.worker.Abort("timeout")):
+                ValueError("PRIVATE_CANARY"), smoke.service.identity.worker.Abort("timeout"),
+                subprocess.CalledProcessError(1, "PRIVATE_CANARY", output=b"PRIVATE_CANARY")):
             with self.subTest(error=type(failure).__name__), self.running(failure=failure) as (contract, result):
                 self.run_owner(contract, result)
                 self.assertEqual(result["result"], "fail")
@@ -239,6 +240,56 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(result["result"], "fail")
         self.assertFalse(any(command[2] == "start" for command in self.commands))
         self.assertIsNone(self.info)
+
+    def test_nonzero_owner_failure_is_preserved_without_private_output(self):
+        failed = {"schema": "nib.selected-service-lifecycle/v1", "status": "failed",
+                  "reason": "preparation", "deployable": False, "hardware_validated": False}
+        def execute(command, env, *, timeout, limit):
+            raise subprocess.CalledProcessError(1, command, output=encoded(failed), stderr=b"PRIVATE_CANARY")
+        with self.running() as (contract, result):
+            original = self.recorder.call.side_effect
+            def call(command, env, **kwargs):
+                return execute(command, env, **kwargs) if command[2] == "start" else original(command, env, **kwargs)
+            self.recorder.call.side_effect = call
+            self.run_owner(contract, result)
+        self.assertEqual(result["owner_failure"], failed)
+        self.assertEqual(result["start_client_exit_code"], 1)
+        self.assertEqual(result["result"], "fail")
+        self.assertEqual(result["cleanup"], "confirmed")
+        self.assertIsNone(result["runtime_started"])
+        self.assertNotIn("PRIVATE_CANARY", encoded(result).decode())
+        self.assertEqual(sum(command[2] == "create" for command in self.commands), 1)
+
+    def test_failure_projection_is_closed_and_keeps_partial_cleanup(self):
+        row = lifecycle()
+        row.update(status="failed", reason="child-exited", ready=False, cleanup_confirmed=False)
+        row["cleanup"] = [{"role": "engine", "drained": True, "reaped": False}]
+        self.assertEqual(smoke.lifecycle_failure(encoded(row)), row)
+        for key, value in (("reason", "PRIVATE_CANARY"), ("extra", "PRIVATE_CANARY"),
+                           ("status", "retired"), ("ready", 1), ("confidential", True),
+                           ("cleanup", [{"role": "tls", "drained": True, "reaped": True}])):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                smoke.lifecycle_failure(encoded({**row, key: value}))
+        for raw in (b"PRIVATE_CANARY", b"x" * 16385, b'{}', None):
+            with self.subTest(raw_type=type(raw)), self.assertRaises(ValueError):
+                smoke.lifecycle_failure(raw)
+
+    def test_nonzero_client_code_survives_rejected_output_without_runtime_claim(self):
+        for code in (1, 125, 126, 127):
+            with self.subTest(code=code), self.running() as (contract, result):
+                original = self.recorder.call.side_effect
+                def call(command, env, **kwargs):
+                    if command[2] == "start":
+                        raise subprocess.CalledProcessError(code, command, output=b"PRIVATE_CANARY",
+                                                            stderr=b"PRIVATE_CANARY")
+                    return original(command, env, **kwargs)
+                self.recorder.call.side_effect = call
+                self.run_owner(contract, result)
+            self.assertEqual(result["start_client_exit_code"], code)
+            self.assertNotIn("owner_failure", result)
+            self.assertNotIn("PRIVATE_CANARY", encoded(result).decode())
+            self.assertIsNone(result["runtime_started"])
+            self.assertEqual(result["cleanup"], "confirmed")
 
     def test_cleanup_or_watchdog_failure_cannot_pass(self):
         for failure, code in (("cleanup", 0), (None, 1)):

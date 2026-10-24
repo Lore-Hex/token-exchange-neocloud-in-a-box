@@ -1,9 +1,11 @@
 # Private selected-service smoke owner
 
-This software-only host owner is a bounded follow-up to the
+This host owner is a bounded follow-up to the
 [service lifecycle](p2-t4-selected-service-lifecycle.md) and
-[image preparation](p2-t4-selected-service-image.md). It has not launched
-Docker, used a GPU, served a public endpoint or demonstrated hardware success.
+[image preparation](p2-t4-selected-service-image.md). Its
+[first actual private smoke](../../evidence/p2/2026-10-24-selected-service-smoke-failure/README.md)
+failed at the lifecycle stage with container cleanup confirmed; readiness and
+inference were not established. It has not served a public endpoint.
 Independent final-head review and complete validation gates are required before
 an operator separately authorizes a run.
 
@@ -119,6 +121,15 @@ confidential and E2EE flags remain false even for a successful private smoke.
 The result is not a tau score, qualification, production-readiness or
 confidential-computing claim.
 
+On an owner exit of 1, the host now retains a strictly validated `owner_failure`
+metadata object from the bounded stdout capture, including the fixed
+preparation failure or a full failed lifecycle with partial cleanup. It never
+retains stderr, exception text, arbitrary fields or raw output. The result
+stays failed, attempted runtime completion stays unknown, and container cleanup
+still runs. This diagnostic projection neither retries nor relaxes admission.
+The numeric start-client exit code is retained even when stdout is rejected;
+it is not evidence that the in-container owner ran or reached readiness.
+
 ## Operator interface
 
 The following is a preparation example, not authorization to execute it. Every
@@ -150,6 +161,7 @@ python3.12 -B -W error::ResourceWarning -m unittest -v \
   test_selected_service_smoke test_selected_service_image
 ```
 
-No full suite, fixed-port test, Docker command or hardware action was executed
-for this increment. Final integration with the builder must retain its exact
-reviewed source and pass independent review and complete gates before a run.
+The initial implementation was software-only. Before the first recorded private
+attempt, its integrated head passed full local and hosted checks and independent
+review. Any subsequent diagnostic or runtime change still requires its own
+reviewed source and complete gates before another run.
