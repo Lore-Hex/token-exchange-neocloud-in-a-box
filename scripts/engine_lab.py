@@ -239,10 +239,25 @@ def model_identity(contract):
 def validate_settings(contract, plan, replicas):
     identity = model_identity(contract)
     options = {"model": identity["served_model_name"]} if identity else {}
-    require(contract["arguments"] == lab_args(plan, replicas, **options) and contract["environment"] == lab_environment(plan)
+    arguments = lab_args(plan, replicas, **options)
+    tuning = tuning_module(contract)
+    if tuning is not None:
+        arguments = tuning.arguments(arguments, contract["execution_profile"])
+    require(contract["arguments"] == arguments and contract["environment"] == lab_environment(plan)
             and contract["pack_revision"] == (identity["hf_revision"] if identity else MODEL_REVISION)
             and contract["pack_bytes"] == (identity["total_bytes"] if identity else TOTAL_BYTES))
     return identity
+
+
+def tuning_module(contract):
+    if "execution_profile" not in contract:
+        require("tuning.py" not in contract.get("sources", {}))
+        return None
+    raw = read_source(ROOT + "/tuning.py")
+    require(hashlib.sha256(raw).hexdigest() == contract["sources"].get("tuning.py"))
+    tuning = load("lab_tuning", raw, ROOT + "/tuning.py")
+    tuning.enabled(contract)
+    return tuning
 
 
 def lab_context(expected):
@@ -696,6 +711,9 @@ def application_and_request(contract, sources, modules, application, measured):
             PARITY.verify_sources(read_source, contract["paths"][-1], CORRECTNESS)
         elif correctness:
             CORRECTNESS.verify_sources(read_source, contract["paths"][-1])
+        tuning = tuning_module(contract)
+        if tuning is not None:
+            tuning.verify_sources(read_source, contract["paths"][-1])
         if "stream_cohort" in contract:
             # A bad benchmark fixture must not consume a full model startup.
             local, stream_workload = prepare_local_tokenizer(contract, started)

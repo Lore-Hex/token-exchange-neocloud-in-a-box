@@ -85,6 +85,11 @@ uses the identity already frozen into the bundle; a launch-time model override
 is rejected. For this first variant bring-up, the older provider-conformance
 mode is rejected rather than probing it under the original model's name.
 
+For ordinary eight-B300 experiments, the separately opt-in
+[batching, CUDA-graph and DSpark profiles](../tasks/p2-t3-deepseek-tuning.md)
+keep this exact checkpoint. They are not measured performance improvements
+and cannot be selected for the confidential profile above.
+
 ### Host Memory Ceiling
 
 Only this uncensored B300 CC TP4/DP2 lab profile has a **512 GiB total**
