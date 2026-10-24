@@ -1,15 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """Fixed-mode failure controls; no model execution or upstream import."""
 import copy
+from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
 import time
+import types
 import unittest
 from unittest import mock
 
+from e2e import snapshot
 import tau_cpu_probe as probe
 import test_tau_cpu_admission as admission
 
@@ -223,16 +226,23 @@ class SupportProbeTests(unittest.TestCase):
                 wr = None
             try:
                 held = {"process": process, "ready_sha256": "a" * 64, "controller_fd": rd}
+                cleanup = mock.Mock(wraps=snapshot.cleanup_process_group)
+                tools = types.SimpleNamespace(cleanup_process_group=cleanup)
                 with self.subTest(mode=mode):
                     if mode in ("bad-metadata", "controller-eof"):
                         with self.assertRaises(probe.worker.Abort):
                             probe.driver.attach_probe_scorer([sys.executable, "-I", "-S", "-B", "-c", scorer_script],
-                                                             {}, held, time.monotonic() + 2)
+                                                             {}, held, time.monotonic() + 2, tools)
                     else:
                         observed = probe.driver.attach_probe_scorer(
-                            [sys.executable, "-I", "-S", "-B", "-c", scorer_script], {}, held, time.monotonic() + 2)
+                            [sys.executable, "-I", "-S", "-B", "-c", scorer_script], {}, held, time.monotonic() + 2, tools)
                         self.assertEqual(observed, row)
                         self.assertNotIn("canary", json.dumps(observed))
+                cleanup.assert_called_once()
+                scorer = cleanup.call_args.args[0]
+                self.assertIsNotNone(scorer.returncode)
+                with self.assertRaises(ProcessLookupError):
+                    os.killpg(scorer.pid, 0)
                 self.assertIsNone(process.poll())  # Scorer cleanup must not own the CPU process.
             finally:
                 os.close(rd)
@@ -242,6 +252,81 @@ class SupportProbeTests(unittest.TestCase):
                 process.wait(timeout=2)
                 for stream in (process.stdin, process.stdout, process.stderr):
                     stream.close()
+
+
+class ProbeScorerCleanupTests(unittest.TestCase):
+    def attach(self, primary, signals, *, wait_error=None, clocks=None):
+        created = []
+        class Process:
+            def __init__(self, *args, **kwargs):
+                self.pid = 99999999
+                self.poll = mock.Mock(return_value=None)
+                self.wait = mock.Mock(return_value=0, side_effect=wait_error)
+                self.stdin, self.stdout, self.stderr = (mock.Mock() for _ in range(3))
+                created.append(self)
+        cpu = Process()
+        rd, wr = os.pipe()
+        self.addCleanup(os.close, rd)
+        self.addCleanup(os.close, wr)
+        held = {"process": cpu, "ready_sha256": "a" * 64, "controller_fd": rd}
+        frame = probe.REPORT + probe.cpu.probes.encoded(passing()) + b"\n"
+        with ExitStack() as stack:
+            stack.enter_context(mock.patch.object(probe.driver, "subprocess",
+                types.SimpleNamespace(Popen=Process, TimeoutExpired=subprocess.TimeoutExpired,
+                                      DEVNULL=subprocess.DEVNULL)))
+            stack.enter_context(mock.patch.object(probe.driver.select, "select", return_value=([cpu.stderr], [], [])))
+            stack.enter_context(mock.patch.object(probe.driver.os, "read", return_value=frame))
+            if primary is not None:
+                stack.enter_context(mock.patch.object(probe.driver, "validate_support_probe", side_effect=primary))
+            kill = stack.enter_context(mock.patch.object(snapshot.os, "killpg", side_effect=signals))
+            stack.enter_context(mock.patch.object(snapshot, "reap_group_children"))
+            if clocks is not None:
+                stack.enter_context(mock.patch.object(snapshot.time, "monotonic", side_effect=clocks))
+            try:
+                return probe.driver.attach_probe_scorer([], {}, held, float("inf"), snapshot)
+            finally:
+                self.scorer, self.kill = created[-1], kill
+                for stream in (cpu.stdin, cpu.stdout, cpu.stderr):
+                    stream.close.assert_not_called()
+                cpu.wait.assert_not_called()
+
+    def test_denied_signal_race_reaps_and_preserves_original_error(self):
+        original = probe.worker.Abort("protocol_error")
+        with self.assertRaises(probe.worker.Abort) as caught:
+            self.attach(original, [PermissionError(), PermissionError(), ProcessLookupError()])
+        self.assertIs(caught.exception, original)
+        self.assertIsNone(original.__cause__)
+        self.assertEqual(self.scorer.wait.call_args_list, [mock.call(timeout=10), mock.call(timeout=10)])
+        self.assertEqual([call.args[1] for call in self.kill.call_args_list],
+                         [snapshot.signal.SIGTERM, snapshot.signal.SIGKILL, 0])
+
+    def test_persistent_denial_never_passes_or_replaces_original_failure(self):
+        for original in (None, probe.worker.Abort("protocol_error"), KeyboardInterrupt(), SystemExit(7)):
+            with self.subTest(original=type(original).__name__):
+                with self.assertRaises(type(original) if original is not None else ValueError) as caught:
+                    self.attach(original, PermissionError("PRIVATE_CANARY"))
+                cleanup = caught.exception
+                if original is not None:
+                    self.assertIs(caught.exception, original)
+                    cleanup = original.__cause__
+                self.assertIs(type(cleanup), ValueError)
+                self.assertEqual(str(cleanup), "tau probe scorer cleanup unconfirmed")
+                self.assertEqual(self.scorer.wait.call_args_list[-2:], [mock.call(timeout=10), mock.call(timeout=10)])
+                self.assertEqual(self.kill.call_args_list[-1].args, (self.scorer.pid, 0))
+
+    def test_unreaped_child_preserves_failure_and_marks_cleanup_unconfirmed(self):
+        original = probe.worker.Abort("timeout")
+        with self.assertRaises(probe.worker.Abort) as caught:
+            self.attach(original, PermissionError(), wait_error=subprocess.TimeoutExpired("PRIVATE_CANARY", 10))
+        self.assertIs(caught.exception, original)
+        self.assertEqual(str(original.__cause__), "tau probe scorer cleanup unconfirmed")
+        self.assertEqual(self.scorer.wait.call_count, 2)
+        self.assertEqual(self.kill.call_count, 2)
+
+    def test_reaped_leader_with_surviving_group_cannot_return_success(self):
+        with self.assertRaisesRegex(ValueError, "tau probe scorer cleanup unconfirmed"):
+            self.attach(None, None, clocks=[0, 0, 0, 0, 5])
+        self.assertEqual(self.scorer.wait.call_count, 3)
 
 
 if __name__ == "__main__":

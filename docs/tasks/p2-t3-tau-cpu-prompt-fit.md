@@ -113,6 +113,16 @@ originals before sending the existing bound release, then rechecks both original
 report sets, source/image bindings, exit status and owned cleanup. A failed probe
 remains failed even when teardown succeeds. Missing or invalid cleanup cannot pass.
 
+The scorer attach now reuses the source-pinned process-group cleanup helper:
+denied signals still lead to bounded waits, followed by an independent group
+absence check. An exited-child signal race does not replace the original
+protocol failure. Persistent denial, an unreaped child or a surviving group
+cannot return success; an existing protocol/cancellation exception retains its
+identity with a fixed, content-free cleanup-failure cause when necessary.
+The borrowed CPU-worker pipes remain owned by the enclosing controller.
+Synthetic denial tests and real private-pipe tests cover this recovery; they
+do not establish daemon/container cleanup or a new hardware result.
+
 Artifact paths are explicit metadata only: existing controller/pair reports and
 four originals, setup metadata, and scorer `run.json`/`output.log`. Payloads,
 archives, wheels, task text and pipes are excluded. Historical originals remain

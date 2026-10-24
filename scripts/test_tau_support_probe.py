@@ -213,6 +213,27 @@ with tempfile.TemporaryDirectory() as temporary:
                 with self.assertRaises((ValueError, trial.worker.Abort)):
                     runner.validate_plan(*args, parent_pipe=True)
 
+    def test_probe_cleanup_helper_is_source_bound_without_changing_other_modes(self):
+        runner = trial.runner
+        path = "scripts/e2e/snapshot.py"
+        def committed(deadline, *, extra_files=()):
+            return {"git_sha": "a" * 40,
+                    "files": {name: tau.digest((ROOT / name).read_bytes()) for name in extra_files}}
+        with mock.patch.object(runner.tau, "committed_identity", side_effect=committed):
+            for options in ({}, {"parent_pipe": True},
+                            {"parent_pipe": True, "support_probe": True},
+                            {"parent_pipe": True, "support_probe": True, "agent_prefix": True},
+                            {"parent_pipe": True, "selected_operational": True}):
+                with self.subTest(options=options):
+                    toolkit = runner.identity(time.monotonic() + 5, **options)
+                    enabled = options.get("support_probe", False) and not options.get("agent_prefix", False)
+                    self.assertEqual(path in toolkit["files"], enabled)
+                    if enabled:
+                        helper = runner.load(path, toolkit["files"][path])
+                        self.assertTrue(callable(helper.cleanup_process_group))
+                        with self.assertRaises(ValueError):
+                            runner.load(path, "0" * 64)
+
     def test_original_builder_and_evaluator_receive_actual_trajectory_without_full_trial(self):
         names = ("tau2", "tau2.runner", "tau2.runner.helpers", "tau2.runner.build", "tau2.data_model",
                  "tau2.data_model.simulation", "tau2.evaluator", "tau2.evaluator.evaluator_nl_assertions", "tau2.utils")
