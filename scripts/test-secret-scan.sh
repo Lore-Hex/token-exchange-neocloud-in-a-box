@@ -238,11 +238,18 @@ pair/evaluator-tokenizer.json|compact|independent_tokens_sha256|1b7419454da94e65
 CASES
 done
 
-# Both stream originals get the same exact field/value/path boundaries.
-for stream_set in window-exhaustion 600s-complete; do
+# Stream originals get the same exact field/value/path boundaries.
+for stream_set in window-exhaustion 600s-complete selected-timeout; do
 while IFS='|' read -r relative field known suffix; do
   format=pretty
   target="$tmp/stream/evidence/p2/2026-10-23-stream-$stream_set/$relative"
+  if [[ "$stream_set" == selected-timeout ]]; then
+    target="$tmp/stream/evidence/p2/2026-10-24-selected-stream-timeout/$relative"
+    case "$field" in
+      tokenizer-parity.py|stream/engine_tokenizer_parity.py)
+        known=98872d2cb2e0b0874c79ef475c31db5a1d90b9024dc245f7cd0344b7173ed090 ;;
+    esac
+  fi
   mkdir -p "$(dirname "$target")"
   write_receipt_field "$target" "$field" "$known"
   expect_receipt_scan "$target" 0
