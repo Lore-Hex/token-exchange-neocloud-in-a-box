@@ -241,19 +241,27 @@ CASES
 done
 
 # Stream originals get the same exact field/value/path boundaries.
-for stream_set in window-exhaustion 600s-complete selected-timeout selected-provider; do
+for stream_set in window-exhaustion 600s-complete selected-timeout selected-provider selected-tau8k selected-graphs; do
 while IFS='|' read -r relative field known suffix; do
   format=pretty
   target="$tmp/stream/evidence/p2/2026-10-23-stream-$stream_set/$relative"
-  if [[ "$stream_set" == selected-timeout ]]; then
+  if [[ "$stream_set" == selected-timeout || "$stream_set" == selected-graphs ]]; then
     target="$tmp/stream/evidence/p2/2026-10-24-selected-stream-timeout/$relative"
+    if [[ "$stream_set" == selected-graphs ]]; then
+      target="$tmp/stream/evidence/p2/2026-10-24-selected-graphs-stream/$relative"
+      [[ "$field" != tokenizer-parity.py ]] || suffix=,
+    fi
     case "$field" in
       tokenizer-parity.py|stream/engine_tokenizer_parity.py)
         known=98872d2cb2e0b0874c79ef475c31db5a1d90b9024dc245f7cd0344b7173ed090 ;;
     esac
   fi
-  if [[ "$stream_set" == selected-provider ]]; then
+  if [[ "$stream_set" == selected-provider || "$stream_set" == selected-tau8k ]]; then
     target="$tmp/stream/evidence/p2/2026-10-24-selected-provider-conformance/$relative"
+    if [[ "$stream_set" == selected-tau8k ]]; then
+      target="$tmp/stream/evidence/p2/2026-10-24-selected-tau8k-parity/$relative"
+      [[ "$field" != tokenizer-parity.py ]] || suffix=,
+    fi
     case "$field" in
       stream/engine_tokenizer_parity.py|token_ids_sha256) continue ;;
       tokenizer-parity.py) known=6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f ;;

@@ -50,10 +50,22 @@ with the same eight cases and ten requests, without OOM and with confirmed clean
 The overall qualification and quality gates remain blocked/unproven. The lab
 uses AMD SEV-SNP, not the plan's Intel TDX deployment.
 
-The separately selected **abliterated checkpoint** now passes all eight fixed
-correctness cases and ten requests on an ordinary eight-B300 node, with cleanup
-confirmed. GPU CC is disabled on that node; this is not confidential evidence,
-a throughput result or a tau score ([original evidence and limits](evidence/p2/2026-10-24-ordinary-selected-correctness/README.md)).
+The separately selected **abliterated checkpoint** passes all eight fixed
+correctness cases and ten requests on an ordinary eight-B300 node
+([original correctness evidence](evidence/p2/2026-10-24-ordinary-selected-correctness/README.md)),
+plus [17 required provider checks](docs/tasks/p2-t3-selected-provider-evidence.md).
+A small graph-enabled stream cohort measured **143.36 output tokens/second**
+overall and **98.61 ms median TTFT** across eight completed requests at concurrency
+one, excluding warmup ([original stream evidence and limits](evidence/p2/2026-10-24-selected-graphs-stream/README.md)).
+The [8K-profile parity prerequisite](evidence/p2/2026-10-24-selected-tau8k-parity/README.md)
+also passed four fixed cases and eight requests; this does not establish full
+8K request fit. Both [DSpark attempts](evidence/p2/2026-10-24-selected-dspark-startup-failure/README.md)
+failed before inference. The [bounded diagnostic chain](evidence/p2/2026-10-24-selected-dspark-cause-diagnostics/README.md)
+locates a runtime exception in parallel attention projection followed by an
+accelerator exception during cleanup; the precise root cause remains unknown.
+Cleanup was confirmed. GPU CC was disabled; outer FAIL/BLOCKED records remain
+unchanged. These are not a capacity sweep, full tau result, quality acceptance
+or confidential qualification.
 
 | Component | State |
 |---|---|
