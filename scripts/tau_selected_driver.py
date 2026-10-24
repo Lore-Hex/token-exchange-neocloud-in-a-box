@@ -134,7 +134,7 @@ def run_process(command, environment, payload, plan, frozen, deadline, *, candid
                 except (worker.Abort, OSError, subprocess.TimeoutExpired) as exc:
                     completed = False
                     session.result = failure(session, exc)
-            if session is not None:
+            if session is not None and session.result is not None:
                 owner_finish = finish_owners(session, deadline)
         finally:
             if session is not None:
