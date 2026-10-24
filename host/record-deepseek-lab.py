@@ -109,11 +109,21 @@ def correctness_target(family, security, replicas, model_profile):
             (family == "B200" and type(replicas) is int and replicas == 2 and model_profile == "uncensored"))
 
 
+def ordinary_uncensored_target(family, security, replicas, model_profile):
+    return (family == "B300" and security == "nonconfidential" and type(replicas) is int
+            and replicas == 2 and model_profile == "uncensored")
+
+
+def model_target(family, security, replicas, model_profile):
+    return (correctness_target(family, security, replicas, model_profile)
+            or ordinary_uncensored_target(family, security, replicas, model_profile))
+
+
 def parallel_size(contract):
     size = contract.get("data_parallel_size", 1)
     require(type(size) is int and size in (1, 2))
     require(size == 1 or (contract.get("operation") == "local-correctness"
-            and correctness_target(contract.get("gpu_family"), contract.get("gpu_security", "confidential"), size,
+            and model_target(contract.get("gpu_family"), contract.get("gpu_security", "confidential"), size,
                 contract["model_profile"].get("name") if type(contract.get("model_profile")) is dict else None)))
     return size
 
@@ -134,8 +144,11 @@ def validate_model_profile(contract, path):
     module, _ = selected_model(raw, "uncensored")
     identity = module.validate_contract(contract)
     require(contract["operation"] == "local-correctness" and parallel_size(contract) == 2
-            and correctness_target(contract.get("gpu_family"), contract.get("gpu_security", "confidential"),
+            and model_target(contract.get("gpu_family"), contract.get("gpu_security", "confidential"),
                                    2, identity["name"]))
+    if contract.get("gpu_security") == "nonconfidential":
+        require(not any(key in contract for key in ("tokenizer_parity", "tokenizer_materialization",
+                    "runtime_observation", "stream_cohort", "provider_conformance")))
     module.validate_manifest("uncensored", read(Path(path) / "payload/pack/files.sha256"))
     arguments = contract["arguments"]
     require(arguments.count("--served-model-name") == 1
@@ -150,7 +163,7 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
     identity = None
     pack = PACK
     if model_profile != "original":
-        require(operation == "local-correctness" and correctness_target(family, security, replicas, model_profile)
+        require(operation == "local-correctness" and model_target(family, security, replicas, model_profile)
                 and type(replicas) is int and replicas == 2 and provider_conformance is None)
         profiles, identity = selected_model(extra[MODEL_PROFILE], model_profile)
         pack = identity["pack"]
@@ -252,7 +265,7 @@ def prepare(destination, operation="functional", family="B200", security="confid
     require(stream_profile is None or stream_cohort)
     require(type(model_profile) is str and model_profile in ("original", "uncensored"))
     require(model_profile == "original" or (operation == "local-correctness"
-            and correctness_target(family, security, replicas, model_profile)
+            and model_target(family, security, replicas, model_profile)
             and type(replicas) is int and replicas == 2 and provider_wheelhouse is None))
     require(not (family == "B200" and replicas == 2) or model_profile == "uncensored")
     builder = load("lab_application_builder", ROOT / BUILDER, BUILDER_SHA)
@@ -416,7 +429,7 @@ def bundle_inputs(path, expected):
 def memory_gib(contract, bundle):
     replicas = parallel_size(contract)
     if "model_profile" in contract:
-        # Only the source-bound uncensored CC DP2 identity has this cap.
+        # Only the source-bound uncensored DP2 identity has this cap.
         validate_model_profile(contract, bundle)
         return ENGINE_MEMORY_GIB
     return 8 if contract["operation"] == "pre-serve" else ENGINE_MEMORY_GIB * replicas
@@ -820,7 +833,8 @@ def validate_result(row, bundle, contract, recorder):
     if row["hardware"] is not None:
         probe = load("lab_hardware_validation", Path(bundle) / "payload/probe.py", contract["sources"]["probe.py"])
         if probe.security_profile(contract) == "nonconfidential":
-            probe.validate_nonconfidential_report(row["hardware"], family=contract.get("gpu_family", "B200"))
+            probe.validate_nonconfidential_report(row["hardware"], family=contract.get("gpu_family", "B200"),
+                                                 expected=4 * parallel_size(contract))
         else:
             probe.validate_report(row["hardware"], family=contract.get("gpu_family", "B200"), expected=4 * parallel_size(contract))
     if row["application"] is not None:
@@ -918,6 +932,7 @@ def main():
         "prepare-pre-serve-b300": ("pre-serve", "B300", "confidential"),
         "prepare-nonconfidential-baseline": ("local-correctness", "B200", "nonconfidential"),
         "prepare-nonconfidential-baseline-b300": ("local-correctness", "B300", "nonconfidential"),
+        "prepare-nonconfidential-uncensored-b300-dp2": ("local-correctness", "B300", "nonconfidential", 2),
     }
     for option in preparations:
         action.add_argument("--" + option)
@@ -950,11 +965,13 @@ def main():
         if destination:
             require(not any((args.receipt_sha256, args.weights, args.output, args.deadline)))
             require(option != "prepare-local-correctness-b200-dp2" or args.model_profile == "uncensored")
+            require(option != "prepare-nonconfidential-uncensored-b300-dp2" or args.model_profile == "uncensored")
             target = correctness_target(profile[1], profile[2], profile[3] if len(profile) == 4 else 1,
                                         args.model_profile)
             optional = {}
             if args.model_profile == "uncensored":
-                require(profile[0] == "local-correctness" and len(profile) == 4 and profile[3] == 2 and target
+                require(profile[0] == "local-correctness" and len(profile) == 4 and profile[3] == 2
+                        and model_target(profile[1], profile[2], profile[3], args.model_profile)
                         and not args.provider_conformance_wheels)
                 optional["model_profile"] = args.model_profile
             if args.stream_cohort:

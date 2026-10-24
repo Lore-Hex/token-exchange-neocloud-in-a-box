@@ -227,7 +227,10 @@ def model_identity(contract):
     require(contract["operation"] == "local-correctness"
             and (contract.get("gpu_family") == "B300" or
                  (contract.get("gpu_family") == "B200" and identity["name"] == "uncensored"))
-            and contract.get("gpu_security", "confidential") == "confidential"
+            and (contract.get("gpu_security", "confidential") == "confidential" or
+                 (contract.get("gpu_security") == "nonconfidential" and contract.get("gpu_family") == "B300"
+                  and not any(key in contract for key in ("tokenizer_parity", "tokenizer_materialization",
+                              "runtime_observation", "stream_cohort", "provider_conformance"))))
             and type(contract.get("data_parallel_size")) is int and contract["data_parallel_size"] == 2)
     profiles.validate_manifest(identity["name"], read_source(ROOT + "/pack/files.sha256"))
     return identity
@@ -319,8 +322,7 @@ def quiet_command(argv, timeout, *, output=False):
 def hardware(family="B200", security="confidential", expected=4):
     raw = quiet_command([ROOT + "/python", "probe"], 15, output=True)
     if security == "nonconfidential":
-        require(expected == 4)
-        return GPU_PROBE.validate_nonconfidential_report(json.loads(raw), family=family)
+        return GPU_PROBE.validate_nonconfidential_report(json.loads(raw), family=family, expected=expected)
     require(security == "confidential")
     return GPU_PROBE.validate_report(json.loads(raw), family=family, expected=expected)
 
@@ -880,7 +882,7 @@ def lab_entry():
         count = 4 * GPU_PROBE.parallel_size(contract)
         if GPU_PROBE.security_profile(contract) == "nonconfidential":
             observation = GPU_PROBE.validate_nonconfidential(
-                GPU_PROBE.NVML().observe(family, nonconfidential=True), family=family)
+                GPU_PROBE.NVML().observe(family, nonconfidential=True, expected=count), family=family, expected=count)
         else:
             observation = GPU_PROBE.validate(GPU_PROBE.NVML().observe(family, expected=count), family=family, expected=count)
         print(json.dumps(observation, sort_keys=True))
