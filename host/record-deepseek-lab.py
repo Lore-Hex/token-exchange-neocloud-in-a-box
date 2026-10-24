@@ -494,6 +494,26 @@ def memory_gib(contract, bundle):
     return 8 if contract["operation"] == "pre-serve" else ENGINE_MEMORY_GIB * replicas
 
 
+def validate_runtime_payload(bundle):
+    """UID 0 with all capabilities dropped cannot read another UID's 0600 files."""
+    root = Path(bundle) / "payload"
+    pending, seen = [root], 0
+    while pending:
+        path = pending.pop()
+        info = path.lstat()
+        seen += 1
+        require(seen <= 260 and len(path.relative_to(root).parts) <= 16
+                and info.st_uid == 0 and not info.st_mode & 0o022)
+        if stat.S_ISDIR(info.st_mode):
+            require(info.st_mode & 0o500 == 0o500)
+            pending.extend(path.iterdir())
+        else:
+            require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+                    and info.st_mode & 0o400 == 0o400)
+            if path in (root / "python", root / "nib"):
+                require(info.st_mode & 0o100 == 0o100)
+
+
 def create_command(name, owner, bundle, weights, contract, config):
     require(contract["operation"] in ("functional", "hardware-diagnostic", "local-correctness", "pre-serve"))
     payload = str(Path(bundle) / "payload")
@@ -1084,6 +1104,7 @@ def main():
             and not os.path.lexists(output) and not any(a == b or a in b.parents or b in a.parents
                                                        for i, a in enumerate(paths) for b in paths[i + 1:]))
     receipt, contract, config, recorder = bundle_inputs(bundle, args.receipt_sha256)
+    validate_runtime_payload(bundle)
     require((weights is None) == (contract["operation"] == "pre-serve"))
     if contract["operation"] == "pre-serve":
         require(deadline - time.time() <= 1080)
