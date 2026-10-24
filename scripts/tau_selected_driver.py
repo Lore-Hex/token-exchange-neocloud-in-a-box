@@ -68,6 +68,7 @@ def run_owned(command, environment, payload, plan, manifest, deadline, handles):
 def accepted(value):
     """Scorer/pipe completion only; enclosing containers must also be clean."""
     row = value["trial"]
+    worker.validate_upstream_termination(row["upstream_termination"], evaluated=row["status"] == "evaluated")
     return (value["scorer_protocol_completed"] is True and value["attach_cleanup"] == "reaped"
             and value["scorer_exit_code"] == 0 and value["owners_finished"] is True
             and value["usage_known"] is True and row["status"] == "evaluated"
@@ -80,11 +81,15 @@ def failure(session, exc):
         exc = worker.Abort("timeout")
     elif isinstance(exc, OSError):
         exc = worker.Abort("infrastructure_error")
-    return common.failure_result(session, exc)
+    result = common.failure_result(session, exc)
+    result["upstream_termination"] = (session.result["upstream_termination"] if session.result is not None else None)
+    return result
 
 
 def diagnostic(session, *, protocol_completed, attach_cleanup, exit_code, owner_finish):
     result = dict(session.result)
+    result["upstream_termination"] = worker.validate_upstream_termination(
+        result["upstream_termination"], evaluated=result["status"] == "evaluated")
     if result["usage"] is not None:
         result["usage"] = {**result["usage"], "cost_usd": None}
     result.update(schema="nib.tau-selected-operational-trial/v1", manifest_sha256=session.manifest_sha,

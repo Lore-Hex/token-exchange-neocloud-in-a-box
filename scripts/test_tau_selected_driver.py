@@ -26,13 +26,14 @@ import tau_pipe_trial as trial
 channel = transport.Channel(os.dup(0), os.dup(1))
 with open(os.devnull, 'r+b', buffering=0) as sink:
     for fd in (0, 1, 2): os.dup2(sink.fileno(), fd)
-proxy = transport.WorkerProxy(channel, time.monotonic() + 4)
+proxy = transport.WorkerProxy(channel, time.monotonic() + 4, selected_operational=True)
 def execute(root, manifest, selection, bridge):
     bridge.assertions = ['assertion']
     print('PRIVATE_STDOUT_CANARY')
     os.write(2, b'PRIVATE_STDERR_CANARY')
     for role in ('simulator', 'agent', 'evaluator'):
         bridge.complete(model=transport.ALIASES[role], messages=[{'role':'user','content':'PRIVATE_MESSAGE_CANARY'}])
+    bridge.upstream_termination = {'reason': 'user_stop', 'tool_errors': 0}
     return 1.0
 try:
     trial.execute(None, {}, {}, proxy, run=execute)
@@ -75,6 +76,7 @@ class SelectedDriverTests(unittest.TestCase):
         self.assertNotIn('CANARY', repr(result))
         self.assertTrue(all(channel.closed for channel in self.channels.values()))
         self.assertTrue(result['owners_finished'])
+        self.assertEqual(row['upstream_termination'], {'reason': 'user_stop', 'tool_errors': 0})
         self.assertEqual(result['owner_finish'], {'candidate': {'status': 'evaluated', 'completed_requests': 1},
                                                   'support': {'status': 'evaluated', 'completed_requests': 2}})
         for channel in self.channels.values():
@@ -107,6 +109,7 @@ class SelectedDriverTests(unittest.TestCase):
         self.assertIsNone(row['reward'])
         self.assertFalse(driver.accepted(result))
         self.assertFalse(result['scorer_protocol_completed'])
+        self.assertIsNone(row['upstream_termination'])
         self.assertEqual(result['attach_cleanup'], 'reaped')
         self.assertTrue(result['owners_finished'])
         self.assertEqual(result['owner_finish'], {
@@ -121,9 +124,26 @@ class SelectedDriverTests(unittest.TestCase):
         self.assertIsNone(result['trial']['reward'])
         self.assertEqual(result['trial']['usage']['total_tokens'], 24)
         self.assertFalse(result['owners_finished'])
+        self.assertEqual(result['trial']['upstream_termination'], {'reason': 'user_stop', 'tool_errors': 0})
         self.assertEqual(result['owner_finish']['support'], {'status': 'evaluated', 'completed_requests': 2})
         self.assertNotIn('CANARY', repr(result))
         self.assertTrue(all(channel.closed for channel in self.channels.values()))
+
+    def test_upstream_tool_error_reaches_both_owner_finishes_without_reward(self):
+        code = CHILD.replace("('simulator', 'agent', 'evaluator')", "('simulator', 'agent')")
+        code = code.replace("{'reason': 'user_stop', 'tool_errors': 0}",
+                            "{'reason': 'too_many_errors', 'tool_errors': 1}")
+        code = code.replace("return 1.0", "raise transport.worker.Abort('protocol_error')")
+        result = self.run_child(code)
+        row = result['trial']
+        self.assertEqual(row['upstream_termination'], {'reason': 'too_many_errors', 'tool_errors': 1})
+        self.assertEqual((row['status'], row['requests'], row['usage']['total_tokens']), ('protocol_error', 2, 16))
+        self.assertIsNone(row['reward'])
+        self.assertFalse(driver.accepted(result))
+        self.assertTrue(result['scorer_protocol_completed'] and result['owners_finished'] and result['usage_known'])
+        self.assertEqual(result['owner_finish'], {
+            name: {'status': 'protocol_error', 'completed_requests': 1} for name in self.owners})
+        self.assertNotIn('CANARY', repr(result))
 
     def test_owner_expiry_reserves_shutdown_time_and_never_renews(self):
         for owner in self.owners.values():
@@ -232,6 +252,7 @@ class SelectedDriverTests(unittest.TestCase):
         self.assertEqual(result['trial']['usage']['total_tokens'], 24)
         self.assertFalse(result['scorer_protocol_completed'])
         self.assertEqual(result['scorer_exit_code'], 9)
+        self.assertEqual(result['trial']['upstream_termination'], {'reason': 'user_stop', 'tool_errors': 0})
 
     def test_malformed_output_and_fork_setup_fail_closed(self):
         result = self.run_child("print('PRIVATE_MESSAGE_CANARY')")
@@ -246,6 +267,7 @@ class SelectedDriverTests(unittest.TestCase):
         self.assertEqual(result['trial']['usage']['total_tokens'], 24)
         self.assertEqual(result['attach_cleanup'], 'reaped')
         self.assertFalse(result['scorer_protocol_completed'])
+        self.assertEqual(result['trial']['upstream_termination'], {'reason': 'user_stop', 'tool_errors': 0})
 
     def test_spawn_failure_closes_channels_and_never_claims_container_cleanup(self):
         with mock.patch.object(driver.subprocess, 'Popen', side_effect=OSError('PRIVATE_ERROR_CANARY')):
