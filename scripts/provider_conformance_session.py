@@ -53,8 +53,12 @@ def enabled(contract):
     require(type(value) is dict and set(value) == {"schema", "image", "payload_sha256"}
             and value["schema"] == "nib.owned-provider-input/v1" and value["image"] == IMAGE
             and contract.get("operation") == "local-correctness" and contract.get("gpu_family") == "B300"
-            and contract.get("gpu_security", "confidential") == "confidential"
+            and ((contract.get("gpu_security", "confidential") == "confidential" and "model_profile" not in contract)
+                 or (contract.get("gpu_security") == "nonconfidential"
+                     and type(contract.get("model_profile")) is dict
+                     and contract["model_profile"].get("name") == "uncensored"))
             and type(contract.get("data_parallel_size")) is int and contract["data_parallel_size"] == 2
+            and "stream_cohort" not in contract and "execution_profile" not in contract
             and contract.get("runtime_observation") is True
             and contract.get("tokenizer_parity") is True and "tokenizer_materialization" in contract)
     sha(value["payload_sha256"])
@@ -81,6 +85,13 @@ def guest_wait(contract_sha, sample, deadline, *, read_fd=0, write_fd=1):
             and value["ready_sha256"] == digest(raw) and type(value["accepted"]) is bool)
     sha(value["report_sha256"])
     return value
+
+
+def bind_model(plan, contract):
+    """Called after both the checker payload and engine identity are verified."""
+    enabled(contract)
+    require(("model_profile" in plan) == ("model_profile" in contract)
+            and plan.get("model_profile") == contract.get("model_profile"))
 
 
 def validate_ack(value):

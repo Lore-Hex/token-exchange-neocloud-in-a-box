@@ -48,7 +48,12 @@ class CompleteStageEvidenceTests(unittest.TestCase):
         source = git(ROOT, "show", revision + ":host/record-stage.py")
         self.assertEqual(hashlib.sha256(source).hexdigest(),
                          "19e6f58fef0a877d3fc13718bd03fa2baa1aba74cab396e1bcfb1600bb43177f")
-        self.assertEqual(source, (ROOT / "host/record-stage.py").read_bytes())
+        old_pin = b"327c1f65d7d8d23838bd816a60243d1ccc4e02d48fca21a823a4f52356d64040"
+        self.assertEqual(source.count(old_pin), 1)
+        # Only the reviewed shared identity-helper pin changed; staging and
+        # proof validation must remain byte-identical to the actual producer.
+        self.assertEqual(source.replace(old_pin, stage.PROFILE_SHA256.encode()),
+                         (ROOT / "host/record-stage.py").read_bytes())
         stage.validate_plan(report["plan"])
         stage.validate_proof(report["proof"], report["plan"], report["body_byte_budget"])
         self.assertEqual(report["stage"], "complete")

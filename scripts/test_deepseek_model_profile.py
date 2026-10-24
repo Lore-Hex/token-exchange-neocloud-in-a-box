@@ -372,6 +372,9 @@ class B200Profiles(unittest.TestCase):
         previous.__file__ = str(ROOT / host.SCRIPT)
         exec(compile(git(ROOT, "show", "f9885c6405bdc8675dacf3c04ecd583223d0dfbd:" + host.SCRIPT),
                      previous.__file__, "exec"), previous.__dict__)
+        # Compare unchanged builder behavior with the same reviewed helper bytes.
+        # Selected checker tests separately prove the helper's new opt-in scope.
+        previous.MODEL_PROFILE_SHA = host.MODEL_PROFILE_SHA
         cases = [("functional", "B200", "confidential", 1), ("hardware-diagnostic", "B200", "confidential", 1),
                  ("local-correctness", "B200", "confidential", 1), ("local-correctness", "B200", "nonconfidential", 1),
                  ("local-correctness", "B300", "confidential", 1), ("local-correctness", "B300", "nonconfidential", 1),

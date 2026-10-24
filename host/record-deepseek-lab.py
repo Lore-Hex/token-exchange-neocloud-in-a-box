@@ -44,7 +44,7 @@ SIX_TEST = "scripts/test_botocore_six.py"
 PACK = "models/deepseek-v4.1-flash-1017/1"
 MODEL_PROFILE = "scripts/deepseek_model_profile.py"
 TUNING = "scripts/deepseek_tuning.py"
-MODEL_PROFILE_SHA = "327c1f65d7d8d23838bd816a60243d1ccc4e02d48fca21a823a4f52356d64040"
+MODEL_PROFILE_SHA = "11475b07991fb510704d64143fcd9a0084327e586699604f14f88436960b754a"
 SUPPORT = ("scripts/record-engine-image.py", "scripts/prepare-engine-overlay.py",
            "scripts/check-engine-candidate.py", "scripts/engine_overlay.py",
            "scripts/engine_image_diagnostic.py", "scripts/engine_python_descriptor.py", "scripts/e2e/snapshot.py")
@@ -126,6 +126,12 @@ def tuning_measurement_options(parity, materialization, observation, cohort, pro
             and (all(options) or not any(options) and profile is None))
 
 
+def provider_target(family, security, replicas, model_profile):
+    return (family == "B300" and type(replicas) is int and replicas == 2
+            and ((security == "confidential" and model_profile in (None, "original"))
+                 or (security == "nonconfidential" and model_profile == "uncensored")))
+
+
 def parallel_size(contract):
     size = contract.get("data_parallel_size", 1)
     require(type(size) is int and size in (1, 2))
@@ -153,8 +159,12 @@ def validate_model_profile(contract, path):
     require(contract["operation"] == "local-correctness" and parallel_size(contract) == 2
             and model_target(contract.get("gpu_family"), contract.get("gpu_security", "confidential"),
                                    2, identity["name"]))
-    if contract.get("gpu_security") == "nonconfidential":
-        require("provider_conformance" not in contract)
+    if "provider_conformance" in contract:
+        require(provider_target(contract.get("gpu_family"), contract.get("gpu_security", "confidential"),
+                                2, identity["name"]))
+        require("provider-session.py" in contract["sources"])
+        load("selected_provider_session", Path(path) / "payload/provider-session.py",
+             contract["sources"]["provider-session.py"]).enabled(contract)
     module.validate_manifest("uncensored", read(Path(path) / "payload/pack/files.sha256"))
     arguments = contract["arguments"]
     require(arguments.count("--served-model-name") == 1
@@ -171,7 +181,7 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
     pack = PACK
     if model_profile != "original":
         require(operation == "local-correctness" and model_target(family, security, replicas, model_profile)
-                and type(replicas) is int and replicas == 2 and provider_conformance is None)
+                and type(replicas) is int and replicas == 2)
         profiles, identity = selected_model(extra[MODEL_PROFILE], model_profile)
         pack = identity["pack"]
         profiles.validate_manifest(model_profile, extra[pack + "/files.sha256"])
@@ -221,7 +231,8 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
             payload["stream/" + name + ".py"] = extra["scripts/" + name + ".py"]
     if provider_conformance is not None:
         require(type(provider_conformance) is dict and runtime_observation and tokenizer_materialization
-                and tokenizer_parity and replicas == 2)
+                and tokenizer_parity and provider_target(family, security, replicas, model_profile)
+                and not stream_cohort and execution_profile is None)
         payload["provider-session.py"] = extra[PROVIDER]
         payload["provider-worker.py"] = extra[PROVIDER_WORKER]
     contract = {"schema": "nib.deepseek-lab-input/v1", "status": "BLOCKED", "deployable": False, "confidential": False,
@@ -261,6 +272,9 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
         stream.enabled(contract)
     if provider_conformance is not None:
         contract["provider_conformance"] = provider_conformance
+        session = types.ModuleType("lab_provider_contract")
+        exec(compile(extra[PROVIDER], PROVIDER, "exec", dont_inherit=True), session.__dict__)
+        session.enabled(contract)
     if execution_profile is not None:
         tuning = types.ModuleType("lab_tuning")
         exec(compile(extra[TUNING], TUNING, "exec", dont_inherit=True), tuning.__dict__)
@@ -282,7 +296,7 @@ def prepare(destination, operation="functional", family="B200", security="confid
     require(type(model_profile) is str and model_profile in ("original", "uncensored"))
     require(model_profile == "original" or (operation == "local-correctness"
             and model_target(family, security, replicas, model_profile)
-            and type(replicas) is int and replicas == 2 and provider_wheelhouse is None))
+            and type(replicas) is int and replicas == 2))
     require(not (family == "B200" and replicas == 2) or model_profile == "uncensored")
     builder = load("lab_application_builder", ROOT / BUILDER, BUILDER_SHA)
     revision, bundle, extra = builder.inputs(ROOT)
@@ -324,8 +338,9 @@ def prepare(destination, operation="functional", family="B200", security="confid
             extra[name] = committed(builder, revision, name)
     checker_files = provider_settings = provider_prep = None
     if provider_wheelhouse is not None:
-        require(operation == "local-correctness" and family == "B300" and security == "confidential"
-                and replicas == 2 and runtime_observation and tokenizer_parity and tokenizer_materialization)
+        require(operation == "local-correctness" and provider_target(family, security, replicas, model_profile)
+                and runtime_observation and tokenizer_parity and tokenizer_materialization
+                and not stream_cohort and execution_profile is None)
         for name in (PROVIDER, PROVIDER_WORKER, "scripts/provider_conformance.py",
                      "scripts/tau_runtime.py", "scripts/tau_trial_worker.py", "scripts/tau_preflight.py",
                      "scripts/e2e/requirements.lock", "scripts/test_provider_conformance_session.py"):
@@ -333,7 +348,8 @@ def prepare(destination, operation="functional", family="B200", security="confid
         provider_prep = load("lab_provider_preparation", ROOT / "scripts/provider_conformance.py",
                              digest(extra["scripts/provider_conformance.py"]))
         require(provider_prep.identity(time.monotonic() + 60)["git_sha"] == revision)
-        checker_files = provider_prep.prepare(Path(provider_wheelhouse), time.monotonic() + 60)
+        checker_files = provider_prep.prepare(Path(provider_wheelhouse), time.monotonic() + 60,
+                                             model_profile=model_profile)
         require(checker_files["worker.py"] == extra[PROVIDER_WORKER])
         session = load("lab_provider_settings", ROOT / PROVIDER, digest(extra[PROVIDER]))
         provider_settings = {"schema": "nib.owned-provider-input/v1", "image": session.IMAGE,
@@ -452,6 +468,7 @@ def bundle_inputs(path, expected):
                 and sorted(p.name for p in checker.iterdir()) == ["payload"])
         plan = worker.verify(checker / "payload", settings["payload_sha256"])
         require(plan["files"]["worker.py"]["sha256"] == contract["sources"]["provider-worker.py"])
+        session.bind_model(plan, contract)
     config = recorder.raw_metadata(path / "metadata", contract)
     return receipt, contract, config, recorder
 
@@ -1009,8 +1026,7 @@ def main():
                 optional["execution_profile"] = args.execution_profile
             if args.model_profile == "uncensored":
                 require(profile[0] == "local-correctness" and len(profile) == 4 and profile[3] == 2
-                        and model_target(profile[1], profile[2], profile[3], args.model_profile)
-                        and not args.provider_conformance_wheels)
+                        and model_target(profile[1], profile[2], profile[3], args.model_profile))
                 optional["model_profile"] = args.model_profile
             if args.stream_cohort:
                 require(profile[0] == "local-correctness" and target)
@@ -1018,7 +1034,9 @@ def main():
                 if args.stream_profile is not None:
                     optional["stream_profile"] = args.stream_profile
             if args.provider_conformance_wheels:
-                require(profile == ("local-correctness", "B300", "confidential", 2)
+                require(profile[0] == "local-correctness"
+                        and provider_target(profile[1], profile[2], profile[3] if len(profile) == 4 else 1,
+                                            args.model_profile)
                         and args.tokenizer_parity and args.tokenizer_materialization and args.runtime_observation)
                 optional["provider_wheelhouse"] = args.provider_conformance_wheels
             if args.runtime_observation:

@@ -152,8 +152,8 @@ unchanged when the flag is absent.
    the requested direct-node conformance result;
    tau/quality, attestation, front-door/catalog and public listing remain separate.
 
-Only the B300 confidential-mode DP2 profile with parity, pinned tokenizer
-materialization and runtime observation can enable this mode:
+The original B300 confidential-mode DP2 profile with parity, pinned tokenizer
+materialization and runtime observation enables this mode:
 
 ```sh
 python3 -I -S -B host/record-deepseek-lab.py \
@@ -161,6 +161,30 @@ python3 -I -S -B host/record-deepseek-lab.py \
   --tokenizer-parity --tokenizer-materialization --runtime-observation \
   --provider-conformance-wheels /absolute/private/locked-wheels
 ```
+
+The separately selected **ordinary** B300 DP2 checkpoint can now prepare the
+same checker with its own exact identity:
+
+```sh
+python3 -I -S -B host/record-deepseek-lab.py \
+  --prepare-nonconfidential-uncensored-b300-dp2 /absolute/private/new-bundle \
+  --model-profile uncensored \
+  --tokenizer-parity --tokenizer-materialization --runtime-observation \
+  --provider-conformance-wheels /absolute/private/locked-wheels
+```
+
+This is implemented and tested against synthetic fixtures, **not a new live
+conformance result**. The checker payload includes the pinned shared model-profile
+source and complete selected identity. The worker verifies both before importing
+the unchanged checker; the parent also binds that identity to the verified engine
+contract. Original-model discovery cannot satisfy the selected-model check, nor
+can a self-consistent manifest substitute another profile or helper. Legacy
+preparation still selects the original model. No arbitrary model/endpoint,
+stream-cohort combination, tuned execution profile, B200 variant or confidential
+uncensored checker is enabled by this increment. Container limits, 45-minute
+overall cutoff, readiness/parity prerequisites, cleanup and nonqualification
+claims are unchanged. [Selected-profile tests](../../scripts/test_selected_provider_conformance.py)
+exercise the positive path and cross-model/source/identity/CLI negative controls.
 
 Preparation requires a committed source tree and the existing authenticated raw
 engine metadata. Transfer the prepared bundle privately without changing bytes.
