@@ -54,6 +54,9 @@ The separately selected **abliterated checkpoint** passes all eight fixed
 correctness cases and ten requests on an ordinary eight-B300 node
 ([original correctness evidence](evidence/p2/2026-10-24-ordinary-selected-correctness/README.md)),
 plus [17 required provider checks](docs/tasks/p2-t3-selected-provider-evidence.md).
+A separate [read-only serving copy](evidence/p2/2026-10-24-selected-weight-view-pass/README.md)
+now verifies all 79 files and 510.3 GB while preserving the original checkpoint.
+File preparation alone does not establish a running service.
 A small graph-enabled stream cohort measured **143.36 output tokens/second**
 overall and **98.61 ms median TTFT** across eight completed requests at concurrency
 one, excluding warmup ([original stream evidence and limits](evidence/p2/2026-10-24-selected-graphs-stream/README.md)).
