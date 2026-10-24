@@ -1,0 +1,16 @@
+{
+  "cleanup": "unproven",
+  "git_sha": "68ab473fda5b29bf85be07099494702b63aeba69",
+  "model_profile": {
+    "hf_repo": "dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8",
+    "hf_revision": "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a",
+    "manifest_sha256": "5c6891a9649702b1ac0327b945600acb40c571a069942517cf14ba661a3cfcbc",
+    "name": "uncensored",
+    "pack": "models/deepseek-v4.1-flash-1017-uncensored-fp8/1",
+    "served_model_name": "deepseek-v4.1-flash-1017-uncensored-fp8",
+    "total_bytes": 510311056155
+  },
+  "result": "incomplete",
+  "schema": "nib.tau-agent-prefix-pending/v1",
+  "started_utc": "2026-10-24T12:19:51Z"
+}
