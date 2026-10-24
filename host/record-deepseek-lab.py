@@ -141,7 +141,7 @@ def tuning_module(contract, path):
 
 def owner_module(contract, path):
     if "tau_owner" not in contract:
-        require("tau-owner-sources.py" not in contract["sources"])
+        require("tau-owner-sources.py" not in contract.get("sources", {}))
         return None
     path = Path(path) / "payload"
     loader = load("lab_tau_sources", path / "tau-owner-sources.py", contract["sources"]["tau-owner-sources.py"])

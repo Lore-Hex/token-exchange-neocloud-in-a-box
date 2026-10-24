@@ -28,6 +28,14 @@ class GPULabTests(unittest.TestCase):
         cls.options = dict(model_profile="uncensored", execution_profile="tau8k-eager",
                            tokenizer_parity=True, tokenizer_materialization=True, runtime_observation=True)
 
+    def test_disabled_owner_does_not_require_optional_sources_or_load_code(self):
+        with mock.patch.object(host, "load") as load:
+            for contract in ({"base_image": "fixed"}, {"sources": {}}):
+                self.assertIsNone(host.owner_module(contract, "/unused"))
+            with self.assertRaises(ValueError):
+                host.owner_module({"sources": {"tau-owner-sources.py": "a" * 64}}, "/unused")
+            load.assert_not_called()
+
     def test_opt_in_payload_is_source_bound_and_default_stays_unchanged(self):
         original, default = host.make_payload(*self.args, **self.options)
         files, contract = host.make_payload(*self.args, **self.options, tau_owner=True)
