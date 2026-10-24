@@ -67,6 +67,11 @@ Cleanup was confirmed. GPU CC was disabled; outer FAIL/BLOCKED records remain
 unchanged. These are not a capacity sweep, full tau result, quality acceptance
 or confidential qualification.
 
+A later [selected tau controller attempt](evidence/p2/2026-10-24-selected-tau-readiness-failure-1736/README.md)
+failed during readiness: both owners exited 1, no READY hashes or scorer result
+were recorded, and cleanup remained **unconfirmed**. No inference or quality
+score was established; the original report does not identify the root cause.
+
 | Component | State |
 |---|---|
 | Plan, sizing, phase definitions | written ([PLAN.md](PLAN.md)) |
