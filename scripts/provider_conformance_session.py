@@ -12,6 +12,9 @@ import subprocess
 import time
 
 IMAGE = "docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2"
+CLASSIC_PROFILE = "docker28-classic"
+CLASSIC_MANIFEST = "sha256:6e13e65c55e33adf203d77ee371cf8bf5d81bd4902ef07565721f46bf44917af"
+CLASSIC_CONFIG = "sha256:64d91f7b885eed272bba87909446b12ff408d4aaa5f1a0e9ca787bbea1a020b9"
 READY = b"NIB-PROVIDER-READY "
 DONE = b"NIB-PROVIDER-DONE "
 SECONDS = 300
@@ -50,7 +53,8 @@ def sha(value):
 
 def enabled(contract):
     value = contract.get("provider_conformance")
-    require(type(value) is dict and set(value) == {"schema", "image", "payload_sha256"}
+    require(type(value) is dict and set(value) in ({"schema", "image", "payload_sha256"},
+            {"schema", "image", "payload_sha256", "image_profile"})
             and value["schema"] == "nib.owned-provider-input/v1" and value["image"] == IMAGE
             and contract.get("operation") == "local-correctness" and contract.get("gpu_family") == "B300"
             and ((contract.get("gpu_security", "confidential") == "confidential" and "model_profile" not in contract)
@@ -62,6 +66,8 @@ def enabled(contract):
             and contract.get("runtime_observation") is True
             and contract.get("tokenizer_parity") is True and "tokenizer_materialization" in contract)
     sha(value["payload_sha256"])
+    if "image_profile" in value:
+        require(value["image_profile"] == CLASSIC_PROFILE)
     return value
 
 
@@ -113,10 +119,14 @@ def validate_ready(raw, contract, contract_sha, observer):
     return value
 
 
-def validate_join(row, ready, experiment, worker):
+def validate_join(row, ready, experiment, worker, *, image_profile=None):
     """Bind the CPU report to the same guest's before/after owned API samples."""
-    require(type(row) is dict and set(row) == {"schema", "stage", "accepted", "cleanup", "worker",
-            "worker_exit_code", "namespace_verified", "engine_identity_sha256", "image_manifest"}
+    require(image_profile in (None, CLASSIC_PROFILE))
+    fields = {"schema", "stage", "accepted", "cleanup", "worker",
+              "worker_exit_code", "namespace_verified", "engine_identity_sha256", "image_manifest"}
+    if image_profile is not None:
+        fields.add("image_profile")
+    require(type(row) is dict and set(row) == fields and row.get("image_profile") == image_profile
             and row["schema"] == "nib.owned-provider-run/v1" and type(row["accepted"]) is bool
             and row["stage"] in ("verification", "create", "checker", "completed")
             and row["cleanup"] in ("not-created", "unconfirmed", "create-completion-unknown", "confirmed")
@@ -125,6 +135,7 @@ def validate_join(row, ready, experiment, worker):
         sha(row["engine_identity_sha256"])
     if row["image_manifest"] is not None:
         require(re.fullmatch(r"sha256:[0-9a-f]{64}", row["image_manifest"]))
+        require(image_profile is None or row["image_manifest"] == CLASSIC_MANIFEST)
     accepted = False
     if row["worker"] is not None:
         require(type(row["worker_exit_code"]) is int)
@@ -229,35 +240,53 @@ def create_command(name, owner, engine_id, payload, plan_sha, worker):
             "/usr/local/bin/python3", "-I", "-S", "-B", "/opt/nib/worker.py", sha(plan_sha)]
 
 
-def image_manifest(info):
-    descriptor = info["Descriptor"]
+def image_manifest(info, *, image_profile=None):
+    require(image_profile in (None, CLASSIC_PROFILE))
     repository, pinned_digest = IMAGE.split("@")
     # RepoDigests may drop the human-readable tag but must retain this exact pin.
     canonical = repository.rsplit(":", 1)[0] + "@" + pinned_digest
     references = {reference.removeprefix(prefix) for reference in (IMAGE, canonical)
                   for prefix in ("", "docker.io/", "docker.io/library/")}
     require(info["Architecture"] == "amd64" and info["Os"] == "linux"
-            and not info["Config"].get("Volumes") and info["Id"] == descriptor["digest"]
-            and descriptor["mediaType"] == "application/vnd.oci.image.manifest.v1+json"
-            and descriptor["platform"] == {"architecture": "amd64", "os": "linux"}
-            and re.fullmatch(r"sha256:[0-9a-f]{64}", descriptor["digest"])
+            and not info["Config"].get("Volumes")
             and type(info["RepoDigests"]) is list
             and all(type(reference) is str for reference in info["RepoDigests"])
             and any(reference in references for reference in info["RepoDigests"]))
+    if image_profile == CLASSIC_PROFILE:
+        # Docker 28's classic store identifies images by config, not descriptor.
+        # See docs/tasks/p2-t4-provider-classic-store.md for the pinned chain.
+        require(info["Id"] == CLASSIC_CONFIG and info.get("Descriptor") is None
+                and not info.get("Manifests") and not info.get("Variant"))
+        return CLASSIC_MANIFEST
+    descriptor = info["Descriptor"]
+    require(info["Id"] == descriptor["digest"]
+            and descriptor["mediaType"] == "application/vnd.oci.image.manifest.v1+json"
+            and descriptor["platform"] == {"architecture": "amd64", "os": "linux"}
+            and re.fullmatch(r"sha256:[0-9a-f]{64}", descriptor["digest"]))
     return descriptor["digest"]
 
 
-def preflight_image(recorder, env):
-    info = decode(recorder.call(["docker", "image", "inspect", "--platform", "linux/amd64", IMAGE],
+def image_inspect_args(image_profile=None):
+    require(image_profile in (None, CLASSIC_PROFILE))
+    return ["image", "inspect", *([] if image_profile else ["--platform", "linux/amd64"]), IMAGE]
+
+
+def preflight_image(recorder, env, *, image_profile=None):
+    info = decode(recorder.call(["docker", *image_inspect_args(image_profile)],
                                 env, timeout=20, limit=65536))
     require(type(info) is list and len(info) == 1)
-    return image_manifest(info[0])
+    return image_manifest(info[0], image_profile=image_profile)
 
 
-def check_container(info, command, name, owner, engine_id, payload, manifest):
+def check_container(info, command, name, owner, engine_id, payload, manifest, *, image_profile=None):
+    require(image_profile in (None, CLASSIC_PROFILE))
+    if image_profile == CLASSIC_PROFILE:
+        require(info["Image"] == CLASSIC_CONFIG and manifest == CLASSIC_MANIFEST
+                and info.get("ImageManifestDescriptor") is None and info["Platform"] == "linux")
+    else:
+        require(info["Image"] == IMAGE.split("@")[1] and info["ImageManifestDescriptor"]["digest"] == manifest)
     cfg, host = info["Config"], info["HostConfig"]
-    require(info["Image"] == IMAGE.split("@")[1] and info["ImageManifestDescriptor"]["digest"] == manifest
-            and info["Name"] == "/" + name and cfg["Image"] == IMAGE and cfg["Labels"].get(LABEL) == owner
+    require(info["Name"] == "/" + name and cfg["Image"] == IMAGE and cfg["Labels"].get(LABEL) == owner
             and cfg["Entrypoint"] == ["/usr/bin/env"] and cfg["Cmd"] == command[command.index(IMAGE) + 1:]
             and cfg["User"] == "65534:65534" and cfg["WorkingDir"] == "/scratch"
             and not cfg["Tty"] and not cfg["OpenStdin"] and cfg["Healthcheck"]["Test"] == ["NONE"])
@@ -289,10 +318,13 @@ def kernel_identity(info):
 def run_checker(payload, contract, worker, recorder, env, engine_name, owner, engine_id,
                 owner_check, cleanup_checker, start_watchdog, deadline, cancelled=lambda: False):
     settings = enabled(contract)
+    image_profile = settings.get("image_profile")
     name = engine_name + "-provider"
     row = {"schema": "nib.owned-provider-run/v1", "stage": "verification", "accepted": False,
            "cleanup": "not-created", "worker": None, "worker_exit_code": None,
            "namespace_verified": False, "engine_identity_sha256": None, "image_manifest": None}
+    if image_profile is not None:
+        row["image_profile"] = image_profile
     created = completed_create = False
     monitor = None
     life = None
@@ -309,16 +341,16 @@ def run_checker(payload, contract, worker, recorder, env, engine_name, owner, en
         worker.verify(payload, settings["payload_sha256"])
         before = kernel_identity(owner_check())
         row["engine_identity_sha256"] = digest(encoded(before))
-        info = decode(call("image", "inspect", "--platform", "linux/amd64", IMAGE))
+        info = decode(call(*image_inspect_args(image_profile)))
         require(type(info) is list and len(info) == 1)
-        manifest = image_manifest(info[0])
+        manifest = image_manifest(info[0], image_profile=image_profile)
         row["image_manifest"] = manifest
         command = create_command(name, owner, engine_id, payload, settings["payload_sha256"], worker)
         require(not call("container", "ls", "--all", "--quiet", "--filter", "name=^/" + name + "$").strip())
         row["stage"], row["cleanup"], created = "create", "unconfirmed", True
         call(*command[1:])
         completed_create = True
-        check_container(inspect(name), command, name, owner, engine_id, payload, manifest)
+        check_container(inspect(name), command, name, owner, engine_id, payload, manifest, image_profile=image_profile)
         require(kernel_identity(owner_check()) == before)
         # A separate process owns the 200-second kill deadline even if this
         # process dies or stalls. The outer engine watchdog is a second backstop.
@@ -331,7 +363,7 @@ def run_checker(payload, contract, worker, recorder, env, engine_name, owner, en
                     break
                 require(time.monotonic() < end)
                 time.sleep(0.05)
-            check_container(current, command, name, owner, engine_id, payload, manifest)
+            check_container(current, command, name, owner, engine_id, payload, manifest, image_profile=image_profile)
             child = kernel_identity(current)
             require(kernel_identity(owner_check()) == before
                     and child["namespaces"]["net"] == before["namespaces"]["net"]
@@ -346,7 +378,7 @@ def run_checker(payload, contract, worker, recorder, env, engine_name, owner, en
         accepted = validate_worker(value, worker, code)
         row.update(worker=value, worker_exit_code=code)
         final = inspect(name)
-        check_container(final, command, name, owner, engine_id, payload, manifest)
+        check_container(final, command, name, owner, engine_id, payload, manifest, image_profile=image_profile)
         require(final["State"]["Status"] == "exited" and final["State"]["ExitCode"] == code
                 and not final["State"]["OOMKilled"] and kernel_identity(owner_check()) == before)
         worker.verify(payload, settings["payload_sha256"])

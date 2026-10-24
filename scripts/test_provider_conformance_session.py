@@ -71,6 +71,10 @@ def image_info():
                 "platform": {"architecture": "amd64", "os": "linux"}}}
 
 
+def classic_image_info():
+    return {**image_info(), "Id": session.CLASSIC_CONFIG, "Descriptor": None}
+
+
 def container_info(command, payload):
     return {"Id": "c" * 64, "Name": "/" + NAME + "-provider", "Image": session.IMAGE.split("@")[1],
         "ImageManifestDescriptor": {"digest": MANIFEST},
@@ -89,6 +93,28 @@ def container_info(command, payload):
 
 
 class SchemaTests(unittest.TestCase):
+    def test_classic_profile_is_explicit_closed_and_bound_to_report(self):
+        selected = contract()
+        selected["provider_conformance"]["image_profile"] = session.CLASSIC_PROFILE
+        session.enabled(selected)
+        for profile in (None, False, 0, "auto", "docker29-descriptor", ""):
+            selected["provider_conformance"]["image_profile"] = profile
+            with self.subTest(profile=profile), self.assertRaises(ValueError):
+                session.enabled(selected)
+        ready, row = packet(), run_row()
+        row.update(image_profile=session.CLASSIC_PROFILE, image_manifest=session.CLASSIC_MANIFEST)
+        experiment = {"provider_conformance": {"ready_sha256": session.digest(session.encoded(ready)),
+            "report_sha256": session.digest(session.encoded(row)), "accepted": True}, "functional_pass": True,
+            "tokenizer_parity": {"all_cases_pass": True}, "runtime_observation": {
+                "contract_sha256": SHA, "samples": [sample(), sample("after-requests")]}}
+        session.validate_join(row, ready, experiment, worker, image_profile=session.CLASSIC_PROFILE)
+        with self.assertRaises(ValueError):
+            session.validate_join(row, ready, experiment, worker)
+        for change in ({"image_profile": "auto"}, {"image_manifest": MANIFEST}):
+            with self.assertRaises(ValueError):
+                session.validate_join({**row, **change}, ready, experiment, worker,
+                                      image_profile=session.CLASSIC_PROFILE)
+
     def test_explicit_profile_and_no_optional_relaxations(self):
         session.enabled(contract())
         for change in ({"data_parallel_size": 1}, {"data_parallel_size": True}, {"gpu_family": "B200"},
@@ -202,6 +228,58 @@ class ProcessTests(unittest.TestCase):
 
 
 class ContainerTests(unittest.TestCase):
+    def test_classic_preflight_has_exact_config_and_no_descriptor_fallback(self):
+        info = classic_image_info()
+        self.assertEqual(session.image_manifest(info, image_profile=session.CLASSIC_PROFILE), session.CLASSIC_MANIFEST)
+        for key in ("Descriptor",):
+            missing = dict(info)
+            del missing[key]
+            self.assertEqual(session.image_manifest(missing, image_profile=session.CLASSIC_PROFILE), session.CLASSIC_MANIFEST)
+        with self.assertRaises((ValueError, TypeError)):
+            session.image_manifest(info)
+        for change in (lambda r: r.update(Id=MANIFEST), lambda r: r.update(Architecture="arm64"),
+                       lambda r: r.update(Os="windows"), lambda r: r.update(Variant="v8"),
+                       lambda r: r.update(Descriptor={}), lambda r: r.update(Manifests=[{}]),
+                       lambda r: r.update(RepoDigests=[session.IMAGE.replace("4766", "0000")]),
+                       lambda r: r["Config"].update(Volumes={"/unreviewed": {}})):
+            changed = copy.deepcopy(info)
+            change(changed)
+            with self.assertRaises(ValueError):
+                session.image_manifest(changed, image_profile=session.CLASSIC_PROFILE)
+        for profile, row in ((None, image_info()), (session.CLASSIC_PROFILE, info)):
+            recorder = types.SimpleNamespace(call=mock.Mock(return_value=session.encoded([row])))
+            session.preflight_image(recorder, {}, image_profile=profile)
+            self.assertEqual(recorder.call.call_args.args[0], ["docker", "image", "inspect",
+                *([] if profile else ["--platform", "linux/amd64"]), session.IMAGE])
+        with self.assertRaises(ValueError):
+            session.image_inspect_args("auto")
+
+    def test_classic_container_preserves_pin_and_all_confinement_guards(self):
+        payload = Path("/private/checker/payload")
+        command = session.create_command(NAME + "-provider", OWNER, ENGINE, payload, SHA, worker)
+        good = container_info(command, payload)
+        good.update(Image=session.CLASSIC_CONFIG, ImageManifestDescriptor=None, Platform="linux")
+        def check(info):
+            session.check_container(info, command, NAME + "-provider", OWNER, ENGINE, payload,
+                                    session.CLASSIC_MANIFEST, image_profile=session.CLASSIC_PROFILE)
+        check(good)
+        with self.assertRaises(ValueError):
+            session.check_container(good, command, NAME + "-provider", OWNER, ENGINE, payload, session.CLASSIC_MANIFEST)
+        changes = [lambda r: r.update(Image=MANIFEST), lambda r: r.update(ImageManifestDescriptor={}),
+                   lambda r: r.update(Platform="windows"),
+                   lambda r: r["Config"].update(Image="python:latest"), lambda r: r["Mounts"][0].update(RW=True),
+                   lambda r: r["Config"].update(User="0"), lambda r: r["Config"].update(Cmd=["unreviewed"])]
+        for key, value in (("NetworkMode", "host"), ("ReadonlyRootfs", False), ("Runtime", "nvidia"),
+                           ("DeviceRequests", [{"Count": -1}]), ("MemorySwap", -1), ("PidMode", "host"),
+                           ("CgroupnsMode", "host"), ("CapAdd", ["SYS_ADMIN"]),
+                           ("PortBindings", {"8000": [{}]}), ("LogConfig", {"Type": "json-file"})):
+            changes.append(lambda r, key=key, value=value: r["HostConfig"].update({key: value}))
+        for change in changes:
+            changed = copy.deepcopy(good)
+            change(changed)
+            with self.assertRaises(ValueError):
+                check(changed)
+
     def test_tagless_digest_reference_preserves_exact_pin_and_platform(self):
         repository, pinned_digest = session.IMAGE.split("@")
         canonical = repository.rsplit(":", 1)[0] + "@" + pinned_digest
@@ -285,8 +363,13 @@ class ContainerTests(unittest.TestCase):
     def test_checker_lifecycle_failure_preservation_and_namespace_binding(self):
         payload = Path("/private/checker/payload")
         command = session.create_command(NAME + "-provider", OWNER, ENGINE, payload, SHA, worker)
-        for mode in ("pass", "warn", "exit", "namespace", "owner-drift", "cleanup", "create", "oom", "watchdog"):
+        for mode in ("pass", "classic", "classic-drift", "warn", "exit", "namespace", "owner-drift", "cleanup", "create", "oom", "watchdog"):
             cpu = container_info(command, payload)
+            selected = contract()
+            classic = mode.startswith("classic")
+            if classic:
+                selected["provider_conformance"]["image_profile"] = session.CLASSIC_PROFILE
+                cpu.update(Image=session.CLASSIC_CONFIG, ImageManifestDescriptor=None, Platform="linux")
             engine = {"Id": ENGINE, "State": {**cpu["State"], "Pid": 123}}
             identities = {123: {"net": 1, "pid": 2, "cgroup": 3},
                           456: {"net": 9 if mode == "namespace" else 1, "pid": 4, "cgroup": 5}}
@@ -297,7 +380,8 @@ class ContainerTests(unittest.TestCase):
             def call(argv, *_args, **_kwargs):
                 calls.append(argv)
                 if argv[1:3] == ["image", "inspect"]:
-                    return session.encoded([image_info()])
+                    self.assertEqual("--platform" in argv, not classic)
+                    return session.encoded([classic_image_info() if classic else image_info()])
                 if "ls" in argv: return b""
                 if "create" in argv:
                     if mode == "create": raise TimeoutError("PRIVATE")
@@ -311,6 +395,7 @@ class ContainerTests(unittest.TestCase):
                 cpu["State"].update(Status="exited", Running=False, ExitCode=0 if accepted else 1,
                                     OOMKilled=mode == "oom")
                 if mode == "owner-drift": engine["State"]["StartedAt"] = "changed"
+                if mode == "classic-drift": cpu["Image"] = MANIFEST
                 return (0 if accepted else 1), session.encoded(result(accepted))
             recorder = types.SimpleNamespace(call=call, snapshot=mock.Mock())
             cleaned = mock.Mock(side_effect=ValueError("PRIVATE") if mode == "cleanup" else None)
@@ -320,9 +405,10 @@ class ContainerTests(unittest.TestCase):
             try:
                 with mock.patch.object(worker, "verify"), mock.patch.object(session.os, "stat", side_effect=stat), \
                         mock.patch.object(session, "capture", side_effect=capture):
-                    row = session.run_checker(payload, contract(), worker, recorder, {}, NAME, OWNER, ENGINE,
+                    row = session.run_checker(payload, selected, worker, recorder, {}, NAME, OWNER, ENGINE,
                         lambda: engine, cleaned, monitor_start, time.monotonic() + 300)
-                self.assertEqual(row["accepted"], mode == "pass", mode)
+                self.assertEqual(row["accepted"], mode in ("pass", "classic"), mode)
+                self.assertEqual(row.get("image_profile"), session.CLASSIC_PROFILE if classic else None)
                 self.assertNotIn("PRIVATE", json.dumps(row))
                 cleaned.assert_called_once()
                 if monitor_start.called:
@@ -337,10 +423,13 @@ class ContainerTests(unittest.TestCase):
 
 class WiringTests(unittest.TestCase):
     def test_full_owner_handshake_join_and_cleanup_not_just_worker_gate(self):
-        for mode in ("pass", "failed-worker", "bad-ack", "cleanup", "no-ready"):
+        for mode in ("pass", "classic", "failed-worker", "bad-ack", "cleanup", "no-ready"):
             selected = {**contract(), "base_image": "synthetic-engine", "sources": {
                 "provider-session.py": SHA, "provider-worker.py": SHA, "runtime-observation.py": SHA}}
             row = run_row(mode not in ("failed-worker", "no-ready"))
+            if mode == "classic":
+                selected["provider_conformance"]["image_profile"] = session.CLASSIC_PROFILE
+                row.update(image_profile=session.CLASSIC_PROFILE, image_manifest=session.CLASSIC_MANIFEST)
             ready = packet()
             ready["contract_sha256"] = session.digest(b"synthetic-contract")
             report = {"functional_pass": mode not in ("failed-worker", "no-ready"), "provider_conformance": None,
@@ -372,7 +461,7 @@ class WiringTests(unittest.TestCase):
                 if kwargs == {"provider": True} and mode == "cleanup": raise ValueError("PRIVATE")
             with mock.patch.object(host, "load", side_effect=lambda name, *_: modules[name]), \
                     mock.patch.object(host, "read", return_value=b"synthetic-contract"), \
-                    mock.patch.object(session, "preflight_image"), mock.patch.object(session, "capture", side_effect=capture), \
+                    mock.patch.object(session, "preflight_image") as preflight, mock.patch.object(session, "capture", side_effect=capture), \
                     mock.patch.object(session, "run_checker", side_effect=checker) as run, \
                     mock.patch.object(host, "inspect", side_effect=inspect), mock.patch.object(host, "check_container"), \
                     mock.patch.object(host, "create_command", return_value=["docker", "container", "create"]), \
@@ -382,7 +471,8 @@ class WiringTests(unittest.TestCase):
                     mock.patch.object(host, "CANCELLED", False), mock.patch.object(host, "CLEANING", False):
                 out = host.run_container(Path("/private/bundle"), SHA, Path("/private/weights"), time.time() + 2690,
                     recorder, selected, {}, host.controlled_env("unix:///var/run/docker.sock"))
-            self.assertEqual(out["functional_pass"], mode == "pass", mode)
+            self.assertEqual(out["functional_pass"], mode in ("pass", "classic"), mode)
+            self.assertEqual(preflight.call_args.kwargs, {"image_profile": session.CLASSIC_PROFILE if mode == "classic" else None})
             self.assertEqual(run.call_count, 0 if mode == "no-ready" else 1)
             self.assertEqual(cleanup.call_args.kwargs, {"provider": True})
             if run.called: self.assertEqual(cleanup.call_args_list[0].kwargs, {"checker_only": True})
@@ -426,14 +516,23 @@ class WiringTests(unittest.TestCase):
             self.assertEqual(host.main(), 0)
         self.assertEqual(prepare.call_args.kwargs, {"tokenizer_parity": True, "tokenizer_materialization": True,
             "runtime_observation": True, "provider_wheelhouse": "/private/wheels"})
+        with mock.patch.object(host.sys, "argv", good + ["--provider-image-profile", session.CLASSIC_PROFILE]), \
+                mock.patch.object(host, "prepare") as prepare:
+            self.assertEqual(host.main(), 0)
+        self.assertEqual(prepare.call_args.kwargs["provider_image_profile"], session.CLASSIC_PROFILE)
         bad = [[host.SCRIPT, option, "/private/new", *flags] for option in ("--prepare", "--run",
                "--prepare-local-correctness-b300", "--prepare-nonconfidential-baseline-b300")]
         bad += [[arg for arg in good if arg != removed] for removed in flags[:3]]
+        bad.append([host.SCRIPT, "--prepare-local-correctness-b300-dp2", "/private/new",
+                    "--provider-image-profile", session.CLASSIC_PROFILE])
         for args in bad:
             with mock.patch.object(host.sys, "argv", args), mock.patch.object(host, "prepare") as prepare, \
                     self.assertRaises(ValueError):
                 host.main()
             prepare.assert_not_called()
+        with mock.patch.object(host, "load") as load, self.assertRaises(ValueError):
+            host.prepare("/private/new", provider_image_profile=session.CLASSIC_PROFILE)
+        load.assert_not_called()
 
     def test_payload_default_unchanged_sources_pinned_and_only_stdin_changes(self):
         fixtures.PayloadTests.setUpClass()
