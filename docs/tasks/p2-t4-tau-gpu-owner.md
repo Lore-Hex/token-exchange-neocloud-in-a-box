@@ -2,7 +2,7 @@
 
 Implemented and synthetic-tested library, **not hardware validated**. This is
 the candidate half of the [process-owner transport](p2-t4-tau-owner-channel.md),
-not a live launcher or a tau score. No existing run selects it automatically.
+not a complete tau launcher or a score. No existing run selects it automatically.
 
 The adapter accepts only the selected checkpoint's ordinary 8xB300, TP4/DP2,
 8K eager lab profile, with actual tokenizer parity and runtime observation.
@@ -30,6 +30,24 @@ subprocess lifetimes, synthetic kernel/HTTP observations, expiry and readiness
 tampering, exact source hashes and poisoned ambient modules. These tests use no
 GPU and make no inference-quality or confidential-compute claim.
 
-Still required: explicit lab/host integration, joined CPU/GPU/scorer teardown,
-fresh selected-weight execution and committed hardware receipts. The production
-provider and confidential-admission paths are unchanged.
+The lab now has a separate `--tau-owner` preparation flag. It requires the
+ordinary selected-checkpoint DP2 target, `--execution-profile tau8k-eager`,
+`--tokenizer-parity`, `--tokenizer-materialization` and `--runtime-observation`.
+Provider checks and stream cohorts cannot share this mode. The resulting bundle
+keeps a network-disabled, 512 GiB, no-extra-swap container; its only additional
+channel is private FIFO stdin/stdout. A terminal is not a controller.
+
+After measured parity, the worker serves the bounded owner protocol. The host
+checks original readiness before relaying it, then joins the exact finish status,
+request count, parity and initial runtime sample to the final lab JSON. Known
+count/complete failures preserve that final JSON without reporting a successful
+release. The common relay is shared with the CPU owner. Existing lab teardown
+and the absolute-deadline watchdog still own container cleanup.
+
+`test_tau_gpu_lab.py` covers opt-in selection, unchanged default payloads,
+source tampering, constrained container arguments, actual supervisor pipe
+exchanges, deadline reaping and final-report joins. These are synthetic tests.
+
+Still required: joined CPU/GPU/scorer launch and teardown, fresh selected-weight
+execution and committed hardware receipts. The production provider and
+confidential-admission paths are unchanged.

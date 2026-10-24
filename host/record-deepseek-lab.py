@@ -38,6 +38,7 @@ OBSERVATION = "scripts/engine_runtime_observation.py"
 PROVIDER = "scripts/provider_conformance_session.py"
 PROVIDER_WORKER = "scripts/provider_conformance_worker.py"
 STREAM = "scripts/stream_lab.py"
+TAU_SOURCES = "scripts/tau_gpu_sources.py"
 SMOKE = "scripts/engine_import_smoke.py"
 TEST = "scripts/test_deepseek_lab.py"
 SIX_TEST = "scripts/test_botocore_six.py"
@@ -138,6 +139,18 @@ def tuning_module(contract, path):
     return tuning
 
 
+def owner_module(contract, path):
+    if "tau_owner" not in contract:
+        require("tau-owner-sources.py" not in contract["sources"])
+        return None
+    path = Path(path) / "payload"
+    loader = load("lab_tau_sources", path / "tau-owner-sources.py", contract["sources"]["tau-owner-sources.py"])
+    sources = {loader.PREFIX + name + ".py": read(path / (loader.PREFIX + name + ".py")) for name in loader.NAMES}
+    module = loader.load(sources, contract["sources"])
+    module.selected(contract)
+    return module
+
+
 def provider_target(family, security, replicas, model_profile):
     return (family == "B300" and type(replicas) is int and replicas == 2
             and ((security == "confidential" and model_profile in (None, "original"))
@@ -187,7 +200,7 @@ def validate_model_profile(contract, path):
 def make_payload(builder, revision, bundle, extra, binary, operation="functional", family="B200", security="confidential", replicas=1,
                  *, tokenizer_parity=False, tokenizer_materialization=False, runtime_observation=False,
                  provider_conformance=None, stream_cohort=False, stream_profile=None, model_profile="original",
-                 execution_profile=None):
+                 execution_profile=None, tau_owner=False):
     require(type(model_profile) is str and model_profile in ("original", "uncensored"))
     identity = None
     pack = PACK
@@ -241,6 +254,13 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
         payload["stream-lab.py"] = extra[STREAM]
         for name in stream.NAMES:
             payload["stream/" + name + ".py"] = extra["scripts/" + name + ".py"]
+    require(type(tau_owner) is bool)
+    if tau_owner:
+        loader = types.ModuleType("lab_tau_source_names")
+        exec(compile(extra[TAU_SOURCES], TAU_SOURCES, "exec", dont_inherit=True), loader.__dict__)
+        payload["tau-owner-sources.py"] = extra[TAU_SOURCES]
+        for name in loader.NAMES:
+            payload[loader.PREFIX + name + ".py"] = extra["scripts/" + name + ".py"]
     if provider_conformance is not None:
         require(type(provider_conformance) is dict and runtime_observation and tokenizer_materialization
                 and tokenizer_parity and provider_target(family, security, replicas, model_profile)
@@ -295,6 +315,10 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
         contract["execution_profile"] = execution_profile
         tuning.enabled(contract)
         contract["arguments"] = tuning.arguments(contract["arguments"], execution_profile)
+    if tau_owner:
+        module = loader.load(payload, contract["sources"])
+        contract["tau_owner"] = {"schema": module.SCHEMA}
+        module.selected(contract)
     payload["lab.json"] = builder.overlay.json_bytes(contract)
     payload["python"] = runtime.wrapper_bytes(contract["interpreter"]["resolved"], contract["environment"], digest(payload["lab.json"]))
     return payload, contract
@@ -303,7 +327,7 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
 def prepare(destination, operation="functional", family="B200", security="confidential", replicas=1, *,
             tokenizer_parity=False, tokenizer_materialization=False, runtime_observation=False,
             provider_wheelhouse=None, stream_cohort=False, stream_profile=None, model_profile="original",
-            execution_profile=None, provider_image_profile=None):
+            execution_profile=None, provider_image_profile=None, tau_owner=False):
     require(stream_profile is None or stream_cohort)
     require(provider_image_profile is None or (provider_image_profile == "docker28-classic"
             and provider_wheelhouse is not None))
@@ -350,6 +374,16 @@ def prepare(destination, operation="functional", family="B200", security="confid
         require(stream_profile is None or stream_profile == stream.EXTENDED_PROFILE)
         for name in ("scripts/" + item + ".py" for item in (*stream.NAMES, "test_stream_lab")):
             extra[name] = committed(builder, revision, name)
+    require(type(tau_owner) is bool)
+    if tau_owner:
+        require(execution_profile == "tau8k-eager" and not stream_cohort and provider_wheelhouse is None
+                and tokenizer_parity and tokenizer_materialization and runtime_observation
+                and ordinary_uncensored_target(family, security, replicas, model_profile))
+        extra[TAU_SOURCES] = committed(builder, revision, TAU_SOURCES)
+        loader = load("lab_tau_source_names", ROOT / TAU_SOURCES, digest(extra[TAU_SOURCES]))
+        for name in (*loader.NAMES, "test_tau_gpu_owner", "test_tau_gpu_lab"):
+            source = "scripts/" + name + ".py"
+            extra[source] = committed(builder, revision, source)
     checker_files = provider_settings = provider_prep = None
     if provider_wheelhouse is not None:
         require(operation == "local-correctness" and provider_target(family, security, replicas, model_profile)
@@ -380,7 +414,7 @@ def prepare(destination, operation="functional", family="B200", security="confid
                                          tokenizer_parity=tokenizer_parity, tokenizer_materialization=tokenizer_materialization,
                                          runtime_observation=runtime_observation, provider_conformance=provider_settings,
                                          stream_cohort=stream_cohort, stream_profile=stream_profile, model_profile=model_profile,
-                                         execution_profile=execution_profile)
+                                         execution_profile=execution_profile, tau_owner=tau_owner)
         config = recorder.raw_metadata(ROOT / "build/engine-image-metadata", contract)
         runtime = load("lab_environment_constants", ROOT / RUNTIME, digest(extra[RUNTIME]))
         image_env = dict(item.split("=", 1) for item in config["config"]["Env"])
@@ -455,6 +489,7 @@ def bundle_inputs(path, expected):
     require(probe.parallel_size(contract) == parallel_size(contract))
     validate_model_profile(contract, path)
     tuning_module(contract, path)
+    owner_module(contract, path)
     if "tokenizer_parity" in contract:
         checker = load("lab_parity_profile", path / "payload/tokenizer-parity.py", contract["sources"]["tokenizer-parity.py"])
         require(checker.enabled(contract))
@@ -535,7 +570,7 @@ def create_command(name, owner, bundle, weights, contract, config):
                "--mount", "type=bind,src=" + payload + ",dst=/opt/nib,readonly",
                *([] if pre_serve else ["--mount", "type=bind,src=" + str(weights) + ",dst=/model,readonly"]),
                "--entrypoint", "/usr/bin/env"]
-    if "provider_conformance" in contract:
+    if "provider_conformance" in contract or "tau_owner" in contract:
         command.insert(3, "--interactive")
     names = set()
     constraints = {}
@@ -566,7 +601,7 @@ def check_container(info, name, owner, bundle, weights, contract, config, image_
             and cfg["Labels"].get(LABEL) == owner and cfg["Entrypoint"] == ["/usr/bin/env"]
             and cfg["Cmd"] == command[command.index(contract["base_image"]) + 1:]
             and cfg["User"] == "0:0" and cfg["WorkingDir"] == "/" and not cfg.get("Tty")
-            and bool(cfg.get("OpenStdin")) == ("provider_conformance" in contract))
+            and bool(cfg.get("OpenStdin")) == ("provider_conformance" in contract or "tau_owner" in contract))
     env = [command[i + 1] for i, arg in enumerate(command) if arg == "--env"]
     require(len(cfg["Env"]) == len(env) and set(cfg["Env"]) == set(env))
     require(host["NetworkMode"] == "none" and not host["Privileged"] and host["Runtime"] == "nvidia"
@@ -669,6 +704,8 @@ def run_container(bundle, sha, weights, deadline, recorder, contract, config, en
     global CLEANING
     provider = "provider_conformance" in contract
     provider_ready = None
+    gpu_owner = owner_module(contract, bundle)
+    owner_ready = owner_result = None
     if provider:
         session = load("lab_provider_live", Path(bundle) / "payload/provider-session.py",
                        contract["sources"]["provider-session.py"])
@@ -746,6 +783,12 @@ def run_container(bundle, sha, weights, deadline, recorder, contract, config, en
             code, raw = session.capture(["docker", "container", "start", "--attach", "--interactive", name],
                 env, monotonic_deadline, recorder.snapshot, ready=ready, cancelled=lambda: CANCELLED)
             require(code == 0)
+        elif gpu_owner is not None:
+            code, raw, owner_ready, owner_result = gpu_owner.capture(
+                ["docker", "container", "start", "--attach", "--interactive", name], env,
+                time.monotonic() + deadline - time.time(), recorder.snapshot, contract,
+                digest(read(Path(bundle) / "payload/lab.json")))
+            require(code == 0)
         else:
             raw = recorder.call(["docker", "container", "start", "--attach", name], env,
                                 timeout=max(1, min(MAX_SECONDS, deadline - time.time())), limit=65536)
@@ -759,6 +802,8 @@ def run_container(bundle, sha, weights, deadline, recorder, contract, config, en
                 and final["State"]["ExitCode"] == 0 and not final["State"].get("OOMKilled"))
         report["experiment_step"] = "validation"
         validate_result(experiment, bundle, contract, recorder)
+        if gpu_owner is not None:
+            gpu_owner.validate_join(owner_ready, owner_result, experiment)
         if provider:
             if provider_ready is not None:
                 session.validate_join(report["provider_conformance"], provider_ready, experiment, worker,
@@ -821,6 +866,14 @@ def validate_result(row, bundle, contract, recorder):
         fields.add("model_profile")
         require(type(row) is dict and row.get("model_profile") == identity)
     expected_schema = "nib.deepseek-lab-result/v2"
+    if "tau_owner" in contract:
+        fields.add("tau_owner")
+        module = owner_module(contract, bundle)
+        if row.get("tau_owner") is not None:
+            module.validate_result(row["tau_owner"])
+            require(row.get("stage") in ("request", "complete"))
+        require(row.get("functional_pass") is not True or row.get("tau_owner") is not None
+                and row["tau_owner"]["status"] == "evaluated")
     if "runtime_observation" in contract:
         fields.add("runtime_observation")
         observer = load("lab_runtime_validation", Path(bundle) / "payload/runtime-observation.py",
@@ -1031,6 +1084,8 @@ def main():
                         help="Prepare an explicitly pinned classic-store checker image; never a runtime fallback.")
     parser.add_argument("--stream-cohort", action="store_true",
                         help="Prepare one warmup plus eight 2K/512 streaming requests; requires parity, materialization and observation.")
+    parser.add_argument("--tau-owner", action="store_true",
+                        help="Prepare selected 8K owner; run requires private controller pipes, not a terminal.")
     parser.add_argument("--stream-profile", metavar="PROFILE",
                         help="Explicit prepared cohort window; chat-2k-512-c1-600s opts into 600 seconds instead of 180.")
     parser.add_argument("--model-profile", choices=("original", "uncensored"),
@@ -1056,6 +1111,12 @@ def main():
             target = model_target(profile[1], profile[2], profile[3] if len(profile) == 4 else 1,
                                   args.model_profile)
             optional = {}
+            if args.tau_owner:
+                require(option == "prepare-nonconfidential-uncensored-b300-dp2"
+                        and args.execution_profile == "tau8k-eager" and args.tokenizer_parity
+                        and args.tokenizer_materialization and args.runtime_observation
+                        and not args.stream_cohort and not args.provider_conformance_wheels)
+                optional["tau_owner"] = True
             if args.execution_profile is not None:
                 require(option == "prepare-nonconfidential-uncensored-b300-dp2"
                         and args.model_profile == "uncensored")
@@ -1091,7 +1152,7 @@ def main():
             else:
                 prepare(destination, *profile, **optional)
             return 0
-    require(not args.tokenizer_parity and not args.tokenizer_materialization and not args.runtime_observation
+    require(not args.tau_owner and not args.tokenizer_parity and not args.tokenizer_materialization and not args.runtime_observation
             and not args.provider_conformance_wheels and not args.stream_cohort and args.stream_profile is None
             and args.model_profile is None and args.execution_profile is None and args.provider_image_profile is None)
     require(sys.platform == "linux" and all((args.receipt_sha256, args.output, args.deadline)))
