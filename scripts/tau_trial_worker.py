@@ -165,13 +165,19 @@ def alarm(deadline, clock=time.monotonic):
 
 class Bridge:
     """Serial all-role accounting. Scripted usage is not a tokenizer measurement."""
-    def __init__(self, tau, config, role, transport, clock=time.monotonic, *, support_probe=False):
+    def __init__(self, tau, config, role, transport, clock=time.monotonic, *, support_probe=False,
+                 selected_operational=False):
         require(role in ("candidate", "reference"))
+        require(type(support_probe) is bool and type(selected_operational) is bool
+                and not (support_probe and selected_operational))
         self.tau, self.role, self.transport, self.clock = tau, role, transport, clock
-        if support_probe:
-            import tau_support_probe
+        if support_probe or selected_operational:
+            if selected_operational:
+                import tau_selected_policy as policy
+            else:
+                import tau_support_probe as policy
             require(role == "candidate")
-            self.budget = tau_support_probe.ResourceBudget(config, clock=clock)
+            self.budget = policy.ResourceBudget(config, clock=clock)
         else:
             self.budget = tau.Budget(config, clock=clock)
         self.budget.begin_trial()
