@@ -295,8 +295,12 @@ class SessionTests(unittest.TestCase):
                 "upstream_termination": upstream}
 
     def test_failed_upstream_terminal_preserves_known_usage(self):
+        observer = worker.ToolErrors()
+        observer.record("assistant", True, ValueError("PRIVATE_CANARY"))
         for upstream in (None, {"reason": "too_many_errors", "tool_errors": 1},
-                         {"reason": "too_many_errors", "tool_errors": 16}):
+                         {"reason": "too_many_errors", "tool_errors": 16},
+                         {"reason": "too_many_errors", "tool_errors": 1,
+                          "tool_error_attribution": observer.project(1)}):
             session, channel, _, _ = self.session()
             self.request(session, channel)
             channel.packets.append(self.finish_packet(session, upstream))
@@ -316,7 +320,12 @@ class SessionTests(unittest.TestCase):
                {"reason": "too_many_errors", "tool_errors": 1.0},
                {"reason": "too_many_errors", "tool_errors": "PRIVATE_CANARY"},
                {"reason": "user_stop", "tool_errors": 1},
-               {"reason": "too_many_errors", "tool_errors": 1, "exception": "PRIVATE_CANARY"})
+               {"reason": "too_many_errors", "tool_errors": 1, "exception": "PRIVATE_CANARY"},
+               {"reason": "too_many_errors", "tool_errors": 1, "tool_error_attribution": {
+                   "path": "live_make_tool_call", "unattributed": 0, "counts": [{"requestor": "assistant",
+                   "known_tool": True, "category": "PRIVATE_CANARY", "count": 1}]}},
+               {"reason": "too_many_errors", "tool_errors": 1, "tool_error_attribution": {
+                   "path": "live_make_tool_call", "unattributed": 0, "counts": []}})
         for upstream in bad:
             with self.subTest(upstream=upstream):
                 session, channel, _, _ = self.session()
