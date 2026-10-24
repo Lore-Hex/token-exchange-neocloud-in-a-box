@@ -5,6 +5,8 @@ Tests: [test_stream_cohort.py](../../scripts/test_stream_cohort.py).
 Component tests use synthetic tokenizers and local HTTP. The original live
 cohorts linked below are bounded measurements, not the complete P2 benchmark
 sweep.
+The separate, explicit [c8 burst profile](stream-c8.md) reuses this workload and
+transport without changing the default or extended c1 collector.
 
 ## Workload And Limits
 

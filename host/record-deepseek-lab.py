@@ -252,7 +252,7 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
         stream = types.ModuleType("lab_stream_constants")
         exec(compile(extra[STREAM], STREAM, "exec", dont_inherit=True), stream.__dict__)
         payload["stream-lab.py"] = extra[STREAM]
-        for name in stream.NAMES:
+        for name in stream.source_names(stream_profile):
             payload["stream/" + name + ".py"] = extra["scripts/" + name + ".py"]
     require(type(tau_owner) is bool)
     if tau_owner:
@@ -301,7 +301,6 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
         contract["stream_cohort"] = {"schema": stream.SCHEMA}
         if stream_profile is not None:
             contract["stream_cohort"]["profile"] = stream_profile
-        stream.enabled(contract)
     if provider_conformance is not None:
         contract["provider_conformance"] = provider_conformance
         session = types.ModuleType("lab_provider_contract")
@@ -319,6 +318,8 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
         module = loader.load(payload, contract["sources"])
         contract["tau_owner"] = {"schema": module.SCHEMA}
         module.selected(contract)
+    if stream_cohort:
+        stream.enabled(contract)
     payload["lab.json"] = builder.overlay.json_bytes(contract)
     payload["python"] = runtime.wrapper_bytes(contract["interpreter"]["resolved"], contract["environment"], digest(payload["lab.json"]))
     return payload, contract
@@ -371,8 +372,8 @@ def prepare(destination, operation="functional", family="B200", security="confid
     if stream_cohort:
         extra[STREAM] = committed(builder, revision, STREAM)
         stream = load("lab_stream_sources", ROOT / STREAM, digest(extra[STREAM]))
-        require(stream_profile is None or stream_profile == stream.EXTENDED_PROFILE)
-        for name in ("scripts/" + item + ".py" for item in (*stream.NAMES, "test_stream_lab")):
+        names = stream.source_names(stream_profile)
+        for name in ("scripts/" + item + ".py" for item in (*names, "test_stream_lab")):
             extra[name] = committed(builder, revision, name)
     require(type(tau_owner) is bool)
     if tau_owner:
@@ -905,7 +906,8 @@ def validate_result(row, bundle, contract, recorder):
         accepted = False
         if row.get("stream_cohort") is not None:
             sources = {"stream/" + name + ".py": read(Path(bundle) / "payload/stream" / (name + ".py"))
-                       for name in stream.NAMES}
+                       for name in (stream.source_names(contract["stream_cohort"].get("profile"))
+                                    if hasattr(stream, "source_names") else stream.NAMES)}
             cohort = stream.load(sources, contract["sources"])
             accepted = stream.validate(row["stream_cohort"], contract, digest(read(Path(bundle) / "payload/lab.json")), cohort,
                                        **({"model": identity["served_model_name"]} if identity else {}))
@@ -1097,7 +1099,7 @@ def main():
     parser.add_argument("--tau-owner", action="store_true",
                         help="Prepare selected 8K owner; run requires private controller pipes, not a terminal.")
     parser.add_argument("--stream-profile", metavar="PROFILE",
-                        help="Explicit prepared cohort window; chat-2k-512-c1-600s opts into 600 seconds instead of 180.")
+                        help="Prepared profile: chat-2k-512-c1-600s or explicit chat-2k-512-c8-600s (batch8-graphs only).")
     parser.add_argument("--model-profile", choices=("original", "uncensored"),
                         help="Fixed checkpoint selection during preparation only; absence selects original.")
     parser.add_argument("--execution-profile", metavar="PROFILE",
