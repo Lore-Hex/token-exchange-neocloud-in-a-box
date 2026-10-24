@@ -3,7 +3,7 @@
 
 import ast
 import copy
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import hashlib
 import json
 import logging
@@ -2401,6 +2401,71 @@ writer.close()
         finally:
             channel.finish()
             errors.finish()
+
+
+class CacheInitializationTests(unittest.TestCase):
+    def test_real_private_directories_and_configured_tempdir(self):
+        imported = module("scripts/engine_lab.py")
+        names = ("home", "tmp", "hf", "deep-gemm", "triton", "inductor", "torch", "xdg")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            def relocated(path):
+                self.assertIn(path, tuple("/cache/" + name for name in names))
+                return root / Path(path).relative_to("/cache")
+            with mock.patch.object(imported, "Path", side_effect=relocated) as paths:
+                imported.initialize_cache()
+                self.assertEqual(paths.call_args_list, [mock.call("/cache/" + name) for name in names])
+                self.assertEqual({path.name for path in root.iterdir()}, set(names))
+                for name in names:
+                    self.assertTrue((root / name).is_dir())
+                    self.assertEqual((root / name).stat().st_mode & 0o777, 0o700)
+                before = {name: (root / name).stat().st_ino for name in names}
+                imported.initialize_cache()
+                self.assertEqual({name: (root / name).stat().st_ino for name in names}, before)
+            with mock.patch.dict(os.environ, {"TMPDIR": str(root / "tmp")}), \
+                    mock.patch.object(tempfile, "tempdir", None):
+                self.assertEqual(Path(tempfile.gettempdir()), root / "tmp")
+                with tempfile.TemporaryDirectory() as temporary:
+                    self.assertEqual(Path(temporary).parent, root / "tmp")
+
+    def test_real_conflicting_file_is_not_replaced(self):
+        imported = module("scripts/engine_lab.py")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / "tmp").write_bytes(b"preserve existing file")
+            with mock.patch.object(imported, "Path", side_effect=lambda path: root / Path(path).name):
+                with self.assertRaises(FileExistsError):
+                    imported.initialize_cache()
+            self.assertEqual((root / "tmp").read_bytes(), b"preserve existing file")
+
+    def test_apply_initializes_before_application_and_stops_on_error(self):
+        for failure in (False, True):
+            events = []
+            def initialize():
+                events.append("cache")
+                if failure:
+                    raise OSError("synthetic cache failure")
+            with self.subTest(failure=failure), ExitStack() as stack:
+                stack.enter_context(mock.patch.object(sys, "flags",
+                    types.SimpleNamespace(isolated=True, no_site=True)))
+                stack.enter_context(mock.patch.object(sys, "dont_write_bytecode", True))
+                stack.enter_context(mock.patch.object(sys, "argv", ["launch.py", "a" * 64, "apply"]))
+                stack.enter_context(mock.patch.object(lab, "lab_context", return_value=(
+                    {"operation": "local-correctness"}, {}, [], {}, {})))
+                stack.enter_context(mock.patch.object(lab, "initialize_cache", side_effect=initialize))
+                application = stack.enter_context(mock.patch.object(lab, "application_and_request",
+                    side_effect=lambda *_: events.append("application")))
+                stack.enter_context(mock.patch.object(signal, "signal"))
+                stack.enter_context(mock.patch.object(signal, "alarm"))
+                stack.enter_context(mock.patch("builtins.print"))
+                if failure:
+                    with self.assertRaises(OSError):
+                        lab.lab_entry()
+                    application.assert_not_called()
+                    self.assertEqual(events, ["cache"])
+                else:
+                    lab.lab_entry()
+                    self.assertEqual(events, ["cache", "application"])
 
 
 class ScratchMountTests(unittest.TestCase):

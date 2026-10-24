@@ -212,6 +212,14 @@ The existing lab rejection type/message and all mount predicates are unchanged.
 This reproduces a software startup blocker, not the exact failing stage of an
 older catch-all hardware receipt.
 
+Both the lab `apply` path and the selected engine entry call the same fixed
+`initialize_cache()` helper before engine startup. It creates the existing eight
+`0700` directories under `/cache`, including the configured `/cache/tmp`, without
+changing mount policy or accepting alternate paths. Real temporary-directory
+tests check permissions, idempotence, `TMPDIR` selection and failure propagation;
+entry tests require initialization before application/engine execution. This
+prevents the known missing initialization, not a proven cause of an older run.
+
 Changing this helper changes the composed launcher bytes. Before another run,
 regenerate the non-owner lab bundle from the reviewed final source, derive a new
 service payload/preparation receipt, rebuild the image and validate the new

@@ -82,16 +82,22 @@ class EngineEntryTests(unittest.TestCase):
         self.assertIn("lab_entry()", ast.unparse(new.body[-1]))
         # Only execute adapter definitions. Engine/vLLM imports are never run.
         lab = lab_contract()
-        run, recheck = mock.Mock(), mock.Mock()
+        initialize, recheck = mock.Mock(), mock.Mock()
+        run = mock.Mock(side_effect=lambda *_: initialize.assert_called_once_with())
         namespace = {"require": lambda value: self.assertTrue(value),
             "sys": SimpleNamespace(argv=["/opt/nib/launch.py", "digest", "selected-service-engine"]),
             "lab_context": mock.Mock(return_value=(dict(lab, paths={}), None, ["module"], "application", None)),
-            "recheck_sources": recheck, "run_engine": run}
+            "recheck_sources": recheck, "initialize_cache": initialize, "run_engine": run}
         exec(compile((ROOT / "scripts/selected_service_engine.py").read_bytes(), "adapter", "exec"), namespace)
         namespace["selected_engine_entry"]()
         recheck.assert_called_once_with("module", "application", {})
         self.assertEqual(run.call_args.args[0]["arguments"], process.engine_entry.canonical_arguments(lab))
         self.assertEqual(lab, lab_contract())
+        run.reset_mock()
+        initialize.side_effect = OSError("synthetic cache failure")
+        with self.assertRaises(OSError):
+            namespace["selected_engine_entry"]()
+        run.assert_not_called()
 
     def test_payload_derivation_does_not_mutate_original_or_fake_its_receipt(self):
         lab = lab_contract()
