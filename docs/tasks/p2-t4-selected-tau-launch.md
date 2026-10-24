@@ -19,6 +19,11 @@ validator on the CPU owner's local Docker context. Missing images, unsupported
 image-inspection commands and incompatible metadata fail before GPU startup.
 This does not add a classic-store fallback, pull images or replace the original
 checks repeated by each consumer at use time.
+The same preflight also calls the CPU recorder's pinned `require_buildkit`
+helper in its private Docker configuration and resolved CPU context. A missing
+Docker/Buildx executable, failed version check, timeout or exhausted preflight
+deadline prevents either owner from starting. This check installs nothing,
+builds no images and does not replace the CPU owner's repeated Buildx check.
 
 Stage transferred bundles as root-owned private files. When packing on macOS,
 exclude AppleDouble and extended attributes with `COPYFILE_DISABLE=1` and tar's

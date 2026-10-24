@@ -113,6 +113,7 @@ class SelectedLaunchTests(unittest.TestCase):
             stack.enter_context(mock.patch.object(launch.process_tools, "execute_process_group", side_effect=inspect))
             context = stack.enter_context(mock.patch.object(launch.process_tools, "local_docker_endpoint",
                                                             return_value="unix:///private/cpu-fixture.sock"))
+            buildkit = stack.enter_context(mock.patch.object(launch.process_tools, "require_buildkit"))
             scorer_check = stack.enter_context(mock.patch.object(launch.runner, "check_image", wraps=launch.runner.check_image))
             cpu_check = stack.enter_context(mock.patch.object(launch.cpu_rec, "check_base_image", wraps=launch.cpu_rec.check_base_image))
             stack.enter_context(mock.patch.dict(os.environ, {"DOCKER_HOST": "tcp://untrusted.invalid:2375",
@@ -123,6 +124,7 @@ class SelectedLaunchTests(unittest.TestCase):
         context.assert_called_once()
         self.assertNotIn("DOCKER_HOST", context.call_args.args[0])
         self.assertEqual(context.call_args.args[1], Path(launch.pwd.getpwuid(os.getuid()).pw_dir))
+        buildkit.assert_called_once_with(calls[1][1]["env"])
         self.assertEqual(calls[0][0], ["docker", "image", "inspect", "--platform", "linux/amd64", launch.runner.runtime.TARGET["image"]])
         self.assertEqual(calls[0][1]["env"]["DOCKER_HOST"], "unix:///var/run/docker.sock")
         for index, key in enumerate(("go_image", "python_image"), 1):
@@ -170,6 +172,7 @@ class SelectedLaunchTests(unittest.TestCase):
                         (launch.gpu_rec, "read", mock.Mock(return_value=b"fixed")),
                         (launch.cpu_rec, "toolkit", mock.Mock()),
                         (launch.process_tools, "execute_process_group", mock.Mock(side_effect=inspect)),
+                        (launch.process_tools, "require_buildkit", mock.Mock()),
                         (launch.process_tools, "local_docker_endpoint", mock.Mock(return_value="unix:///private/cpu-fixture.sock")))
                     for obj, name, value in mocked:
                         stack.enter_context(mock.patch.object(obj, name, value))
@@ -181,6 +184,78 @@ class SelectedLaunchTests(unittest.TestCase):
                     owners.assert_not_called()
                     prepare.assert_not_called()
                     self.assertFalse(args.output.exists())
+
+    def test_buildx_prerequisite_uses_real_helper_and_blocks_owner_startup(self):
+        for failure in (None, "missing-docker", "missing-buildx", "timeout"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+                root = Path(temporary).resolve()
+                args = types.SimpleNamespace(gpu_bundle=root / "bundle", gpu_receipt_sha256="c" * 64,
+                    output=root / "output", source_archive=root / "source", wheelhouse=root / "wheels",
+                    deadline=datetime.datetime.fromtimestamp(time.time() + 2400, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+                calls = []
+                def inspect(argv, **kwargs):
+                    calls.append(argv)
+                    raw = tau.encoded([trial.image_inspection()]) if len(calls) == 1 else b"sha256:" + b"a" * 64 + b" linux/amd64\n"
+                    return subprocess.CompletedProcess(argv, 0, raw, b"")
+                command = ["docker", "buildx", "version"]
+                error = (subprocess.CalledProcessError(1, command, stderr=b"unknown command") if failure == "missing-buildx"
+                         else subprocess.TimeoutExpired(command, 10) if failure == "timeout" else None)
+                version = mock.Mock(side_effect=error, return_value=subprocess.CompletedProcess(command, 0, b"fixture", b""))
+                stop = RuntimeError("stop before preparation")
+                prepare = mock.Mock(side_effect=stop)
+                mocked = ((launch.sys, "platform", "linux"),
+                    (launch.os, "uname", mock.Mock(return_value=types.SimpleNamespace(machine="x86_64"))),
+                    (launch, "identity", mock.Mock(return_value={"git_sha": "a" * 40})),
+                    (launch.gpu_rec, "bundle_inputs", mock.Mock(return_value=({"git_sha": "a" * 40}, {}, None, None))),
+                    (launch.gpu_rec, "validate_runtime_payload", mock.Mock()),
+                    (launch.gpu_rec, "owner_module", mock.Mock(return_value=gpu.gpu)),
+                    (launch.gpu_rec, "read", mock.Mock(return_value=b"fixed")),
+                    (launch.cpu_rec, "toolkit", mock.Mock()),
+                    (launch.process_tools, "execute_process_group", mock.Mock(side_effect=inspect)),
+                    (launch.process_tools, "local_docker_endpoint", mock.Mock(return_value="unix:///private/cpu-fixture.sock")),
+                    (launch.process_tools.shutil, "which", mock.Mock(return_value=None if failure == "missing-docker" else str(root / "docker"))),
+                    (launch.process_tools.subprocess, "run", version),
+                    (launch.runner, "prepare", prepare))
+                for obj, name, value in mocked:
+                    stack.enter_context(mock.patch.object(obj, name, value))
+                helper = stack.enter_context(mock.patch.object(launch.process_tools, "require_buildkit",
+                                                               wraps=launch.process_tools.require_buildkit))
+                owners = stack.enter_context(mock.patch.object(launch.subprocess, "Popen"))
+                expected = ValueError if failure == "missing-docker" else type(error) if error is not None else RuntimeError
+                with self.assertRaises(expected) as caught:
+                    launch.run(args)
+                helper.assert_called_once()
+                self.assertEqual(helper.call_args.args[0]["DOCKER_HOST"], "unix:///private/cpu-fixture.sock")
+                self.assertFalse(Path(helper.call_args.args[0]["DOCKER_CONFIG"]).exists())
+                if failure == "missing-docker":
+                    version.assert_not_called()
+                else:
+                    version.assert_called_once_with(command, env=helper.call_args.args[0],
+                                                    check=True, capture_output=True, timeout=10)
+                if failure is not None:
+                    prepare.assert_not_called()
+                    self.assertEqual(len(calls), 1)
+                    if error is not None: self.assertIs(caught.exception, error)
+                else:
+                    prepare.assert_called_once()
+                    self.assertIs(caught.exception, stop)
+                    self.assertEqual(len(calls), 3)
+                owners.assert_not_called()
+                self.assertFalse(args.output.exists())
+
+    def test_late_buildx_success_cannot_continue_preflight(self):
+        result = subprocess.CompletedProcess([], 0, tau.encoded([trial.image_inspection()]), b"")
+        with ExitStack() as stack:
+            clock = stack.enter_context(mock.patch.object(launch.time, "monotonic", return_value=10))
+            inspect = stack.enter_context(mock.patch.object(launch.process_tools, "execute_process_group", return_value=result))
+            stack.enter_context(mock.patch.object(launch.process_tools, "local_docker_endpoint",
+                                                  return_value="unix:///private/cpu-fixture.sock"))
+            buildkit = stack.enter_context(mock.patch.object(launch.process_tools, "require_buildkit",
+                side_effect=lambda env: setattr(clock, "return_value", 16)))
+            with self.assertRaises(ValueError):
+                launch.preflight_images(15)
+        buildkit.assert_called_once()
+        inspect.assert_called_once()
 
     def test_payload_ownership_preflight_precedes_images_preparation_and_owners(self):
         for bad_owner in ("", "launch.py", None):

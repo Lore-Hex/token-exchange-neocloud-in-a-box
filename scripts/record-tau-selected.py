@@ -80,6 +80,9 @@ def preflight_images(deadline):
         discovery = {key: value for key, value in env.items() if key != "DOCKER_HOST"}
         env = {**discovery, "DOCKER_HOST": process_tools.local_docker_endpoint(
             discovery, Path(pwd.getpwuid(os.getuid()).pw_dir))}
+        require(time.monotonic() < deadline)
+        process_tools.require_buildkit(env)
+        require(time.monotonic() < deadline)
         bases = tau.json_value(runner.runtime.read_file(ROOT / "scripts/e2e/pins.json", 1 << 20, deadline))
         for key in ("go_image", "python_image"):
             cpu_rec.check_base_image(inspect(["--format", "{{.Id}} {{.Os}}/{{.Architecture}}", bases[key]], 1024))
