@@ -40,8 +40,12 @@ def enabled(contract):
             and type(contract.get("model_profile")) is dict
             and contract["model_profile"].get("name") == "uncensored"
             and "tuning.py" in contract.get("sources", {})
-            and not any(key in contract for key in ("tokenizer_parity", "tokenizer_materialization",
-                        "runtime_observation", "stream_cohort", "provider_conformance")))
+            and "provider_conformance" not in contract)
+    measurement_keys = ("tokenizer_parity", "tokenizer_materialization", "runtime_observation", "stream_cohort")
+    if any(key in contract for key in measurement_keys):
+        require(contract.get("tokenizer_parity") is True and contract.get("runtime_observation") is True
+                and type(contract.get("tokenizer_materialization")) is dict
+                and type(contract.get("stream_cohort")) is dict)
     return name
 
 
