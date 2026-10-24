@@ -71,6 +71,10 @@ A later [selected tau controller attempt](evidence/p2/2026-10-24-selected-tau-re
 failed during readiness: both owners exited 1, no READY hashes or scorer result
 were recorded, and cleanup remained **unconfirmed**. No inference or quality
 score was established; the original report does not identify the root cause.
+The [17:41 retry](evidence/p2/2026-10-24-selected-tau-readiness-failure-1741/README.md)
+also failed before readiness admission. Its CPU owner reports an inputs-stage
+failure with its own cleanup confirmed; controller cleanup remains unconfirmed,
+with no owner exits recorded. This is not inference or a quality result.
 
 | Component | State |
 |---|---|
