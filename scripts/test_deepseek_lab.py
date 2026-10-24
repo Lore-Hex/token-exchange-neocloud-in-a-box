@@ -1948,6 +1948,7 @@ class PayloadTests(unittest.TestCase):
                 with self.subTest(index=index), mock.patch.object(host.sys, "argv", argv), \
                         mock.patch.object(host.sys, "platform", "linux"), \
                         mock.patch.object(host, "bundle_inputs", return_value=(receipt, contract, {}, recorder)), \
+                        mock.patch.object(host, "validate_runtime_payload"), \
                         mock.patch.object(host, "run_container", return_value=report), \
                         mock.patch.object(host.signal, "signal"), mock.patch("builtins.print"), \
                         mock.patch.object(recorder, "publish_evidence", side_effect=publish):

@@ -127,6 +127,25 @@ bundle privately using the separately approved host-access procedure. On the
 approved Linux host, use absolute existing bundle/weights paths, a new evidence
 path, and a UTC cutoff **at most 80 minutes away and before VM teardown**:
 
+The runtime payload must be owned by UID 0 on the Linux host. The container
+runs as UID 0 with **all capabilities dropped**, so it cannot bypass another
+owner's `0600` files or `0700` directories. A root shell successfully hashing a
+bundle does not prove the container can read it. Runtime preflight now checks
+ownership, owner read/traverse permissions, executable wrappers and rejects
+symlinks, hardlinks, special files and group/world-writable entries before
+creating a watchdog or container. Preparation on a non-root workstation is
+still supported; it is not runtime admission.
+
+For a verified archive copied from macOS, omit AppleDouble/extended attributes
+when packing (`COPYFILE_DISABLE=1 tar --no-xattrs ...`). On the approved Linux
+host, extract that archive **as root** with GNU tar `--no-same-owner` into a new
+private directory. Keep strict file modes and re-use the original receipt hash.
+Do not fix ownership by making private files world-readable or adding container
+capabilities. The [recorded transfer failure](p2-t3-payload-ownership.md) explains
+the distinction. Owned provider-conformance runs have a shorter 45-minute total
+bound including four minutes reserved for teardown; they do not use the generic
+80-minute cutoff.
+
 ```sh
 nohup python3 -I -S "$PRIVATE_BUNDLE/record-deepseek-lab.py" \
   --run "$PRIVATE_BUNDLE" --receipt-sha256 "$BUNDLE_RECEIPT_SHA256" \
