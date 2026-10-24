@@ -475,11 +475,11 @@ class WorkerDiagnosticTests(unittest.TestCase):
             self.assertFalse(Path(lab.WORKER_EXCEPTION_PATH).exists())
             lab.record_worker_exception(ValueError("PRIVATE prompt and credential"), ())
             raw = Path(lab.WORKER_EXCEPTION_PATH).read_bytes()
-            self.assertEqual(len(raw), lab.EXCEPTION_PACKET_BYTES)
+            self.assertEqual(len(raw), lab.WORKER_EXCEPTION_PACKET_BYTES)
             self.assertNotIn(b"PRIVATE", raw)
             lab.record_worker_exception(RuntimeError("later private failure"), ())
             self.assertEqual(Path(lab.WORKER_EXCEPTION_PATH).read_bytes(), raw)
-            self.assertEqual(lab.read_worker_exception()["type"], "value")
+            self.assertEqual(lab.read_worker_exception()["exceptions"][0]["type"], "value")
 
     def test_worker_diagnostic_rejects_links_partial_and_oversized_packets(self):
         with tempfile.TemporaryDirectory() as root, \
@@ -493,7 +493,7 @@ class WorkerDiagnosticTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 lab.read_worker_exception()
             path.unlink()
-            packet = lab.exception_packet(ValueError("PRIVATE"), ())
+            packet = lab.worker_exception_packet(ValueError("PRIVATE"), ())
             for raw in (packet[:-1], packet + b"extra"):
                 path.write_bytes(raw)
                 with self.assertRaises(ValueError):

@@ -43,10 +43,10 @@ def record_worker_exception(error, roots):
         return
     fd = None
     try:
-        packet = exception_packet(error, roots)
+        packet = worker_exception_packet(error, roots)
         fd = os.open(WORKER_EXCEPTION_PATH,
                      os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
-        require(os.write(fd, packet) == EXCEPTION_PACKET_BYTES)
+        require(os.write(fd, packet) == WORKER_EXCEPTION_PACKET_BYTES)
     except BaseException:
         pass
     finally:
@@ -59,11 +59,11 @@ def record_worker_exception(error, roots):
 
 def read_worker_exception():
     try:
-        raw = read_source(WORKER_EXCEPTION_PATH, EXCEPTION_PACKET_BYTES)
+        raw = read_source(WORKER_EXCEPTION_PATH, WORKER_EXCEPTION_PACKET_BYTES)
     except FileNotFoundError:
         return None
-    require(len(raw) == EXCEPTION_PACKET_BYTES)
-    return decode_exception(raw)
+    require(len(raw) == WORKER_EXCEPTION_PACKET_BYTES)
+    return decode_worker_exception(raw)
 
 
 class EntryCheckpointWriter:
