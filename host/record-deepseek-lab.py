@@ -43,6 +43,7 @@ TEST = "scripts/test_deepseek_lab.py"
 SIX_TEST = "scripts/test_botocore_six.py"
 PACK = "models/deepseek-v4.1-flash-1017/1"
 MODEL_PROFILE = "scripts/deepseek_model_profile.py"
+TUNING = "scripts/deepseek_tuning.py"
 MODEL_PROFILE_SHA = "327c1f65d7d8d23838bd816a60243d1ccc4e02d48fca21a823a4f52356d64040"
 SUPPORT = ("scripts/record-engine-image.py", "scripts/prepare-engine-overlay.py",
            "scripts/check-engine-candidate.py", "scripts/engine_overlay.py",
@@ -158,7 +159,8 @@ def validate_model_profile(contract, path):
 
 def make_payload(builder, revision, bundle, extra, binary, operation="functional", family="B200", security="confidential", replicas=1,
                  *, tokenizer_parity=False, tokenizer_materialization=False, runtime_observation=False,
-                 provider_conformance=None, stream_cohort=False, stream_profile=None, model_profile="original"):
+                 provider_conformance=None, stream_cohort=False, stream_profile=None, model_profile="original",
+                 execution_profile=None):
     require(type(model_profile) is str and model_profile in ("original", "uncensored"))
     identity = None
     pack = PACK
@@ -254,6 +256,14 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
         stream.enabled(contract)
     if provider_conformance is not None:
         contract["provider_conformance"] = provider_conformance
+    if execution_profile is not None:
+        tuning = types.ModuleType("lab_tuning")
+        exec(compile(extra[TUNING], TUNING, "exec", dont_inherit=True), tuning.__dict__)
+        payload["tuning.py"] = extra[TUNING]
+        contract["sources"]["tuning.py"] = digest(extra[TUNING])
+        contract["execution_profile"] = execution_profile
+        tuning.enabled(contract)
+        contract["arguments"] = tuning.arguments(contract["arguments"], execution_profile)
     payload["lab.json"] = builder.overlay.json_bytes(contract)
     payload["python"] = runtime.wrapper_bytes(contract["interpreter"]["resolved"], contract["environment"], digest(payload["lab.json"]))
     return payload, contract
@@ -261,7 +271,8 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
 
 def prepare(destination, operation="functional", family="B200", security="confidential", replicas=1, *,
             tokenizer_parity=False, tokenizer_materialization=False, runtime_observation=False,
-            provider_wheelhouse=None, stream_cohort=False, stream_profile=None, model_profile="original"):
+            provider_wheelhouse=None, stream_cohort=False, stream_profile=None, model_profile="original",
+            execution_profile=None):
     require(stream_profile is None or stream_cohort)
     require(type(model_profile) is str and model_profile in ("original", "uncensored"))
     require(model_profile == "original" or (operation == "local-correctness"
@@ -283,6 +294,13 @@ def prepare(destination, operation="functional", family="B200", security="confid
     if operation == "local-correctness":
         for name in (CORRECTNESS, "scripts/test_engine_local_correctness.py"):
             extra[name] = committed(builder, revision, name)
+    if execution_profile is not None:
+        require(operation == "local-correctness" and ordinary_uncensored_target(family, security, replicas, model_profile)
+                and not any((tokenizer_parity, tokenizer_materialization, runtime_observation,
+                             provider_wheelhouse, stream_cohort, stream_profile)))
+        for name in (TUNING, "scripts/test_deepseek_tuning.py"):
+            extra[name] = committed(builder, revision, name)
+        load("lab_tuning_selection", ROOT / TUNING, digest(extra[TUNING])).select(execution_profile)
     if tokenizer_parity:
         for name in (PARITY, "scripts/test_engine_tokenizer_parity.py"):
             extra[name] = committed(builder, revision, name)
@@ -323,7 +341,8 @@ def prepare(destination, operation="functional", family="B200", security="confid
         payload, contract = make_payload(builder, revision, bundle, extra, read(binary, MAX_BYTES), operation, family, security, replicas,
                                          tokenizer_parity=tokenizer_parity, tokenizer_materialization=tokenizer_materialization,
                                          runtime_observation=runtime_observation, provider_conformance=provider_settings,
-                                         stream_cohort=stream_cohort, stream_profile=stream_profile, model_profile=model_profile)
+                                         stream_cohort=stream_cohort, stream_profile=stream_profile, model_profile=model_profile,
+                                         execution_profile=execution_profile)
         config = recorder.raw_metadata(ROOT / "build/engine-image-metadata", contract)
         runtime = load("lab_environment_constants", ROOT / RUNTIME, digest(extra[RUNTIME]))
         image_env = dict(item.split("=", 1) for item in config["config"]["Env"])
@@ -397,6 +416,11 @@ def bundle_inputs(path, expected):
     probe.security_profile(contract)
     require(probe.parallel_size(contract) == parallel_size(contract))
     validate_model_profile(contract, path)
+    if "execution_profile" in contract:
+        tuning = load("lab_tuning_profile", path / "payload/tuning.py", contract["sources"]["tuning.py"])
+        tuning.enabled(contract)
+    else:
+        require("tuning.py" not in contract["sources"])
     if "tokenizer_parity" in contract:
         checker = load("lab_parity_profile", path / "payload/tokenizer-parity.py", contract["sources"]["tokenizer-parity.py"])
         require(checker.enabled(contract))
@@ -951,6 +975,8 @@ def main():
                         help="Explicit prepared cohort window; chat-2k-512-c1-600s opts into 600 seconds instead of 180.")
     parser.add_argument("--model-profile", choices=("original", "uncensored"),
                         help="Fixed checkpoint selection during preparation only; absence selects original.")
+    parser.add_argument("--execution-profile", metavar="PROFILE",
+                        help="Explicit ordinary uncensored B300 DP2 experiment: batch8-eager, batch8-graphs or batch8-dspark.")
     parser.add_argument("--receipt-sha256")
     parser.add_argument("--weights")
     parser.add_argument("--output")
@@ -969,6 +995,12 @@ def main():
             target = correctness_target(profile[1], profile[2], profile[3] if len(profile) == 4 else 1,
                                         args.model_profile)
             optional = {}
+            if args.execution_profile is not None:
+                require(option == "prepare-nonconfidential-uncensored-b300-dp2"
+                        and args.model_profile == "uncensored"
+                        and not any((args.tokenizer_parity, args.tokenizer_materialization, args.runtime_observation,
+                                     args.stream_cohort, args.stream_profile, args.provider_conformance_wheels)))
+                optional["execution_profile"] = args.execution_profile
             if args.model_profile == "uncensored":
                 require(profile[0] == "local-correctness" and len(profile) == 4 and profile[3] == 2
                         and model_target(profile[1], profile[2], profile[3], args.model_profile)
@@ -996,7 +1028,7 @@ def main():
             return 0
     require(not args.tokenizer_parity and not args.tokenizer_materialization and not args.runtime_observation
             and not args.provider_conformance_wheels and not args.stream_cohort and args.stream_profile is None
-            and args.model_profile is None)
+            and args.model_profile is None and args.execution_profile is None)
     require(sys.platform == "linux" and all((args.receipt_sha256, args.output, args.deadline)))
     deadline = dt.datetime.strptime(args.deadline, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc).timestamp()
     require(0 < deadline - time.time() <= MAX_SECONDS)
@@ -1024,6 +1056,8 @@ def main():
                             "manifest_sha256": contract["manifest_sha256"], "pack_revision": contract["pack_revision"]}
     if "model_profile" in contract:
         report["provenance"]["model_profile"] = contract["model_profile"]
+    if "execution_profile" in contract:
+        report["provenance"]["execution_profile"] = contract["execution_profile"]
     hardware_row = report.get("experiment", {}).get("hardware")
     diagnostic = contract["operation"] == "hardware-diagnostic"
     record = {"schema": "nib.evidence/v1", "phase": "P2", "task": "T3", "git_sha": receipt["git_sha"],
