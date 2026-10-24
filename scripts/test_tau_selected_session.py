@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Synthetic clients only; no live tau, process admission or quality claims."""
 
+import copy
 import os
 import threading
 import time
@@ -122,6 +123,7 @@ class OwnerReplies(fixtures.FakeChannel):
         self.error = None
         self.reply_count = None
         self.finish_reason = "stop"
+        self.response = None
 
     def send(self, packet, deadline):
         super().send(packet, deadline)
@@ -145,7 +147,86 @@ class OwnerReplies(fixtures.FakeChannel):
                                "completion_tokens": 1,
                                "total_tokens": (self.count if self.reply_count is None else self.reply_count) + 1}
             reply["response"] = result
+            if self.response is not None:
+                reply["response"] = copy.deepcopy(self.response)
         self.packets.append(reply)
+
+
+def capped_tool_response(tokens=256, finish="tool_calls"):
+    # Synthetic valid tool call: JSON validity alone cannot prove completion.
+    return {"choices": [{"message": {"role": "assistant", "content": None, "tool_calls": [
+        {"id": "cap-call", "type": "function", "function": {"name": "lookup", "arguments": '{"key": "blue"}'}}]},
+        "finish_reason": finish}],
+        "usage": {"prompt_tokens": 7, "completion_tokens": tokens, "total_tokens": 7 + tokens}}
+
+
+class ToolCapTests(unittest.TestCase):
+    def bridge(self, response, mode="selected"):
+        if mode == "selected":
+            config, flags = policy.configuration(), {"selected_operational": True}
+        elif mode == "probe":
+            config, flags = policy.support.configuration(), {"support_probe": True}
+        else:
+            config, flags = fixtures.fixtures.manifest()["settings"], {}
+        return worker.Bridge(tau, config, "candidate", mock.Mock(return_value=response), **flags)
+
+    def complete(self, bridge, role="agent"):
+        return bridge.complete(model=transport.ALIASES[role], messages=[{"role": "user", "content": "synthetic"}])
+
+    def test_selected_candidate_cap_is_ambiguous_and_usage_stays_known(self):
+        bridge = self.bridge(capped_tool_response())
+        with self.assertRaises(worker.Abort) as caught:
+            self.complete(bridge)
+        self.assertEqual(caught.exception.status, "protocol_error")
+        self.assertTrue(bridge.usage_known)
+        self.assertEqual(bridge.usage()["total_tokens"], 263)
+        self.assertEqual((bridge.budget.requests, bridge.budget.tokens), (1, 263))
+        self.assertIsNone(bridge.budget.pending)
+        with self.assertRaises(worker.Abort) as caught:
+            self.complete(bridge, "evaluator")
+        self.assertEqual(caught.exception.status, "protocol_error")
+        bridge.transport.assert_called_once()
+
+    def test_below_cap_cpu_role_support_probe_and_text_stop_are_unaffected(self):
+        for role, mode, tokens, tools in (("agent", "selected", 255, True),
+                                         ("simulator", "selected", 256, True),
+                                         ("agent", "probe", 256, True),
+                                         ("agent", "legacy", 50, True),
+                                         ("agent", "selected", 256, False),
+                                         ("evaluator", "selected", 256, False)):
+            with self.subTest(role=role, mode=mode, tokens=tokens, tools=tools):
+                response = capped_tool_response(tokens)
+                if not tools:
+                    response["choices"][0].update(finish_reason="stop", message={"role": "assistant",
+                        "content": '{"results":[]}' if role == "evaluator" else "synthetic"})
+                bridge = self.bridge(response, mode)
+                self.assertEqual(self.complete(bridge, role), response)
+                self.assertEqual(bridge.budget.tokens, 7 + tokens)
+                self.assertIsNone(bridge.failed)
+
+    def test_explicit_length_still_reports_truncated_with_known_usage(self):
+        for role in ("agent", "simulator"):
+            for tokens in (255, 256):
+                with self.subTest(role=role, tokens=tokens):
+                    bridge = self.bridge(capped_tool_response(tokens, "length"))
+                    with self.assertRaises(worker.Abort) as caught:
+                        self.complete(bridge, role)
+                    self.assertEqual(caught.exception.status, "truncated")
+                    self.assertTrue(bridge.usage_known)
+                    self.assertEqual(bridge.usage()["total_tokens"], 7 + tokens)
+
+    def test_invalid_usage_is_not_settled_by_cap_guard(self):
+        for mutate in (lambda r: r["usage"].update(completion_tokens=257, total_tokens=264),
+                       lambda r: r["usage"].update(completion_tokens=True, total_tokens=8),
+                       lambda r: r["usage"].update(total_tokens=262)):
+            response = capped_tool_response()
+            mutate(response)
+            bridge = self.bridge(response)
+            with self.assertRaises(worker.Abort) as caught:
+                self.complete(bridge)
+            self.assertEqual(caught.exception.status, "protocol_error")
+            self.assertIsNone(bridge.usage())
+            self.assertEqual(bridge.budget.tokens, 8448)
 
 
 class SessionTests(unittest.TestCase):
@@ -227,6 +308,22 @@ class SessionTests(unittest.TestCase):
                 self.request(session, channel)
             self.assertEqual(caught.exception.status, status)
             self.assertIsNone(session.result)
+
+    def test_cap_saturated_tool_response_never_reaches_scorer(self):
+        session, channel, channels, coordinators = self.session()
+        channels["candidate"].response = capped_tool_response()
+        with self.assertRaises(worker.Abort) as caught:
+            self.request(session, channel)
+        self.assertEqual(caught.exception.status, "protocol_error")
+        self.assertEqual(channel.sent, [])
+        self.assertTrue(channel.closed)
+        self.assertEqual(coordinators["candidate"].sequence, 2)
+        self.assertIsNone(coordinators["candidate"].pending)
+        self.assertEqual(session.bridge.usage()["total_tokens"], 263)
+        self.assertIsNone(session.result)
+        with self.assertRaises(worker.Abort):
+            self.request(session, channel)
+        self.assertEqual(len(channels["candidate"].sent), 2)
 
     def test_stale_changed_or_shared_owner_rejected(self):
         for mode in ("binding", "sequence", "failed", "pending", "shared"):
