@@ -204,7 +204,7 @@ class VirtiofsCacheTests(unittest.TestCase):
             self.assertEqual(restore.call_args.args[:2], (self.mount / target["served_model_name"], local))
             self.assertEqual((upload.call_count, restore.call_count), (1, 1))
 
-    def test_default_nfs_profile_receipt_bytes_match_base_except_script_hash(self):
+    def test_default_nfs_profile_receipt_bytes_match_base_except_source_hashes(self):
         original = git(ROOT, "show", "11923d966a82f3e840ad0590ed0dc95392128995:host/cache-public-weights.py")
         path = self.root / "original.py"
         path.write_bytes(original)
@@ -227,8 +227,10 @@ class VirtiofsCacheTests(unittest.TestCase):
                         self.root / "local", self.manifest, self.root / "old-manifest" if operation == "seed" else None,
                         output, "a" * 40, 120), 0)
                 records.append(output.read_bytes())
-            self.assertEqual(records[0].replace(hashlib.sha256(original).hexdigest().encode(),
-                             hashlib.sha256(Path(cache.__file__).read_bytes()).hexdigest().encode()), records[1])
+            self.assertEqual(records[0].count(old.PROFILE_SHA256.encode()), 1)
+            expected = records[0].replace(hashlib.sha256(original).hexdigest().encode(),
+                                         hashlib.sha256(Path(cache.__file__).read_bytes()).hexdigest().encode())
+            self.assertEqual(expected.replace(old.PROFILE_SHA256.encode(), cache.PROFILE_SHA256.encode()), records[1])
 
     def test_receipt_reserved_before_bounded_worker_no_model_or_runtime_claims(self):
         def capture(argv, **kwargs):
