@@ -42,7 +42,7 @@ an 8K validation, nor vice versa. Existing 4K default receipt bytes and engine
 arguments are unchanged. These short controls are not a long-context test.
 
 Still required: a live 8K prerequisite run, a fresh selected-model prefix
-measurement, the scorer-to-owner request bridge, and actual bounded tau
+measurement, live wiring of the [process-owner channel](p2-t4-tau-owner-channel.md), and actual bounded tau
 trials with distinct pinned CPU user/verifier models. Keep original benchmark
 qualification separate from an operational selected-weight trial.
 
