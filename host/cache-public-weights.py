@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Preserve public pinned weights on an operator-approved lab NFS cache only."""
+"""Preserve public pinned weights on an operator-approved lab cache only."""
 import argparse
 from contextlib import contextmanager
 import datetime
 import errno
+import fcntl
 import hashlib
 import json
 import os
@@ -21,6 +22,11 @@ import uuid
 MANIFEST_SHA256 = "b74ae635c35372cf6c350e4b33ef60c90ff01fe6426ad0fa7bc99b1982fe5bed"
 TOTAL_BYTES = 510311045295
 OPTIONS = "nconnect=16,nodev,nosuid,noexec"
+# Spheron ES mount-tag protocol and mount(8) filesystem-independent options:
+# https://docs.spheron.ai/connecting/volume-mounting/spheron-es (2026-10-23)
+# https://man7.org/linux/man-pages/man8/mount.8.html (2026-10-23)
+VIRTIOFS_OPTIONS = "nodev,nosuid,noexec"
+ADMISSION_CHECKS = ["private-owned-directory", "flock-contention", "hardlink-no-replace", "file-and-directory-fsync"]
 PROBE_SHA256 = "dd196679dc4b6d7ee335b3d62900b25484734884bd3da6e74f925260ad7864ff"
 RESTORE_RESERVE = 60
 WORKER_BOOTSTRAP = """
@@ -47,11 +53,12 @@ def require(ok):
 
 
 @contextmanager
-def directory(path, *, create=False):
+def directory(path, *, create=False, trusted=False, private=False):
     path = Path(path)
     require(path.is_absolute() and str(path) == os.path.normpath(path) and ".." not in path.parts)
     fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
     try:
+        current = Path("/")
         for part in path.parts[1:]:
             if create:
                 try:
@@ -61,6 +68,18 @@ def directory(path, *, create=False):
             child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
             os.close(fd)
             fd = child
+            current /= part
+            if trusted or private:
+                info = os.fstat(fd)
+                require(info.st_uid in (0, os.getuid()))
+                sticky_root = (current in (Path("/tmp"), Path("/private/tmp"), Path("/var/tmp"))
+                               and info.st_uid == 0 and info.st_mode & stat.S_ISVTX)
+                require(not info.st_mode & 0o022 or sticky_root)
+        if trusted or private:
+            info = os.fstat(fd)
+            require(info.st_uid == os.getuid() and not info.st_mode & 0o022)
+            if private:
+                require(stat.S_IMODE(info.st_mode) == 0o700)
         yield fd
     finally:
         os.close(fd)
@@ -91,33 +110,13 @@ def command(args):
                           env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C", "LC_ALL": "C"}).stdout
 
 
-def mount_cache(export, target, *, readonly=False):
-    require(re.fullmatch(r"[a-z0-9.-]+:/[A-Za-z0-9_-]+", export) is not None)
-    with directory(target, create=True) as fd:
-        with os.scandir(fd) as entries:
-            require(next(entries, None) is None)
-    command(["mount", "-t", "nfs", "-o", ("ro," if readonly else "") + OPTIONS, export, str(target)])
-    verify_mount(export, target, readonly=readonly)
+def cache_source(export, backend):
+    require(backend in {"nfs", "virtiofs"} and type(export) is str)
+    pattern = r"[a-z0-9.-]+:/[A-Za-z0-9_-]+" if backend == "nfs" else r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}"
+    require(re.fullmatch(pattern, export) is not None)
 
 
-def verify_mount(export, target, *, readonly=False):
-    row = json.loads(command(["findmnt", "--json", "--mountpoint", str(target),
-                              "--output", "SOURCE,TARGET,FSTYPE,OPTIONS"]))
-    require(type(row) is dict and len(row["filesystems"]) == 1)
-    fs = row["filesystems"][0]
-    require(fs["source"] == export and fs["target"] == str(target) and fs["fstype"] in ("nfs", "nfs4")
-            and {"nodev", "nosuid", "noexec"} <= set(fs["options"].split(",")))
-    if readonly:
-        require("ro" in fs["options"].split(",") and "rw" not in fs["options"].split(","))
-
-
-def unmount_cache(export, target):
-    require(re.fullmatch(r"[a-z0-9.-]+:/[A-Za-z0-9_-]+", export) is not None)
-    require(target != Path("/"))
-    with directory(target):
-        verify_mount(export, target)
-    # Close our directory handle first. Never force or lazily detach a busy mount.
-    command(["umount", "--", str(target)])
+def require_unmounted(target):
     try:
         command(["findmnt", "--json", "--mountpoint", str(target),
                  "--output", "SOURCE,TARGET,FSTYPE,OPTIONS"])
@@ -127,18 +126,70 @@ def unmount_cache(export, target):
         raise ValueError("public-cache-still-mounted")
 
 
-def unmount_report(export, target, output, producer):
+def mount_cache(export, target, *, readonly=False, backend="nfs"):
+    cache_source(export, backend)
+    if backend == "virtiofs":
+        require(target != Path("/"))
+    with directory(target, create=True, private=backend == "virtiofs") as fd:
+        with os.scandir(fd) as entries:
+            require(next(entries, None) is None)
+    if backend == "virtiofs":
+        require_unmounted(target)
+    options = OPTIONS if backend == "nfs" else VIRTIOFS_OPTIONS
+    command(["mount", "-t", backend, "-o", ("ro," if readonly else "") + options, export, str(target)])
+    verify_mount(export, target, readonly=readonly, **({} if backend == "nfs" else {"backend": backend}))
+    if backend == "virtiofs":
+        with directory(target, trusted=True):
+            pass
+
+
+def verify_mount(export, target, *, readonly=False, backend="nfs", within=None):
+    cache_source(export, backend)
+    require(within is None or (backend == "virtiofs" and within.parent == target))
+    # findmnt(8) --target resolves a child to its containing mount, unlike
+    # --mountpoint. Explicit columns keep the readback independent of defaults.
+    # https://man7.org/linux/man-pages/man8/findmnt.8.html (2026-10-23)
+    row = json.loads(command(["findmnt", "--json", "--mountpoint" if within is None else "--target", str(target if within is None else within),
+                              "--output", "SOURCE,TARGET,FSTYPE,OPTIONS"]),
+                     **({} if backend == "nfs" else {"object_pairs_hook": unique}))
+    require(type(row) is dict and len(row["filesystems"]) == 1)
+    fs = row["filesystems"][0]
+    require(fs["source"] == export and fs["target"] == str(target)
+            and fs["fstype"] in (("nfs", "nfs4") if backend == "nfs" else ("virtiofs",))
+            and {"nodev", "nosuid", "noexec"} <= set(fs["options"].split(",")))
+    if backend == "virtiofs":
+        require(not {"dev", "suid", "exec"} & set(fs["options"].split(",")))
+    if readonly:
+        require("ro" in fs["options"].split(",") and "rw" not in fs["options"].split(","))
+    elif backend == "virtiofs":
+        options = set(fs["options"].split(","))
+        require(len(options & {"rw", "ro"}) == 1 and (readonly is None or "rw" in options))
+
+
+def unmount_cache(export, target, *, backend="nfs"):
+    cache_source(export, backend)
+    require(target != Path("/"))
+    with directory(target, trusted=backend == "virtiofs"):
+        verify_mount(export, target, **({} if backend == "nfs" else {"backend": backend, "readonly": None}))
+    # Close our directory handle first. Never force or lazily detach a busy mount.
+    command(["umount", "--", str(target)])
+    require_unmounted(target)
+
+
+def unmount_report(export, target, output, producer, *, backend="nfs"):
     require(not output.is_relative_to(target))
     report = {"schema": "nib.public-weight-cache-unmount/v1", "result": "fail",
               "producer": producer, "script_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
               "started_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
               "unmounted": False, "volume_deleted": False, "files_removed": False}
+    if backend != "nfs":
+        report["backend"] = backend
     # Reserve the receipt before mutation; an existing path must not lose evidence.
-    with directory(output.parent) as parent:
+    with directory(output.parent, private=backend == "virtiofs") as parent:
         fd = os.open(output.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
     with os.fdopen(fd, "w") as stream:
         try:
-            unmount_cache(export, target)
+            unmount_cache(export, target, **({} if backend == "nfs" else {"backend": backend}))
             report.update(result="pass", unmounted=True)
         except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
             pass
@@ -501,10 +552,95 @@ def verified_copy(source, destination, rows, source_rows, deadline, *, atomic):
     return {"files": len(rows), "verified_bytes": sum(row[1] for row in rows)}
 
 
-def profile_worker(operation, export, mount, local, manifest_path, seed_manifest, seconds):
+def filesystem_probe(parent, deadline):
+    # Separate opens contend even in one process: flock(2), DESCRIPTION.
+    # https://man7.org/linux/man-pages/man2/flock.2.html (2026-10-23)
+    # Only this exclusively created probe is removed, and only on success.
+    name = ".nib-fs-check-" + uuid.uuid4().hex
+    os.mkdir(name, 0o700, dir_fd=parent)
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    first = os.open(name, flags, dir_fd=parent)
+    try:
+        identity = os.fstat(first)
+        require(identity.st_dev == os.fstat(parent).st_dev and stat.S_IMODE(identity.st_mode) == 0o700
+                and identity.st_uid == os.getuid())
+        second = os.open(name, flags, dir_fd=parent)
+        try:
+            require(os.path.samestat(identity, os.fstat(second)))
+            fcntl.flock(first, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                fcntl.flock(second, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as error:
+                require(error.errno in (errno.EAGAIN, errno.EWOULDBLOCK))
+            else:
+                raise ValueError("public-cache-lock-not-exclusive")
+            fcntl.flock(first, fcntl.LOCK_UN)
+            fcntl.flock(second, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(second)
+        before = {}
+        for entry, data in (("source", b"source"), ("occupied", b"target")):
+            fd = os.open(entry, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=first)
+            try:
+                require(os.write(fd, data) == len(data))
+                os.fsync(fd)
+                os.lseek(fd, 0, os.SEEK_SET)
+                require(os.read(fd, len(data) + 1) == data)
+                before[entry] = file_identity(os.fstat(fd))
+            finally:
+                os.close(fd)
+        try:
+            os.link("source", "occupied", src_dir_fd=first, dst_dir_fd=first, follow_symlinks=False)
+        except OSError as error:
+            require(error.errno == errno.EEXIST)
+        else:
+            raise ValueError("public-cache-link-replaced")
+        for entry, expected in before.items():
+            require(file_identity(os.stat(entry, dir_fd=first, follow_symlinks=False)) == expected)
+        os.link("source", "published", src_dir_fd=first, dst_dir_fd=first, follow_symlinks=False)
+        source = os.stat("source", dir_fd=first, follow_symlinks=False)
+        published = os.stat("published", dir_fd=first, follow_symlinks=False)
+        require(os.path.samestat(source, published) and source.st_nlink == published.st_nlink == 2)
+        os.fsync(first)
+        os.unlink("published", dir_fd=first)
+        require(os.stat("source", dir_fd=first, follow_symlinks=False).st_nlink == 1)
+        require(time.monotonic() < deadline)
+        for entry in ("source", "occupied"):
+            os.unlink(entry, dir_fd=first)
+        os.fsync(first)
+        require(os.path.samestat(identity, os.stat(name, dir_fd=parent, follow_symlinks=False)))
+        os.rmdir(name, dir_fd=parent)
+        os.fsync(parent)
+    finally:
+        os.close(first)
+
+
+def admit_filesystem(export, mount, staging_parent, deadline):
+    require(staging_parent.parent == mount and time.monotonic() < deadline)
+    verify_mount(export, mount, backend="virtiofs")
+    with directory(mount, trusted=True) as volume:
+        volume_info = os.fstat(volume)
+        try:
+            os.mkdir(staging_parent.name, 0o700, dir_fd=volume)
+        except FileExistsError:
+            pass
+        with directory(staging_parent, private=True) as parent:
+            parent_info = os.fstat(parent)
+            require(parent_info.st_dev == volume_info.st_dev)
+            verify_mount(export, mount, backend="virtiofs", within=staging_parent)
+            filesystem_probe(parent, deadline)
+            require(os.path.samestat(parent_info, os.stat(staging_parent.name, dir_fd=volume, follow_symlinks=False)))
+        os.fsync(volume)
+        require(os.path.samestat(volume_info, os.stat(mount, follow_symlinks=False)))
+    with directory(staging_parent, private=True):
+        verify_mount(export, mount, backend="virtiofs", within=staging_parent)
+    require(time.monotonic() < deadline)
+
+
+def profile_worker(operation, export, mount, local, manifest_path, seed_manifest, seconds, backend="nfs"):
     require(sys.platform == "linux" and sys.flags.isolated and sys.flags.no_site
             and sys.dont_write_bytecode and os.getuid() == 0)
-    require(operation in {"seed", "upload", "restore"})
+    require(operation in {"seed", "upload", "restore", "admit"})
     seconds = int(seconds)
     require(0 < seconds <= 7200 - RESTORE_RESERVE)
     deadline = time.monotonic() + seconds
@@ -519,7 +655,16 @@ def profile_worker(operation, export, mount, local, manifest_path, seed_manifest
     else:
         require(seed_manifest == "-")
     readonly = operation != "upload"
-    mount_cache(export, mount, readonly=readonly)
+    mount_options = {} if backend == "nfs" else {"backend": backend}
+    if operation == "admit":
+        require(backend == "virtiofs" and local.parent == mount and seconds <= 240)
+        mount_cache(export, mount, **mount_options)
+        admit_filesystem(export, mount, local, deadline)
+        print(json.dumps({"schema": "nib.public-weight-profile-worker/v1", "operation": operation,
+                          "publication_mode": "none", "files": 0, "verified_bytes": 0,
+                          "filesystem_checks": ADMISSION_CHECKS}, sort_keys=True))
+        return
+    mount_cache(export, mount, readonly=readonly, **mount_options)
     source = local if operation == "upload" else mount / (
         original["served_model_name"] if operation == "seed" else target["served_model_name"])
     destination = mount / target["served_model_name"] if operation == "upload" else local
@@ -532,24 +677,30 @@ def profile_worker(operation, export, mount, local, manifest_path, seed_manifest
         require(space.f_bavail * space.f_frsize >= needed + max(10 << 30, (needed + 9) // 10))
     result = (upload_copy(source, destination, rows, deadline) if operation == "upload"
               else atomic_copy(source, destination, rows, source_rows, deadline))
-    verify_mount(export, mount, readonly=readonly)
+    verify_mount(export, mount, readonly=readonly, **mount_options)
     require(time.monotonic() < deadline)
     print(json.dumps({"schema": "nib.public-weight-profile-worker/v1", "operation": operation,
                       "publication_mode": publication_mode(operation), **result}, sort_keys=True))
 
 
 def publication_mode(operation):
+    if operation == "admit":
+        return "none"
     return "exclusive-directory-copy" if operation == "upload" else "atomic-no-replace-directory"
 
 
-def profile_report(operation, export, mount, local, manifest_path, seed_manifest, output, producer, seconds):
-    require(operation in {"seed", "upload", "restore"} and type(seconds) is int and RESTORE_RESERVE < seconds <= 7200)
-    require(re.fullmatch(r"[0-9a-f]{40}", producer) is not None
-            and re.fullmatch(r"[a-z0-9.-]+:/[A-Za-z0-9_-]+", export) is not None)
+def profile_report(operation, export, mount, local, manifest_path, seed_manifest, output, producer, seconds, *, backend="nfs"):
+    require(operation in {"seed", "upload", "restore", "admit"} and type(seconds) is int and RESTORE_RESERVE < seconds <= 7200)
+    require(re.fullmatch(r"[0-9a-f]{40}", producer) is not None)
+    cache_source(export, backend)
+    admission = operation == "admit"
+    require(not admission or (backend == "virtiofs" and seconds <= 300 and local.parent == mount))
     require((seed_manifest is not None) == (operation == "seed"))
     paths = [mount, local, manifest_path, output] + ([] if seed_manifest is None else [seed_manifest])
     for path in paths:
         require(path.is_absolute() and str(path) == os.path.normpath(path) and ".." not in path.parts)
+    if admission:
+        paths.remove(local)
     require(all(left != right and left not in right.parents and right not in left.parents
                 for index, left in enumerate(paths) for right in paths[index + 1:]))
     original, target = profiles()
@@ -558,7 +709,7 @@ def profile_report(operation, export, mount, local, manifest_path, seed_manifest
               "operation": operation, "model_profile": target, "producer": producer,
               "script_sha256": hashlib.sha256(source).hexdigest(), "supervisor_sha256": PROBE_SHA256,
               "profile_helper_sha256": PROFILE_SHA256,
-              "publication_helper_sha256": None if operation == "upload" else PUBLICATION_SHA256,
+              "publication_helper_sha256": None if operation in {"upload", "admit"} else PUBLICATION_SHA256,
               "source_manifest_sha256": original["manifest_sha256"] if operation == "seed" else target["manifest_sha256"],
               "target_manifest_sha256": target["manifest_sha256"], "timeout_seconds": seconds,
               "started_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(), "ended_utc": None,
@@ -568,7 +719,13 @@ def profile_report(operation, export, mount, local, manifest_path, seed_manifest
               "pack_complete": False, "runtime_ready": False, "confidential": False,
               "source_removed": False, "files": 0, "verified_bytes": 0,
               "remaining_files": None, "remaining_bytes": None}
-    with directory(output.parent) as parent:
+    if backend != "nfs":
+        report["backend"] = backend
+    if admission:
+        report.update(filesystem_admitted=False, filesystem_checks=[], hardware_validated=False,
+                      mount_state="unproven", publication="not-applicable", capacity_checked=False,
+                      immutable=False)
+    with directory(output.parent, private=backend == "virtiofs") as parent:
         info = os.fstat(parent)
         require(info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700)
         fd = os.open(output.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
@@ -592,25 +749,37 @@ def profile_report(operation, export, mount, local, manifest_path, seed_manifest
             for sig in previous:
                 signal.signal(sig, cancel)
             capture = load_capture()
-            report.update(stage="profile-worker", cleanup="unproven", publication="unproven")
+            report.update(stage="profile-worker", cleanup="unproven",
+                          publication="not-applicable" if admission else "unproven")
             publish()
             budget = seconds - RESTORE_RESERVE
             deadline = time.monotonic() + budget
             raw = capture([sys.executable, "-I", "-S", "-B", "-c", PROFILE_WORKER_BOOTSTRAP,
                            str(Path(__file__).absolute()), source.decode("utf-8"), operation, export,
                            str(mount), str(local), str(manifest_path),
-                           "-" if seed_manifest is None else str(seed_manifest), str(budget)], timeout=budget, limit=4096)
+                           "-" if seed_manifest is None else str(seed_manifest), str(budget)]
+                          + ([] if backend == "nfs" else [backend]), timeout=budget, limit=4096)
             require(time.monotonic() < deadline and type(raw) is bytes and len(raw) <= 4096)
             row = json.loads(raw, object_pairs_hook=unique)
             count, total = (SEED_FILES, SEED_BYTES) if operation == "seed" else (79, target["total_bytes"])
-            require(type(row) is dict and set(row) == {"schema", "operation", "publication_mode", "files", "verified_bytes"}
+            if admission:
+                count, total = 0, 0
+            fields = {"schema", "operation", "publication_mode", "files", "verified_bytes"}
+            require(type(row) is dict and set(row) == fields | ({"filesystem_checks"} if admission else set())
                     and row["schema"] == "nib.public-weight-profile-worker/v1" and row["operation"] == operation
                     and row["publication_mode"] == publication_mode(operation)
                     and type(row["files"]) is int and row["files"] == count
                     and type(row["verified_bytes"]) is int and row["verified_bytes"] == total)
-            report.update(result="pass", stage="complete", cleanup="worker-completed", worker_exit_confirmed=True,
-                          publication="confirmed", pack_complete=operation != "seed", files=count, verified_bytes=total,
-                          remaining_files=79 - count, remaining_bytes=target["total_bytes"] - total)
+            if admission:
+                require(row["filesystem_checks"] == ADMISSION_CHECKS)
+                report.update(filesystem_admitted=True, filesystem_checks=ADMISSION_CHECKS,
+                              mount_state="mounted-read-write")
+            report.update(result="pass", stage="filesystem-admitted" if admission else "complete",
+                          cleanup="worker-completed", worker_exit_confirmed=True,
+                          publication="not-applicable" if admission else "confirmed",
+                          pack_complete=operation not in {"seed", "admit"}, files=count, verified_bytes=total,
+                          remaining_files=None if admission else 79 - count,
+                          remaining_bytes=None if admission else target["total_bytes"] - total)
         except InterruptedError:
             report.update(result="fail", failure="cancelled", pack_complete=False, files=0, verified_bytes=0,
                           remaining_files=None, remaining_bytes=None)
@@ -625,6 +794,8 @@ def profile_report(operation, export, mount, local, manifest_path, seed_manifest
             for sig in previous:
                 signal.signal(sig, signal.SIG_IGN)
             try:
+                if admission and report["result"] != "pass":
+                    report.update(filesystem_admitted=False, filesystem_checks=[], mount_state="unproven")
                 report["ended_utc"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
                 publish()
             finally:
@@ -637,6 +808,7 @@ def main():
     require(sys.flags.isolated and sys.flags.no_site and sys.platform == "linux" and os.getuid() == 0)
     parser = argparse.ArgumentParser()
     parser.add_argument("--export", required=True)
+    parser.add_argument("--backend", choices=("nfs", "virtiofs"), default="nfs")
     parser.add_argument("--mount", required=True, type=Path)
     parser.add_argument("--source", type=Path)
     parser.add_argument("--restore-to", type=Path)
@@ -645,21 +817,33 @@ def main():
     parser.add_argument("--model-profile", choices=("original", "uncensored"), default="original")
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--unmount-only", action="store_true")
+    parser.add_argument("--mount-only", action="store_true")
+    parser.add_argument("--staging-parent", type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--producer", required=True)
     parser.add_argument("--timeout", type=int)
     args = parser.parse_args()
     require(re.fullmatch(r"[0-9a-f]{40}", args.producer))
+    backend = {} if args.backend == "nfs" else {"backend": args.backend}
+    if args.mount_only:
+        require(args.backend == "virtiofs" and args.model_profile == "uncensored"
+                and args.staging_parent is not None and args.manifest is not None
+                and not args.unmount_only and args.source is None and args.restore_to is None
+                and args.seed_to is None and args.seed_manifest is None)
+        return profile_report("admit", args.export, args.mount, args.staging_parent, args.manifest,
+                              None, args.output, args.producer, args.timeout, **backend)
+    require(args.staging_parent is None)
     if args.unmount_only:
         require(args.source is None and args.restore_to is None and args.manifest is None and args.timeout is None
                 and args.seed_to is None and args.seed_manifest is None and args.model_profile == "original")
-        return unmount_report(args.export, args.mount, args.output, args.producer)
+        return unmount_report(args.export, args.mount, args.output, args.producer, **backend)
     if args.model_profile == "uncensored":
         choices = {"upload": args.source, "restore": args.restore_to, "seed": args.seed_to}
         require(sum(value is not None for value in choices.values()) == 1 and args.manifest is not None)
         operation, local = next((key, value) for key, value in choices.items() if value is not None)
         return profile_report(operation, args.export, args.mount, local, args.manifest, args.seed_manifest,
-                              args.output, args.producer, args.timeout)
+                              args.output, args.producer, args.timeout, **backend)
+    require(args.backend == "nfs")
     require(args.seed_to is None and args.seed_manifest is None)
     require((args.source is None) != (args.restore_to is None) and args.manifest is not None
             and type(args.timeout) is int and 60 < args.timeout <= 7200)
