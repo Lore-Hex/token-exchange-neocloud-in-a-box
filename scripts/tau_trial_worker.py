@@ -173,6 +173,7 @@ class Bridge:
         require(type(support_probe) is bool and type(selected_operational) is bool
                 and not (support_probe and selected_operational))
         self.tau, self.role, self.transport, self.clock = tau, role, transport, clock
+        self.selected_operational = selected_operational
         if support_probe or selected_operational:
             if selected_operational:
                 import tau_selected_policy as policy
@@ -259,6 +260,13 @@ class Bridge:
             self.outgoing += response["usage"]["completion_tokens"]
             if choice["finish_reason"] == "length":
                 self.stop("truncated")
+            # Pinned vLLM can mask native length with tool_calls. At the cap its
+            # termination is ambiguous, not proven truncated; retain settled usage.
+            # https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/entrypoints/openai/chat_completion/serving.py#L1099-L1119
+            if (self.selected_operational and role == "candidate"
+                    and choice["finish_reason"] == "tool_calls"
+                    and response["usage"]["completion_tokens"] == bounds["max_tokens"]):
+                self.stop("protocol_error")
             return response
         except Abort as exc:
             self.stop(exc.status)

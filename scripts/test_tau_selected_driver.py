@@ -95,6 +95,25 @@ class SelectedDriverTests(unittest.TestCase):
         self.assertEqual(result['owner_finish']['support'],
                          {'status': 'infrastructure_error', 'completed_requests': 1})
 
+    def test_ambiguous_tool_cap_preserves_usage_and_finishes_owners_without_reward(self):
+        self.channels['candidate'].response = fixtures.capped_tool_response()
+        result = self.run_child()
+        row = result['trial']
+        self.assertEqual((row['status'], row['requests']), ('protocol_error', 2))
+        self.assertEqual(row['role_requests'], {'agent': 1, 'simulator': 1, 'evaluator': 0})
+        self.assertEqual(row['usage']['total_tokens'], 8 + 263)
+        self.assertEqual(result['reserved_tokens'], 8 + 263)
+        self.assertTrue(result['usage_known'])
+        self.assertIsNone(row['reward'])
+        self.assertFalse(driver.accepted(result))
+        self.assertFalse(result['scorer_protocol_completed'])
+        self.assertEqual(result['attach_cleanup'], 'reaped')
+        self.assertTrue(result['owners_finished'])
+        self.assertEqual(result['owner_finish'], {
+            name: {'status': 'protocol_error', 'completed_requests': 1} for name in self.owners})
+        self.assertTrue(all(channel.closed for channel in self.channels.values()))
+        self.assertNotIn('CANARY', repr(result))
+
     def test_finish_failure_removes_reward_but_preserves_usage_and_other_ack(self):
         with mock.patch.object(self.owners['candidate'], 'finish', side_effect=OSError('PRIVATE_CANARY')):
             result = self.run_child()
