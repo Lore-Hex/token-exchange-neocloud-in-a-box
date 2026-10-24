@@ -2,7 +2,6 @@
 """Process-owned CPU roles after original measured readiness, not admission."""
 
 import os
-import math
 import subprocess
 import time
 
@@ -93,54 +92,6 @@ def serve(raw, owned, processes, producer, image_sha, deadline, *, read_fd=0, wr
 
 
 def relay(process, raw, deadline, *, read_fd=0, write_fd=1):
-    """Private one-request/one-reply relay, bounded frames and no content logs.
-
-    Host readiness validation is performed before this call. The two protocol
-    endpoints still enforce identity, sequencing and count-before-generation.
-    The relay does not generate, reserve usage or interpret completion content.
-    """
-    require(isinstance(process, subprocess.Popen) and process.poll() is None)
-    admitted = binding(raw)
+    """Host validates original CPU readiness before entering the shared relay."""
     deadline = min(deadline, time.monotonic() + worker.decode(raw)["expires_unix"] - time.time())
-    require(deadline > time.monotonic())
-    expected_sha, sequence = tau.digest(tau.encoded(admitted)), 1
-    caller = owners.transport.Channel(os.dup(read_fd), os.dup(write_fd))
-    child = owners.transport.Channel(os.dup(process.stdout.fileno()), os.dup(process.stdin.fileno()))
-    try:
-        with worker.alarm(deadline):
-            while True:
-                require(process.poll() is None and sequence <= 2 * policy.LIMITS["requests"] + 1)
-                packet = caller.receive(deadline)
-                require(type(packet) is dict and packet.get("schema") == owners.SCHEMA
-                        and packet.get("binding_sha256") == expected_sha
-                        and type(packet.get("sequence")) is int and packet["sequence"] == sequence
-                        and packet.get("kind") in ("count", "complete", "finish"))
-                until = packet.get("deadline")
-                require(type(until) in (int, float) and math.isfinite(until)
-                        and time.monotonic() < until <= deadline)
-                child.send(packet, until)
-                reply = child.receive(until)
-                require(type(reply) is dict and reply.get("schema") == owners.SCHEMA
-                        and reply.get("binding_sha256") == expected_sha
-                        and type(reply.get("sequence")) is int and reply["sequence"] == sequence
-                        and reply.get("kind") in (packet["kind"] + "-result", packet["kind"] + "-error"))
-                if packet["kind"] == "finish":
-                    require(set(reply) == {"schema", "binding_sha256", "kind", "sequence", "status", "completed_requests"}
-                            and reply["kind"] == "finish-result" and reply["status"] == packet.get("status")
-                            and reply["completed_requests"] == (sequence - 1) // 2)
-                    result = validate({key: reply[key] for key in ("status", "completed_requests")})
-                    caller.send(reply, until)
-                    return result
-                if reply["kind"].endswith("-error"):
-                    require(set(reply) == {"schema", "binding_sha256", "kind", "sequence", "request_sha256", "status"}
-                            and reply["request_sha256"] == tau.digest(tau.encoded(packet.get("body")))
-                            and type(reply.get("status")) is str and reply["status"] in owners.ERRORS)
-                    caller.send(reply, until)
-                    # The worker now emits its failure/cleanup JSON. Do not
-                    # skip the supervisor's bounded collection of that report.
-                    return None
-                caller.send(reply, until)
-                sequence += 1
-    finally:
-        caller.close()
-        child.close()
+    return owners.relay(process, binding(raw), deadline, read_fd=read_fd, write_fd=write_fd)

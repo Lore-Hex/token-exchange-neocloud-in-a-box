@@ -2,6 +2,8 @@
 """Private pipe prerequisite for process-owned tau endpoints, not live admission."""
 
 import math
+import os
+import subprocess
 import threading
 import time
 
@@ -12,6 +14,58 @@ import tau_transport as transport
 tau, worker, require = transport.tau, transport.worker, transport.require
 SCHEMA = "nib.tau-owner-channel/v1"
 ERRORS = frozenset(worker.STATUSES) - {"evaluated"}
+
+
+def relay(process, admitted, deadline, *, read_fd=0, write_fd=1):
+    """Relay one private owner channel, retaining trailing supervisor JSON.
+
+    Caller authenticates original readiness and caps the deadline at its expiry.
+    This never interprets completion content, reserves usage or renews a budget.
+    """
+    require(isinstance(process, subprocess.Popen) and process.poll() is None
+            and type(deadline) in (int, float) and math.isfinite(deadline)
+            and 0 < deadline - time.monotonic() <= transport.MAX_WAIT_SECONDS)
+    expected_sha, sequence = tau.digest(tau.encoded(binding(admitted))), 1
+    caller = transport.Channel(os.dup(read_fd), os.dup(write_fd))
+    child = transport.Channel(os.dup(process.stdout.fileno()), os.dup(process.stdin.fileno()))
+    try:
+        with worker.alarm(deadline):
+            while True:
+                require(process.poll() is None and sequence <= 65)
+                packet = caller.receive(deadline)
+                require(type(packet) is dict and packet.get("schema") == SCHEMA
+                        and packet.get("binding_sha256") == expected_sha
+                        and type(packet.get("sequence")) is int and packet["sequence"] == sequence
+                        and packet.get("kind") in ("count", "complete", "finish"))
+                until = packet.get("deadline")
+                require(type(until) in (int, float) and math.isfinite(until)
+                        and time.monotonic() < until <= deadline)
+                child.send(packet, until)
+                reply = child.receive(until)
+                require(type(reply) is dict and reply.get("schema") == SCHEMA
+                        and reply.get("binding_sha256") == expected_sha
+                        and type(reply.get("sequence")) is int and reply["sequence"] == sequence
+                        and reply.get("kind") in (packet["kind"] + "-result", packet["kind"] + "-error"))
+                if packet["kind"] == "finish":
+                    require(set(reply) == {"schema", "binding_sha256", "kind", "sequence", "status", "completed_requests"}
+                            and reply["kind"] == "finish-result" and reply["status"] == packet.get("status")
+                            and type(reply["status"]) is str and reply["status"] in worker.STATUSES
+                            and type(reply["completed_requests"]) is int
+                            and reply["completed_requests"] == (sequence - 1) // 2
+                            and (reply["status"] != "evaluated" or reply["completed_requests"] > 0))
+                    caller.send(reply, until)
+                    return {key: reply[key] for key in ("status", "completed_requests")}
+                if reply["kind"].endswith("-error"):
+                    require(set(reply) == {"schema", "binding_sha256", "kind", "sequence", "request_sha256", "status"}
+                            and reply["request_sha256"] == tau.digest(tau.encoded(packet.get("body")))
+                            and type(reply.get("status")) is str and reply["status"] in ERRORS)
+                    caller.send(reply, until)
+                    return None
+                caller.send(reply, until)
+                sequence += 1
+    finally:
+        caller.close()
+        child.close()
 
 
 def binding(value):

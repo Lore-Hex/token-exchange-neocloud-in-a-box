@@ -31,6 +31,7 @@ PARITY = None
 RUNTIME_OBSERVER = None
 PROVIDER_SESSION = None
 STREAM_LAB = STREAM_COHORT = None
+TAU_OWNER = None
 ENTRY_CHECKPOINTS = 17
 EXCEPTION_PACKET_BYTES = 3 + 8 * 36
 WORKER_EXCEPTION_PATH = "/cache/worker-exception.bin"
@@ -266,7 +267,7 @@ def tuning_module(contract):
 
 
 def lab_context(expected):
-    global PROCESSES, GPU_PROBE, CORRECTNESS, PARITY, RUNTIME_OBSERVER, PROVIDER_SESSION, STREAM_LAB, STREAM_COHORT
+    global PROCESSES, GPU_PROBE, CORRECTNESS, PARITY, RUNTIME_OBSERVER, PROVIDER_SESSION, STREAM_LAB, STREAM_COHORT, TAU_OWNER
     import platform
     import re
     require(re.fullmatch(r"[0-9a-f]{64}", expected) and __file__ == ROOT + "/launch.py")
@@ -317,6 +318,10 @@ def lab_context(expected):
     if "provider_conformance" in contract:
         PROVIDER_SESSION = load("lab_provider_session", sources["provider-session.py"], ROOT + "/provider-session.py")
         PROVIDER_SESSION.enabled(contract)
+    if "tau_owner" in contract:
+        loader = load("lab_tau_sources", sources["tau-owner-sources.py"], ROOT + "/tau-owner-sources.py")
+        TAU_OWNER = loader.load(sources, contract["sources"])
+        TAU_OWNER.selected(contract)
     modules = [load(name, sources["application/" + name], ROOT + "/application/" + name)
                for name in ("engine_overlay.py", "engine_image_diagnostic.py", "engine_python_descriptor.py", "application.py")]
     overlay, _, _, app = modules
@@ -675,6 +680,10 @@ def application_and_request(contract, sources, modules, application, measured):
     if "stream_cohort" in contract:
         STREAM_LAB.enabled(contract)
         result["stream_cohort"] = None
+    if "tau_owner" in contract:
+        TAU_OWNER.selected(contract)
+        result["tau_owner"] = None
+    owner_errors = (TAU_OWNER.worker.Abort,) if "tau_owner" in contract else ()
     if "tokenizer_materialization" in contract:
         result.update(tokenizer_adapter_options(contract, require))
     if "runtime_observation" in contract:
@@ -783,6 +792,11 @@ def application_and_request(contract, sources, modules, application, measured):
                 result["runtime_observation"]["contract_sha256"], result["runtime_observation"]["samples"][0],
                 min(time.monotonic() + PROVIDER_SESSION.SECONDS,
                     started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE))
+        if "tau_owner" in contract:
+            require(result["tokenizer_parity"]["all_cases_pass"] is True and engine.poll() is None)
+            result["tau_owner"] = TAU_OWNER.serve(engine, contract,
+                result["runtime_observation"]["contract_sha256"], result["runtime_observation"]["samples"][0],
+                result["tokenizer_parity"], started + TOTAL_SECONDS - CORRECTNESS.TEARDOWN_RESERVE)
         if "stream_cohort" in contract:
             require(result["tokenizer_parity"]["all_cases_pass"] is True and engine.poll() is None)
             result["stream_cohort"] = STREAM_LAB.run(engine, contract,
@@ -798,11 +812,14 @@ def application_and_request(contract, sources, modules, application, measured):
                                      and result["completion"]["finish"] == "stop"))
         if "provider_conformance" in contract:
             result["functional_pass"] = result["functional_pass"] and result["provider_conformance"]["accepted"]
+        if "tau_owner" in contract:
+            result["functional_pass"] = result["functional_pass"] and TAU_OWNER.validate_result(
+                result["tau_owner"])["status"] == "evaluated"
         if "stream_cohort" in contract:
             result["functional_pass"] = result["functional_pass"] and STREAM_LAB.validate(result["stream_cohort"],
                 contract, hashlib.sha256(read_source(ROOT + "/lab.json")).hexdigest(), STREAM_COHORT, **model_options)
         result["stage"] = "complete"
-    except Exception:
+    except (Exception, *owner_errors):
         result["functional_pass"] = False
     finally:
         if checkpoints is not None:

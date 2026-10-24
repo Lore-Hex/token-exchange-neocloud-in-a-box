@@ -183,7 +183,7 @@ def identity(deadline, parent_pipe=False, *, live_local=False, support_probe=Fal
                   "scripts/test_tau_selected_scorer.py")
         names += tuple("scripts/" + name + ".py" for name in SELECTED_PARENT_MODULES)
         names += ("scripts/tau_selected_driver.py", "scripts/test_tau_selected_driver.py",
-                  "scripts/tau_cpu_parity.cpp")
+                  "scripts/test_tau_selected_run.py", "scripts/tau_cpu_parity.cpp")
     if live_local:
         names += ("scripts/tau_live_trial.py", "scripts/tau_live_identity.py", "scripts/tau_local_vllm.py",
                   "scripts/test_tau_live_trial.py", "scripts/test_tau_local_vllm.py",
@@ -503,9 +503,13 @@ def check_result(value, plan, manifest, *, live_local=False):
 
 
 def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment=None, support_probe=None,
-        agent_prefix=False, scorer_image_profile=None):
+        agent_prefix=False, scorer_image_profile=None, selected_owners=None):
     deadline = time.monotonic() + 60
     live_local = live_deployment is not None
+    selected_operational = selected_owners is not None
+    selected_mode(selected_operational, parent_pipe, live_local, support_probe is not None, agent_prefix)
+    if selected_operational:
+        require(type(selected_owners) is dict and set(selected_owners) == {"manifest", "handles", "deadline"})
     require(support_probe is None or parent_pipe and not live_local)
     require(type(agent_prefix) is bool and (not agent_prefix or parent_pipe and not live_local and support_probe is None))
     require(scorer_image_profile is None or agent_prefix and type(scorer_image_profile) is str
@@ -515,11 +519,19 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
     classic = support_probe is not None or agent_prefix and prefix_profile == PREFIX_IMAGE_PROFILES[0]
     toolkit = (identity(deadline, parent_pipe, live_local=True) if live_local else
                identity(deadline, parent_pipe, **({"support_probe": True} if probe_sources else {}),
-                        **({"agent_prefix": True} if agent_prefix else {})))
+                        **({"agent_prefix": True} if agent_prefix else {}),
+                        **({"selected_operational": True} if selected_operational else {})))
     options = {"parent_pipe": parent_pipe, **({"live_local": True} if live_local else {}),
-               **({"support_probe": True} if probe_sources else {}), **({"agent_prefix": True} if agent_prefix else {})}
+               **({"support_probe": True} if probe_sources else {}), **({"agent_prefix": True} if agent_prefix else {}),
+               **({"selected_operational": True} if selected_operational else {})}
     plan, manifest = validate_plan(payload, sha, toolkit, deadline, **options)
     deployment = driver = None
+    if selected_operational:
+        driver = parent_driver(toolkit, selected_operational=True)
+        driver.policy.transport_manifest(selected_owners["manifest"], tau.digest(tau.encoded(selected_owners["manifest"])))
+        require(tau.encoded(selected_owners["manifest"]["input"]) == tau.encoded(manifest)
+                and type(selected_owners["deadline"]) in (int, float)
+                and driver.RESERVE < selected_owners["deadline"] - time.monotonic() <= plan["seconds"])
     if live_local:
         driver = parent_driver(toolkit, live_local=True)
         deployment = driver.live.Deployment(*live_deployment, manifest, deadline)
@@ -544,7 +556,7 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
                "DOCKER_CONFIG": private, "LANG": "C", "LC_ALL": "C"}
         docker = shutil.which("docker", path=env["PATH"])
         require(docker is not None)
-        operation_deadline = time.monotonic() + SECONDS
+        operation_deadline = (selected_owners["deadline"] if selected_operational else time.monotonic() + SECONDS)
         def command(*args, seconds=20, limit=65536):
             remaining = operation_deadline - time.monotonic()
             require(remaining > 0)
@@ -559,17 +571,23 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
             rows = tau.json_value(command("image", "inspect", *inspect_args, runtime.TARGET["image"]))
             require(type(rows) is list and len(rows) == 1)
             selected_manifest = check_probe_image(rows[0]) if classic else check_image(rows[0])
-            inspection = {"parent_pipe": parent_pipe, **({"support_probe": True} if classic else {})}
+            inspection = {"parent_pipe": parent_pipe, **({"support_probe": True} if classic else {}),
+                          **({"selected_operational": True} if selected_operational else {})}
             stage = "create"
             # Killing the bounded client cannot cancel an in-flight daemon create.
             # Only the exact owned-container inspection establishes completion.
             create_unknown = True
-            command(*create_command(name, owner, payload, sha, parent_pipe=parent_pipe))
+            command(*create_command(name, owner, payload, sha, parent_pipe=parent_pipe,
+                                    **({"selected_operational": True} if selected_operational else {})))
             info = tau.json_value(command("inspect", name))[0]
             check_container(info, name, owner, payload, sha, selected_manifest, **inspection)
             create_unknown = False
             stage = "trial"
-            if agent_prefix:
+            if selected_operational:
+                observed = driver.run_owned([docker, "--host", "unix://" + str(socket), "--config", private,
+                    "start", "--attach", "--interactive", name], env, payload, plan,
+                    selected_owners["manifest"], operation_deadline, selected_owners["handles"])
+            elif agent_prefix:
                 prefix = load("scripts/tau_agent_prefix.py", toolkit["files"]["scripts/tau_agent_prefix.py"])
                 prefix_body = prefix.attach([docker, "--host", "unix://" + str(socket), "--config", private,
                     "start", "--attach", "--interactive", name], env, sha,
@@ -594,7 +612,7 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
             else:
                 raw = command("start", "--attach", name, seconds=SECONDS, limit=16384)
                 observed = tau.json_value(raw)
-            if support_probe is None and not agent_prefix:
+            if support_probe is None and not agent_prefix and not selected_operational:
                 check_result(observed, plan, manifest, **({"live_local": True} if live_local else {}))
             # Preserve validated accounting even if the later container check fails.
             result = observed
@@ -620,6 +638,22 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
             except Exception:
                 cleaned = False
             signal.signal(signal.SIGTERM, old)
+    if selected_operational:
+        record = {"schema": "nib.tau-selected-scorer-run/v1", "toolkit": toolkit, "plan_sha256": sha,
+                  "image": plan["image"], "platform": plan["platform"],
+                  "manifest_sha256": tau.digest(tau.encoded(selected_owners["manifest"])),
+                  "started_utc": started, "ended_utc": now(), "stage": stage,
+                  "cleanup": "create-completion-unknown" if create_unknown else "confirmed" if cleaned else "failed",
+                  "diagnostic": result,
+                  "result": "pass" if stage == "completed" and cleaned and result and driver.accepted(result) else "fail",
+                  "quality_eligible": False, "confidential": False, "live_admission": False}
+        envelope = evidence_record(toolkit["git_sha"], sha, started, record, parent_pipe=True)
+        envelope.update(command="Internal selected scorer lifecycle with original admitted owner pipes.",
+            notes="Operational single-trial scorer only. Actual usage, no dollar-price estimate. "
+                  "Owner-container cleanup and readiness provenance must be joined by the enclosing launcher. "
+                  "No benchmark qualification or confidential claim.")
+        publish_evidence(destination, {"run.json": tau.encoded(envelope), "output.log": tau.encoded(record)})
+        return record
     if agent_prefix:
         record = {"schema": "nib.tau-agent-prefix-render/v1", "toolkit": toolkit, "plan_sha256": sha,
                   "selection": plan["selection"], "image": plan["image"], "platform": plan["platform"],
