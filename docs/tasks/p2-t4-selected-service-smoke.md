@@ -119,6 +119,13 @@ confidential and E2EE flags remain false even for a successful private smoke.
 The result is not a tau score, qualification, production-readiness or
 confidential-computing claim.
 
+On an owner exit of 1, the host now retains a strictly validated `owner_failure`
+metadata object from the bounded stdout capture, including the fixed
+preparation failure or a full failed lifecycle with partial cleanup. It never
+retains stderr, exception text, arbitrary fields or raw output. The result
+stays failed, attempted runtime completion stays unknown, and container cleanup
+still runs. This diagnostic projection neither retries nor relaxes admission.
+
 ## Operator interface
 
 The following is a preparation example, not authorization to execute it. Every

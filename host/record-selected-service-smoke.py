@@ -300,6 +300,33 @@ def lifecycle(raw):
     return row
 
 
+def lifecycle_failure(raw):
+    """Accept only the owner's fixed metadata on a nonzero container exit."""
+    require(type(raw) is bytes and len(raw) <= 16384, "owner-failed")
+    row = service.correctness.strict_json(raw)
+    minimal = {"schema", "status", "reason", "deployable", "hardware_validated"}
+    require(type(row) is dict and row.get("schema") == "nib.selected-service-lifecycle/v1"
+            and row.get("status") == "failed" and row.get("deployable") is False
+            and row.get("hardware_validated") is False, "owner-failed")
+    if set(row) == minimal:
+        require(row["reason"] == "preparation", "owner-failed")
+        return row
+    require(set(row) == minimal | {"ready", "cleanup_confirmed", "cleanup", "tools",
+                                  "reasoning", "zdr", "confidential", "e2ee"}
+            and type(row["reason"]) is str and row["reason"] in service.FAILURES | {"retired"}
+            and type(row["ready"]) is bool and type(row["cleanup_confirmed"]) is bool
+            and all(row[key] is False for key in ("tools", "reasoning", "zdr", "confidential", "e2ee"))
+            and type(row["cleanup"]) is list and len(row["cleanup"]) <= len(service.ROLES), "owner-failed")
+    roles = []
+    for item in row["cleanup"]:
+        require(type(item) is dict and set(item) == {"role", "drained", "reaped"}
+                and item["role"] in service.ROLES and type(item["drained"]) is bool
+                and type(item["reaped"]) is bool, "owner-failed")
+        roles.append(item["role"])
+    require(roles == list(reversed(service.ROLES[:len(roles)])), "owner-failed")
+    return row
+
+
 def run_container(args, contract, lab, recorder, env, build, base, image, inputs, result):
     weights = private_path(args.weights)
     deadline = min(time.monotonic() + SECONDS, contract.startup_deadline)
@@ -331,8 +358,15 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
         check_container(info, identifier, name, token, build, image, command, weights, inputs)
         require(info["State"]["Status"] == "created" and monitor.poll() is None, "identity")
         result.update(runtime_started=None, reason="lifecycle")
-        raw = docker.call(["docker", "container", "start", "--attach", identifier],
-                          seconds=docker.remaining() - 120, limit=16384)
+        start_command = ["docker", "container", "start", "--attach", identifier]
+        try:
+            raw = docker.call(start_command, seconds=docker.remaining() - 120, limit=16384)
+        except subprocess.CalledProcessError as error:
+            # The shared bounded process helper retains stdout on nonzero exit.
+            # Never expose stderr, exception text or unvalidated output.
+            if error.cmd == start_command and type(error.returncode) is int and error.returncode == 1:
+                result["owner_failure"] = lifecycle_failure(error.stdout)
+            raise
         owner_result = lifecycle(raw)
         info = docker.inspect(identifier)
         check_container(info, identifier, name, token, build, image, command, weights, inputs)
