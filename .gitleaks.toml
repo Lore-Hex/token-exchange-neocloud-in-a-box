@@ -10,7 +10,7 @@ id = "generic-api-key"
 description = "Four original hashes of fixed synthetic token-ID sequences"
 condition = "AND"
 regexTarget = "line"
-paths = ['''(^|/)evidence/p2/2026-10-22-(tokenizer-parity-(tool-protocol-fail|fixed-pass|runtime-pass)|provider-conformance-pass)/output\.log$''', '''(^|/)evidence/p2/2026-10-23-stream-(window-exhaustion|600s-complete)/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-stream-timeout/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-provider-conformance/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-(tau8k-parity|graphs-stream)/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-tau-protocol-failure-1854/gpu/output\.log$''']
+paths = ['''(^|/)evidence/p2/2026-10-22-(tokenizer-parity-(tool-protocol-fail|fixed-pass|runtime-pass)|provider-conformance-pass)/output\.log$''', '''(^|/)evidence/p2/2026-10-23-stream-(window-exhaustion|600s-complete)/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-stream-timeout/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-provider-conformance/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-(tau8k-parity|graphs-stream)/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-tau-protocol-failure-1854/gpu/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-tau-tool-error-2009/gpu/output\.log$''']
 regexes = ['''^\s*"tokens_sha256": "(9d6bde6f28006680e5d37e06d816356d782004f1e8dbabf46d42e81b088afc16|c7b86dad075d1d51e4bf9aec664d9ce392e5d04a63babe717ab9354ec0b56032|6ddfa5e6dbf2f45b8efc1e2ebda65f1f79c39b1a4ec8a7fce8e77fc5a0add7d5|4e5eb88296779609b1ef81a335894e3ef5c284a94a8ceb1607421414c43c9cbe)"\s*$''']
 
 [[rules.allowlists]]
@@ -80,14 +80,14 @@ regexes = ['''^\s*"scripts/engine_tokenizer_parity\.py": "09d704cf6d87c23b4115d4
 description = "Four original Qwen CPU hashes of fixed synthetic token-ID sequences"
 condition = "AND"
 regexTarget = "line"
-paths = ['''(^|/)evidence/p2/2026-10-22-cpu-parity-native-pass/output\.log$''', '''(^|/)evidence/p2/2026-10-22-cpu-session-native-pass/pair/output\.log$''', '''(^|/)evidence/p2/2026-10-22-tau-cpu-prompt-fit-pass/pair/output\.log$''', '''(^|/)evidence/p2/2026-10-24-cpu-http-threads-pass/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-tau-protocol-failure-1854/cpu/output\.log$''']
+paths = ['''(^|/)evidence/p2/2026-10-22-cpu-parity-native-pass/output\.log$''', '''(^|/)evidence/p2/2026-10-22-cpu-session-native-pass/pair/output\.log$''', '''(^|/)evidence/p2/2026-10-22-tau-cpu-prompt-fit-pass/pair/output\.log$''', '''(^|/)evidence/p2/2026-10-24-cpu-http-threads-pass/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-tau-protocol-failure-1854/cpu/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-tau-tool-error-2009/cpu/output\.log$''']
 regexes = ['''^\s*"tokens_sha256": "(1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe)"\s*$''']
 
 [[rules.allowlists]]
 description = "Exact public parity source hash in original selected failures and CPU-only retry"
 condition = "AND"
 regexTarget = "line"
-paths = ['''(^|/)evidence/p2/2026-10-24-selected-tau-readiness-failure-1800/cpu/output\.log$''', '''(^|/)evidence/p2/2026-10-24-cpu-http-threads-pass/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-tau-protocol-failure-1854/cpu/output\.log$''']
+paths = ['''(^|/)evidence/p2/2026-10-24-selected-tau-readiness-failure-1800/cpu/output\.log$''', '''(^|/)evidence/p2/2026-10-24-cpu-http-threads-pass/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-tau-protocol-failure-1854/cpu/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-tau-tool-error-2009/cpu/output\.log$''']
 regexes = ['''^\s*"scripts/engine_tokenizer_parity\.py": "6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f",\s*$''']
 
 [[rules.allowlists]]
@@ -101,21 +101,21 @@ regexes = ['''^\s*"simulator-tokenizer\.json": "de96abc426d3e94cfbc45736e27641c1
 description = "Fixed synthetic token-ID hashes in the two compact original tokenizer receipts"
 condition = "AND"
 regexTarget = "match"
-paths = ['''(^|/)evidence/p2/2026-10-22-(cpu-session-native-pass|tau-cpu-prompt-fit-pass)/pair/(simulator|evaluator)-tokenizer\.json$''', '''(^|/)evidence/p2/2026-10-24-selected-tau-protocol-failure-1854/cpu/(simulator|evaluator)-tokenizer\.json$''']
+paths = ['''(^|/)evidence/p2/2026-10-22-(cpu-session-native-pass|tau-cpu-prompt-fit-pass)/pair/(simulator|evaluator)-tokenizer\.json$''', '''(^|/)evidence/p2/2026-10-24-selected-tau-protocol-failure-1854/cpu/(simulator|evaluator)-tokenizer\.json$''', '''(^|/)evidence/p2/2026-10-24-selected-tau-tool-error-2009/cpu/(simulator|evaluator)-tokenizer\.json$''']
 regexes = ['''^(endpoint|independent)_tokens_sha256":"(1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe)"$''']
 
 [[rules.allowlists]]
 description = "Exact Qwen 0.6B GGUF tokenizer recipe identity in its two compact originals"
 condition = "AND"
 regexTarget = "match"
-paths = ['''(^|/)evidence/p2/2026-10-22-(cpu-session-native-pass|tau-cpu-prompt-fit-pass)/pair/simulator-(runtime|tokenizer)\.json$''', '''(^|/)evidence/p2/2026-10-24-selected-tau-protocol-failure-1854/cpu/simulator-(runtime|tokenizer)\.json$''']
+paths = ['''(^|/)evidence/p2/2026-10-22-(cpu-session-native-pass|tau-cpu-prompt-fit-pass)/pair/simulator-(runtime|tokenizer)\.json$''', '''(^|/)evidence/p2/2026-10-24-selected-tau-protocol-failure-1854/cpu/simulator-(runtime|tokenizer)\.json$''', '''(^|/)evidence/p2/2026-10-24-selected-tau-tool-error-2009/cpu/simulator-(runtime|tokenizer)\.json$''']
 regexes = ['''^tokenizer_sha256":"554324f21418252a59edb045493a143a783b499d67b8680883e310e0f2ee77d9"$''']
 
 [[rules.allowlists]]
 description = "Exact Qwen 1.7B GGUF tokenizer recipe identity in its two compact originals"
 condition = "AND"
 regexTarget = "match"
-paths = ['''(^|/)evidence/p2/2026-10-22-(cpu-session-native-pass|tau-cpu-prompt-fit-pass)/pair/evaluator-(runtime|tokenizer)\.json$''', '''(^|/)evidence/p2/2026-10-24-selected-tau-protocol-failure-1854/cpu/evaluator-(runtime|tokenizer)\.json$''']
+paths = ['''(^|/)evidence/p2/2026-10-22-(cpu-session-native-pass|tau-cpu-prompt-fit-pass)/pair/evaluator-(runtime|tokenizer)\.json$''', '''(^|/)evidence/p2/2026-10-24-selected-tau-protocol-failure-1854/cpu/evaluator-(runtime|tokenizer)\.json$''', '''(^|/)evidence/p2/2026-10-24-selected-tau-tool-error-2009/cpu/evaluator-(runtime|tokenizer)\.json$''']
 regexes = ['''^tokenizer_sha256":"604363ffa22647728e0dd56e84926ad3ca1422999e356af99628fe2535b010a8"$''']
 
 [[rules.allowlists]]
@@ -133,8 +133,15 @@ paths = ['''(^|/)evidence/p2/2026-10-24-selected-tau-protocol-failure-1854/cpu/o
 regexes = ['''^\s*"simulator-tokenizer\.json": "ac949d6497e9084feaa0dc6b3ce4e3f6e98aafda700431ad6e12708917fb3f38"\s*$''', '''^\s*"evaluator-tokenizer\.json": "25c731a878fa4f13f4e158b58c1784d2da90ed8c9115b2f68365fd3901213bd4",\s*$''']
 
 [[rules.allowlists]]
-description = "Exact public parity source hash in compact selected 1854 scorer/controller originals"
+description = "Exact public parity source hash in compact selected scorer/controller originals"
 condition = "AND"
 regexTarget = "match"
-paths = ['''(^|/)evidence/p2/2026-10-24-selected-tau-protocol-failure-1854/(scorer|evidence)/output\.log$''']
+paths = ['''(^|/)evidence/p2/2026-10-24-selected-tau-protocol-failure-1854/(scorer|evidence)/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-tau-tool-error-2009/(scorer|evidence)/output\.log$''']
 regexes = ['''^engine_tokenizer_parity\.py":"6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f"$''']
+
+[[rules.allowlists]]
+description = "Exact original selected 2009 CPU tokenizer receipt byte hashes"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)evidence/p2/2026-10-24-selected-tau-tool-error-2009/cpu/output\.log$''']
+regexes = ['''^\s*"simulator-tokenizer\.json": "db0c5e83d5b746a7f5e6c5f33a0e3d9e1cbb47c46961d8ac0a4a9bcc41437229"\s*$''', '''^\s*"evaluator-tokenizer\.json": "07ed74d0563fd884342188b317a55e28bfa9a24563b3b705b16868dfd99e68e0",\s*$''']
