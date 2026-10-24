@@ -56,6 +56,21 @@ finish acknowledgements, actual usage, and independently confirmed owner and
 scorer container cleanup. The GPU lab's original outer `FAIL/BLOCKED` result
 is preserved: an operational trial is not full model qualification.
 
+A completed, acknowledged failed trial can independently confirm cleanup when
+the same original source/readiness/receipt joins and all owner cleanup checks
+hold. Its scorer, CPU runtime, owner statuses and exit codes must agree on
+failure; the GPU outer qualification remains `FAIL/BLOCKED`. The controller
+preserves that failure and the original report hashes, never a reward or pass.
+Contradictory outcomes, missing evidence, an unstopped engine or unconfirmed
+cleanup still reject the join. Cleanup before readiness is not inferred.
+
+For a successful final join, the envelope's driver and CUDA facts come from
+the original GPU observation, revalidated against the selected eight-B300
+nonconfidential profile and matched to the GPU evidence envelope. CUDA means
+the driver-supported API version, not a measured runtime version. These facts
+do not grant hardware qualification, attestation or confidential status. When
+the join cannot establish them, the failed envelope retains null versions.
+
 On abort, including a peer failure before either READY packet, the controller
 sends SIGTERM to its still-running GPU outer recorder. That recorder's existing
 cancellation handler unwinds startup into its owned-container cleanup and final

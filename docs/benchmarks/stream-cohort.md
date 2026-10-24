@@ -2,8 +2,9 @@
 
 Implementation: [stream_cohort.py](../../scripts/stream_cohort.py).
 Tests: [test_stream_cohort.py](../../scripts/test_stream_cohort.py).
-This is a controller component tested with synthetic tokenizers and local HTTP,
-not a live-model result or the complete P2 benchmark sweep.
+Component tests use synthetic tokenizers and local HTTP. The original live
+cohorts linked below are bounded measurements, not the complete P2 benchmark
+sweep.
 The separate, explicit [c8 burst profile](stream-c8.md) reuses this workload and
 transport without changing the default or extended c1 collector.
 
@@ -99,14 +100,31 @@ arithmetic, stop dispositions and summary recomputation from the bounded receipt
 
 The [first actual attempt](../../evidence/p2/2026-10-23-stream-preparation-failure/README.md)
 reached engine readiness but failed before parity/cohort completion, with
-confirmed cleanup. It is not a throughput result. The padding regression and
-early-preparation ordering are tested; a successful real rerun remains required.
+confirmed cleanup. It remains a failed preparation attempt, not a throughput
+result; later completed cohorts do not change that original outcome.
 The [second actual attempt](../../evidence/p2/2026-10-23-stream-window-exhaustion/README.md)
 passed all four parity cases and completed a warmup plus three measured
 responses, but exhausted its 180-second window during the fourth measured
 request. Four requests never started and one has unknown usage. It remains a
-failed, partial benchmark with confirmed cleanup. The named longer window is
-tested, not yet hardware-validated.
+failed, partial benchmark with confirmed cleanup.
+
+The [original 600-second run](../../evidence/p2/2026-10-23-stream-600s-complete/README.md)
+completed the named `chat-2k-512-c1-600s` profile on eight B300 GPUs in CC mode:
+one warmup and all eight measured requests at concurrency one, plus all four
+prerequisite parity cases. The measured requests produced 3,200 actual output
+tokens in 301.078 seconds, or 10.628 output tokens/second; cleanup was confirmed.
+This validates that bounded cohort, not an end-to-end confidential service.
+
+The later [selected-checkpoint graph run](../../evidence/p2/2026-10-24-selected-graphs-stream/README.md)
+on eight ordinary B300 GPUs with CC disabled also passed four parity cases and
+completed one warmup plus all eight measured requests at concurrency one. Its
+3,200 measured output tokens in 22.320929104 seconds yielded 143.36 output
+tokens/second, with median TTFT 98.61 ms; cleanup was confirmed. Warmup is
+excluded from both measured rates and the selected run's latency percentiles.
+These different checkpoint/runtime configurations are not a controlled speedup
+comparison. Both original outer FAIL/BLOCKED results and false deployment,
+confidentiality and hardware-qualification flags remain unchanged.
+
 The budget is the
 existing eight parity requests (four tokenize, four one-token completions), plus
 one warmup and eight measured stream requests. Stream reservation remains 23,040
@@ -115,8 +133,8 @@ No credentials, public endpoint, cloud resources or new launch profile are added
 
 ## Remaining Work
 
-Partial live observations and cleanup are preserved above. A complete live
-cohort and the full benchmark sweep remain pending; code tests do not prove them.
-The current 4,096-context profile does not
-support the planned 32K/128K workloads or concurrency-256 sweep; those require
-separately reviewed profiles and live tests.
+Complete bounded concurrency-one cohorts and earlier failures are preserved
+above. The full benchmark sweep, original-revision full tau/quality gate and
+end-to-end confidential-service qualification remain pending. These
+4,096-context cohorts do not establish the planned 32K/128K workloads or
+concurrency-256 sweep; those require separately reviewed profiles and live tests.

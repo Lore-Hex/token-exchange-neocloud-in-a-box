@@ -10,7 +10,7 @@ id = "generic-api-key"
 description = "Four original hashes of fixed synthetic token-ID sequences"
 condition = "AND"
 regexTarget = "line"
-paths = ['''(^|/)evidence/p2/2026-10-22-(tokenizer-parity-(tool-protocol-fail|fixed-pass|runtime-pass)|provider-conformance-pass)/output\.log$''', '''(^|/)evidence/p2/2026-10-23-stream-(window-exhaustion|600s-complete)/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-stream-timeout/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-provider-conformance/output\.log$''']
+paths = ['''(^|/)evidence/p2/2026-10-22-(tokenizer-parity-(tool-protocol-fail|fixed-pass|runtime-pass)|provider-conformance-pass)/output\.log$''', '''(^|/)evidence/p2/2026-10-23-stream-(window-exhaustion|600s-complete)/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-stream-timeout/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-provider-conformance/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-(tau8k-parity|graphs-stream)/output\.log$''']
 regexes = ['''^\s*"tokens_sha256": "(9d6bde6f28006680e5d37e06d816356d782004f1e8dbabf46d42e81b088afc16|c7b86dad075d1d51e4bf9aec664d9ce392e5d04a63babe717ab9354ec0b56032|6ddfa5e6dbf2f45b8efc1e2ebda65f1f79c39b1a4ec8a7fce8e77fc5a0add7d5|4e5eb88296779609b1ef81a335894e3ef5c284a94a8ceb1607421414c43c9cbe)"\s*$''']
 
 [[rules.allowlists]]
@@ -38,7 +38,7 @@ regexes = ['''^\s*"tokenizer-adapter\.py": "060220d1bc62f13278e5a03a3a85c39ef84f
 description = "Nine exact synthetic workload token-ID hashes in original stream receipts"
 condition = "AND"
 regexTarget = "line"
-paths = ['''(^|/)evidence/p2/2026-10-23-stream-(window-exhaustion|600s-complete)/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-stream-timeout/output\.log$''']
+paths = ['''(^|/)evidence/p2/2026-10-23-stream-(window-exhaustion|600s-complete)/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-stream-timeout/output\.log$''', '''(^|/)evidence/p2/2026-10-24-selected-graphs-stream/output\.log$''']
 regexes = ['''^\s*"token_ids_sha256": "(d061ea411012b683576ee86d57d07054066b842e936edb4e0ff7d89bd97c5470|4d7e4f06506e1e47b470b40a38ec147fef8016cae2675b4fc1d7ee5d941088c7|ff76892724504c2a7ee072064c89c029664b421b491f7232a3a1e264d9653a1d|4c53823667bac7092f3f1aacf02c6a0a5f8d11ba6b855af70267f484b8d7bc83|b750144a2ab856791ad30cd5f8490509ecbbebf7f06bfcd729873becd36248ef|66580e2260a1cb593df35123b62ccd5834a9ba0e2f7aac5901f0ad841b9f3d06|e1fdec586d6a4fcdb513c01c85c3ae9ca4f3841215515bfccfee06d00cab5a02|c2b7a5883e367117f9956115c67ce31de3c8ae610396b9e214ab72faeed28cf2|72cb95039dc41812098f6f9e6d40525acc5fa3c41ab9550fdb12f60ea2b0c713)"\s*$''']
 
 [[rules.allowlists]]
@@ -56,6 +56,20 @@ paths = ['''(^|/)evidence/p2/2026-10-24-selected-provider-conformance/input-cont
 regexes = ['''^\s*"tokenizer-adapter\.py": "060220d1bc62f13278e5a03a3a85c39ef84f528ada2a9e39ab0c62a4a7c09960",\s*$''', '''^\s*"tokenizer-parity\.py": "6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f"\s*$''']
 
 [[rules.allowlists]]
+description = "Two exact public source hashes in the original selected 8K contract"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)evidence/p2/2026-10-24-selected-tau8k-parity/input-contract\.json$''']
+regexes = ['''^\s*"tokenizer-adapter\.py": "060220d1bc62f13278e5a03a3a85c39ef84f528ada2a9e39ab0c62a4a7c09960",\s*$''', '''^\s*"tokenizer-parity\.py": "6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f",\s*$''']
+
+[[rules.allowlists]]
+description = "Three exact public source hashes in the original selected graph stream contract"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)evidence/p2/2026-10-24-selected-graphs-stream/input-contract\.json$''']
+regexes = ['''^\s*"tokenizer-adapter\.py": "060220d1bc62f13278e5a03a3a85c39ef84f528ada2a9e39ab0c62a4a7c09960",\s*$''', '''^\s*"tokenizer-parity\.py": "98872d2cb2e0b0874c79ef475c31db5a1d90b9024dc245f7cd0344b7173ed090",\s*$''', '''^\s*"stream/engine_tokenizer_parity\.py": "98872d2cb2e0b0874c79ef475c31db5a1d90b9024dc245f7cd0344b7173ed090",\s*$''']
+
+[[rules.allowlists]]
 description = "Exact public probe source hash in the original CPU receipts"
 condition = "AND"
 regexTarget = "line"
@@ -66,8 +80,15 @@ regexes = ['''^\s*"scripts/engine_tokenizer_parity\.py": "09d704cf6d87c23b4115d4
 description = "Four original Qwen CPU hashes of fixed synthetic token-ID sequences"
 condition = "AND"
 regexTarget = "line"
-paths = ['''(^|/)evidence/p2/2026-10-22-cpu-parity-native-pass/output\.log$''', '''(^|/)evidence/p2/2026-10-22-cpu-session-native-pass/pair/output\.log$''', '''(^|/)evidence/p2/2026-10-22-tau-cpu-prompt-fit-pass/pair/output\.log$''']
+paths = ['''(^|/)evidence/p2/2026-10-22-cpu-parity-native-pass/output\.log$''', '''(^|/)evidence/p2/2026-10-22-cpu-session-native-pass/pair/output\.log$''', '''(^|/)evidence/p2/2026-10-22-tau-cpu-prompt-fit-pass/pair/output\.log$''', '''(^|/)evidence/p2/2026-10-24-cpu-http-threads-pass/output\.log$''']
 regexes = ['''^\s*"tokens_sha256": "(1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe)"\s*$''']
+
+[[rules.allowlists]]
+description = "Exact public parity source hash in the original 1800 failure and CPU-only retry"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)evidence/p2/2026-10-24-selected-tau-readiness-failure-1800/cpu/output\.log$''', '''(^|/)evidence/p2/2026-10-24-cpu-http-threads-pass/output\.log$''']
+regexes = ['''^\s*"scripts/engine_tokenizer_parity\.py": "6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f",\s*$''']
 
 [[rules.allowlists]]
 description = "Exact original held-pair tokenizer receipt byte hashes"

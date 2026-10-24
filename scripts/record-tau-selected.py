@@ -40,7 +40,7 @@ process_tools = runner.load(cpu_rec.SNAPSHOT, cpu_rec.SNAPSHOT_SHA)
 
 def identity(deadline):
     value = runner.identity(deadline, parent_pipe=True, selected_operational=True)
-    names = tuple(dict.fromkeys((SCRIPT, "scripts/test_tau_selected_launch.py", gpu_rec.SCRIPT,
+    names = tuple(dict.fromkeys((SCRIPT, "scripts/test_tau_selected_launch.py", gpu_rec.SCRIPT, gpu_rec.PROBE,
         "scripts/prepare-tau-cpu-parity-native.py", *cpu_rec.SOURCES, *cpu_rec.OWNER_SOURCES)))
     for start in range(0, len(names), 4):
         more = tau.committed_identity(deadline, extra_files=names[start:start + 4])
@@ -222,18 +222,29 @@ def final_join(destination, ready, held, cpu_image, toolkit, gpu, contract, gpu_
     # The GPU supervisor already authenticated its contract and final schema;
     # rejoin exact original readiness and the scorer's finish acknowledgement.
     finish = scorer["diagnostic"]["owner_finish"]
+    require(type(finish) is dict and set(finish) == {"candidate", "support"})
     gpu.validate_join(ready["candidate"], finish["candidate"], experiment)
     require(runtime["owner"] == finish["support"])
-    # The GPU lab deliberately exits 1 even after functional success: its outer
-    # qualification remains BLOCKED. Do not rewrite that original contract.
-    require(exits == {"candidate": 1, "support": 0}
-            and c["result"] == cpu_docs["run.json"]["result"] == "pass"
+    # A failed trial can still prove cleanup. Join outcomes independently from
+    # cleanup, and never turn an acknowledged owner failure into a trial pass.
+    passed = scorer["result"] == "pass"
+    expected = "pass" if passed else "fail"
+    require(scorer["result"] in ("pass", "fail")
+            and exits == {"candidate": 1, "support": 0 if passed else 1}
+            and c["result"] == cpu_docs["run.json"]["result"] == expected
             and gpu_docs["run.json"]["result"] == "fail" and g["status"] == "BLOCKED"
             and g["deployable"] is False and g["confidential"] is False
-            and runtime["result"] == "pass" and g["functional_pass"] is True
-            and experiment["functional_pass"] is True and experiment["engine_stopped"] is True
-            and scorer["result"] == "pass" and scorer["cleanup"] == "confirmed")
-    return {"cpu": cpu_hashes, "gpu": gpu_hashes}
+            and runtime["result"] == expected and g["functional_pass"] is passed
+            and experiment["functional_pass"] is passed and experiment["engine_stopped"] is True
+            and scorer["cleanup"] == "confirmed"
+            and all((row["status"] == "evaluated") is passed for row in finish.values()))
+    probe = gpu_rec.load("selected_final_hardware", ROOT / gpu_rec.PROBE, toolkit["files"][gpu_rec.PROBE])
+    hardware = probe.validate_nonconfidential_report(experiment["hardware"], family="B300", expected=8)
+    facts = {"gpus": "eight-selected-B300", "driver": hardware["driver"], "cuda": hardware["cuda_driver"]}
+    envelope = gpu_docs["run.json"]
+    require(envelope["execution"] == "hardware" and envelope["hardware_validated"] is False
+            and all(envelope["host"][key] == value for key, value in facts.items()))
+    return {"owner_reports": {"cpu": cpu_hashes, "gpu": gpu_hashes}, "result": expected, "host": facts}
 
 
 def run(args):
@@ -267,6 +278,8 @@ def run(args):
         "ready_sha256": {}, "owner_exits": {}, "owner_reports": None, "scorer": None,
         "cleanup": "unconfirmed", "quality_eligible": False, "confidential": False, "live_admission": False}
     processes, ready, held, cpu_image = {}, None, None, None
+    host = {"provider": "local", "machine": "approved-selected-operational-lab",
+            "gpus": "eight-selected-B300", "driver": None, "cuda": None}
     def cancelled(*_):
         raise KeyboardInterrupt
     old = {number: signal.signal(number, cancelled) for number in (signal.SIGINT, signal.SIGTERM)}
@@ -302,11 +315,15 @@ def run(args):
         try:
             report["owner_exits"] = close_and_reap(processes, end, abort="failure" in report)
             if ready and held and report["scorer"] is not None:
-                report["owner_reports"] = final_join(args.output, ready, held, cpu_image, toolkit, gpu, contract,
+                joined = final_join(args.output, ready, held, cpu_image, toolkit, gpu, contract,
                     args.gpu_receipt_sha256, report["scorer"], report["owner_exits"], time.monotonic() + 30)
+                report["owner_reports"] = joined["owner_reports"]
+                host.update(joined["host"])
                 report["cleanup"] = "confirmed"
-                if "failure" not in report:
+                if "failure" not in report and joined["result"] == "pass":
                     report.update(result="pass", stage="completed")
+                elif joined["result"] == "fail":
+                    report["failure"] = "selected-operational-run-failed"
         except BaseException:
             report["failure"] = "selected-operational-run-failed"
         finally:
@@ -317,11 +334,12 @@ def run(args):
             "command": "python3 -I -S -B scripts/record-tau-selected.py --gpu-bundle PRIVATE --gpu-receipt-sha256 DIGEST --weights PRIVATE --cpu-inputs PRIVATE --source-archive PRIVATE --wheelhouse PRIVATE --output PRIVATE --deadline UTC",
             "started_utc": report["started_utc"], "ended_utc": report["ended_utc"], "result": report["result"],
             "execution": "hardware", "hardware_validated": False,
-            "host": {"provider": "local", "machine": "approved-selected-operational-lab", "gpus": "eight-selected-B300",
-                     "driver": None, "cuda": None},
+            "host": host,
             "notes": "One fixed operational task, selected checkpoint with small CPU support models. "
                      "GPU lab qualification remains FAIL/BLOCKED even when this operational trial passes. "
-                     "Not a full tau benchmark or comparable quality score. No pricing, production admission or confidentiality claim."}
+                     "Not a full tau benchmark or comparable quality score. No pricing, production admission or confidentiality claim. "
+                     "Driver and CUDA facts, when present, are joined from the original GPU owner report; "
+                     "CUDA is the driver-supported API version, not a runtime measurement."}
         runner.publish_evidence(args.output / "evidence", {"run.json": tau.encoded(envelope), "output.log": tau.encoded(report)})
     return 0 if report["result"] == "pass" else 1
 
