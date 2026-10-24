@@ -44,7 +44,7 @@ def enabled(contract):
             and (contract.get("gpu_security", "confidential") == "confidential" or
                  (contract.get("gpu_security") == "nonconfidential" and contract.get("gpu_family") == "B300"
                   and contract.get("data_parallel_size") == 2 and type(contract.get("model_profile")) is dict
-                  and contract["model_profile"].get("name") == "uncensored" and "execution_profile" not in contract))
+                  and contract["model_profile"].get("name") == "uncensored"))
             and type(contract.get("data_parallel_size", 1)) is int and contract.get("data_parallel_size", 1) in (1, 2)
             and contract.get("tokenizer_parity") is True and "tokenizer_materialization" in contract
             and contract.get("runtime_observation") is True and "provider_conformance" not in contract)

@@ -101,5 +101,6 @@ from measurements. Report actual usage-based aggregate output tok/s, per-GPU
 tok/s, TTFT and inter-token latency, errors, cache reads and memory. Never
 count speculative draft tokens as customer output. Report cold and warm
 prefix-cache runs separately. No such concurrent benchmark or GPU result is
-claimed by this change; the existing confidential-only stream cohort is
-deliberately not enabled for ordinary nodes.
+claimed by this change. The later [measurement integration](p2-t4-tuning-measurements.md)
+allows the same fixed concurrency-one stream cohort on these ordinary profiles;
+it is not the concurrent benchmark or evidence of faster serving.

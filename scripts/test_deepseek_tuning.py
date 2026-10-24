@@ -4,6 +4,7 @@
 import ast
 import copy
 import hashlib
+import itertools
 import json
 import sys
 import types
@@ -28,8 +29,8 @@ class TuningProfiles(unittest.TestCase):
         cls.plan = fixtures.PayloadProfiles.fixture.builder.recorder.prep.launch_plan()
         cls.baseline_files, cls.baseline = host.make_payload(*cls.args, model_profile="uncensored")
 
-    def payload(self, name):
-        return host.make_payload(*self.args, model_profile="uncensored", execution_profile=name)
+    def payload(self, name, **options):
+        return host.make_payload(*self.args, model_profile="uncensored", execution_profile=name, **options)
 
     def validate(self, files, contract):
         with mock.patch.object(lab, "read_source", side_effect=lambda path, *_: files[path.removeprefix("/opt/nib/")]):
@@ -99,6 +100,63 @@ class TuningProfiles(unittest.TestCase):
                                        "enable_adaptive_verification": True})
                 self.assertNotIn("model", spec)
         self.assertEqual(original, self.baseline["arguments"])
+
+    def test_tuned_measurements_use_identical_workload_and_guards(self):
+        options = fixtures.PayloadProfiles.options
+        for profile in (None, fixtures.stream_lab.EXTENDED_PROFILE):
+            baseline_files, baseline = self.payload(None, **options, stream_profile=profile)
+            for name in tuning.NAMES:
+                files, contract = self.payload(name, **options, stream_profile=profile)
+                with self.subTest(name=name, profile=profile):
+                    self.assertEqual(self.validate(files, contract), fixtures.NEW)
+                    self.assertEqual(tuning.enabled(contract), name)
+                    for check in (fixtures.parity.enabled, fixtures.observation.enabled, fixtures.stream_lab.enabled):
+                        check(contract)
+                    fixtures.stream_lab.load(files, contract["sources"])
+                    for key in options.keys() | {"stream_cohort", "base_image", "pack_revision", "pack_bytes",
+                                                 "environment", "interpreter", "manifest_sha256"}:
+                        self.assertEqual(contract[key], baseline[key])
+                    for path in baseline_files.keys() - {"lab.json", "python"}:
+                        self.assertEqual(files[path], baseline_files[path])
+                    self.assertFalse(contract["confidential"])
+                    self.assertFalse(contract["deployable"])
+                    with fixtures.payload_tree(files) as root:
+                        command = host.create_command("owned", "owner", root, "/weights", contract,
+                                                      {"config": {"Env": []}})
+                        self.assertEqual(command[command.index("--network") + 1], "none")
+                        self.assertEqual(command[command.index("--memory") + 1], "512g")
+                        self.assertEqual(command[command.index("--memory-swap") + 1], "512g")
+                    for key in options:
+                        bad = copy.deepcopy(contract)
+                        del bad[key]
+                        with self.assertRaises(ValueError): self.validate(files, bad)
+                        bad = {**contract, key: False}
+                        with self.assertRaises(ValueError): self.validate(files, bad)
+                    for key, value in (("provider_conformance", {}), ("execution_profile", "unknown"),
+                                       ("gpu_security", "confidential"), ("data_parallel_size", 1)):
+                        with self.assertRaises(ValueError): self.validate(files, {**contract, key: value})
+                    with self.assertRaises(ValueError):
+                        self.validate({**files, "tuning.py": files["tuning.py"] + b"\n"}, contract)
+
+    def test_tuning_cli_admits_only_complete_measurement_selection(self):
+        names = tuple(fixtures.PayloadProfiles.options)
+        command = [host.SCRIPT, "--prepare-nonconfidential-uncensored-b300-dp2", "/unused",
+                   "--model-profile", "uncensored", "--execution-profile", "batch8-dspark"]
+        for choices in itertools.product((False, True), repeat=len(names)):
+            flags = ["--" + name.replace("_", "-") for name, chosen in zip(names, choices) if chosen]
+            with self.subTest(choices=choices), mock.patch.object(sys, "argv", command + flags), \
+                    mock.patch.object(host, "prepare") as prepare:
+                if all(choices) or not any(choices):
+                    self.assertEqual(host.main(), 0)
+                    prepare.assert_called_once_with("/unused", "local-correctness", "B300", "nonconfidential", 2,
+                        model_profile="uncensored", execution_profile="batch8-dspark",
+                        **{name: True for name, chosen in zip(names, choices) if chosen})
+                else:
+                    with self.assertRaises(ValueError): host.main()
+                    prepare.assert_not_called()
+        for value in (None, 1, "true"):
+            with self.assertRaises(ValueError):
+                host.tuning_measurement_options(value, True, True, True, None, None)
 
     def test_graph_dispatch_covers_target_and_drafter_through_eight_requests(self):
         def manager(sizes, query_len, varlen):

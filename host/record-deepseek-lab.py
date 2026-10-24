@@ -120,6 +120,12 @@ def model_target(family, security, replicas, model_profile):
             or ordinary_uncensored_target(family, security, replicas, model_profile))
 
 
+def tuning_measurement_options(parity, materialization, observation, cohort, profile, provider):
+    options = (parity, materialization, observation, cohort)
+    require(provider is None and all(type(value) is bool for value in options)
+            and (all(options) or not any(options) and profile is None))
+
+
 def parallel_size(contract):
     size = contract.get("data_parallel_size", 1)
     require(type(size) is int and size in (1, 2))
@@ -295,8 +301,9 @@ def prepare(destination, operation="functional", family="B200", security="confid
             extra[name] = committed(builder, revision, name)
     if execution_profile is not None:
         require(operation == "local-correctness" and ordinary_uncensored_target(family, security, replicas, model_profile)
-                and not any((tokenizer_parity, tokenizer_materialization, runtime_observation,
-                             provider_wheelhouse, stream_cohort, stream_profile)))
+                and provider_wheelhouse is None)
+        tuning_measurement_options(tokenizer_parity, tokenizer_materialization, runtime_observation,
+                                   stream_cohort, stream_profile, provider_wheelhouse)
         for name in (TUNING, "scripts/test_deepseek_tuning.py"):
             extra[name] = committed(builder, revision, name)
         load("lab_tuning_selection", ROOT / TUNING, digest(extra[TUNING])).select(execution_profile)
@@ -996,9 +1003,9 @@ def main():
             optional = {}
             if args.execution_profile is not None:
                 require(option == "prepare-nonconfidential-uncensored-b300-dp2"
-                        and args.model_profile == "uncensored"
-                        and not any((args.tokenizer_parity, args.tokenizer_materialization, args.runtime_observation,
-                                     args.stream_cohort, args.stream_profile, args.provider_conformance_wheels)))
+                        and args.model_profile == "uncensored")
+                tuning_measurement_options(args.tokenizer_parity, args.tokenizer_materialization,
+                    args.runtime_observation, args.stream_cohort, args.stream_profile, args.provider_conformance_wheels)
                 optional["execution_profile"] = args.execution_profile
             if args.model_profile == "uncensored":
                 require(profile[0] == "local-correctness" and len(profile) == 4 and profile[3] == 2

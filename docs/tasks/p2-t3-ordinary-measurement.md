@@ -26,8 +26,9 @@ at revision `c19ca5ca4eaeb79d29fdf08aea8327da95b1116a`. The ordinary profile
 must be explicitly selected during preparation; no runtime switch or automatic
 confidential-to-ordinary fallback exists. The default correctness preparation
 is unchanged. Original checkpoints, B200 ordinary profiles, single replicas,
-unknown security modes, provider-check integration and execution-tuning
-combinations are not admitted by this change.
+unknown security modes and provider-check integration are not admitted.
+The separate [tuning integration](p2-t4-tuning-measurements.md) admits only the
+complete measurement option set with the fixed ordinary execution profiles.
 
 Run the prepared bundle with the existing [bounded host recorder](p2-t3-deepseek-lab.md).
 Use an independently retained builder-receipt digest, fully verified weights,

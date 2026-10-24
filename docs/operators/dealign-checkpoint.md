@@ -91,7 +91,9 @@ tokenizer parity and owned-process observation without claiming confidentiality.
 The separate
 [batching, CUDA-graph and DSpark profiles](../tasks/p2-t3-deepseek-tuning.md)
 keep this exact checkpoint. They are not measured performance improvements
-and cannot be selected for the confidential profile above.
+and cannot be selected for the confidential profile above. The
+[comparison procedure](../tasks/p2-t4-tuning-measurements.md) uses the complete
+fixed measurement cohort without changing its workload between profiles.
 
 ### Host Memory Ceiling
 

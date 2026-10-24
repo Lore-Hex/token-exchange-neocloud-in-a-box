@@ -709,8 +709,7 @@ class OrdinaryUncensored(unittest.TestCase):
             for change in ({"gpu_family": "B200"}, {"gpu_family": "H200"}, {"gpu_security": "auto"},
                            {"model_profile": None}, {"model_profile": profiles.select()},
                            {"data_parallel_size": 1}, {"data_parallel_size": True}, {"data_parallel_size": 2.0},
-                           {"operation": "functional"}, {"provider_conformance": {}},
-                           {"execution_profile": "batch8-eager"}):
+                           {"operation": "functional"}, {"provider_conformance": {}}):
                 with self.subTest(check=check.__module__, change=change), self.assertRaises(ValueError):
                     check({**contract, **change})
         sample = observation_fixtures.sample()
