@@ -2,7 +2,7 @@
 """GPU-free opt-in payload and actual private-pipe supervisor regressions."""
 
 import copy
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import hashlib
 import os
 import signal
@@ -138,24 +138,26 @@ class GPULabTests(unittest.TestCase):
             engine.poll.return_value, engine.wait.return_value = None, 0
             def observe(_engine, _contract, row, _started):
                 row["samples"].append(fixtures.runtime.sample())
-            with self.subTest(status=status), mock.patch.object(lab, "TAU_OWNER", gpu), \
-                    mock.patch.object(lab, "RUNTIME_OBSERVER", gpu.observer), \
-                    mock.patch.object(lab, "GPU_PROBE", tuning.fixtures.fixtures.probe), \
-                    mock.patch.object(lab, "CORRECTNESS", gpu.correctness), \
-                    mock.patch.object(lab, "PARITY", parity), \
-                    mock.patch.object(lab, "hashlib", hashlib, create=True), \
-                    mock.patch.object(lab, "tokenizer_adapter_options", return_value={}, create=True), \
-                    mock.patch.object(lab, "model_identity", return_value=None), \
-                    mock.patch.object(lab, "tuning_module", return_value=None), \
-                    mock.patch.object(lab, "prepare_local_tokenizer", return_value=({}, None)), \
-                    mock.patch.object(lab, "check_scratch_mounts"), \
-                    mock.patch.object(lab, "read_source", return_value=b"contract"), \
-                    mock.patch.object(lab, "hardware", return_value={"fixed": True}), \
-                    mock.patch.object(lab, "quiet_command"), mock.patch.object(lab, "observe_startup"), \
-                    mock.patch.object(lab, "observe_runtime", side_effect=observe), \
-                    mock.patch.object(lab.subprocess, "Popen", return_value=engine), \
-                    mock.patch.object(lab.os, "killpg") as kill, \
-                    mock.patch.object(gpu, "serve", side_effect=gpu.worker.Abort(status)) as serve:
+            with self.subTest(status=status), ExitStack() as stack:
+                stack.enter_context(mock.patch.object(lab, "TAU_OWNER", gpu))
+                stack.enter_context(mock.patch.object(lab, "RUNTIME_OBSERVER", gpu.observer))
+                stack.enter_context(mock.patch.object(lab, "GPU_PROBE", tuning.fixtures.fixtures.probe))
+                stack.enter_context(mock.patch.object(lab, "CORRECTNESS", gpu.correctness))
+                stack.enter_context(mock.patch.object(lab, "PARITY", parity))
+                stack.enter_context(mock.patch.object(lab, "hashlib", hashlib, create=True))
+                stack.enter_context(mock.patch.object(lab, "tokenizer_adapter_options", return_value={}, create=True))
+                stack.enter_context(mock.patch.object(lab, "model_identity", return_value=None))
+                stack.enter_context(mock.patch.object(lab, "tuning_module", return_value=None))
+                stack.enter_context(mock.patch.object(lab, "prepare_local_tokenizer", return_value=({}, None)))
+                stack.enter_context(mock.patch.object(lab, "check_scratch_mounts"))
+                stack.enter_context(mock.patch.object(lab, "read_source", return_value=b"contract"))
+                stack.enter_context(mock.patch.object(lab, "hardware", return_value={"fixed": True}))
+                stack.enter_context(mock.patch.object(lab, "quiet_command"))
+                stack.enter_context(mock.patch.object(lab, "observe_startup"))
+                stack.enter_context(mock.patch.object(lab, "observe_runtime", side_effect=observe))
+                stack.enter_context(mock.patch.object(lab.subprocess, "Popen", return_value=engine))
+                kill = stack.enter_context(mock.patch.object(lab.os, "killpg"))
+                serve = stack.enter_context(mock.patch.object(gpu, "serve", side_effect=gpu.worker.Abort(status)))
                 row = lab.application_and_request(contract, {}, [None, None, None, app], {"files": []}, {})
             serve.assert_called_once()
             self.assertFalse(row["functional_pass"])
