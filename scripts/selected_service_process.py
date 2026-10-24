@@ -73,6 +73,9 @@ def source_files(root, deadline):
                     if entry.name.endswith(".py"):
                         names.add(name)
                         require(len(names) <= 2045, "contract")
+    if (root / "checker").exists():
+        import selected_service_conformance as conformance
+        names.update("checker/" + name for name in conformance.payload_files(root / "checker", deadline))
     return names | {"scripts/e2e/pins.json", "bin/nib-pilot-api", "bin/trcs"}
 
 
@@ -443,7 +446,9 @@ def main(argv=None):
     parser.add_argument("--input-price", required=True)
     parser.add_argument("--output-price", required=True)
     parser.add_argument("--hard-stop-at", required=True)
-    parser.add_argument("--inference-smoke", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--inference-smoke", action="store_true")
+    mode.add_argument("--conformance-smoke", action="store_true")
     args = parser.parse_args(argv)
     shutdown = threading.Event()
     handlers = {number: signal.signal(number, lambda *_: shutdown.set())
@@ -454,18 +459,21 @@ def main(argv=None):
                                           output_price=args.output_price)
         stage = "prepared"
         prepared = Prepared(args.prepared_sha256, contract.startup_deadline)
+        if args.conformance_smoke:
+            require("checker/trial.json" in prepared.files, "contract")
         stage = "inputs"
         with service.snapshot_inputs(provider=args.provider_config, cert=args.cert, key=args.key,
                                      api_key=args.api_key_file) as inputs:
             stage = "owner"
             owner = ProcessOwner(prepared, inputs, args.hostname, shutdown)
-            result = service.Supervisor(contract, inputs, owner, shutdown).run(inference_smoke=args.inference_smoke)
-        if args.inference_smoke and shutdown.is_set() and result["status"] != "failed":
+            result = service.Supervisor(contract, inputs, owner, shutdown).run(
+                inference_smoke=args.inference_smoke, conformance_smoke=args.conformance_smoke)
+        if (args.inference_smoke or args.conformance_smoke) and shutdown.is_set() and result["status"] != "failed":
             result.update(status="failed", reason="cancelled")
         print(json.dumps(result, sort_keys=True))
         return 0 if result["status"] in ("retired", "cancelled") else 1
     except BaseException as error:
-        if not args.inference_smoke:
+        if not (args.inference_smoke or args.conformance_smoke):
             print('{"schema":"nib.selected-service-lifecycle/v1","status":"failed","reason":"preparation",'
                   '"deployable":false,"hardware_validated":false}')
             return 1
@@ -478,6 +486,8 @@ def main(argv=None):
                       "deployable": False, "hardware_validated": False,
                       "mode": service.INFERENCE_MODE, "inference": None,
                       "preparation_stage": stage, "preparation_category": category}
+            if args.conformance_smoke:
+                result.update(schema=service.CONFORMANCE_SCHEMA, mode=service.CONFORMANCE_MODE, conformance=None)
         print(json.dumps(result, sort_keys=True))
         return 1
     finally:

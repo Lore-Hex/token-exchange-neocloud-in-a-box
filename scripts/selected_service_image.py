@@ -147,7 +147,7 @@ def seal(prepared_sha):
         path.chmod(0o555)
 
 
-def prepare(bundle, receipt_sha, trcs, output):
+def prepare(bundle, receipt_sha, trcs, output, *, checker_wheelhouse=None):
     lab = host_recorder()
     receipt, contract, _, recorder = lab.bundle_inputs(bundle, receipt_sha)
     revision, files = committed_sources(recorder)
@@ -165,6 +165,11 @@ def prepare(bundle, receipt_sha, trcs, output):
         guard, guard_source_sha = build_guard(recorder, files, work, env)
         service_files = {name: raw for name, raw in files.items() if name.startswith("scripts/")}
         service_files.update({"bin/nib-pilot-api": guard, "bin/trcs": tls})
+        if checker_wheelhouse is not None:
+            import provider_conformance
+            checker = provider_conformance.prepare(Path(checker_wheelhouse), time.monotonic() + 60,
+                                                    model_profile="uncensored")
+            service_files.update({"checker/" + name: raw for name, raw in checker.items()})
         source = work / "service"
         recorder.prep.publish(source, service_files)
         prepared = encoded(owner.preparation_receipt(source, digest(derived["lab.json"])))
@@ -337,6 +342,7 @@ def main():
     preparation = modes.add_parser("prepare", allow_abbrev=False)
     for name in ("lab-bundle", "lab-receipt-sha256", "trcs", "output"):
         preparation.add_argument("--" + name, required=True)
+    preparation.add_argument("--checker-wheelhouse")
     sealing = modes.add_parser("seal", allow_abbrev=False)
     sealing.add_argument("--prepared-sha256", required=True)
     building = modes.add_parser("build", allow_abbrev=False)
@@ -351,7 +357,8 @@ def main():
         if report["result"] != "pass":
             raise SystemExit(1)
     else:
-        print(encoded(prepare(args.lab_bundle, args.lab_receipt_sha256, args.trcs, args.output)).decode())
+        print(encoded(prepare(args.lab_bundle, args.lab_receipt_sha256, args.trcs, args.output,
+                             checker_wheelhouse=args.checker_wheelhouse)).decode())
 
 
 if __name__ == "__main__":
