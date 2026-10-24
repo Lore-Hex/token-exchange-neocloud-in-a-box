@@ -148,8 +148,7 @@ def validate_model_profile(contract, path):
             and model_target(contract.get("gpu_family"), contract.get("gpu_security", "confidential"),
                                    2, identity["name"]))
     if contract.get("gpu_security") == "nonconfidential":
-        require(not any(key in contract for key in ("tokenizer_parity", "tokenizer_materialization",
-                    "runtime_observation", "stream_cohort", "provider_conformance")))
+        require("provider_conformance" not in contract)
     module.validate_manifest("uncensored", read(Path(path) / "payload/pack/files.sha256"))
     arguments = contract["arguments"]
     require(arguments.count("--served-model-name") == 1
@@ -177,10 +176,10 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
     parallel_size({"operation": operation, "gpu_family": family, "gpu_security": security,
                    "data_parallel_size": replicas, **({"model_profile": identity} if identity else {})})
     require(type(tokenizer_parity) is bool and (not tokenizer_parity or
-            (operation == "local-correctness" and correctness_target(family, security, replicas, model_profile))))
+            (operation == "local-correctness" and model_target(family, security, replicas, model_profile))))
     require(type(tokenizer_materialization) is bool and (not tokenizer_materialization or tokenizer_parity))
     require(type(runtime_observation) is bool and (not runtime_observation or
-            (operation == "local-correctness" and correctness_target(family, security, replicas, model_profile))))
+            (operation == "local-correctness" and model_target(family, security, replicas, model_profile))))
     require(type(stream_cohort) is bool and (not stream_cohort or
             runtime_observation and tokenizer_parity and tokenizer_materialization and provider_conformance is None))
     require(stream_profile is None or stream_cohort and type(stream_profile) is str)
@@ -962,11 +961,11 @@ def main():
         action.add_argument("--" + option)
     action.add_argument("--run", metavar="PRIVATE_BUNDLE")
     parser.add_argument("--tokenizer-parity", action="store_true",
-                        help="Prepare the fixed CC tokenizer prerequisite instead of correctness cases.")
+                        help="Prepare the fixed tokenizer prerequisite instead of correctness cases.")
     parser.add_argument("--tokenizer-materialization", action="store_true",
                         help="Prepare the pinned server validator adapter; requires --tokenizer-parity.")
     parser.add_argument("--runtime-observation", action="store_true",
-                        help="Observe the owned CC API process and cgroup counters; not tau admission.")
+                        help="Observe the owned API process and cgroup counters; not tau admission.")
     parser.add_argument("--provider-conformance-wheels", metavar="PRIVATE_LOCKED_WHEELHOUSE",
                         help="Prepare the opt-in owned CPU checker; requires DP2, parity, materialization and observation.")
     parser.add_argument("--stream-cohort", action="store_true",
@@ -992,8 +991,8 @@ def main():
             require(not any((args.receipt_sha256, args.weights, args.output, args.deadline)))
             require(option != "prepare-local-correctness-b200-dp2" or args.model_profile == "uncensored")
             require(option != "prepare-nonconfidential-uncensored-b300-dp2" or args.model_profile == "uncensored")
-            target = correctness_target(profile[1], profile[2], profile[3] if len(profile) == 4 else 1,
-                                        args.model_profile)
+            target = model_target(profile[1], profile[2], profile[3] if len(profile) == 4 else 1,
+                                  args.model_profile)
             optional = {}
             if args.execution_profile is not None:
                 require(option == "prepare-nonconfidential-uncensored-b300-dp2"
