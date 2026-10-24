@@ -1,0 +1,442 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Closed selected-service owner inside a prepared, private PID-1 container."""
+
+import sys
+from pathlib import Path
+
+if __name__ == "__main__":
+    if not (sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode):
+        sys.exit("Use python3 -I -S -B selected_service_process.py")
+    sys.path.insert(0, str(Path(__file__).absolute().parent))
+
+import argparse
+from contextlib import ExitStack
+import hashlib
+import http.client
+import json
+import os
+import re
+import signal
+import socket
+import stat
+import subprocess
+import threading
+import time
+
+import engine_python_bootstrap as bootstrap
+import selected_service as service
+import selected_service_engine as engine_entry
+
+ROOT, PAYLOAD = Path("/opt/nib-service"), Path("/opt/nib")
+TLS_PORT = 8443
+snapshot = service.pilot.pilot.source_module("snapshot")
+require = service.require
+
+
+def digest(raw):
+    return hashlib.sha256(raw).hexdigest()
+
+
+def stamp(path):
+    value = path.stat()
+    return (value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_size,
+            value.st_mtime_ns, value.st_ctime_ns)
+
+
+def source_files(root, deadline):
+    # The prepared image carries the complete Python source tree, not a guessed
+    # subset of the pilot/tau modules' transitive imports. No modules are loaded
+    # from this inventory; it only authenticates the reviewed image's files.
+    pending, names, visited = [(root / "scripts", 0)], set(), 0
+    while pending:
+        path, depth = pending.pop()
+        require(depth <= 16 and time.monotonic() < deadline, "contract")
+        with os.scandir(path) as entries:
+            for entry in entries:
+                visited += 1
+                require(visited <= 16384 and time.monotonic() < deadline, "contract")
+                require(not entry.is_symlink(), "identity")
+                if entry.is_dir(follow_symlinks=False):
+                    pending.append((Path(entry.path), depth + 1))
+                else:
+                    require(entry.is_file(follow_symlinks=False), "identity")
+                    name = Path(entry.path).relative_to(root).as_posix()
+                    require(entry.name.endswith(".py") or name == "scripts/e2e/pins.json", "identity")
+                    if entry.name.endswith(".py"):
+                        names.add(name)
+                        require(len(names) <= 2045, "contract")
+    return names | {"scripts/e2e/pins.json", "bin/nib-pilot-api", "bin/trcs"}
+
+
+def preparation_receipt(root, lab_sha256):
+    """Offline packaging helper, NOT proof of model preparation or deployment."""
+    names = source_files(root, time.monotonic() + service.observer.SECONDS)
+    require(0 < len(names) <= 2048, "contract")
+    return {"schema": "nib.selected-service-prepared/v1", "lab_sha256": lab_sha256,
+            "files": {name: digest(bootstrap.read_source(str(root / name), 128 << 20))
+                      for name in sorted(names)}}
+
+
+def launcher_source(root, *, selected):
+    prefix = b'import sys\nif not (sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode):\n    sys.exit("Isolated lab required.")\n'
+    sources = [bootstrap.read_source(str(root / "scripts" / name)) for name in
+               ("engine_python_bootstrap.py", "engine_exception.py", "engine_lab_bootstrap.py", "engine_lab.py")]
+    base = prefix + b"\n".join(sources)
+    return engine_entry.compose_launcher(base,
+        bootstrap.read_source(str(root / "scripts/selected_service_engine.py"))) if selected else base
+
+
+def prepare_payload(payload):
+    """Derive a NEW service payload from an already validated non-owner lab.
+
+    The builder must first use the existing recorder's exact bundle validator,
+    apply/verify the reviewed application offline, and preserve the original
+    receipt. This transformation neither applies that overlay nor runs a model.
+    """
+    source_root = Path(__file__).absolute().parents[1]
+    require(payload["launch.py"] == launcher_source(source_root, selected=False), "identity")
+    contract = service.correctness.strict_json(payload["lab.json"])
+    engine_entry.canonical_arguments(contract)
+    service.models.validate_contract(contract)
+    require(contract["model_profile"] == service.models.select("uncensored")
+            and set(payload) == set(contract["sources"]) | {"lab.json", "python"}
+            and all(digest(payload[name]) == sha for name, sha in contract["sources"].items()), "identity")
+    service.models.validate_manifest("uncensored", payload["pack/files.sha256"])
+    require(payload["python"] == service.engine_lab.wrapper_bytes(contract["interpreter"]["resolved"],
+        contract["environment"], digest(payload["lab.json"])), "identity")
+    result = dict(payload)
+    result["launch.py"] = launcher_source(source_root, selected=True)
+    contract["sources"]["launch.py"] = digest(result["launch.py"])
+    result["lab.json"] = json.dumps(contract, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    result["python"] = service.engine_lab.wrapper_bytes(contract["interpreter"]["resolved"],
+        contract["environment"], digest(result["lab.json"]))
+    return result
+
+
+class Prepared:
+    def __init__(self, expected, deadline):
+        require(sys.version_info[:3] == (3, 12, 3), "contract")
+        require(type(expected) is str and re.fullmatch("[0-9a-f]{64}", expected), "contract")
+        raw = bootstrap.read_source(str(ROOT / "prepared.json"))
+        require(digest(raw) == expected, "contract")
+        row = service.correctness.strict_json(raw)
+        require(type(row) is dict and set(row) == {"schema", "lab_sha256", "files"}
+                and row["schema"] == "nib.selected-service-prepared/v1"
+                and type(row["files"]) is dict and 0 < len(row["files"]) <= 2048
+                and set(row["files"]) == source_files(ROOT, deadline), "contract")
+        self.stamps = {}
+        total = 0
+        for name, expected_sha in row["files"].items():
+            path = ROOT / name
+            raw = bootstrap.read_source(str(path), 128 << 20)
+            total += len(raw)
+            require(digest(raw) == expected_sha and total <= 256 << 20
+                    and time.monotonic() < deadline, "identity")
+            self.stamps[path] = stamp(path)
+        self.stamps[ROOT / "prepared.json"] = stamp(ROOT / "prepared.json")
+        self.files = row["files"]
+        pins = service.correctness.strict_json(bootstrap.read_source(str(ROOT / "scripts/e2e/pins.json")))
+        require(self.files["bin/trcs"] == pins["trcs"]["binary_sha256"], "identity")
+        raw = bootstrap.read_source(str(PAYLOAD / "lab.json"))
+        require(digest(raw) == row["lab_sha256"], "identity")
+        self.lab_sha, self.lab = row["lab_sha256"], service.correctness.strict_json(raw)
+        engine_entry.canonical_arguments(self.lab)
+        service.models.validate_contract(self.lab)
+        require(self.lab["model_profile"] == service.models.select("uncensored")
+                and self.lab["manifest_sha256"] == service.models.select("uncensored")["manifest_sha256"]
+                and digest(bootstrap.read_source(str(PAYLOAD / "pack/files.sha256"))) ==
+                self.lab["manifest_sha256"], "model")
+        require(type(self.lab["sources"]) is dict and len(self.lab["sources"]) <= 110, "contract")
+        for name, sha in self.lab["sources"].items():
+            require(type(name) is str and re.fullmatch(r"[A-Za-z0-9_./-]+", name)
+                    and all(part not in ("", ".", "..") for part in name.split("/")), "contract")
+            path = PAYLOAD / name
+            raw = bootstrap.read_source(str(path), 64 << 20 if name == "nib" else 2 << 20)
+            total += len(raw)
+            require(digest(raw) == sha and total <= 384 << 20
+                    and time.monotonic() < deadline, "identity")
+            self.stamps[path] = stamp(path)
+        self.stamps[PAYLOAD / "lab.json"] = stamp(PAYLOAD / "lab.json")
+        launcher = launcher_source(ROOT, selected=True)
+        require(bootstrap.read_source(str(PAYLOAD / "launch.py")) == launcher, "identity")
+        interpreter = self.lab["interpreter"]
+        self.interpreter = interpreter["resolved"]
+        require(str(Path(sys.executable).resolve()) == self.interpreter, "identity")
+        raw = bootstrap.read_source(self.interpreter, 16 << 20)
+        require(digest(raw) == interpreter["sha256"] and len(raw) == interpreter["bytes"], "identity")
+        wrapper = service.engine_lab.wrapper_bytes(self.interpreter, self.lab["environment"], self.lab_sha)
+        require(bootstrap.read_source(str(PAYLOAD / "python")) == wrapper, "identity")
+        self.stamps[PAYLOAD / "python"] = stamp(PAYLOAD / "python")
+        self.stamps[Path(self.interpreter)] = stamp(Path(self.interpreter))
+        self.mounts = self.mount_state()
+
+    @staticmethod
+    def mount_state():
+        require(sys.platform == "linux" and os.getpid() == 1 and os.getuid() != 0, "contract")
+        service.engine_lab.check_scratch_mounts()
+        values = []
+        for path in (Path("/"), ROOT, PAYLOAD, Path("/model")):
+            info, flags = path.stat(), os.statvfs(path).f_flag
+            require(flags & os.ST_RDONLY, "mounts")
+            values.append((info.st_dev, info.st_ino, flags))
+        return tuple(values)
+
+    def check(self, deadline):
+        require(self.mount_state() == self.mounts
+                and all(stamp(path) == value for path, value in self.stamps.items()), "mounts")
+        for name, expected in (("memory.max", service.MEMORY_BYTES), ("memory.swap.max", 0)):
+            raw = service.observer.read_kernel("/sys/fs/cgroup/" + name, 32, deadline)
+            require(raw == str(expected).encode() + b"\n", "runtime-limits")
+        require(time.monotonic() < deadline, "deadline")
+        return True
+
+
+class ProcessOwner:
+    def __init__(self, prepared, inputs, hostname, shutdown):
+        require(type(hostname) is str and re.fullmatch(r"[a-z0-9]+(?:[.-][a-z0-9]+)*", hostname), "contract")
+        self.prepared, self.inputs, self.hostname = prepared, inputs, hostname
+        self.shutdown = shutdown
+        self.processes, self.commands, self.identities = {}, {}, {}
+        self.trust = service.pilot.tls_client_context(inputs.root / "cert.pem")
+        self.env = service.pilot.pilot.controlled_env(inputs.root / "control")
+
+    def check_mounts(self, deadline):
+        return self.prepared.check(deadline)
+
+    def spawn(self, role, command, env):
+        require(not self.shutdown.is_set(), "cancelled")
+        child = subprocess.Popen(command, env=env, cwd="/", stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True)
+        self.processes[role], self.commands[role] = child, command
+        return child
+
+    def start(self, role, contract, inputs, register, deadline):
+        if role == "engine":
+            # Full existing manifest checker, not an asserted prepared=true bit.
+            validator = self.spawn("weights", [str(PAYLOAD / "nib"), "model", "check-local",
+                "--workers", "8", str(PAYLOAD / "pack"), "/model"], self.env)
+            valid = False
+            try:
+                while True:
+                    require(not self.shutdown.is_set(), "cancelled")
+                    remaining = deadline - time.monotonic() - service.REAP_SECONDS
+                    require(remaining > 0, "deadline")
+                    try:
+                        valid = validator.wait(timeout=min(.1, remaining)) == 0
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
+            finally:
+                absent = self.reap("weights", validator, min(deadline, time.monotonic() + service.REAP_SECONDS))
+            require(valid and absent, "model")
+            self.check_mounts(deadline)
+            command = [self.prepared.interpreter, "-I", "-S", "-B", str(PAYLOAD / "launch.py"),
+                       self.prepared.lab_sha, "selected-service-engine"]
+            env = self.prepared.lab["environment"]
+        elif role == "guard":
+            command = [str(ROOT / "bin/nib-pilot-api"), *contract.guard_arguments(inputs)]
+            env = self.env
+        elif role == "tls":
+            command = service.pilot.pilot.shim_command(ROOT / "bin/trcs", TLS_PORT, 8001,
+                inputs.root / "cert.pem", inputs.root / "key.pem", host="0.0.0.0")
+            command[command.index("--max-inflight") + 1] = str(service.ADMISSION)
+            env = self.env
+        else:
+            raise service.Rejected("contract")
+        require(time.monotonic() < deadline, "deadline")
+        register(self.spawn(role, command, env))
+
+    def bound(self, role, child, deadline):
+        port = {"engine": 8000, "guard": 8001, "tls": TLS_PORT}[role]
+        rows = [row for row in service.identity.tcp_rows() if row[2] == "0A"
+                and row[0].endswith(":" + format(port, "04X"))]
+        if not rows:
+            return None
+        command = self.commands[role]
+        argv_sha = digest(b"\0".join(os.fsencode(value) for value in command) + b"\0")
+        exe_sha = (self.prepared.lab["interpreter"]["sha256"] if role == "engine"
+                   else self.prepared.files["bin/" + ("trcs" if role == "tls" else "nib-pilot-api")])
+        if role == "engine":
+            value = service.owned_endpoint(child, executable_sha256=exe_sha,
+                                            arguments_sha256=argv_sha, deadline=deadline)
+            current = dict(value.expected)
+        else:
+            observed = service.observer.process(child.pid, deadline)
+            require(observed["parent"] == os.getpid() and observed["argv"] == argv_sha, "identity")
+            address = ("00000000:" if role == "tls" else "0100007F:") + format(port, "04X")
+            require(len(rows) == 1 and rows[0][:3] == (address, "00000000:0000", "0A")
+                    and rows[0][3] in service.identity.sockets(child.pid)
+                    and not any(row[2] == "0A" and row[0].endswith(":" + format(port, "04X"))
+                                for row in service.identity.tcp_rows(True)), "identity")
+            # Deliberately follow the live /proc executable, not its original path.
+            with open("/proc/" + str(child.pid) + "/exe", "rb") as stream:
+                info = os.fstat(stream.fileno())
+                require(stat.S_ISREG(info.st_mode) and 0 < info.st_size <= 128 << 20, "identity")
+                raw = stream.read((128 << 20) + 1)
+                require(len(raw) == info.st_size and digest(raw) == exe_sha, "identity")
+            current = {"pid": child.pid, **service.identity.process_facts(child.pid),
+                       "exe_sha256": exe_sha, "listener_inode": rows[0][3]}
+            require(service.observer.process(child.pid, deadline) == observed, "identity")
+            value = service.identity.Endpoint(port, {"process": current}) if role == "guard" else current
+        require(role not in self.identities or self.identities[role] == current, "identity")
+        self.identities[role] = current
+        require(time.monotonic() < deadline, "deadline")
+        return value
+
+    def peer(self, role, bound, sock, deadline):
+        if role != "tls":
+            bound.check(deadline, sock)
+            return
+        require(sock.getpeername() == ("127.0.0.1", TLS_PORT)
+                and sock.getsockname()[0] == "127.0.0.1", "identity")
+        local = "0100007F:" + format(TLS_PORT, "04X")
+        remote = "0100007F:" + format(sock.getsockname()[1], "04X")
+        until = min(deadline, time.monotonic() + 1)
+        while True:
+            peers = [row[3] for row in service.identity.tcp_rows() if row[:3] == (local, remote, "01")]
+            if len(peers) == 1 and peers[0] in service.identity.sockets(bound["pid"]):
+                return
+            require(time.monotonic() < until, "identity")
+            time.sleep(.005)
+
+    def probe(self, role, child, deadline):
+        # The fixed PR317 alarm is a required deployment dependency. A socket
+        # timeout alone cannot bound slow headers/body chunks over many reads.
+        try:
+            with service.identity.worker.alarm(min(deadline, time.monotonic() + service.observer.SECONDS)):
+                return self._probe(role, child, deadline)
+        except service.identity.worker.Abort as error:
+            if error.status != "timeout":
+                raise
+            return None
+
+    def _probe(self, role, child, deadline):
+        bound = self.bound(role, child, deadline)
+        if bound is None:
+            return None
+        port = {"engine": 8000, "guard": 8001, "tls": TLS_PORT}[role]
+        path = {"engine": "/v1/models", "guard": "/health", "tls": "/healthz"}[role]
+        try:
+            with ExitStack() as stack:
+                raw = stack.enter_context(socket.create_connection(("127.0.0.1", port),
+                    timeout=min(2, max(.001, deadline - time.monotonic()))))
+                self.peer(role, bound, raw, deadline)  # Before sending any HTTP.
+                connection = stack.enter_context(self.trust.wrap_socket(raw, server_hostname=self.hostname)) \
+                    if role == "tls" else raw
+                connection.sendall(("GET " + path + " HTTP/1.1\r\nHost: " + self.hostname +
+                                    "\r\nConnection: close\r\n\r\n").encode("ascii"))
+                response = stack.enter_context(http.client.HTTPResponse(connection))
+                response.begin()
+                body = response.read((1 << 20) + 1)
+                require(len(body) <= 1 << 20 and time.monotonic() < deadline, "readiness")
+                if response.status != 200:
+                    return None
+        except (OSError, http.client.HTTPException):
+            return None
+        if self.bound(role, child, deadline) is None:
+            return None
+        if role == "engine":
+            self.check_mounts(deadline)
+            return service.EngineReady(bound, body, service.CONTEXT, service.MEMORY_BYTES, 0)
+        return True
+
+    def drain(self, role, child, deadline):
+        # Same front-first TERM/wait contract as pilot.stop_serving. Its fixed
+        # 140+10 helper cannot honor a shorter absolute deadline, so forced
+        # cleanup stays in reap(), and can never count as a graceful drain.
+        if child.poll() is not None:
+            return False
+        child.terminate()
+        return child.wait(timeout=max(0, min(140, deadline - time.monotonic()))) == 0
+
+    def reap(self, role, child, deadline):
+        reaped = False
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(child.pid, sig)
+            except (ProcessLookupError, PermissionError):
+                pass
+            try:
+                child.wait(timeout=max(0, min(10, deadline - time.monotonic())))
+                reaped = True
+            except subprocess.TimeoutExpired:
+                reaped = False
+        while reaped and time.monotonic() <= deadline:
+            snapshot.reap_group_children(child.pid)
+            try:
+                os.killpg(child.pid, 0)
+            except ProcessLookupError:
+                return True
+            except PermissionError:
+                return False
+            time.sleep(min(.05, max(0, deadline - time.monotonic())))
+        return False
+
+    def reap_unregistered(self, deadline):
+        # This CLI must be PID 1 in its own container. Only that closed namespace
+        # permits sweeping a Popen interrupted before it returned its child PID.
+        require(sys.platform == "linux" and os.getpid() == 1, "contract")
+        while time.monotonic() <= deadline:
+            for child in self.processes.values():
+                child.poll()
+            for _ in range(4096):
+                try:
+                    if os.waitpid(-1, os.WNOHANG)[0] == 0:
+                        break
+                except ChildProcessError:
+                    break
+            pids = []
+            for count, path in enumerate(Path("/proc").iterdir(), 1):
+                require(count <= 8192 and time.monotonic() <= deadline, "identity")
+                if path.name.isdecimal() and int(path.name) > 1:
+                    pids.append(int(path.name))
+                    require(len(pids) <= 4096, "identity")
+            if not pids:
+                return all(child.poll() is not None for child in self.processes.values())
+            for pid in pids:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except PermissionError:
+                    return False
+            time.sleep(min(.05, max(0, deadline - time.monotonic())))
+        return False
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--prepared-sha256", required=True)
+    parser.add_argument("--provider-config", type=Path, required=True)
+    parser.add_argument("--api-key-file", type=Path, required=True)
+    parser.add_argument("--cert", type=Path, required=True)
+    parser.add_argument("--key", type=Path, required=True)
+    parser.add_argument("--hostname", required=True)
+    parser.add_argument("--input-price", required=True)
+    parser.add_argument("--output-price", required=True)
+    parser.add_argument("--hard-stop-at", required=True)
+    args = parser.parse_args(argv)
+    shutdown = threading.Event()
+    handlers = {number: signal.signal(number, lambda *_: shutdown.set())
+                for number in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        contract = service.Contract.begin(args.hard_stop_at, input_price=args.input_price,
+                                          output_price=args.output_price)
+        prepared = Prepared(args.prepared_sha256, contract.startup_deadline)
+        with service.snapshot_inputs(provider=args.provider_config, cert=args.cert, key=args.key,
+                                     api_key=args.api_key_file) as inputs:
+            owner = ProcessOwner(prepared, inputs, args.hostname, shutdown)
+            result = service.Supervisor(contract, inputs, owner, shutdown).run()
+        print(json.dumps(result, sort_keys=True))
+        return 0 if result["status"] in ("retired", "cancelled") else 1
+    except BaseException:
+        print('{"schema":"nib.selected-service-lifecycle/v1","status":"failed","reason":"preparation",'
+              '"deployable":false,"hardware_validated":false}')
+        return 1
+    finally:
+        for number, handler in handlers.items():
+            signal.signal(number, handler)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
