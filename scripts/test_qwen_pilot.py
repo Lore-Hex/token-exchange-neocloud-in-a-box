@@ -161,6 +161,9 @@ class QwenPilotTests(unittest.TestCase):
         args = pilot.engine_command("server", "weights", "qwen/qwen3-0.6b", 1234, "key")
         self.assertEqual(args[args.index("--host") + 1], "127.0.0.1")
         self.assertEqual(args[args.index("--device") + 1], "none")
+        for option in ("--threads", "--threads-http"):
+            self.assertEqual(args.count(option), 1)
+            self.assertEqual(args[args.index(option) + 1], "4")
         for flag in ("--offline", "--log-disable", "--no-webui", "--no-slots", "--api-key-file"):
             self.assertIn(flag, args)
         args = pilot.shim_command("trcs", 1234, 1235, "cert", "key")
@@ -168,6 +171,12 @@ class QwenPilotTests(unittest.TestCase):
         self.assertEqual(args[args.index("--evidence-source") + 1], "none")
         self.assertNotIn("--allow-remote-upstream", args)
         self.assertEqual(args[args.index("--listen") + 1], "127.0.0.1:1234")
+
+    def test_engine_http_threads_do_not_scale_with_host_cpu_count(self):
+        for count in (1, 16, 240, 1024):
+            with self.subTest(count=count), patch.object(os, "cpu_count", return_value=count):
+                args = pilot.engine_command("server", "weights", "qwen/qwen3-0.6b", 1234, "key")
+                self.assertEqual(args[args.index("--threads-http") + 1], "4")
 
     def test_required_conformance_never_silently_skipped(self):
         report = {"suite_version": "0.1.8", "target": {"authentication": {"authorization_header_sent": True}},
