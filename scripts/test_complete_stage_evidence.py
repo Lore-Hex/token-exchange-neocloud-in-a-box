@@ -5,13 +5,15 @@ import json
 from pathlib import Path
 import unittest
 
+from deepseek_model_profile import select
+from test_evidence_history import git
 from test_weight_stage_recorder import stage
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class CompleteStageEvidenceTests(unittest.TestCase):
-    def record(self, slug, revision, run_hash, output_hash, result):
+    def record(self, slug, revision, run_hash, output_hash, result, *, model_profile="original"):
         directory = ROOT / "evidence/p0" / slug
         documents = []
         for name, expected in (("run.json", run_hash), ("output.log", output_hash)):
@@ -28,12 +30,41 @@ class CompleteStageEvidenceTests(unittest.TestCase):
         for flag in ("hardware_validated", "runtime_ready", "confidential_qualified"):
             self.assertFalse(report[flag])
         self.assertEqual(report["cleanup"], "confirmed")
-        self.assertEqual(report["plan"]["files"], 83)
-        self.assertEqual(report["plan"]["total_bytes"], 510311045295)
-        self.assertEqual(report["plan"]["hf_revision"], "1bae0e1088993b9b82de08f59de5be5a34e42170")
-        self.assertEqual(report["plan"]["manifest_sha256"],
-                         hashlib.sha256((ROOT / "models/deepseek-v4.1-flash-1017/1/files.sha256").read_bytes()).hexdigest())
+        profile = select(model_profile)
+        manifest = (ROOT / profile["pack"] / "files.sha256").read_bytes()
+        self.assertEqual(report["plan"]["files"], len(manifest.splitlines()))
+        for field in ("hf_repo", "hf_revision", "total_bytes", "manifest_sha256"):
+            self.assertEqual(report["plan"][field], profile[field])
+        self.assertEqual(report["plan"]["manifest_sha256"], hashlib.sha256(manifest).hexdigest())
         return report
+
+    def test_ordinary_node_uses_complete_abliterated_checkpoint_not_original(self):
+        revision = "323ab0eedacee474e5b12fcc80a169ef43400075"
+        report = self.record(
+            "2026-10-24-ordinary-uncensored-stage", revision,
+            "be1bda549c34db368bac8647850d63b0d2c4433426a222ff8d5e47f634047eee",
+            "0bca7e41b985d4df4906920c4dff4a40b7a79fcbd13882fef823de5bdc9a3bbe",
+            "pass", model_profile="uncensored")
+        source = git(ROOT, "show", revision + ":host/record-stage.py")
+        self.assertEqual(hashlib.sha256(source).hexdigest(),
+                         "19e6f58fef0a877d3fc13718bd03fa2baa1aba74cab396e1bcfb1600bb43177f")
+        self.assertEqual(source, (ROOT / "host/record-stage.py").read_bytes())
+        stage.validate_plan(report["plan"])
+        stage.validate_proof(report["proof"], report["plan"], report["body_byte_budget"])
+        self.assertEqual(report["stage"], "complete")
+        self.assertEqual((report["proof"]["files"], report["proof"]["verified_bytes"],
+                          report["proof"]["downloaded_bytes"], report["proof"]["reused_files"]),
+                         (79, 510311056155, 510311056155, 0))
+        self.assertEqual((report["deadline_seconds"], report["download_workers"], report["body_byte_budget"]),
+                         (7200, 8, 510311056234))
+        self.assertFalse(report["last_observation"]["verified"])
+        self.assertEqual(report["last_observation"]["counts"]["partial_files"], 0)
+        cached = json.loads((ROOT / "evidence/p2/2026-10-23-dealign-cache-upload/receipt.json").read_bytes())
+        self.assertEqual(cached["result"], "pass")
+        self.assertTrue(cached["pack_complete"])
+        self.assertEqual(cached["model_profile"], select("uncensored"))
+        self.assertEqual(cached["verified_bytes"], report["proof"]["verified_bytes"])
+        self.assertEqual(cached["target_manifest_sha256"], report["proof"]["manifest_sha256"])
 
     def test_complete_stage_has_exact_proof_not_just_progress_counts(self):
         report = self.record(
