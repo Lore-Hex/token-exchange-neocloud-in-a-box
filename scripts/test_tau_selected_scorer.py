@@ -130,8 +130,11 @@ class SelectedScorerTests(unittest.TestCase):
 
     def test_original_runner_and_evaluator_with_distinct_bounded_timeouts(self):
         names = ("tau2", "tau2.runner", "tau2.runner.batch", "tau2.runner.helpers", "tau2.data_model",
-                 "tau2.data_model.simulation", "tau2.data_model.message", "tau2.evaluator", "tau2.evaluator.evaluator", "tau2.utils")
+                 "tau2.data_model.simulation", "tau2.data_model.message", "tau2.evaluator", "tau2.evaluator.evaluator", "tau2.utils",
+                 "tau2.environment", "tau2.environment.environment", "tau2.orchestrator", "tau2.orchestrator.orchestrator")
         modules = {name: types.ModuleType(name) for name in names}
+        modules["tau2.environment.environment"].Environment = type("Environment", (), {})
+        modules["tau2.orchestrator.orchestrator"].BaseOrchestrator = type("BaseOrchestrator", (), {"_execute_tool_calls": lambda *a: []})
         modules["tau2.data_model.message"].ToolMessage = type("ToolMessage", (), {})
         task = types.SimpleNamespace(evaluation_criteria=types.SimpleNamespace(nl_assertions=["Synthetic assertion"]))
         tasks = modules["tau2.runner.helpers"].get_tasks = mock.Mock(return_value=[task])
@@ -187,8 +190,11 @@ g=entry['main'].__globals__
 assert g['Abort'] is not pipe.worker.Abort
 reason=sys.argv[2]
 names=('tau2','tau2.runner','tau2.runner.batch','tau2.runner.helpers','tau2.data_model',
-       'tau2.data_model.simulation','tau2.data_model.message','tau2.evaluator','tau2.evaluator.evaluator','tau2.utils')
+       'tau2.data_model.simulation','tau2.data_model.message','tau2.evaluator','tau2.evaluator.evaluator','tau2.utils',
+       'tau2.environment','tau2.environment.environment','tau2.orchestrator','tau2.orchestrator.orchestrator')
 for name in names: sys.modules[name]=types.ModuleType(name)
+sys.modules['tau2.environment.environment'].Environment=type('Environment',(),{})
+sys.modules['tau2.orchestrator.orchestrator'].BaseOrchestrator=type('BaseOrchestrator',(),{'_execute_tool_calls':lambda *a:[]})
 sys.modules['tau2.data_model.message'].ToolMessage=type('ToolMessage',(),{})
 task=types.SimpleNamespace(evaluation_criteria=types.SimpleNamespace(nl_assertions=['Synthetic assertion']))
 sys.modules['tau2.runner.helpers'].get_tasks=lambda *a,**kw:[task]
