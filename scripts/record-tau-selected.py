@@ -111,12 +111,22 @@ def admit(ready, toolkit, cpu, gpu, contract, contract_sha, deadline):
     return frozen, expiry, held, packet["image_sha256"]
 
 
-def close_and_reap(processes, deadline):
+def close_and_reap(processes, deadline, *, abort=False):
     result = {}
     # Concurrently drain bounded final CLI output so neither host blocks on a
     # full pipe while its counterpart tears down. Never persist these bytes.
     totals = {name: 0 for name in processes}
     try:
+        if abort:
+            deadline = min(deadline, time.monotonic() + 180)
+            for process in processes.values():
+                if process.poll() is None:
+                    try:
+                        # Both owners handle interruption through their existing
+                        # daemon-side cleanup, including before reading stdin.
+                        process.send_signal(signal.SIGINT)
+                    except ProcessLookupError:
+                        pass
         for process in processes.values():
             if not process.stdin.closed:
                 process.stdin.close()
@@ -206,7 +216,7 @@ def run(args):
     cpu_rec.toolkit(ROOT, selected_owner=True)
     cpu = sys.modules["tau_cpu_session"]
     contract_sha = tau.digest(gpu_rec.read(args.gpu_bundle / "payload/lab.json"))
-    files, plan = runner.prepare(None, None, args.source_archive, args.wheelhouse, None,
+    files, plan = runner.prepare(args.source_archive, args.wheelhouse, None, None, None,
         min(work_deadline, time.monotonic() + 300), parent_pipe=True, selected_operational=True)
     require(plan["producer"]["git_sha"] == toolkit["git_sha"])
     os.umask(0o077)
@@ -253,11 +263,13 @@ def run(args):
         for number in old:
             signal.signal(number, signal.SIG_IGN)
         try:
-            report["owner_exits"] = close_and_reap(processes, end)
+            report["owner_exits"] = close_and_reap(processes, end, abort="failure" in report)
             if ready and held and report["scorer"] is not None:
                 report["owner_reports"] = final_join(args.output, ready, held, cpu_image, toolkit, gpu, contract,
                     args.gpu_receipt_sha256, report["scorer"], report["owner_exits"], time.monotonic() + 30)
-                report.update(result="pass", stage="completed", cleanup="confirmed")
+                report["cleanup"] = "confirmed"
+                if "failure" not in report:
+                    report.update(result="pass", stage="completed")
         except BaseException:
             report["failure"] = "selected-operational-run-failed"
         finally:

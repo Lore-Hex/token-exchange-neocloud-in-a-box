@@ -2,7 +2,7 @@
 """Original-byte joins and real child pipes; no inference or hardware claims."""
 
 import copy
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import datetime
 import os
 from pathlib import Path
@@ -38,7 +38,7 @@ def inputs():
 
 class SelectedLaunchTests(unittest.TestCase):
     def test_launch_failure_reaps_started_peer_and_records_no_false_success(self):
-        for failure in ("second-spawn", "readiness", "scorer", "join"):
+        for failure in ("second-spawn", "readiness", "scorer", "join", "post-scorer-interrupt"):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
                 root = Path(temporary).resolve()
                 ready, toolkit, frozen, expiry, held, image = inputs()
@@ -57,9 +57,20 @@ class SelectedLaunchTests(unittest.TestCase):
                     process.stdin.fileno.return_value = 8 + 2 * len(processes)
                     processes.append(process)
                     return process
-                def cleanup(owned, deadline):
+                def cleanup(owned, deadline, *, abort):
+                    self.assertEqual(abort, failure != "join")
                     observed.update(owned)
                     return {name: 1 if name == "candidate" else 0 for name in owned}
+                def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, deadline,
+                            *, parent_pipe, selected_operational):
+                    self.assertEqual((archive_path, wheelhouse), (args.source_archive, args.wheelhouse))
+                    self.assertEqual((manifest_path, manifest_sha, selection), (None, None, None))
+                    self.assertTrue(parent_pipe and selected_operational)
+                    return {}, {"producer": {"git_sha": toolkit["git_sha"]}}
+                @contextmanager
+                def alarm(deadline):
+                    yield
+                    if failure == "post-scorer-interrupt": raise KeyboardInterrupt
                 mocked = ((launch.sys, "platform", "linux"),
                     (launch.os, "uname", mock.Mock(return_value=types.SimpleNamespace(machine="x86_64"))),
                     (launch, "identity", mock.Mock(return_value=toolkit)),
@@ -67,7 +78,8 @@ class SelectedLaunchTests(unittest.TestCase):
                     (launch.gpu_rec, "owner_module", mock.Mock(return_value=gpu.gpu)),
                     (launch.gpu_rec, "read", mock.Mock(return_value=b"fixed")),
                     (launch.cpu_rec, "toolkit", mock.Mock()),
-                    (launch.runner, "prepare", mock.Mock(return_value=({}, {"producer": {"git_sha": toolkit["git_sha"]}}))),
+                    (launch.runner, "prepare", prepare),
+                    (cpu.session.llama.worker, "alarm", alarm),
                     (launch.runner, "publish", mock.Mock()),
                     (launch.subprocess, "Popen", mock.Mock(side_effect=spawn)),
                     (launch, "read_ready", mock.Mock(side_effect=ValueError("PRIVATE_CANARY") if failure == "readiness" else None,
@@ -76,13 +88,15 @@ class SelectedLaunchTests(unittest.TestCase):
                     (launch.runner, "run", mock.Mock(side_effect=ValueError("PRIVATE_CANARY") if failure == "scorer" else None,
                                                      return_value={"result": "pass"})),
                     (launch, "close_and_reap", mock.Mock(side_effect=cleanup)),
-                    (launch, "final_join", mock.Mock(side_effect=ValueError("PRIVATE_CANARY"))))
+                    (launch, "final_join", mock.Mock(side_effect=ValueError("PRIVATE_CANARY") if failure == "join" else None,
+                                                      return_value={"cpu": {}, "gpu": {}})))
                 for obj, name, value in mocked:
                     stack.enter_context(mock.patch.object(obj, name, value))
                 self.assertEqual(launch.run(args), 1)
                 self.assertEqual(len(observed), 1 if failure == "second-spawn" else 2)
                 report = tau.json_value((args.output / "evidence/output.log").read_bytes())
-                self.assertEqual((report["result"], report["cleanup"]), ("fail", "unconfirmed"))
+                self.assertEqual(report["result"], "fail")
+                self.assertEqual(report["cleanup"], "confirmed" if failure == "post-scorer-interrupt" else "unconfirmed")
                 self.assertNotIn("CANARY", repr(report))
                 self.assertFalse(report["confidential"] or report["quality_eligible"] or report["live_admission"])
 
@@ -129,6 +143,20 @@ class SelectedLaunchTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 launch.close_and_reap({"support": process}, time.monotonic() + .1)
             self.assertIsNotNone(process.poll())
+
+    def test_abort_interrupts_startup_without_waiting_for_overall_cutoff(self):
+        process = subprocess.Popen([sys.executable, "-I", "-S", "-c",
+            "import signal,sys,time\ndef stop(*args): sys.exit(7)\nsignal.signal(signal.SIGINT,stop)\nprint('ready',flush=True)\ntime.sleep(120)"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0, start_new_session=True)
+        try:
+            self.assertEqual(process.stdout.readline(), b"ready\n")
+            started = time.monotonic()
+            self.assertEqual(launch.close_and_reap({"support": process}, started + 3600, abort=True), {"support": 7})
+            self.assertLess(time.monotonic() - started, 5)
+            self.assertTrue(process.stdout.closed and process.stdin.closed)
+        finally:
+            if process.poll() is None: process.kill()
+            process.wait(timeout=3)
 
     def test_final_join_requires_both_original_reports_and_preserves_gpu_blocked(self):
         ready, toolkit, frozen, expiry, held, image = inputs()
