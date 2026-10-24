@@ -6,9 +6,11 @@ from contextlib import ExitStack, contextmanager
 import datetime
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 import unittest
 import types
@@ -99,6 +101,10 @@ class SelectedLaunchTests(unittest.TestCase):
                 report = tau.json_value((args.output / "evidence/output.log").read_bytes())
                 self.assertEqual(report["result"], "fail")
                 self.assertEqual(report["cleanup"], "confirmed" if failure == "post-scorer-interrupt" else "unconfirmed")
+                if failure in ("second-spawn", "readiness"):
+                    self.assertEqual(report["ready_sha256"], {})
+                    self.assertIsNone(report["scorer"])
+                    self.assertIsNone(report["owner_reports"])
                 self.assertNotIn("CANARY", repr(report))
                 self.assertFalse(report["confidential"] or report["quality_eligible"] or report["live_admission"])
 
@@ -375,6 +381,124 @@ class SelectedLaunchTests(unittest.TestCase):
         finally:
             if process.poll() is None: process.kill()
             process.wait(timeout=3)
+
+    def test_abort_before_ready_uses_gpu_outer_cancel_and_preserves_cleanup_report(self):
+        # Actual outer cancellation/report logic with a blocked fake attach and
+        # an owned-container Docker fixture, never a real daemon or GPU.
+        script = textwrap.dedent("""
+            import json, signal, sys, time, types
+            from pathlib import Path
+            from unittest import mock
+            path, output, ignore_int, cleanup_fails = sys.argv[1:]
+            host = types.ModuleType('gpu_outer_fixture')
+            host.__file__ = path
+            exec(compile(Path(path).read_bytes(), path, 'exec'), host.__dict__)
+            identifier, owner = 'a' * 64, 'b' * 32
+            info = {'Id': identifier, 'Config': {'Labels': {host.LABEL: owner}},
+                    'State': {'Status': 'created', 'ExitCode': 0, 'OOMKilled': False}}
+            signals, calls = [], []
+            def cancel(number, frame):
+                signals.append(number)
+                host.cancel(number, frame)
+            signal.signal(signal.SIGTERM, cancel)
+            signal.signal(signal.SIGINT, signal.SIG_IGN if ignore_int == 'True' else cancel)
+            def capture(*args):
+                print('fixture-startup', flush=True)
+                time.sleep(120)  # No READY and no stdin reader during startup.
+                raise AssertionError('startup was not cancelled')
+            owner_module = types.SimpleNamespace(worker=types.SimpleNamespace(Abort=type('Abort', (BaseException,), {})),
+                                                capture=capture)
+            replies = iter((b'', identifier.encode(), identifier.encode(), b'',
+                            identifier.encode() if cleanup_fails == 'True' else b''))
+            def call(argv, *args, **kwargs):
+                calls.append(argv)
+                return next(replies)
+            recorder = types.SimpleNamespace(image_binding=lambda *_: {}, call=call, snapshot=None)
+            monitor = mock.Mock(returncode=0)
+            monitor.poll.return_value = None
+            from contextlib import ExitStack
+            with ExitStack() as stack:
+                for name, value in (
+                    ('owner_module', lambda *_: owner_module),
+                    ('inspect', lambda *_: info), ('check_container', lambda *_: None),
+                    ('create_command', lambda *_: ['docker', 'create']), ('read', lambda *_: b'contract')):
+                    stack.enter_context(mock.patch.object(host, name, value))
+                stack.enter_context(mock.patch.object(host.uuid, 'uuid4', return_value=types.SimpleNamespace(hex=owner)))
+                stack.enter_context(mock.patch.object(host.subprocess, 'Popen', return_value=monitor))
+                report = host.run_container('/unused', 'a' * 64, '/unused', time.time() + 120,
+                                            recorder, {'base_image': 'fixed'}, {}, {'DOCKER_HOST': 'unix:///unused'})
+            assert monitor.wait.call_count == 1
+            Path(output).write_text(json.dumps({'report': report, 'signals': signals, 'calls': calls}))
+            sys.stdout.write('x' * 60000)  # Final output must be drained, not retained.
+            sys.stdout.flush()
+            sys.exit(1)  # Original GPU qualification remains FAIL/BLOCKED.
+        """)
+        for ignore_int, cleanup_fails in ((False, False), (True, False), (False, True)):
+            with self.subTest(ignore_int=ignore_int, cleanup_fails=cleanup_fails), tempfile.TemporaryDirectory() as temporary:
+                result = Path(temporary) / "gpu-report.json"
+                processes = {}
+                unrelated = subprocess.Popen([sys.executable, "-I", "-S", "-B", "-c", "import time;time.sleep(120)"],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                try:
+                    processes["candidate"] = subprocess.Popen([sys.executable, "-I", "-S", "-B", "-c", script,
+                        str(launch.ROOT / "host/record-deepseek-lab.py"), str(result), str(ignore_int), str(cleanup_fails)],
+                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0, start_new_session=True)
+                    process = processes["candidate"]
+                    with launch.selectors.DefaultSelector() as selector:
+                        selector.register(process.stdout, launch.selectors.EVENT_READ)
+                        self.assertTrue(selector.select(5), "GPU fixture did not reach startup")
+                    self.assertEqual(process.stdout.readline(), b"fixture-startup\n")
+                    processes["support"] = subprocess.Popen([sys.executable, "-I", "-S", "-B", "-c", "raise SystemExit(1)"],
+                        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0, start_new_session=True)
+                    processes["support"].wait(timeout=3)
+                    with self.assertRaises(ValueError):
+                        launch.read_ready(processes, {"candidate": gpu.gpu.READY, "support": cpu.session.READY}, time.monotonic() + 5)
+                    with mock.patch.object(process, "send_signal", wraps=process.send_signal) as cancel, \
+                            mock.patch.object(processes["support"], "send_signal", wraps=processes["support"].send_signal) as exited:
+                        self.assertEqual(launch.close_and_reap(processes, time.monotonic() + 5, abort=True),
+                                         {"candidate": 1, "support": 1})
+                    cancel.assert_called_once_with(signal.SIGTERM)
+                    exited.assert_not_called()
+                    row = tau.json_value(result.read_bytes())
+                    self.assertEqual(row["signals"], [signal.SIGTERM])
+                    self.assertEqual(row["report"]["cleanup"], "unconfirmed" if cleanup_fails else "confirmed")
+                    self.assertEqual(row["report"]["experiment_step"], "attach")
+                    self.assertEqual(row["report"]["failure"], "bounded-lab-stage-failed")
+                    self.assertEqual(row["report"]["status"], "BLOCKED")
+                    self.assertEqual(row["report"]["result"], "fail")
+                    self.assertFalse(row["report"]["functional_pass"] or row["report"]["confidential"] or row["report"]["deployable"])
+                    name = "nib-deepseek-" + "b" * 32
+                    self.assertEqual(row["calls"][-2:], [
+                        ["docker", "container", "rm", "--force", name],
+                        ["docker", "container", "ls", "--all", "--quiet", "--filter", "name=^/" + name + "$"]])
+                    self.assertTrue(all(p.stdin.closed and p.stdout.closed for p in processes.values()))
+                    self.assertIsNone(unrelated.poll())
+                finally:
+                    for process in (*processes.values(), unrelated):
+                        if process.poll() is None: process.kill()
+                        process.wait(timeout=3)
+                        for pipe in (process.stdin, process.stdout):
+                            if pipe is not None: pipe.close()
+
+    def test_abort_grace_keeps_original_deadline_and_reaps_both_on_timeout(self):
+        for cutoff, expiry in ((110, 110), (1000, 280)):
+            with self.subTest(cutoff=cutoff), ExitStack() as stack:
+                processes = {name: mock.Mock(returncode=None) for name in ("candidate", "support")}
+                for process in processes.values():
+                    process.poll.return_value = None
+                    process.stdin.closed = False
+                clock = stack.enter_context(mock.patch.object(launch.time, "monotonic", side_effect=(100, expiry)))
+                selector = stack.enter_context(mock.patch.object(launch.selectors, "DefaultSelector"))
+                selector.return_value.__enter__.return_value.get_map.return_value = {1: "still-open"}
+                reap = stack.enter_context(mock.patch.object(launch.process_tools, "cleanup_process_group"))
+                with self.assertRaises(ValueError):
+                    launch.close_and_reap(processes, cutoff, abort=True)
+                self.assertEqual(clock.call_count, 2)
+                processes["candidate"].send_signal.assert_called_once_with(signal.SIGTERM)
+                processes["support"].send_signal.assert_called_once_with(signal.SIGINT)
+                self.assertEqual(reap.call_args_list, [mock.call(p) for p in processes.values()])
+                for process in processes.values():
+                    process.stdin.close.assert_called()
 
     def test_final_join_requires_both_original_reports_and_preserves_gpu_blocked(self):
         ready, toolkit, frozen, expiry, held, image = inputs()

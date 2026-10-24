@@ -152,12 +152,14 @@ def close_and_reap(processes, deadline, *, abort=False):
     try:
         if abort:
             deadline = min(deadline, time.monotonic() + 180)
-            for process in processes.values():
+            for name, process in processes.items():
                 if process.poll() is None:
                     try:
-                        # Both owners handle interruption through their existing
-                        # daemon-side cleanup, including before reading stdin.
-                        process.send_signal(signal.SIGINT)
+                        # Cancel the GPU outer recorder before READY/stdin relay.
+                        # Signal only our child, not its attach/watchdog groups;
+                        # its SIGTERM handler owns daemon cleanup and reporting.
+                        # The CPU recorder instead unwinds on KeyboardInterrupt.
+                        process.send_signal(signal.SIGTERM if name == "candidate" else signal.SIGINT)
                     except ProcessLookupError:
                         pass
         for process in processes.values():

@@ -56,6 +56,22 @@ finish acknowledgements, actual usage, and independently confirmed owner and
 scorer container cleanup. The GPU lab's original outer `FAIL/BLOCKED` result
 is preserved: an operational trial is not full model qualification.
 
+On abort, including a peer failure before either READY packet, the controller
+sends SIGTERM to its still-running GPU outer recorder. That recorder's existing
+cancellation handler unwinds startup into its owned-container cleanup and final
+report path; EOF alone cannot interrupt startup before the stdin relay begins.
+The CPU owner still receives SIGINT for its existing exception-based cleanup.
+These initial signals target only the controller's direct children, not the
+GPU attach or watchdog process groups. Final stdout is drained without logging
+it for at most 180 seconds, capped by the original controller cutoff, before
+the existing owned-process-group reaper runs. Neither a signal nor a child exit
+proves daemon-side cleanup. Failed pre-READY runs remain failed with joined
+cleanup unconfirmed, even if an individual owner's original report confirms
+its own cleanup; the final readiness/scorer/report joins are not relaxed.
+GPU-free cancellation tests exercise the committed outer handler and cleanup
+with a blocked fake attach, including ignored SIGINT and failed absence checks.
+They do not establish the cause of an earlier hardware startup failure.
+
 The output contains separate original GPU, CPU and scorer evidence plus the
 joined `evidence/run.json` and `evidence/output.log`. No model text or exception
 messages are logged. Support-model quality limits comparison: even an evaluated
