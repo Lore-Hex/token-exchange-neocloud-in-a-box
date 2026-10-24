@@ -1,0 +1,76 @@
+{
+  "confidential_qualified": false,
+  "hardware_validated": false,
+  "inventory": {
+    "checks": {
+      "attestation_interfaces_present": {
+        "amd_sev_guest": false,
+        "intel_tdx_guest": false,
+        "linux_tsm_report": false
+      },
+      "cpu_vendor": "intel",
+      "gpus": [
+        {
+          "driver": "580.173.02",
+          "family": "B300",
+          "memory_mib": 275040
+        },
+        {
+          "driver": "580.173.02",
+          "family": "B300",
+          "memory_mib": 275040
+        },
+        {
+          "driver": "580.173.02",
+          "family": "B300",
+          "memory_mib": 275040
+        },
+        {
+          "driver": "580.173.02",
+          "family": "B300",
+          "memory_mib": 275040
+        },
+        {
+          "driver": "580.173.02",
+          "family": "B300",
+          "memory_mib": 275040
+        },
+        {
+          "driver": "580.173.02",
+          "family": "B300",
+          "memory_mib": 275040
+        },
+        {
+          "driver": "580.173.02",
+          "family": "B300",
+          "memory_mib": 275040
+        },
+        {
+          "driver": "580.173.02",
+          "family": "B300",
+          "memory_mib": 275040
+        }
+      ],
+      "host_memory_kib": 2856918924
+    },
+    "confidential_qualified": false,
+    "eight_b200_reported": false,
+    "ended_utc": "2026-10-24T00:06:52.443777Z",
+    "errors": [],
+    "hardware_attestation_verified": false,
+    "result": "fail",
+    "runtime_ready": false,
+    "schema": "nib.hardware-inventory/v1",
+    "scope": "read-only-inventory",
+    "script_sha256": "dd196679dc4b6d7ee335b3d62900b25484734884bd3da6e74f925260ad7864ff",
+    "started_utc": "2026-10-24T00:06:51.925185Z"
+  },
+  "result": "fail",
+  "runtime_ready": false,
+  "schema": "nib.probe-recording/v1",
+  "source": {
+    "git_sha": "323ab0eedacee474e5b12fcc80a169ef43400075",
+    "probe_sha256": "dd196679dc4b6d7ee335b3d62900b25484734884bd3da6e74f925260ad7864ff",
+    "recorder_sha256": "77858e523ae744bc585b28aa68cc759afbdc542dd972466185f52e3a699c40e2"
+  }
+}
