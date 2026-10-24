@@ -8,6 +8,9 @@ if __name__ == "__main__":
     if not (sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode):
         sys.exit("Use python3 -I -S -B selected_service_process.py")
     sys.path.insert(0, str(Path(__file__).absolute().parent))
+    # The helper's exact-type checks must see the same classes as this owner.
+    from selected_service_process import main
+    sys.exit(main())
 
 import argparse
 from contextlib import ExitStack
@@ -29,6 +32,7 @@ import selected_service_engine as engine_entry
 
 ROOT, PAYLOAD = Path("/opt/nib-service"), Path("/opt/nib")
 TLS_PORT = 8443
+PREPARATION_STAGES = frozenset(("contract", "prepared", "inputs", "owner"))
 # Linux procfs prints each native-endian 32-bit word of an IPv6 address.
 _mapped = socket.inet_pton(socket.AF_INET6, "::ffff:127.0.0.1")
 TLS_MAPPED_LOOPBACK = "".join(format(int.from_bytes(_mapped[index:index + 4], sys.byteorder), "08X")
@@ -173,6 +177,7 @@ class Prepared:
         self.stamps[PAYLOAD / "python"] = stamp(PAYLOAD / "python")
         self.stamps[Path(self.interpreter)] = stamp(Path(self.interpreter))
         self.mounts = self.mount_state()
+        self.receipt_sha256 = expected
 
     @staticmethod
     def mount_state():
@@ -438,28 +443,43 @@ def main(argv=None):
     parser.add_argument("--input-price", required=True)
     parser.add_argument("--output-price", required=True)
     parser.add_argument("--hard-stop-at", required=True)
+    parser.add_argument("--inference-smoke", action="store_true")
     args = parser.parse_args(argv)
     shutdown = threading.Event()
     handlers = {number: signal.signal(number, lambda *_: shutdown.set())
                 for number in (signal.SIGINT, signal.SIGTERM)}
+    result, stage = None, "contract"
     try:
         contract = service.Contract.begin(args.hard_stop_at, input_price=args.input_price,
                                           output_price=args.output_price)
+        stage = "prepared"
         prepared = Prepared(args.prepared_sha256, contract.startup_deadline)
+        stage = "inputs"
         with service.snapshot_inputs(provider=args.provider_config, cert=args.cert, key=args.key,
                                      api_key=args.api_key_file) as inputs:
+            stage = "owner"
             owner = ProcessOwner(prepared, inputs, args.hostname, shutdown)
-            result = service.Supervisor(contract, inputs, owner, shutdown).run()
+            result = service.Supervisor(contract, inputs, owner, shutdown).run(inference_smoke=args.inference_smoke)
+        if args.inference_smoke and shutdown.is_set() and result["status"] != "failed":
+            result.update(status="failed", reason="cancelled")
         print(json.dumps(result, sort_keys=True))
         return 0 if result["status"] in ("retired", "cancelled") else 1
-    except BaseException:
-        print('{"schema":"nib.selected-service-lifecycle/v1","status":"failed","reason":"preparation",'
-              '"deployable":false,"hardware_validated":false}')
+    except BaseException as error:
+        if not args.inference_smoke:
+            print('{"schema":"nib.selected-service-lifecycle/v1","status":"failed","reason":"preparation",'
+                  '"deployable":false,"hardware_validated":false}')
+            return 1
+        if result is not None:
+            result.update(status="failed", reason="inputs-changed")
+        else:
+            category = error.category if isinstance(error, service.Rejected) \
+                and type(error.category) is str and error.category in service.FAILURES else "internal"
+            result = {"schema": service.INFERENCE_SCHEMA, "status": "failed", "reason": "preparation",
+                      "deployable": False, "hardware_validated": False,
+                      "mode": service.INFERENCE_MODE, "inference": None,
+                      "preparation_stage": stage, "preparation_category": category}
+        print(json.dumps(result, sort_keys=True))
         return 1
     finally:
         for number, handler in handlers.items():
             signal.signal(number, handler)
-
-
-if __name__ == "__main__":
-    sys.exit(main())

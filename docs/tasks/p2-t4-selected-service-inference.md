@@ -1,10 +1,10 @@
 # Selected-service authenticated inference smoke
 
-This additive, software-only helper follows the
+This software-only helper and explicit opt-in owner hook follow the
 [selected lifecycle](p2-t4-selected-service-lifecycle.md) and
-[offline image builder](p2-t4-selected-service-image.md). It does not install a
-post-ready hook, change the host smoke owner, rebuild an image, expose a port
-or run inference. Tests use mocked transports, including an isolated real
+[offline image builder](p2-t4-selected-service-image.md). The default lifecycle
+is unchanged. This increment does not rebuild an image, expose a port or run
+hardware inference. Tests use mocked transports, including an isolated real
 alarm/HTTP-parser test with a trickling in-memory source and no listening port.
 
 ## Closed interface
@@ -89,32 +89,57 @@ All deployment, hardware-validation, provider-conformance, qualification,
 streaming, tools, reasoning and privacy claims remain false. This is a narrow
 functional smoke, not provider-check Tiers 1-4, a tau result or a quality gate.
 
-## Next reviewed integration
+## Explicit owner integration
 
-The minimal follow-up is an explicit opt-in call in `Supervisor.run`, immediately
-after all three roles are ready, on the same retained engine. It must preserve
-the original deadline, make a failed helper report a sticky lifecycle failure,
-and always run the existing front-first drain/reap. The host receipt join must
-validate the helper report against the approved prepared receipt and require
-both successful inference and confirmed lifecycle cleanup; neither substitutes
-for the other. No existing owner or builder file is changed in this increment.
+The fixed `--inference-smoke` flag on the
+[host smoke owner](../../host/record-selected-service-smoke.py) passes that same
+flag to the existing container entrypoint. `--inspect` with the flag only checks
+preflight; `--run` with the flag is the separately authorized runtime action.
+There is no callback, URL, script, request-body or engine-flag override. The
+container remains network-none with no published port, nonroot, read-only and
+bounded by the original absolute cutoff. No builder code or helper bytes change.
 
-That hook must use the canonical `selected_service_process` module for the real
-owner/prepared classes. The current script entrypoint defines them under
-`__main__`; independently importing the module creates different class objects
-and intentionally fails the helper's exact-type checks. Normalize that script
-entrypoint in the separately reviewed hook, and test the actual isolated CLI
-path with mocked launches, not only imported-class fixtures.
+[`Supervisor.run`](../../scripts/selected_service.py) calls the helper once after
+all three roles are ready, on the same retained engine. It immediately enters
+the existing TLS-first, guard-second, engine-last drain/reap after the helper,
+on success or failure, instead of waiting for the cutoff. The original cleanup
+reserve and all drain/reap deadlines remain. Helper failure, cancellation,
+deadline or cleanup failure cannot become success. Validated usage survives
+later cleanup failure, including snapshot teardown and host inspection failure.
+
+The isolated entrypoint now trampolines into the canonical
+`selected_service_process` module, so exact-type checks see the same owner and
+prepared classes. A regression executes that real `__main__` path in an isolated
+subprocess with mocked launches and TLS transport, including snapshot failure.
+
+Without opt-in, lifecycle and host receipts retain their v1 schemas and existing
+semantics. Opt-in lifecycle and host receipts use v2 and the closed
+`mode: inference-smoke`. The lifecycle's `inference` field is the helper's strict
+report, validated against the prepared hash retained by `Prepared`, or null
+when no source-bound helper report is available. Null never passes. The host
+validates the helper again against the approved build's prepared hash and its
+fixed request-contract hash, rejecting wrong modes, missing/extra fields,
+changed claims, unbound reports and failed helper results on the success path.
+The existing bounded nonzero-exit diagnostic path retains only valid failed
+owner metadata. PASS still requires all lifecycle, container-exit, owned-absence
+and watchdog cleanup joins. Helper PASS alone proves none of them.
+
+Opt-in preparation failures additionally carry a closed `preparation_stage`
+(`contract`, `prepared`, `inputs`, or `owner`) and `preparation_category`. The
+category is an existing validated `service.Rejected` category or fixed
+`internal`; no exception type, text, chain, traceback or private path is emitted.
+The host requires both fields on this minimal v2 failure and rejects them on
+other receipts. Legacy preparation-failure output is byte-for-byte unchanged.
 
 That integrated source needs a new exact prepared receipt, image build,
 independent final-head review and CI before any separately authorized private
 network-none run. Existing images do not acquire this helper or hook implicitly.
-There is no operator inference command in this library-only increment.
+No hardware result is claimed by this integration.
 
 Focused, no-port verification from the repository root:
 
 ```sh
-PYTHONPATH=scripts python3 -B -W error::ResourceWarning -m unittest -q test_selected_service_inference
+PYTHONPATH=scripts python3 -B -W error::ResourceWarning -m unittest -q test_selected_service_hook test_selected_service_inference test_selected_service test_selected_service_smoke
 python3 scripts/check-doc-links.py
 ```
 
