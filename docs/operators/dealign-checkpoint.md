@@ -41,6 +41,13 @@ availability, a GPU restore, runtime execution or model-quality evidence.
 Runtime and confidential flags remain false; later use still requires fresh
 verification.
 
+An independent [October 24 persistent-directory stage](../../evidence/p2/2026-10-24-persistent-selected-stage/README.md)
+verified the same complete selected checkpoint on virtiofs within its original
+90-minute limit. Its filesystem admission and complete-byte proof are distinct
+receipts; neither grants immutability, runtime or confidential qualification.
+The [earlier interrupted ordinary attempt](../../evidence/p2/2026-10-24-ordinary-interrupted/README.md)
+is retained as failed with unconfirmed cleanup, not rewritten by recovery.
+
 Relative to the original pinned `1bae0e1088993b9b82de08f59de5be5a34e42170`:
 
 - The config, tokenizer, tokenizer config, weight index and encoding module
