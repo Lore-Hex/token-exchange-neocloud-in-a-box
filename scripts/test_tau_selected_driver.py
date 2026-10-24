@@ -194,6 +194,18 @@ class SelectedDriverTests(unittest.TestCase):
     def test_unexpected_reap_error_closes_channels_and_propagates(self):
         self.assert_reap_failure_closes_channels(RuntimeError('PRIVATE_ERROR_CANARY'))
 
+    def test_pre_result_system_exit_is_not_replaced_by_finish_failure(self):
+        error = SystemExit(7)
+        process = mock.Mock()
+        process.poll.return_value = process.wait.return_value = 0
+        with mock.patch.object(driver.subprocess, 'Popen', return_value=process), \
+                mock.patch.object(driver.selected.Session, 'serve_once', side_effect=error), \
+                self.assertRaises(SystemExit) as caught:
+            self.run_child()
+        self.assertIs(caught.exception, error)
+        self.assertTrue(all(channel.closed for channel in self.channels.values()))
+        self.assertTrue(all(not channel.sent for channel in self.channels.values()))
+
     def test_bad_exit_after_finished_does_not_publish_reward_or_erase_usage(self):
         result = self.run_child(CHILD + '\nraise SystemExit(9)\n')
         self.assertEqual(result['trial']['status'], 'protocol_error')
