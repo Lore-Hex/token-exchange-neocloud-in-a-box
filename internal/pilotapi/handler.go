@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package pilotapi bounds the non-confidential Qwen integration pilot. It is
+// Package pilotapi bounds non-confidential integration API profiles. It is
 // not part of a confidential release image or an attestation implementation.
 package pilotapi
 
@@ -17,6 +17,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -29,6 +30,10 @@ var apiKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{64,256}$`)
 
 // Catalog requires explicit prices; absent or malformed prices never become free.
 func Catalog(provider ProviderConfig, inputPrice, outputPrice string, retirement time.Time) ([]byte, error) {
+	return qwenProfile().catalog(provider, inputPrice, outputPrice, retirement)
+}
+
+func (p serviceProfile) catalog(provider ProviderConfig, inputPrice, outputPrice string, retirement time.Time) ([]byte, error) {
 	if err := provider.Validate(); err != nil {
 		return nil, err
 	}
@@ -39,6 +44,7 @@ func Catalog(provider ProviderConfig, inputPrice, outputPrice string, retirement
 	if !retirement.IsZero() {
 		retirementAt = retirement.UTC().Format(time.RFC3339)
 	}
+	owner, _, _ := strings.Cut(p.model, "/")
 	return json.Marshal(map[string]any{
 		"object": "list", "contract_version": "2.0",
 		"provider": map[string]any{
@@ -49,8 +55,8 @@ func Catalog(provider ProviderConfig, inputPrice, outputPrice string, retirement
 				"retry_after_header": "Retry-After", "account_quota_error_codes": []string{}},
 		},
 		"data": []any{map[string]any{
-			"id": Model, "object": "model", "owned_by": "qwen", "name": "Qwen3 0.6B (CPU pilot)",
-			"type": "chat", "context_length": ContextLength, "max_output_tokens": MaxOutput,
+			"id": p.model, "object": "model", "owned_by": owner, "name": p.name,
+			"type": "chat", "context_length": p.context, "max_output_tokens": p.maxOutput,
 			"endpoints": []string{"chat/completions"}, "input_modalities": []string{"text"}, "output_modalities": []string{"text"},
 			"capabilities": map[string]bool{"streaming": true, "tools": false, "structured_output": false, "reasoning": false, "prompt_caching": false},
 			"pricing": map[string]any{"currency": "USD", "unit": "per_1m_tokens", "input": inputPrice,
@@ -63,6 +69,7 @@ func Catalog(provider ProviderConfig, inputPrice, outputPrice string, retirement
 }
 
 type Handler struct {
+	profile    serviceProfile
 	key        [32]byte
 	catalog    []byte
 	proxy      *httputil.ReverseProxy
@@ -74,6 +81,16 @@ type Handler struct {
 // New fixes the backend to loopback. Neither requests nor environment variables
 // can supply an alternate destination for provider credentials or prompt bytes.
 func New(provider ProviderConfig, key, inputPrice, outputPrice, retirementAt string) (*Handler, error) {
+	return NewWithProfile(ProfileQwen, provider, key, inputPrice, outputPrice, retirementAt)
+}
+
+// NewWithProfile selects one closed profile at startup. It keeps New's fixed
+// loopback backend and requires the engine to serve the catalog ID unchanged.
+func NewWithProfile(profileName string, provider ProviderConfig, key, inputPrice, outputPrice, retirementAt string) (*Handler, error) {
+	profile, err := profileFor(profileName)
+	if err != nil {
+		return nil, err
+	}
 	if !apiKeyPattern.MatchString(key) {
 		return nil, errors.New("invalid pilot key")
 	}
@@ -81,7 +98,7 @@ func New(provider ProviderConfig, key, inputPrice, outputPrice, retirementAt str
 	if err != nil {
 		return nil, err
 	}
-	catalog, err := Catalog(provider, inputPrice, outputPrice, retirement)
+	catalog, err := profile.catalog(provider, inputPrice, outputPrice, retirement)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +107,7 @@ func New(provider ProviderConfig, key, inputPrice, outputPrice, retirementAt str
 	transport.Proxy = nil
 	transport.DisableKeepAlives = true
 	transport.ResponseHeaderTimeout = 120 * time.Second
-	h := &Handler{key: sha256.Sum256([]byte("Bearer " + key)), catalog: catalog, slots: make(chan struct{}, 2),
+	h := &Handler{profile: profile, key: sha256.Sum256([]byte("Bearer " + key)), catalog: catalog, slots: make(chan struct{}, profile.concurrent),
 		retirement: retirement, now: time.Now}
 	h.proxy = &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
@@ -178,7 +195,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 413, "invalid_request_body")
 		return
 	}
-	body, err = BoundRequest(body)
+	body, err = h.profile.boundRequest(body)
 	if err != nil {
 		writeError(w, 400, "unsupported_pilot_request")
 		return
@@ -202,12 +219,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // BoundRequest serializes the validated object again so duplicate JSON keys
 // cannot mean different things to this guard and the downstream parser.
 func BoundRequest(body []byte) ([]byte, error) {
+	return qwenProfile().boundRequest(body)
+}
+
+func (p serviceProfile) boundRequest(body []byte) ([]byte, error) {
 	var value map[string]json.RawMessage
 	if json.Unmarshal(body, &value) != nil || value == nil {
 		return nil, errors.New("invalid JSON")
 	}
 	var model string
-	if json.Unmarshal(value["model"], &model) != nil || model != Model {
+	if json.Unmarshal(value["model"], &model) != nil || model != p.model {
 		return nil, errors.New("unsupported model")
 	}
 	var messages []struct {
@@ -222,7 +243,7 @@ func BoundRequest(body []byte) ([]byte, error) {
 			return nil, errors.New("unsupported role")
 		}
 	}
-	if err := validateOptions(value); err != nil {
+	if err := validateOptions(value, p.reasoningHints); err != nil {
 		return nil, err
 	}
 	if raw, ok := value["n"]; ok {
@@ -231,11 +252,11 @@ func BoundRequest(body []byte) ([]byte, error) {
 			return nil, errors.New("one completion required")
 		}
 	}
-	limit := MaxOutput
+	limit := p.maxOutput
 	for _, field := range []string{"max_tokens", "max_completion_tokens"} {
 		if raw, ok := value[field]; ok {
 			var n int
-			if bytes.Equal(raw, []byte("null")) || json.Unmarshal(raw, &n) != nil || n < 1 || n > MaxOutput {
+			if bytes.Equal(raw, []byte("null")) || json.Unmarshal(raw, &n) != nil || n < 1 || n > p.maxOutput {
 				return nil, errors.New("invalid output limit")
 			}
 			if n < limit {
@@ -250,7 +271,7 @@ func BoundRequest(body []byte) ([]byte, error) {
 
 // The engine also accepts native sampling, grammar and template controls. Only
 // this small, bounded OpenAI subset may cross the public pilot boundary.
-func validateOptions(value map[string]json.RawMessage) error {
+func validateOptions(value map[string]json.RawMessage, reasoningHints bool) error {
 	invalid := errors.New("unsupported pilot option")
 	for field, raw := range value {
 		if bytes.Equal(raw, []byte("null")) {
@@ -317,6 +338,9 @@ func validateOptions(value map[string]json.RawMessage) error {
 				}
 			}
 		case "thinking", "reasoning", "reasoning_effort":
+			if !reasoningHints {
+				return invalid
+			}
 			// Compatibility probes may send these non-thinking hints. Never pass
 			// native reasoning budgets or template overrides into the engine.
 			var hint string
