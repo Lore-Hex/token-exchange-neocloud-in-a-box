@@ -37,12 +37,26 @@ def serve(raw, owned, processes, producer, image_sha, deadline, *, read_fd=0, wr
     """Only called inside the parity worker which owns both runtime processes."""
     require(type(owned) in (list, tuple) and type(processes) in (list, tuple)
             and len(owned) == len(processes) == 2)
-    session.accept(raw, producer, image_sha, deadline)
+    # The source-verified worker has no Git repository. These originals were
+    # just produced here; the host independently performs session.accept's
+    # committed-source provenance checks before forwarding any request.
+    require(type(raw) is bytes and 0 < len(raw) <= 32768)
     packet = worker.decode(raw)
+    session.identity.keys(packet, ("schema", "producer", "image_sha256", "expires_unix", "receipts"))
+    session.identity.keys(packet["receipts"], session.FILES)
+    require(packet["schema"] == "nib.tau-cpu-pair-ready/v1" and session.probes.encoded(packet) == raw
+            and packet["producer"] == producer and packet["image_sha256"] == image_sha
+            and type(packet["expires_unix"]) is int
+            and 0 < packet["expires_unix"] - time.time() <= cpu.TOTAL_SECONDS)
     for role, endpoint, process in zip(session.ROLES, owned, processes):
-        runtime = worker.decode(packet["receipts"][role + "-runtime.json"].encode("ascii"))
+        original = packet["receipts"][role + "-runtime.json"].encode("ascii")
+        runtime = worker.decode(original)
+        tokenizer = worker.decode(packet["receipts"][role + "-tokenizer.json"].encode("ascii"))
         require(type(endpoint) is owners.identity.Endpoint and isinstance(process, subprocess.Popen)
                 and process.poll() is None and endpoint.expected["pid"] == process.pid
+                and runtime["producer"] == tokenizer["producer"] == producer
+                and runtime["serving"]["image_sha256"] == image_sha
+                and tokenizer["runtime_receipt_sha256"] == tau.digest(original)
                 and runtime["process"] == endpoint.expected
                 and runtime["endpoint"] == {"host": "127.0.0.1", "port": endpoint.port})
         endpoint.check(deadline)
@@ -53,6 +67,7 @@ def serve(raw, owned, processes, producer, image_sha, deadline, *, read_fd=0, wr
     require(until > time.monotonic())
     clients = {role: cpu.MeasuredClient(endpoint.port, admitted["roles"][role]["model"], endpoint)
                for role, endpoint in zip(session.ROLES, owned)}
+    blocking = {fd: os.get_blocking(fd) for fd in (read_fd, write_fd)}
     channel = owners.transport.Channel(os.dup(read_fd), os.dup(write_fd))
     owner = None
     try:
@@ -73,6 +88,8 @@ def serve(raw, owned, processes, producer, image_sha, deadline, *, read_fd=0, wr
         channel.close()
         if owner is not None:
             owner.close()
+        for fd, original in blocking.items():
+            os.set_blocking(fd, original)
 
 
 def relay(process, raw, deadline, *, read_fd=0, write_fd=1):

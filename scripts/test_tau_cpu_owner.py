@@ -119,7 +119,7 @@ class CPUOwnerTests(unittest.TestCase):
                 thread = threading.Thread(target=control, daemon=True)
                 thread.start()
                 try:
-                    with mock.patch.object(session.identity, "source_receipt"), \
+                    with mock.patch.object(session, "accept", side_effect=AssertionError("host Git unavailable")), \
                             mock.patch.object(rpc.identity.Endpoint, "check") as check, \
                             mock.patch.object(adapter.cpu, "MeasuredClient", Measured):
                         result = adapter.serve(raw, endpoints, processes, fixtures.PRODUCER, fixtures.IMAGE,
@@ -132,6 +132,8 @@ class CPUOwnerTests(unittest.TestCase):
                 self.assertEqual(result, {"status": "evaluated", "completed_requests": 2})
                 self.assertEqual(observed, [session.READY + raw + b"\n", result])
                 self.assertTrue(all(p.poll() is None for p in processes))
+                self.assertTrue(os.get_blocking(rd))
+                self.assertTrue(os.get_blocking(out_wr))
         finally:
             for process in processes:
                 stop(process)
