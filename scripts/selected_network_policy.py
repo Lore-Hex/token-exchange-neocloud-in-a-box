@@ -46,6 +46,47 @@ def ct(key, **fields):
     return {"ct": {"key": key, **fields}}
 
 
+def verify_objects(raw, table, nft_version, expected):
+    """Compare owned objects without normalizing any actual expressions."""
+    value = decode(raw)
+    require(type(value) is dict and set(value) == {"nftables"} and type(value["nftables"]) is list)
+    actual, versions = [], 0
+    for row in value["nftables"]:
+        require(type(row) is dict and len(row) == 1)
+        kind, body = next(iter(row.items()))
+        require(type(body) is dict and kind != "flowtable")
+        if kind == "metainfo":
+            require(type(body.get("json_schema_version")) is int and body == {
+                "version": nft_version, "release_name": NFT_RELEASES[nft_version],
+                "json_schema_version": 1})
+            versions += 1
+            continue
+        if body.get("name" if kind == "table" else "table") != table:
+            continue
+        require(kind in ("table", "chain", "rule"))
+        actual.append({kind: {key: item for key, item in body.items() if key != "handle"}})
+    def grouped(rows):
+        groups = {}
+        for row in rows:
+            kind, body = next(iter(row.items()))
+            require(type(body.get("family")) is str)
+            key = (kind, body["family"], body.get("chain", body.get("name", "")))
+            # Preserve JSON scalar types too: 6.0 is not the pinned TCP integer.
+            groups.setdefault(key, []).append(encoded(row))
+        return groups
+    require(versions == 1 and grouped(actual) == grouped(expected))
+
+
+def create_batch(objects):
+    return encoded({"nftables": [{"create" if "table" in row else "add": row} for row in objects]})
+
+
+def remove_tables(table, *, containers_absent, creations_resolved):
+    require(containers_absent is True and creations_resolved is True)
+    return encoded({"nftables": [{"delete": {"table": {"family": family, "name": table}}}
+                                 for family in ("bridge", "inet")]})
+
+
 @dataclass(frozen=True)
 class Policy:
     token: str
@@ -130,8 +171,7 @@ class Policy:
         return objects
 
     def batch(self):
-        return encoded({"nftables": [{"create" if "table" in row else "add": row}
-                                      for row in self.objects()]})
+        return create_batch(self.objects())
 
     def readback_args(self):
         numeric = ["--numeric-protocol"] if self.nft_version == "1.1.6" else []
@@ -139,38 +179,74 @@ class Policy:
 
     def verify(self, raw):
         """Compare owned objects, ignoring only allocated handles and enumeration."""
-        value = decode(raw)
-        require(type(value) is dict and set(value) == {"nftables"} and type(value["nftables"]) is list)
-        actual, versions = [], 0
-        for row in value["nftables"]:
-            require(type(row) is dict and len(row) == 1)
-            kind, body = next(iter(row.items()))
-            require(type(body) is dict and kind != "flowtable")
-            if kind == "metainfo":
-                require(type(body.get("json_schema_version")) is int and body == {
-                    "version": self.nft_version, "release_name": NFT_RELEASES[self.nft_version],
-                    "json_schema_version": 1})
-                versions += 1
-                continue
-            if body.get("name" if kind == "table" else "table") != self.table:
-                continue
-            require(kind in ("table", "chain", "rule"))
-            actual.append({kind: {key: item for key, item in body.items() if key != "handle"}})
-        def grouped(rows):
-            groups = {}
-            for row in rows:
-                kind, body = next(iter(row.items()))
-                require(type(body.get("family")) is str)
-                key = (kind, body["family"], body.get("chain", body.get("name", "")))
-                # Preserve JSON scalar types too: 6.0 is not the pinned TCP integer.
-                groups.setdefault(key, []).append(encoded(row))
-            return groups
-        require(versions == 1 and grouped(actual) == grouped(self.objects(canonical=True)))
+        verify_objects(raw, self.table, self.nft_version, self.objects(canonical=True))
 
     def remove_batch(self, *, containers_absent, creations_resolved):
-        require(containers_absent is True and creations_resolved is True)
-        return encoded({"nftables": [{"delete": {"table": {"family": family, "name": self.table}}}
-                                     for family in ("bridge", "inet")]})
+        return remove_tables(self.table, containers_absent=containers_absent,
+                             creations_resolved=creations_resolved)
+
+
+@dataclass(frozen=True)
+class Quarantine:
+    """Independent drop-only tables, not an assertion that installation occurred."""
+    policy: Policy
+
+    def __post_init__(self):
+        require(type(self.policy) is Policy)
+
+    @property
+    def table(self):
+        return "nib_quarantine_" + self.policy.token
+
+    def objects(self, *, canonical=False):
+        source, table, objects = self.policy, self.table, []
+        def chain(family, name, hook, priority):
+            objects.append({"chain": {"family": family, "table": table, "name": name,
+                "type": "filter", "hook": hook, "prio": priority, "policy": "accept"}})
+        def drop(family, name, expressions):
+            objects.append({"rule": {"family": family, "table": table, "chain": name,
+                "expr": expressions + [{"drop": None}]}})
+        tcp4 = [match(meta("nfproto"), "ipv4"), match(meta("l4proto"), "tcp")]
+        payload_tcp4 = [] if canonical else tcp4
+        tuple_tcp4 = [match(meta("l4proto"), 6)] if canonical and source.nft_version == "1.1.6" else tcp4
+        published = payload_tcp4 + [match(payload("ip", "daddr"), source.published),
+                                   match(payload("tcp", "dport"), source.port)]
+        # The original tuple also closes a redirected publication when DNAT or
+        # the serving policy has drifted. No state/direction permits replies.
+        original = tuple_tcp4 + [match(ct("ip daddr", dir="original"), source.published),
+                                match(ct("proto-dst", dir="original"), source.port)]
+        objects.append({"table": {"family": "inet", "name": table}})
+        for name, interfaces in (("input", ("iifname",)), ("forward", ("iifname", "oifname")),
+                                 ("output", ("oifname",))):
+            chain("inet", name, name, -10)
+            for interface in interfaces:
+                drop("inet", name, [match(meta(interface), source.bridge)])
+            if name != "forward":
+                drop("inet", name, published)
+            drop("inet", name, original)
+        objects.append({"table": {"family": "bridge", "name": table}})
+        chain("bridge", "peers", "forward", -210)
+        for interface in ("ibrname", "obrname"):
+            drop("bridge", "peers", [match(meta(interface), source.bridge)])
+        return objects
+
+    def batch(self):
+        # Never flush, replace or rely on the serving tables being present.
+        return create_batch(self.objects())
+
+    def readback_args(self):
+        return self.policy.readback_args()
+
+    def verify(self, raw, *, install_exit_code, readback_exit_code):
+        """Verify apply/readback, not workload confinement; no cached success."""
+        require(type(install_exit_code) is int and install_exit_code == 0
+                and type(readback_exit_code) is int and readback_exit_code == 0)
+        verify_objects(raw, self.table, self.policy.nft_version, self.objects(canonical=True))
+
+    def remove_batch(self, *, containers_absent, networks_absent, creations_resolved):
+        require(networks_absent is True)
+        return remove_tables(self.table, containers_absent=containers_absent,
+                             creations_resolved=creations_resolved)
 
 
 def check_dns(info):
