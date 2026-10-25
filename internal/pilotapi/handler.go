@@ -223,6 +223,9 @@ func BoundRequest(body []byte) ([]byte, error) {
 }
 
 func (p serviceProfile) boundRequest(body []byte) ([]byte, error) {
+	if p.nativeTools && (len(body) > 65536 || !toolJSON(body)) {
+		return nil, errSelectedTools
+	}
 	var value map[string]json.RawMessage
 	if json.Unmarshal(body, &value) != nil || value == nil {
 		return nil, errors.New("invalid JSON")
@@ -231,16 +234,22 @@ func (p serviceProfile) boundRequest(body []byte) ([]byte, error) {
 	if json.Unmarshal(value["model"], &model) != nil || model != p.model {
 		return nil, errors.New("unsupported model")
 	}
-	var messages []struct {
-		Role    string `json:"role"`
-		Content string `json:"content"`
-	}
-	if json.Unmarshal(value["messages"], &messages) != nil || len(messages) == 0 || len(messages) > 128 {
-		return nil, errors.New("text messages required")
-	}
-	for _, message := range messages {
-		if message.Role != "system" && message.Role != "user" && message.Role != "assistant" {
-			return nil, errors.New("unsupported role")
+	if p.nativeTools {
+		if err := validateSelectedTools(value); err != nil {
+			return nil, err
+		}
+	} else {
+		var messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		}
+		if json.Unmarshal(value["messages"], &messages) != nil || len(messages) == 0 || len(messages) > 128 {
+			return nil, errors.New("text messages required")
+		}
+		for _, message := range messages {
+			if message.Role != "system" && message.Role != "user" && message.Role != "assistant" {
+				return nil, errors.New("unsupported role")
+			}
 		}
 	}
 	if p.nativeReasoning {
@@ -248,7 +257,7 @@ func (p serviceProfile) boundRequest(body []byte) ([]byte, error) {
 			return nil, err
 		}
 	}
-	if err := validateOptions(value, p.reasoningHints, p.nativeReasoning); err != nil {
+	if err := validateOptions(value, p.reasoningHints, p.nativeReasoning, p.nativeTools); err != nil {
 		return nil, err
 	}
 	if raw, ok := value["n"]; ok {
@@ -276,7 +285,7 @@ func (p serviceProfile) boundRequest(body []byte) ([]byte, error) {
 
 // The engine also accepts native sampling, grammar and template controls. Only
 // this small, bounded OpenAI subset may cross the public pilot boundary.
-func validateOptions(value map[string]json.RawMessage, reasoningHints, nativeReasoning bool) error {
+func validateOptions(value map[string]json.RawMessage, reasoningHints, nativeReasoning, nativeTools bool) error {
 	invalid := errors.New("unsupported pilot option")
 	for field, raw := range value {
 		if bytes.Equal(raw, []byte("null")) {
@@ -286,6 +295,9 @@ func validateOptions(value map[string]json.RawMessage, reasoningHints, nativeRea
 		case "model", "max_tokens", "max_completion_tokens", "n":
 			// Validated by BoundRequest.
 		case "messages":
+			if nativeTools {
+				continue // Exact fields, text and tool history were validated together.
+			}
 			var messages []map[string]json.RawMessage
 			if json.Unmarshal(raw, &messages) != nil {
 				return invalid
@@ -294,6 +306,10 @@ func validateOptions(value map[string]json.RawMessage, reasoningHints, nativeRea
 				if len(message) != 2 || message["role"] == nil || message["content"] == nil || bytes.Equal(message["content"], []byte("null")) {
 					return invalid
 				}
+			}
+		case "tools", "tool_choice", "parallel_tool_calls":
+			if !nativeTools {
+				return invalid
 			}
 		case "stream":
 			var enabled bool
