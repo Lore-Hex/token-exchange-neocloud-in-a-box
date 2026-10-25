@@ -25,7 +25,7 @@ BUILDER = "scripts/prepare-engine-application.py"
 BOOTSTRAP_FILE = "scripts/engine_python_bootstrap.py"
 SMOKE = "scripts/engine_import_smoke.py"
 TESTS = ("scripts/test_engine_python_bootstrap.py", "scripts/test_engine_import_smoke.py", "scripts/test_engine_callsite.py")
-BUILDER_SHA = "09a9b2b15e269285422a4e8aae1ddb1b1cb311415c07c146cdfcc6a5094a3792"
+BUILDER_SHA = "68147e708cef42d70bf7634581891b04dd67c3311d2a718d31955f66dc80931e"
 BOOTSTRAP_SHA = "4287c42d3d34f42a2e89901600c11c2fe20669f3bb6b5b120f2671b992a5df92"
 SMOKE_SHA = "57b7fa12bc7cb972ca0f17a251aa424d9f164e3b43082b38fe6b9d239c010307"
 
@@ -206,7 +206,7 @@ def run_container(payload, contract, config, env, execute=recorder.snapshot.exec
         runtime_complete = True
         report.update(experiment=result, smoke_pass=smoke_pass,
                       stage="smoke-complete" if smoke_pass else "smoke-rejected")
-    except (OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError):
+    except (recorder.Cancelled, OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError):
         report["failure"] = "bounded-experiment-stage-failed"
     finally:
         if create_started:
@@ -218,12 +218,15 @@ def run_container(payload, contract, config, env, execute=recorder.snapshot.exec
                     recorder.call(["docker", "container", "rm", "--force", name], env, execute=execute)
                 if not recorder.call(absent, env, execute=execute).strip():
                     report["cleanup"] = "confirmed"
-            except (OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError):
+            except (recorder.Cancelled, OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError):
                 pass
             if not create_complete or (runtime_started and not runtime_complete):
                 report["cleanup"] = "completion-unknown"
             if report["cleanup"] != "confirmed":
                 report.update(smoke_pass=False, failure="cleanup-unresolved")
+        if recorder.CANCELLED:
+            report["smoke_pass"] = False
+            report.setdefault("failure", "bounded-experiment-stage-failed")
     return report
 
 
@@ -281,7 +284,7 @@ def main():
             (directory / "python").chmod(0o500)
             overlay.require({name: read_source(directory / name) for name in payload} == payload)
             report = run_container(directory, contract, config, env)
-        except (OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError):
+        except (recorder.Cancelled, OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError):
             report["failure"] = "preflight-failed"
         report["provenance"] = {"git_sha": revision, "source_bundle_sha256": contract["source_bundle_sha256"],
             "payload_sha256": overlay.bundle_digest(payload), "validator_source_sha256": validator_sha,
@@ -296,5 +299,5 @@ def main():
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except Exception:
+    except (Exception, recorder.Cancelled):
         sys.exit("Smoke operation failed; no successful evidence or runtime qualification may be inferred.")

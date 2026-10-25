@@ -251,10 +251,12 @@ class WeightViewTests(unittest.TestCase):
                 "relative_path": "model"}).encode()
             capture = mock.Mock(return_value=packet) if success else mock.Mock(side_effect=InterruptedError)
             old = {number: signal.getsignal(number) for number in (signal.SIGINT, signal.SIGTERM)}
+            flags = types.SimpleNamespace(**({name: getattr(view.sys.flags, name) for name in dir(view.sys.flags)
+                if type(getattr(view.sys.flags, name)) is int} | {"isolated": True, "no_site": True}))
             with mock.patch.object(view, "cache_helper", return_value=cache), \
                     mock.patch.object(cache, "load_capture", return_value=capture), \
                     mock.patch.object(view.sys, "platform", "linux"), \
-                    mock.patch.object(view.sys, "flags", types.SimpleNamespace(isolated=True, no_site=True)), \
+                    mock.patch.object(view.sys, "flags", flags), \
                     mock.patch.object(view.sys, "dont_write_bytecode", True), \
                     mock.patch.object(cache, "directory", wraps=cache.directory) as directory:
                 # Keep the real OS ownership check for the non-root test user.

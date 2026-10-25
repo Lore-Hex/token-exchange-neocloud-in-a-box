@@ -28,6 +28,10 @@ require = owner.require
 BUDGET = 240
 
 
+class Cancelled(BaseException):
+    """Stop before further cleanup commands, not a selector EINTR retry."""
+
+
 class Commands(network.Commands):
     def __init__(self, recorder, journal, end):
         super().__init__(recorder, host.environment(), journal.contract["hard_wall"],
@@ -194,6 +198,7 @@ def main(argv=None):
     result = report()
     end = time.monotonic() + BUDGET
     handlers = {}
+    cancelled, restoring = False, False
     try:
         parser = smoke.QuietParser(description=__doc__, allow_abbrev=False)
         parser.add_argument("--cleanup-only", action="store_true", required=True)
@@ -201,7 +206,11 @@ def main(argv=None):
         parser.add_argument("--hard-stop-at", required=True)
         args = parser.parse_args(argv)
         def cancel(*_):
-            raise InterruptedError("selected recovery cancelled")
+            nonlocal cancelled
+            if not cancelled:
+                cancelled = True
+                if not restoring:
+                    raise Cancelled("selected recovery cancelled")
         for sig in (signal.SIGINT, signal.SIGTERM):
             handlers[sig] = signal.getsignal(sig)
             signal.signal(sig, cancel)
@@ -209,6 +218,7 @@ def main(argv=None):
     except BaseException:
         pass
     finally:
+        restoring = True
         for sig, handler in handlers.items():
             signal.signal(sig, handler)
     print(json.dumps(result, sort_keys=True, allow_nan=False))

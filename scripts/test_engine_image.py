@@ -1333,7 +1333,7 @@ class ImageTests(unittest.TestCase):
 
     def test_repeat_cancellation_allows_bounded_cleanup(self):
         with mock.patch.object(recorder, "CANCELLED", False):
-            with self.assertRaises(InterruptedError):
+            with self.assertRaises(recorder.Cancelled):
                 recorder.cancel(None, None)
             recorder.cancel(None, None)
 

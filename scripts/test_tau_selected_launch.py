@@ -393,7 +393,7 @@ class SelectedLaunchTests(unittest.TestCase):
         # Actual outer cancellation/report logic with a blocked fake attach and
         # an owned-container Docker fixture, never a real daemon or GPU.
         script = textwrap.dedent("""
-            import json, signal, sys, time, types
+            import json, os, selectors, signal, sys, time, types
             from pathlib import Path
             from unittest import mock
             path, output, ignore_int, cleanup_fails = sys.argv[1:]
@@ -403,16 +403,33 @@ class SelectedLaunchTests(unittest.TestCase):
             identifier, owner = 'a' * 64, 'b' * 32
             info = {'Id': identifier, 'Config': {'Labels': {host.LABEL: owner}},
                     'State': {'Status': 'created', 'ExitCode': 0, 'OOMKilled': False}}
-            signals, calls = [], []
+            signals, calls, escaped = [], [], []
             def cancel(number, frame):
+                assert frame.f_code.co_filename == selectors.__file__ and frame.f_code.co_name == 'select'
                 signals.append(number)
                 host.cancel(number, frame)
             signal.signal(signal.SIGTERM, cancel)
             signal.signal(signal.SIGINT, signal.SIG_IGN if ignore_int == 'True' else cancel)
             def capture(*args):
-                print('fixture-startup', flush=True)
-                time.sleep(120)  # No READY and no stdin reader during startup.
-                raise AssertionError('startup was not cancelled')
+                reader, writer = os.pipe()
+                def blocked(_number, frame):
+                    assert frame.f_code.co_filename == selectors.__file__ and frame.f_code.co_name == 'select'
+                    print('fixture-startup', flush=True)
+                previous = signal.signal(signal.SIGALRM, blocked)
+                try:
+                    with selectors.DefaultSelector() as selector:
+                        selector.register(reader, selectors.EVENT_READ)
+                        signal.setitimer(signal.ITIMER_REAL, .05)
+                        selector.select(120)  # No READY or stdin reader during startup.
+                    raise AssertionError('startup selector swallowed cancellation')
+                except host.Cancelled:
+                    escaped.append(True)
+                    raise
+                finally:
+                    signal.setitimer(signal.ITIMER_REAL, 0)
+                    signal.signal(signal.SIGALRM, previous)
+                    os.close(reader)
+                    os.close(writer)
             owner_module = types.SimpleNamespace(worker=types.SimpleNamespace(Abort=type('Abort', (BaseException,), {})),
                                                 capture=capture)
             replies = iter((b'', identifier.encode(), identifier.encode(), b'',
@@ -435,6 +452,7 @@ class SelectedLaunchTests(unittest.TestCase):
                 report = host.run_container('/unused', 'a' * 64, '/unused', time.time() + 120,
                                             recorder, {'base_image': 'fixed'}, {}, {'DOCKER_HOST': 'unix:///unused'})
             assert monitor.wait.call_count == 1
+            assert escaped == [True]
             Path(output).write_text(json.dumps({'report': report, 'signals': signals, 'calls': calls}))
             sys.stdout.write('x' * 60000)  # Final output must be drained, not retained.
             sys.stdout.flush()

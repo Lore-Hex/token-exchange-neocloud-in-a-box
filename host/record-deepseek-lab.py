@@ -26,7 +26,7 @@ import uuid
 ROOT = Path(__file__).absolute().parent.parent
 SCRIPT = "host/record-deepseek-lab.py"
 BUILDER = "scripts/prepare-engine-application.py"
-BUILDER_SHA = "09a9b2b15e269285422a4e8aae1ddb1b1cb311415c07c146cdfcc6a5094a3792"
+BUILDER_SHA = "68147e708cef42d70bf7634581891b04dd67c3311d2a718d31955f66dc80931e"
 HELPER = "scripts/engine_python_bootstrap.py"
 RUNTIME = "scripts/engine_lab.py"
 LAB_BOOTSTRAP = "scripts/engine_lab_bootstrap.py"
@@ -56,6 +56,10 @@ WATCHDOG_SETTLE_SECONDS = 40
 LABEL = "nib.deepseek-lab"
 CANCELLED = False
 CLEANING = False
+
+
+class Cancelled(BaseException):
+    """Cancellation must escape selector EINTR handling into owned cleanup."""
 
 
 def require(value):
@@ -815,7 +819,7 @@ def run_container(bundle, sha, weights, deadline, recorder, contract, config, en
         terminal = True
         report.update(experiment=experiment, functional_pass=experiment["functional_pass"],
                       stage="completed", experiment_step="completed")
-    except (Exception, *owner_errors):
+    except (Exception, Cancelled, *owner_errors):
         report["failure"] = "bounded-lab-stage-failed"
     finally:
         CLEANING = True
@@ -850,6 +854,9 @@ def run_container(bundle, sha, weights, deadline, recorder, contract, config, en
             report["functional_pass"] = False
         if started and not terminal:
             report["functional_pass"] = False
+        if CANCELLED:
+            report["functional_pass"] = False
+            report["failure"] = "bounded-lab-stage-failed"
     return report
 
 
@@ -1053,7 +1060,7 @@ def cancel(*_):
     was_cancelled = CANCELLED
     CANCELLED = True
     if not was_cancelled and not CLEANING:
-        raise InterruptedError("lab cancelled")
+        raise Cancelled("lab cancelled")
 
 
 def main():
@@ -1234,5 +1241,5 @@ def main():
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except Exception:
+    except (Exception, Cancelled):
         sys.exit("Lab operation rejected; no successful qualification may be inferred.")

@@ -40,9 +40,13 @@ SECONDS = 60
 HOST_RESERVE = 180
 CLIENT_REAP = 25
 LABEL = "nib.selected-service-smoke"
-CACHE_SHA = "30f8a0ef0fa2fcb88d6d6a63ac636cf518593ef240b74e67cd98e38e83aeca70"
+CACHE_SHA = "9390b3124d523f91fe80e5340658c4163f5047ff396bb7cf7de8c043ce683d0a"
 TMPFS = {"/cache": "rw,nosuid,nodev,exec,size=16g,mode=0700,uid=65532,gid=65532",
          "/tmp": "rw,nosuid,nodev,noexec,size=256m,mode=1777"}
+
+
+class Cancelled(BaseException):
+    """Escape selector EINTR handling while preserving the failure envelope."""
 
 
 def host_recorder():
@@ -705,7 +709,7 @@ def main(argv=None):
             nonlocal cancelled
             if not cancelled:
                 cancelled = True
-                raise InterruptedError("selected smoke cancelled")
+                raise Cancelled("selected smoke cancelled")
         handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
         try:
             for sig in handlers:
