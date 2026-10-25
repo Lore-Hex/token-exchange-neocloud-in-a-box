@@ -77,6 +77,8 @@ class Commands(FakeCommands):
                 raise KeyboardInterrupt("PRIVATE_CANARY")
             self.container = self.fixture.container(argv)
             selected = self.journal.network
+            self.container["Config"]["Labels"] = {**self.fixture.image["Config"].get("Labels", {}),
+                                                  owner.smoke.LABEL: selected.policy.token}
             self.container["Config"]["ExposedPorts"] = {"8443/tcp": {}}
             self.container["HostConfig"].update(NetworkMode=self.info["Id"], Dns=["127.0.0.1"],
                 PortBindings={"8443/tcp": [{"HostIp": selected.policy.published, "HostPort": str(selected.policy.port)}]})
@@ -134,6 +136,8 @@ class Fixture:
     def setUp(self):
         self.fixture = smoke_tests.SmokeTests("test_build_hash_source_join_and_closed_claims")
         self.fixture.setUp()
+        self.fixture.image["Config"]["Labels"] = {"org.opencontainers.image.source": "https://example.invalid/source",
+                                                 "maintainer": "synthetic image maintainer"}
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
@@ -152,6 +156,7 @@ class Fixture:
             self.fixture.args.weights, "/private/stage", self.fixture.args, self.fixture.args.hard_stop_at)
         self.runtime = {"command": self.command, "network_id": identifier,
             "image_id": self.fixture.build["image_id"], "entrypoint": self.fixture.image["Config"]["Entrypoint"],
+            "image_labels": owner.image_labels(self.fixture.image["Config"]["Labels"]),
             "weights": self.fixture.args.weights, "inputs": "/private/stage"}
         self.contract = {"schema": "nib.selected-service-owner-intent/v1", "network": asdict(self.selected),
             "wall": self.journal.contract["hard_wall"], "monotonic": self.journal.contract["hard_monotonic"]}
@@ -170,10 +175,30 @@ class ContractTests(Fixture, unittest.TestCase):
             "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d")
         base = {"Config": json.loads(raw)["config"]}
         self.assertEqual(len(base["Config"]["Env"]), 25)
-        return {**self.runtime, "command": owner.container_command(self.selected,
+        return {**self.runtime, "image_labels": owner.image_labels(base["Config"]["Labels"]),
+            "command": owner.container_command(self.selected,
             self.runtime["network_id"], self.fixture.build, base,
             self.runtime["weights"], self.runtime["inputs"], self.fixture.args,
             self.fixture.args.hard_stop_at)}
+
+    def test_image_labels_are_bounded_copied_and_cannot_claim_ownership(self):
+        self.assertEqual(owner.image_labels(None), {})
+        labels = {"source": "public", "empty": ""}
+        self.assertEqual(owner.image_labels(labels), labels)
+        self.assertIsNot(owner.image_labels(labels), labels)
+        for value in ([], "text", {owner.smoke.LABEL: "a" * 32}, {"": "value"},
+                      {"x" * 257: "value"}, {"key": "x" * 1025}, {"key": None},
+                      {"key": "nul\0value"}, {"nul\0key": "value"},
+                      {str(i): "value" for i in range(65)}):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                owner.image_labels(value)
+
+    def test_runtime_requires_valid_image_labels(self):
+        for index, value in enumerate((None, [], {owner.smoke.LABEL: "a" * 32})):
+            root = self.root / ("bad-labels-" + str(index))
+            root.mkdir(mode=0o700)
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                owner.State(root).initialize(self.contract, {**self.runtime, "image_labels": value})
 
     def test_pinned_image_runtime_round_trips_above_old_limit(self):
         runtime = self.pinned_runtime()
@@ -277,6 +302,19 @@ class ContractTests(Fixture, unittest.TestCase):
             with self.subTest(endpoint=field), self.assertRaises(ValueError):
                 row = copy.deepcopy(original)
                 row["NetworkSettings"]["Networks"][self.selected.name][field] = value
+                owner.check_container(row, identifier, self.selected, self.runtime)
+
+    def test_inherited_labels_and_owner_label_are_exact(self):
+        identifier = self.owned.create()
+        original = copy.deepcopy(self.commands.container)
+        expected = {**self.runtime["image_labels"], owner.smoke.LABEL: self.selected.policy.token}
+        self.assertEqual(original["Config"]["Labels"], expected)
+        for labels in ({owner.smoke.LABEL: self.selected.policy.token}, self.runtime["image_labels"],
+                       {**expected, "maintainer": "changed"}, {**expected, "extra": "PRIVATE_CANARY"},
+                       {**expected, owner.smoke.LABEL: "b" * 32}, None):
+            with self.subTest(labels=labels), self.assertRaises((ValueError, AttributeError)):
+                row = copy.deepcopy(original)
+                row["Config"]["Labels"] = labels
                 owner.check_container(row, identifier, self.selected, self.runtime)
 
     def test_foreign_endpoint_duplicate_network_and_missing_policy_block_serving(self):
