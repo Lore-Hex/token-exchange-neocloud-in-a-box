@@ -81,6 +81,10 @@ A subsequent [private native tool smoke](evidence/p2/2026-10-25-selected-tool-pa
 passed one fixed tool call and its continuation through owned TLS, with actual
 usage and confirmed cleanup. No retries were used; this is not general tool
 reliability, full tau evaluation, public serving or a capability/privacy claim.
+An [external pinned-TLS smoke](evidence/p2/2026-10-25-selected-external-smoke/README.md)
+subsequently passed health, missing/wrong API-key rejection and one authenticated
+stream with 36 input and 13 output tokens. It proves a bounded external API path,
+not sustained availability, the owner's terminal cleanup or confidential inference.
 A separate [closed-NAT CPU experiment](evidence/p2/2026-10-25-selected-nat-pass/README.md)
 passed all 15 baseline controls, allowed only the two TLS paths after protection,
 blocked 13 other paths including DNS relays, and confirmed cleanup. The same
