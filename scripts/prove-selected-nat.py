@@ -179,18 +179,20 @@ class Commands:
         self.run(["nft", "--check", "--json", "--file", "-"], data=data)
         if report is not None:
             report["policy_step"] = "apply"
-        self.run(["nft", "--json", "--file", "-"], data=data)
+        return self.run(["nft", "--json", "--file", "-"], data=data)
 
     def rules(self):
         return self.run(self.readback_argv).stdout
 
 
-def namespace_command(work, archive, host_net, host_mount, deadline, venue=LEGACY_VENUE):
+def namespace_command(work, archive, host_net, host_mount, deadline, venue=LEGACY_VENUE, *, quarantine=False):
+    require(type(quarantine) is bool)
     return ["unshare", "--mount", "--net", "--pid", "--fork", "--mount-proc=/proc",
         "--propagation", "private", "--kill-child=KILL", "--", sys.executable, "-I", "-S", "-B",
         str(work / "scripts/prove-selected-nat.py"), "--inner", str(work), "--archive", str(archive),
         "--host-net", str(host_net), "--host-mount", str(host_mount), "--deadline", str(deadline),
-        *([] if venue == LEGACY_VENUE else ["--venue-profile", venue])]
+        *([] if venue == LEGACY_VENUE else ["--venue-profile", venue]),
+        *(["--quarantine"] if quarantine else [])]
 
 
 def check_namespace(host_net, host_mount):
@@ -357,17 +359,39 @@ def check_sinks(commands, server):
             require(query(commands, name, address, 8450) is True)
 
 
-def check_observations(observed, protected):
+def check_observations(observed, protected, *, quarantined=False):
     names = {"tls_host", "tls_forward", "host_engine", "host_guard", "host_ipv6_tls",
              "to_host4", "to_host6", "to_peer4", "to_peer6", "forward4", "forward6",
              "dns_udp", "dns_tcp", "host_dns_udp", "host_dns_tcp"}
     require(type(observed) is dict and set(observed) == names)
-    require(all(value is (not protected or name in ("tls_host", "tls_forward"))
+    require(all(value is (not quarantined and (not protected or name in ("tls_host", "tls_forward")))
                 for name, value in observed.items()))
 
 
-def owned_cleanup(commands, token, network_policy, creation_unknown, installed):
+def quarantine_readback(commands, quarantine, install_exit):
+    result = commands.run(quarantine.readback_args())
+    quarantine.verify(result.stdout, install_exit_code=install_exit, readback_exit_code=result.returncode)
+    return result.stdout
+
+
+def withdraw_serving_in_namespace(commands, args, quarantine, install_exit):
+    """Proof-only destruction of serving rules, never a production removal API."""
+    check_namespace(args.host_net, args.host_mount)
+    require(args.quarantine is True and commands.end == args.deadline and not commands.cleaning)
+    raw = quarantine_readback(commands, quarantine, install_exit)
+    quarantine.policy.verify(raw)
+    # Both exact owned tables exist and independent quarantine is freshly verified.
+    # Do not falsely assert resource absence to Policy.remove_batch().
+    commands.nft(encoded({"nftables": [{"delete": {"table": {
+        "family": family, "name": quarantine.policy.table}}} for family in ("bridge", "inet")]}))
+    raw = quarantine_readback(commands, quarantine, install_exit)
+    policy.verify_objects(raw, quarantine.policy.table, quarantine.policy.nft_version, [])
+
+
+def owned_cleanup(commands, token, network_policy, creation_unknown, installed, *,
+                  quarantine=None, quarantine_install=None, serving_withdrawn=False):
     """Never remove protection on uncertain creates, failed inventory or drift."""
+    require(type(serving_withdrawn) is bool and (not serving_withdrawn or quarantine is not None))
     rows = commands.docker("container", "ls", "--all", "--quiet", "--no-trunc").stdout.splitlines()
     require(len(rows) <= 3)
     for raw in rows:
@@ -388,7 +412,14 @@ def owned_cleanup(commands, token, network_policy, creation_unknown, installed):
             commands.docker("network", "rm", row["Id"])
     remaining = commands.docker("network", "ls", "--format", "{{.Name}}").stdout.decode().splitlines()
     require(SERVICE not in remaining and INGRESS not in remaining)
-    if installed:
+    if quarantine is not None:
+        require(type(quarantine) is policy.Quarantine and quarantine.policy == network_policy)
+        raw = quarantine_readback(commands, quarantine, quarantine_install)
+        if serving_withdrawn:
+            policy.verify_objects(raw, network_policy.table, network_policy.nft_version, [])
+        else:
+            network_policy.verify(raw)
+    if installed and not serving_withdrawn:
         network_policy.verify(commands.rules())
         commands.nft(network_policy.remove_batch(containers_absent=True, creations_resolved=True))
         rules = decode(commands.rules())
@@ -396,6 +427,13 @@ def owned_cleanup(commands, token, network_policy, creation_unknown, installed):
         for row in rules["nftables"]:
             for kind, body in row.items():
                 require(body.get("name" if kind == "table" else "table") != network_policy.table)
+    if quarantine is not None:
+        quarantine_readback(commands, quarantine, quarantine_install)
+        commands.nft(quarantine.remove_batch(containers_absent=True, networks_absent=True,
+                                              creations_resolved=True))
+        raw = commands.rules()
+        for table in (network_policy.table, quarantine.table):
+            policy.verify_objects(raw, table, network_policy.nft_version, [])
     return True
 
 
@@ -407,6 +445,13 @@ def inner(args):
               "gpu_used": False, "deployment_eligible": False, "confidential": False, "published": False}
     daemon = server = None
     installed, unknown = False, False
+    quarantine, quarantine_install, serving_withdrawn = None, None, False
+    prove_quarantine = getattr(args, "quarantine", False)
+    require(type(prove_quarantine) is bool)
+    if prove_quarantine:
+        report["schema"] = "nib.selected-nat-proof/v2"
+        report["quarantine"] = {"policy_step": "pending", "installed_verified": False,
+            "serving_withdrawn": False, "verified": False, "removed": False}
     token = uuid.uuid4().hex
     venue = getattr(args, "venue_profile", LEGACY_VENUE)
     settings = venue_settings(venue)
@@ -523,14 +568,55 @@ def inner(args):
             require(dns_after == dns_before)
             net_policy.verify(commands.rules())
             report.update(observations=observed, dns_relay_unchanged=True, tls_verified=True,
-                          policy_sha256=hashlib.sha256(net_policy.batch()).hexdigest(), stage="complete")
+                          policy_sha256=hashlib.sha256(net_policy.batch()).hexdigest())
+            if prove_quarantine:
+                report["stage"] = "quarantine"
+                evidence = report["quarantine"]
+                evidence["policy_step"] = "tls-controls"
+                require(host_query(work, H4, 443, "tls") is True
+                        and query(commands, "client", H4, 443, "tls") is True)
+                evidence["tls_controls"] = {"tls_host": True, "tls_forward": True}
+                quarantine = policy.Quarantine(net_policy)  # Attempted apply may commit before timeout.
+                evidence["batch_sha256"] = hashlib.sha256(quarantine.batch()).hexdigest()
+                quarantine_install = commands.nft(quarantine.batch(), report=evidence).returncode
+                evidence["policy_step"] = "readback"
+                quarantine_readback(commands, quarantine, quarantine_install)
+                evidence["installed_verified"] = True
+                evidence["policy_step"] = "withdraw-serving"
+                withdraw_serving_in_namespace(commands, args, quarantine, quarantine_install)
+                serving_withdrawn = True
+                evidence["serving_withdrawn"] = True
+                evidence["policy_step"] = "denials"
+                denied = observations(commands, work)
+                check_observations(denied, True, quarantined=True)
+                evidence["policy_step"] = "live-controls"
+                check_sinks(commands, server)
+                # Neither a dead candidate nor changed DNS inheritance proves quarantine.
+                command = container_command("candidate", token, SERVICE, S4, S6, work,
+                                            args.deadline, protected=True)
+                info = commands.inspect("container", "candidate")
+                check_container(info, token, command, protected=True)
+                require(info["State"]["Running"] is True)
+                for address in ("127.0.0.1", "::1"):
+                    for port in (8000, 8001, 8443):
+                        require(query(commands, "candidate", address, port,
+                                      "tls" if port == 8443 else "tcp") is True)
+                require(host_query(work, DNS, 8450, "stats") == dns_before)
+                raw = quarantine_readback(commands, quarantine, quarantine_install)
+                policy.verify_objects(raw, net_policy.table, net_policy.nft_version, [])
+                evidence.update(observations=denied, verified=True, policy_step="complete")
+            report["stage"] = "complete"
         except BaseException:
             pass
         finally:
             commands.cleaning = True
             try:
-                report["cleanup_confirmed"] = owned_cleanup(commands, token, net_policy, unknown, installed)
+                extra = {} if quarantine is None else dict(quarantine=quarantine,
+                    quarantine_install=quarantine_install, serving_withdrawn=serving_withdrawn)
+                report["cleanup_confirmed"] = owned_cleanup(commands, token, net_policy, unknown, installed, **extra)
                 report["policy_removed"] = installed
+                if quarantine is not None:
+                    report["quarantine"]["removed"] = True
             except BaseException:
                 pass
             for child in (server, daemon):
@@ -564,7 +650,7 @@ def prepare_sources(work, commands):
     return revision, hashes
 
 
-def check_report(report):
+def check_serving_report(report):
     require(type(report) is dict and report.get("schema") == "nib.selected-nat-proof/v1")
     required = {"schema", "result", "stage", "namespace_verified", "cleanup_confirmed", "policy_removed",
                 "gpu_used", "deployment_eligible", "confidential", "published"}
@@ -598,6 +684,60 @@ def check_report(report):
         check_observations(report.get("observations"), True)
 
 
+def check_report(report):
+    require(type(report) is dict)
+    if report.get("schema") == "nib.selected-nat-proof/v1":
+        check_serving_report(report)
+        return
+    require(report.get("schema") == "nib.selected-nat-proof/v2")
+    evidence = report.get("quarantine")
+    flags = {"installed_verified", "serving_withdrawn", "verified", "removed"}
+    require(type(evidence) is dict and flags | {"policy_step"} <= set(evidence)
+            <= flags | {"policy_step", "tls_controls", "batch_sha256", "observations"})
+    require(all(type(evidence[key]) is bool for key in flags))
+    step = evidence["policy_step"]
+    require(type(step) is str and step in ("pending", "tls-controls", "check", "apply", "readback",
+                                          "withdraw-serving", "denials", "live-controls", "complete"))
+    if "tls_controls" in evidence:
+        require(type(evidence["tls_controls"]) is dict
+                and set(evidence["tls_controls"]) == {"tls_host", "tls_forward"}
+                and all(value is True for value in evidence["tls_controls"].values()))
+    if "batch_sha256" in evidence:
+        require(type(evidence["batch_sha256"]) is str
+                and re.fullmatch("[0-9a-f]{64}", evidence["batch_sha256"]))
+    if step not in ("pending", "tls-controls"):
+        require({"tls_controls", "batch_sha256"} <= set(evidence))
+    if evidence["installed_verified"]:
+        require(step in ("withdraw-serving", "denials", "live-controls", "complete"))
+    if step in ("withdraw-serving", "denials", "live-controls", "complete"):
+        require(evidence["installed_verified"])
+    require(evidence["serving_withdrawn"] is (step in ("denials", "live-controls", "complete")))
+    require(evidence["verified"] is (step == "complete"))
+    require(("observations" in evidence) is evidence["verified"])
+    if evidence["verified"]:
+        check_observations(evidence["observations"], True, quarantined=True)
+    if evidence["removed"]:
+        require("batch_sha256" in evidence and report.get("policy_removed") is True)
+    if "batch_sha256" in evidence and report.get("cleanup_confirmed") is True:
+        require(evidence["removed"])
+    projected = {key: value for key, value in report.items() if key != "quarantine"}
+    projected["schema"] = "nib.selected-nat-proof/v1"
+    if report.get("stage") == "quarantine":
+        require(step not in ("pending", "complete") and report.get("result") == "fail")
+        projected["stage"] = "negative-controls"
+    elif report.get("stage") == "complete":
+        require(evidence["verified"])
+    else:
+        require(step == "pending" and not any(evidence[key] for key in flags)
+                and set(evidence) == flags | {"policy_step"})
+    if step != "pending":
+        check_observations(report.get("observations"), True)
+        require(report.get("dns_relay_unchanged") is True and report.get("tls_verified") is True)
+    if report.get("result") == "pass":
+        require(all(evidence[key] for key in flags))
+    check_serving_report(projected)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archive", type=Path, required=True)
@@ -605,6 +745,7 @@ def main():
     parser.add_argument("--output", type=Path)
     parser.add_argument("--run", action="store_true")
     parser.add_argument("--venue-profile", choices=VENUES, default=LEGACY_VENUE)
+    parser.add_argument("--quarantine", action="store_true", help="Also prove isolated drop-only quarantine")
     parser.add_argument("--inner", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--host-net", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--host-mount", type=int, help=argparse.SUPPRESS)
@@ -635,7 +776,8 @@ def main():
         copy_archive(args.archive, args.output / "image.tar", args.archive_sha256)
         revision, hashes = prepare_sources(args.output, commands)
         argv = namespace_command(args.output, args.output / "image.tar", os.stat("/proc/self/ns/net").st_ino,
-                                 os.stat("/proc/self/ns/mnt").st_ino, end, args.venue_profile)
+                                 os.stat("/proc/self/ns/mnt").st_ino, end, args.venue_profile,
+                                 quarantine=args.quarantine)
         report = {"schema": "nib.selected-nat-proof-host/v1", "git_sha": revision, "source_sha256": hashes,
                   "archive_sha256": args.archive_sha256, "result": "fail", "namespace_reaped": False,
                   "gpu_used": False, "published": False, "deployment_eligible": False,
@@ -645,6 +787,8 @@ def main():
         if args.venue_profile != LEGACY_VENUE:
             report["venue_profile"] = args.venue_profile
             report["venue_manifest_sha256"] = hashes[VENUE_FILE]
+        if args.quarantine:
+            report["schema"] = "nib.selected-nat-proof-host/v2"
         try:
             require(not cancelled["cancelled"])
             child = subprocess.Popen(argv, env=commands.env, stdin=subprocess.DEVNULL,
@@ -662,6 +806,8 @@ def main():
             report["stage"] = "report"
             observation = decode(stdout)
             check_report(observation)
+            require(observation["schema"] == ("nib.selected-nat-proof/v2" if args.quarantine
+                                               else "nib.selected-nat-proof/v1"))
             require(observation.get("venue_profile", LEGACY_VENUE) == args.venue_profile)
             report["observation"] = observation
             if child.returncode == 0 and report["observation"].get("result") == "pass" and not cancelled["cancelled"]:

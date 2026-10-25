@@ -481,17 +481,20 @@ class ProofTests(unittest.TestCase):
                 self.assertEqual(reap.call_count, 0 if failure == "spawn" else 1)
                 self.assertEqual(report["namespace_reaped"], failure not in ("spawn", "reap"))
 
-    def inner_case(self, *, failure=None, cancel=False, venue=proof.LEGACY_VENUE):
+    def inner_case(self, *, failure=None, cancel=False, venue=proof.LEGACY_VENUE,
+                   quarantine=False, configure=None):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             work = Path(directory)
             (work / "fixture").mkdir()
             (work / "fixture/key.pem").write_bytes(b"synthetic")
             (work / "fixture/cert.pem").write_bytes(b"synthetic")
             args = types.SimpleNamespace(inner=work, archive=work / "image.tar", host_net=1, host_mount=2,
-                                         deadline=proof.time.monotonic() + 400, venue_profile=venue)
+                                         deadline=proof.time.monotonic() + 400, venue_profile=venue,
+                                         quarantine=quarantine)
             nft_version = proof.venue_settings(venue)["nftables"]
             commands = mock.Mock()
             commands.env = proof.ENV
+            commands.end, commands.cleaning = args.deadline, False
             def result(raw=b""):
                 return subprocess.CompletedProcess([], 0, raw, b"")
             def run(argv, **_kwargs):
@@ -528,7 +531,7 @@ class ProofTests(unittest.TestCase):
             with mock.patch.object(proof, "query", return_value=True), mock.patch.object(proof, "host_query", return_value=True):
                 positive = proof.observations(commands, work)
             protected = {key: key in ("tls_host", "tls_forward") for key in positive}
-            controls = iter((positive, protected))
+            controls = iter((positive, protected, {key: False for key in positive}))
             def observe(*_args):
                 if cancel:
                     signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
@@ -539,7 +542,8 @@ class ProofTests(unittest.TestCase):
                 (proof.uuid, "uuid4", {"return_value": types.SimpleNamespace(hex="a" * 32)}),
                 (proof.os, "chown", {}), (proof, "check_container", {}), (proof, "check_sinks", {}),
                 (proof, "query", {"return_value": True}), (proof, "observations", {"side_effect": observe}),
-                (proof, "host_query", {"return_value": {"tcp": 0, "dns_udp": 1, "dns_tcp": 1}})):
+                (proof, "host_query", {"side_effect": lambda *_args:
+                    {"tcp": 0, "dns_udp": 1, "dns_tcp": 1} if _args[-1] == "stats" else True})):
                 stack.enter_context(mock.patch.object(target, name, **options))
             child = mock.Mock()
             child.poll.return_value = None
@@ -555,6 +559,8 @@ class ProofTests(unittest.TestCase):
                 cleanup.side_effect = ValueError("synthetic")
             if failure == "reap":
                 reap.side_effect = ValueError("synthetic")
+            if configure is not None:
+                configure(commands, args, stack, cleanup, verify)
             output = io.StringIO()
             with redirect_stdout(output):
                 status = proof.inner(args)
