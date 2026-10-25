@@ -180,6 +180,27 @@ class PolicyTests(unittest.TestCase):
 
 
 class ProofTests(unittest.TestCase):
+    def test_nft_diagnostic_records_attempt_without_exception_content(self):
+        for failure in (1, 2, None):
+            with self.subTest(failure=failure):
+                commands = proof.Commands(proof.time.monotonic() + 60, {"cancelled": False}, Path("/synthetic"))
+                report = {}
+                calls = []
+                def run(argv, **kwargs):
+                    calls.append((argv, kwargs))
+                    if len(calls) == failure:
+                        raise ValueError("PRIVATE-SYNTHETIC-CANARY")
+                with mock.patch.object(commands, "run", side_effect=run):
+                    if failure is None:
+                        commands.nft(b"fixed-policy", report=report)
+                    else:
+                        with self.assertRaises(ValueError):
+                            commands.nft(b"fixed-policy", report=report)
+                self.assertEqual(report, {"policy_step": "check" if failure == 1 else "apply"})
+                self.assertEqual(calls[0], (["nft", "--check", "--json", "--file", "-"], {"data": b"fixed-policy"}))
+                if failure != 1:
+                    self.assertEqual(calls[1], (["nft", "--json", "--file", "-"], {"data": b"fixed-policy"}))
+
     def test_outer_reaps_on_bad_output_timeout_and_cancelled_spawn(self):
         for failure in ("spawn", "malformed", "oversized", "timeout", "reap", "cancel-race"):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
@@ -294,6 +315,8 @@ class ProofTests(unittest.TestCase):
             verify = stack.enter_context(mock.patch.object(policy.Policy, "verify"))
             if failure == "policy":
                 commands.nft.side_effect = subprocess.TimeoutExpired("synthetic", 1)
+            if failure == "readback":
+                verify.side_effect = ValueError("PRIVATE-SYNTHETIC-CANARY")
             if failure == "cleanup":
                 cleanup.side_effect = ValueError("synthetic")
             if failure == "reap":
@@ -311,6 +334,17 @@ class ProofTests(unittest.TestCase):
         self.assertEqual(report["result"], "pass")
         self.assertEqual(cleanup_args[-2:], (False, True))
         self.assertEqual((reaps, verifications), (2, 2))
+        self.assertEqual(report["policy_step"], "protected-create")
+
+    def test_readback_diagnostic_does_not_change_fail_closed_cleanup(self):
+        status, report, cleanup_args, reaps, _ = self.inner_case(failure="readback")
+        self.assertEqual((status, report["result"], report["policy_step"]), (1, "fail", "readback"))
+        self.assertEqual(cleanup_args[-2:], (False, True))
+        self.assertEqual(reaps, 2)
+        self.assertNotIn("PRIVATE", json.dumps(report))
+        for bad in ("PRIVATE-SYNTHETIC-CANARY", None, 7, [], {}):
+            with self.assertRaises((ValueError, TypeError)):
+                proof.check_report({**report, "policy_step": bad})
 
     def test_inner_failures_and_signal_never_promote_pass(self):
         for failure in ("create", "policy", "cleanup", "reap"):
