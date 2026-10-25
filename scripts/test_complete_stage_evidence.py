@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Actual complete checkpoint and preceding failed transfer; no downloads."""
+import ast
 import hashlib
 import json
 from pathlib import Path
@@ -50,10 +51,18 @@ class CompleteStageEvidenceTests(unittest.TestCase):
                          "19e6f58fef0a877d3fc13718bd03fa2baa1aba74cab396e1bcfb1600bb43177f")
         old_pin = b"327c1f65d7d8d23838bd816a60243d1ccc4e02d48fca21a823a4f52356d64040"
         self.assertEqual(source.count(old_pin), 1)
-        # Only the reviewed shared identity-helper pin changed; staging and
-        # proof validation must remain byte-identical to the actual producer.
-        self.assertEqual(source.replace(old_pin, stage.PROFILE_SHA256.encode()),
-                         (ROOT / "host/record-stage.py").read_bytes())
+        # Historical source remains hash-pinned above. Preparation may grow new
+        # model selectors, but this extension must not change the run boundary
+        # or reinterpret the actual producer's validation/download behavior.
+        current = (ROOT / "host/record-stage.py").read_text()
+        previous = source.decode("utf-8")
+        def functions(text):
+            return {node.name: ast.get_source_segment(text, node) for node in ast.parse(text).body
+                    if isinstance(node, ast.FunctionDef)}
+        old_functions, new_functions = functions(previous), functions(current)
+        for name in ("validate_plan", "validate_proof", "bundle", "capacity", "observation", "execute", "run"):
+            with self.subTest(function=name):
+                self.assertEqual(old_functions[name], new_functions[name])
         stage.validate_plan(report["plan"])
         stage.validate_proof(report["proof"], report["plan"], report["body_byte_budget"])
         self.assertEqual(report["stage"], "complete")
