@@ -51,7 +51,9 @@ def dialogue(orchestrator, expected, proxy):
         worker.require(type(results) is list and len(results) == 1 and type(results[0]) is ToolMessage
                        and type(results[0].error) is bool)
         if not results[0].error:
-            value = worker.decode(results[0].content.encode())
+            # Pinned Environment.to_json_str returns retail string IDs unchanged,
+            # not JSON-quoted. Compare the original bounded value without repair.
+            value = results[0].content
             worker.require(type(value) is str and 0 < len(value) <= 256)
             row.update(outcome="resolved" if value == expected else "wrong_customer",
                        intended_customer_match=value == expected)

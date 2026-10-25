@@ -1,7 +1,8 @@
 # P2.T4: Natural Customer-Resolution Diagnostic
 
-Status: opt-in software and synthetic tests only. No model run, customer
-resolution measurement, simulator qualification or tau quality score is claimed.
+Status: opt-in software with a [failed bounded observation](../../evidence/p2/2026-10-25-selected-customer-resolution-1117/README.md).
+The result-decoding correction below has offline tests only. No successful
+customer resolution, simulator qualification or tau quality score is claimed.
 The default selected operational trial and CPU identity probes are unchanged.
 
 ## Scope and Source
@@ -29,6 +30,29 @@ The intended-customer comparison is derived only from hash-checked task and
 database bytes through the existing identity-fixture verifier. It is not
 derived from the candidate's claim, nor copied into its request. The comparison
 does not establish correct reasoning, customer intent or completion of the task.
+
+### Successful Lookup Representation
+
+The original producer `975738d7eb26e3d315a41857ece0d70d757db4ab` incorrectly
+JSON-decoded `ToolMessage.content` on a successful lookup. In the pinned source,
+[retail lookup returns a string ID](https://github.com/sierra-research/tau2-bench/blob/fc0055dc4e0a316c3f83133267fbd6faaa770992/src/tau2/domains/retail/tools.py#L305-L330),
+and [Environment.to_json_str returns string inputs unchanged](https://github.com/sierra-research/tau2-bench/blob/fc0055dc4e0a316c3f83133267fbd6faaa770992/src/tau2/environment/environment.py#L412-L441).
+[get_response](https://github.com/sierra-research/tau2-bench/blob/fc0055dc4e0a316c3f83133267fbd6faaa770992/src/tau2/environment/environment.py#L463-L490)
+uses that serializer, so the ID is not a JSON string literal. Both the synthetic
+fixture and the earlier optional audit incorrectly substituted `json.dumps`.
+
+The correction compares the original nonempty string directly, retaining its
+256-character bound and the upstream `error` check. It neither JSON-decodes,
+strips, case-folds nor repairs the result. A different ID remains
+`wrong_customer`; an upstream error or invalid result remains `lookup_error`.
+No tool arguments, prompts, limits, retries, evaluation or report schema change.
+The existing source closure includes this module, so prepared scorer inputs
+must be regenerated from the reviewed producer; no source pin is bypassed.
+
+The failed original receipts are unchanged. Their `lookup_error` was set before
+tool execution and also survives local result-validation failure. They therefore
+cannot distinguish an upstream lookup error from this decoding defect; this fix
+does not retrospectively establish lookup success or blame either model.
 
 ## Admission and Limits
 
@@ -89,4 +113,14 @@ responses. They cover unchanged defaults, role/pin drift, evaluator rejection,
 wrong customer/error/multiple/unrelated lookup, cancellation/deadline/cleanup,
 null reward, usage/cap failure and content canaries. An optional offline audit
 hash-checks and executes original pinned retail/environment/batch method bodies
-on a synthetic database; it makes no model or network calls.
+including `to_json_str` on a synthetic database; it makes no model or network
+calls. The ordinary tests also execute the original producer against a plain
+string response to reproduce the regression and cover literal comparison,
+malformed results, error precedence and content-free failure reports.
+
+For an already verified prepared scorer payload containing `upstream/` and
+`bench/tau-upstream-pins.json`, the optional source audit is:
+
+```sh
+python3 -B scripts/test_tau_customer_resolution.py --upstream-root /path/to/scorer-payload
+```

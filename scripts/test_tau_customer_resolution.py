@@ -55,7 +55,7 @@ def manifest():
 class Orchestrator:
     def __init__(self, *, tool="find_user_id_by_name_zip", result=CANARY, error=False, calls=1, failure=None):
         self.calls = [ToolCall(id="synthetic-call", name=tool, requestor="assistant", arguments={"untouched": CANARY}) for _ in range(calls)]
-        self.results = [ToolMessage(error=error, content=json.dumps(result))]
+        self.results = [ToolMessage(error=error, content=result)]
         self.executed = mock.Mock(return_value=self.results)
         self.agent, self.user = mock.Mock(), mock.Mock()
         self.done, self.steps, self.checks, self.failure = False, 0, 0, failure
@@ -85,12 +85,12 @@ class Orchestrator:
 
 
 class ResolutionTests(unittest.TestCase):
-    def run_dialogue(self, orchestrator, proxy=None):
+    def run_dialogue(self, orchestrator, proxy=None, *, expected=CANARY):
         proxy = proxy or types.SimpleNamespace(deadline=time.monotonic() + 5)
         messages = types.ModuleType("tau2.data_model.message")
         messages.ToolCall, messages.ToolMessage = ToolCall, ToolMessage
         with mock.patch.dict(sys.modules, {"tau2.data_model.message": messages}):
-            return resolution.dialogue(orchestrator, CANARY, proxy)
+            return resolution.dialogue(orchestrator, expected, proxy)
 
     def test_default_configuration_bytes_and_limits_unchanged(self):
         old = types.ModuleType("old_selected_policy")
@@ -217,6 +217,48 @@ class ResolutionTests(unittest.TestCase):
             self.assertNotIn(CANARY, json.dumps(proxy.customer_resolution))
             state.agent.stop.assert_called_once()
             state.user.stop.assert_called_once()
+
+    def test_plain_result_regresses_original_producer_json_decode(self):
+        old = types.ModuleType("old_customer_resolution")
+        revision = "975738d7eb26e3d315a41857ece0d70d757db4ab"
+        exec(compile(git(ROOT, "show", revision + ":scripts/tau_customer_resolution.py"),
+                     "old_resolution", "exec"), old.__dict__)
+        for tool, category in resolution.TOOLS.items():
+            state, proxy = Orchestrator(tool=tool), types.SimpleNamespace(deadline=time.monotonic() + 5)
+            with self.subTest(tool=tool), mock.patch.object(resolution, "dialogue", old.dialogue), \
+                    self.assertRaises(ValueError):
+                self.run_dialogue(state, proxy)
+            self.assertEqual(proxy.customer_resolution, observation("lookup_error", category))
+            state.executed.assert_called_once_with(state.calls)
+            self.assertNotIn("_execute_tool_calls", vars(state))
+            self.assertEqual(self.run_dialogue(Orchestrator(tool=tool)), observation(tool=category))
+
+    def test_result_is_compared_literally_not_json_decoded_or_repaired(self):
+        for value in ("null", "true", "123", "[]", '"quoted-id"', "x" * 256):
+            with self.subTest(length=len(value)):
+                self.assertEqual(self.run_dialogue(Orchestrator(result=value), expected=value), observation())
+        for value in (json.dumps(CANARY), CANARY.lower(), " " + CANARY, CANARY + "\n"):
+            state, proxy = Orchestrator(result=value), types.SimpleNamespace(deadline=time.monotonic() + 5)
+            with self.subTest(value=value), self.assertRaises(worker.Abort):
+                self.run_dialogue(state, proxy)
+            self.assertEqual(proxy.customer_resolution, observation("wrong_customer"))
+            self.assertNotIn(CANARY, json.dumps(proxy.customer_resolution))
+            state.executed.assert_called_once()
+
+    def test_invalid_success_result_remains_fail_closed_without_content(self):
+        for value in (None, True, 42, b"synthetic", [], {}, "", "x" * 257):
+            state, proxy = Orchestrator(result=value), types.SimpleNamespace(deadline=time.monotonic() + 5)
+            with self.subTest(kind=type(value).__name__), self.assertRaises(ValueError):
+                self.run_dialogue(state, proxy)
+            self.assertEqual(proxy.customer_resolution, observation("lookup_error"))
+            state.executed.assert_called_once()
+            state.agent.stop.assert_called_once()
+            state.user.stop.assert_called_once()
+        state, proxy = Orchestrator(result=CANARY, error=True), types.SimpleNamespace(deadline=time.monotonic() + 5)
+        with self.assertRaises(worker.Abort):
+            self.run_dialogue(state, proxy)
+        self.assertEqual(proxy.customer_resolution, observation("lookup_error"))
+        self.assertNotIn(CANARY, json.dumps(proxy.customer_resolution))
 
     def test_cancel_expiry_initialization_and_cleanup_fail_closed(self):
         for failure in ("cancelled", "timeout", "initialization", "expired", "cleanup"):
@@ -365,12 +407,13 @@ class DriverTests(unittest.TestCase):
 
 
 def pinned_upstream_audit(root):
-    """Optional offline execution of exact pinned retail/environment batch bodies."""
+    """Optional offline execution of pinned lookup/serialization/batch bodies."""
     root = Path(root)
     pins = json.loads((ROOT / "bench/tau-runtime-lock.json").read_bytes())["source_files"]
     modules = {}
     wanted = {"domains/retail/tools": ("find_user_id_by_email", "find_user_id_by_name_zip"),
-              "environment/environment": ("get_response",), "orchestrator/orchestrator": ("_execute_tool_calls",)}
+              "environment/environment": ("to_json_str", "get_response"),
+              "orchestrator/orchestrator": ("_execute_tool_calls",)}
     for name, methods in wanted.items():
         path = "src/tau2/" + name + ".py"
         raw, pin = (root / "upstream" / path).read_bytes(), pins[path]
@@ -383,7 +426,12 @@ def pinned_upstream_audit(root):
                 worker.require(len(function.decorator_list) == 1 and ast.dump(function.decorator_list[0]) ==
                                ast.dump(ast.parse("is_tool(ToolType.READ)", mode="eval").body))
                 function.decorator_list = []
-        scope = {"ToolCall": ToolCall, "ToolMessage": ToolMessage, "logger": mock.Mock()}
+            elif function.name == "to_json_str":
+                worker.require(len(function.decorator_list) == 1
+                               and ast.dump(function.decorator_list[0]) == ast.dump(ast.parse("classmethod", mode="eval").body))
+            else:
+                worker.require(not function.decorator_list)
+        scope = {"ToolCall": ToolCall, "ToolMessage": ToolMessage, "logger": mock.Mock(), "Any": object}
         exec(compile(ast.Module(body=functions, type_ignores=[]), path, "exec"), scope)
         modules[name] = scope
     # No real task content is emitted. Actual pinned task/database validation is
@@ -393,13 +441,17 @@ def pinned_upstream_audit(root):
         email="synthetic@example.test", name=types.SimpleNamespace(first_name="Synthetic", last_name="Person"),
         address=types.SimpleNamespace(zip="12345"))}))
     check = ResolutionTests()
+    serialize = modules["environment/environment"]["to_json_str"].__get__(None, types.SimpleNamespace)
+    check.assertIs(serialize(CANARY), CANARY)
+    with check.assertRaises(ValueError):
+        worker.decode(serialize(CANARY).encode())  # The original producer rejected a successful string ID.
     for tool, arguments, error in (("find_user_id_by_name_zip", dict(identity_fixture.FACTS), False),
             ("find_user_id_by_email", {"email": "synthetic@example.test"}, False),
             ("find_user_id_by_email", {"email": "absent@example.test"}, True)):
         state = Orchestrator(tool=tool)
         state.calls[0].arguments = arguments
         state.num_errors = 0
-        env = types.SimpleNamespace(sync_tools=lambda: None, to_json_str=json.dumps)
+        env = types.SimpleNamespace(sync_tools=lambda: None, to_json_str=serialize)
         env.make_tool_call = lambda name, requestor, **kw: modules["domains/retail/tools"][name](tools, **kw)
         env.get_response = types.MethodType(modules["environment/environment"]["get_response"], env)
         state.environment = env
@@ -411,7 +463,11 @@ def pinned_upstream_audit(root):
             check.assertEqual(check.run_dialogue(state), observation(tool=resolution.TOOLS[tool]))
         check.assertEqual(state.num_errors, int(error))
         check.assertEqual(state.calls[0].arguments, arguments)
+    print("Pinned lookup/serializer/batch controls PASS; two successes and one error, no model execution.")
 
 
 if __name__ == "__main__":
-    unittest.main()
+    if len(sys.argv) == 3 and sys.argv[1] == "--upstream-root":
+        pinned_upstream_audit(sys.argv[2])
+    else:
+        unittest.main()
