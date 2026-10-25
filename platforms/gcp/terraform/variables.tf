@@ -1,12 +1,23 @@
 # SPDX-License-Identifier: Apache-2.0
 variable "instance_count" {
-  description = "0 removes this entire lab; 1 requests one billable A4 Spot VM. Apply requires separate approval."
+  description = "0 removes this entire lab; 1 requests one billable Spot VM of the selected profile. Apply requires separate approval."
   type        = number
   default     = 0
   nullable    = false
   validation {
     condition     = contains([0, 1], var.instance_count)
     error_message = "instance_count must be 0 or 1."
+  }
+}
+
+variable "hardware_profile" {
+  description = "Explicit lab profile. H100 requests TDX isolation, not verified GPU confidentiality."
+  type        = string
+  default     = "a4-b200-ordinary"
+  nullable    = false
+  validation {
+    condition     = contains(["a4-b200-ordinary", "a3-h100-tdx"], var.hardware_profile)
+    error_message = "hardware_profile must be a4-b200-ordinary or a3-h100-tdx."
   }
 }
 
@@ -32,12 +43,16 @@ variable "name" {
 }
 
 variable "zone" {
-  description = "Explicit A4-capable zone; availability and quota must be checked separately. No discovery is performed."
+  description = "Explicit supported zone; availability and quota must be checked separately. No discovery is performed."
   type        = string
   nullable    = false
   validation {
     condition     = can(regex("^[a-z]+-[a-z]+[0-9]+-[a-z]$", var.zone))
     error_message = "zone must be an explicit Compute Engine zone."
+  }
+  validation {
+    condition     = var.hardware_profile != "a3-h100-tdx" || contains(["us-central1-a", "us-east5-a", "europe-west4-c"], var.zone)
+    error_message = "The H100 TDX profile requires a documented GPU-confidential zone."
   }
 }
 

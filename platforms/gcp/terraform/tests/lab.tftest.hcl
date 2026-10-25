@@ -74,6 +74,8 @@ run "one_spot_lab" {
       one(google_compute_instance_template.lab[0].disk).source_image == var.boot_image,
       one(google_compute_instance_template.lab[0].disk).disk_size_gb == 100,
       length(google_compute_instance_template.lab[0].guest_accelerator) == 0,
+      length(google_compute_instance_template.lab[0].confidential_instance_config) == 0,
+      length(google_compute_instance_template.lab[0].shielded_instance_config) == 0,
       one(google_compute_instance_template.lab[0].network_interface).nic_type == "GVNIC",
       one(google_compute_instance_template.lab[0].network_interface).stack_type == "IPV4_ONLY",
       one(google_compute_instance_template.lab[0].network_interface).subnetwork == google_compute_subnetwork.lab[0].id,
@@ -99,6 +101,99 @@ run "one_spot_lab" {
     ])
     error_message = "No standard provisioning, automatic restart, unbounded run, inherited SSH keys or deletion block."
   }
+}
+
+run "h100_default_zero" {
+  command = plan
+  variables { hardware_profile = "a3-h100-tdx" }
+  assert {
+    condition = alltrue([
+      length(google_compute_network.lab) == 0,
+      length(google_compute_subnetwork.lab) == 0,
+      length(google_compute_firewall.ssh) == 0,
+      length(google_service_account.lab) == 0,
+      length(google_compute_instance_template.lab) == 0,
+      length(google_compute_instance_from_template.lab) == 0,
+    ])
+    error_message = "Selecting H100 must not opt into any resources."
+  }
+}
+
+run "one_h100_tdx_spot_lab" {
+  command = plan
+  variables {
+    instance_count   = 1
+    hardware_profile = "a3-h100-tdx"
+    name             = "nib-h100-lab"
+  }
+  assert {
+    condition = alltrue([
+      google_compute_instance_template.lab[0].machine_type == "a3-highgpu-1g",
+      one(google_compute_instance_template.lab[0].confidential_instance_config).confidential_instance_type == "TDX",
+      one(google_compute_instance_template.lab[0].shielded_instance_config).enable_secure_boot,
+      one(google_compute_instance_template.lab[0].shielded_instance_config).enable_vtpm,
+      one(google_compute_instance_template.lab[0].shielded_instance_config).enable_integrity_monitoring,
+      length(google_compute_instance_template.lab[0].disk) == 1,
+      one(google_compute_instance_template.lab[0].disk).disk_type == "pd-balanced",
+      one(google_compute_instance_template.lab[0].disk).interface == "NVME",
+      one(google_compute_instance_template.lab[0].disk).auto_delete,
+      one(google_compute_instance_template.lab[0].disk).source_image == var.boot_image,
+      length(google_compute_instance_template.lab[0].guest_accelerator) == 0,
+      google_compute_instance_template.lab[0].labels["confidentiality"] == "unverified-tdx",
+      google_compute_instance_template.lab[0].labels["purpose"] == "nib-p3-lab",
+    ])
+    error_message = "H100 must use TDX, Secure Boot and NVMe Balanced PD without claiming attestation."
+  }
+  assert {
+    condition = alltrue([
+      !google_compute_network.lab[0].auto_create_subnetworks,
+      one(google_compute_firewall.ssh[0].allow).ports == tolist(["22"]),
+      google_compute_firewall.ssh[0].source_ranges == toset([var.operator_cidr]),
+      google_compute_firewall.ssh[0].target_service_accounts == toset([google_service_account.lab[0].email]),
+      length(one(google_compute_instance_template.lab[0].service_account).scopes) == 0,
+      !google_compute_instance_template.lab[0].can_ip_forward,
+      one(google_compute_instance_template.lab[0].scheduling).provisioning_model == "SPOT",
+      !one(google_compute_instance_template.lab[0].scheduling).automatic_restart,
+      one(google_compute_instance_template.lab[0].scheduling).on_host_maintenance == "TERMINATE",
+      one(google_compute_instance_template.lab[0].scheduling).instance_termination_action == "DELETE",
+      one(one(google_compute_instance_template.lab[0].scheduling).max_run_duration).seconds == var.max_run_seconds,
+      google_compute_instance_template.lab[0].metadata["enable-oslogin"] == "TRUE",
+      google_compute_instance_template.lab[0].metadata["block-project-ssh-keys"] == "TRUE",
+      google_compute_instance_template.lab[0].metadata["serial-port-enable"] == "FALSE",
+    ])
+    error_message = "H100 must retain isolation, credential, SSH and finite-lifetime controls."
+  }
+}
+
+run "h100_europe_zone" {
+  command = plan
+  variables {
+    hardware_profile = "a3-h100-tdx"
+    zone             = "europe-west4-c"
+  }
+}
+
+run "h100_east_zone" {
+  command = plan
+  variables {
+    hardware_profile = "a3-h100-tdx"
+    zone             = "us-east5-a"
+  }
+}
+
+run "reject_h100_other_zone" {
+  command = plan
+  variables {
+    hardware_profile = "a3-h100-tdx"
+    zone             = "us-central1-b"
+  }
+  expect_failures = [var.zone]
+}
+
+run "reject_unknown_hardware" {
+  command = plan
+  variables { hardware_profile = "a4-b200-tdx" }
+  expect_failures = [var.hardware_profile]
 }
 
 run "explicit_zero" {
