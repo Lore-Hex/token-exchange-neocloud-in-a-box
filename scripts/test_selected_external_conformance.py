@@ -200,7 +200,7 @@ class ExternalCheckerTests(unittest.TestCase):
                 return_value=("1" * 40, {"scripts/check-selected-service.py": "5" * 64})))
             state.trust = stack.enter_context(mock.patch.object(check.probe, "trust_input", return_value=(object(), None)))
             state.tls = stack.enter_context(mock.patch.object(check.probe, "pinned_tls", side_effect=tls))
-            state.loader = stack.enter_context(mock.patch.object(check.subset, "checker_modules"))
+            state.loader = stack.enter_context(mock.patch.object(check.external_checker_payload, "checker_modules"))
             state.loader.return_value.__enter__.return_value = checker
             stack.enter_context(mock.patch.object(check.subset, "quiet_checker", return_value=nullcontext()))
             stack.enter_context(mock.patch.object(httpx, "AsyncClient", side_effect=AssertionError("UNEXPECTED_NETWORK")))

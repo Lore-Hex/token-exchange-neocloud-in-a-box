@@ -28,7 +28,7 @@ import zipfile
 ROOT = Path(__file__).absolute().parent.parent
 SCRIPT = "scripts/tau_trial.py"
 WORKER = "scripts/tau_trial_worker.py"
-RUNTIME_SHA = "bba26279580ed48959c571cffa9b386ce094e7ac524a0cfbcad917d442341090"
+RUNTIME_SHA = "2a04a7198f9c95a53abed9d03b28abfaf34792f544ead550a94620248b3a90d4"
 LABEL = "nib.tau-scripted-trial"
 SECONDS = 300
 TYPER_SHARED = frozenset(("__init__.py", "__main__.py", "_completion_classes.py",

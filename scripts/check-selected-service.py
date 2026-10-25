@@ -23,6 +23,7 @@ import time
 from types import SimpleNamespace
 
 import selected_service_protocol as protocol
+import external_checker_payload
 
 _spec = importlib.util.spec_from_file_location("external_conformance_probe", ROOT / "scripts/probe-selected-service.py")
 probe = importlib.util.module_from_spec(_spec)
@@ -263,7 +264,7 @@ def run(args):
                 require(peer_digest is None, "identity")
                 root = Path(args.checker_payload)
                 require(root.is_absolute() and ".." not in root.parts, "contract")
-                with subset.quiet_checker(), subset.checker_modules(root, cutoff(),
+                with subset.quiet_checker(), external_checker_payload.checker_modules(root, cutoff(),
                         value["checker_payload_sha256"]) as checker:
                     catalog(checker, encoded(value["catalog"]), value["catalog"])
                     require(value["catalog"]["data"][0]["lifecycle"]["retirement_at"] == value["admission_stop_at"], "identity")

@@ -19,7 +19,7 @@ import types
 import zipfile
 
 ROOT = Path(__file__).absolute().parent.parent
-RUNTIME_SHA = "bba26279580ed48959c571cffa9b386ce094e7ac524a0cfbcad917d442341090"
+RUNTIME_SHA = "2a04a7198f9c95a53abed9d03b28abfaf34792f544ead550a94620248b3a90d4"
 SUPPORT_SHA = "a6d3373311b110b81ef8c5f25db8281c4c86f3db550c92cba844ce05017c9abb"
 LOCK_SHA = "d5fbea8926b7410c34730593b8ebd305f01b04a160eb30e9867330c45799ade7"
 CHECKER_SHA = "591a11295d3f1e0ef20fbc51c788cabfbedf176e79ce56de8378252bd13adecd"
@@ -82,6 +82,11 @@ def requirements(raw):
 
 def add_wheel(files, raw, expected, deadline):
     runtime.check_wheel(raw, expected, deadline)
+    unpack_wheel(files, raw, deadline)
+
+
+def unpack_wheel(files, raw, deadline):
+    """Only called after target admission and complete archive validation."""
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:
         for row in archive.infolist():
             require(time.monotonic() < deadline)
@@ -98,14 +103,13 @@ def add_wheel(files, raw, expected, deadline):
     require(len(files) <= 4000 and sum(map(len, files.values())) <= 64 << 20)
 
 
-def prepare(wheelhouse, deadline, *, model_profile="original"):
-    require(type(model_profile) is str and model_profile in ("original", "uncensored"))
+def wheel_inputs(wheelhouse, deadline):
     lock = runtime.read_file(ROOT / "scripts/e2e/requirements.lock", 1 << 20, deadline)
     packages = requirements(lock)
     with runtime.directory(wheelhouse) as directory:
         names = os.listdir(directory)
     require(len(names) == len(packages))
-    files, selected = {}, set()
+    selected = set()
     for name in sorted(names):
         require(name.endswith(".whl"))
         parts = name.split("-")
@@ -117,9 +121,16 @@ def prepare(wheelhouse, deadline, *, model_profile="original"):
         require(sha in packages[package][1])
         if package == "trustedrouter-provider-check":
             require(sha == CHECKER_SHA)
-        add_wheel(files, raw, {"filename": name, "version": parts[1], "bytes": len(raw), "sha256": sha}, deadline)
+        yield raw, {"filename": name, "version": parts[1], "bytes": len(raw), "sha256": sha}
         selected.add(package)
     require(selected == set(packages))
+
+
+def prepare(wheelhouse, deadline, *, model_profile="original"):
+    require(type(model_profile) is str and model_profile in ("original", "uncensored"))
+    files = {}
+    for raw, expected in wheel_inputs(wheelhouse, deadline):
+        add_wheel(files, raw, expected, deadline)
     for target, name in (("worker.py", "scripts/provider_conformance_worker.py"),
                          ("support.py", "scripts/tau_trial_worker.py")):
         files[target] = runtime.read_file(ROOT / name, 1 << 20, deadline)
