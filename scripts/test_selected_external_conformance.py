@@ -86,13 +86,35 @@ class BoundaryTests(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["result"], "fail")
 
     def test_loaded_source_closure_extends_existing_probe_binding(self):
-        with mock.patch.object(check.probe, "source_identity", return_value=("1" * 40, {})) as source:
+        # The unittest discovery process imports unrelated test modules too.
+        modules = {"protocol": check.protocol, "subset": check.subset, "pinned": check.subset.pinned}
+        with mock.patch.object(check, "sys", SimpleNamespace(modules=modules)), \
+                mock.patch.object(check.probe, "source_identity", return_value=("1" * 40, {})) as source:
             check.source_identity(check.time.monotonic() + 5)
         names = source.call_args.kwargs["extra_files"]
         self.assertIn("scripts/check-selected-service.py", names)
         self.assertIn("scripts/selected_service_protocol.py", names)
         self.assertIn("scripts/selected_service_conformance.py", names)
         self.assertIn("scripts/provider_conformance_worker.py", names)
+        self.assertIn("scripts/pilot/run.py", names)
+        self.assertIn("scripts/e2e/snapshot.py", names)
+        self.assertIn("scripts/e2e/exercise.py", names)
+
+    def test_unregistered_pilot_source_drift_is_rejected(self):
+        modules = {"protocol": check.protocol, "subset": check.subset, "pinned": check.subset.pinned}
+        original = Path.read_bytes
+        for name in ("scripts/pilot/run.py", "scripts/e2e/snapshot.py", "scripts/e2e/exercise.py"):
+            observed = []
+            def changed(path):
+                if path == check.ROOT / name:
+                    observed.append(name)
+                    return b"# changed source\n"
+                return original(path)
+            with self.subTest(name=name), mock.patch.object(check, "sys", SimpleNamespace(modules=modules)), \
+                    mock.patch.object(Path, "read_bytes", autospec=True, side_effect=changed), \
+                    self.assertRaises(check.inference.Rejected):
+                check.source_identity(check.time.monotonic() + 30)
+            self.assertEqual(observed, [name])
 
 
 @unittest.skipUnless(importlib.util.find_spec("tr_provider_check"), "run with hash-locked checker test environment")

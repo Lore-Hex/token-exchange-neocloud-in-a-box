@@ -48,8 +48,9 @@ def timestamp(value):
 
 
 def source_identity(deadline):
-    # Authenticate the actually imported toolkit closure, not a guessed subset.
-    names = {"scripts/check-selected-service.py"}
+    # Pilot's module factory does not register these three imports in sys.modules.
+    names = {"scripts/check-selected-service.py", "scripts/pilot/run.py",
+             "scripts/e2e/snapshot.py", "scripts/e2e/exercise.py"}
     for module in tuple(sys.modules.values()):
         path = getattr(module, "__file__", None)
         if type(path) is str and Path(path).is_relative_to(ROOT / "scripts"):
