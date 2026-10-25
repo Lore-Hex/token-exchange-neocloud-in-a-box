@@ -16,6 +16,7 @@ import unittest
 from unittest import mock
 
 import tau_trial_worker as worker
+from test_tau_selected_termination import UserMessage, tool_types, tool_state, upstream
 
 ROOT = Path(__file__).resolve().parents[1]
 CANARY = "PRIVATE_PROMPT_TOOL_ARGUMENT_AND_EXCEPTION"
@@ -138,6 +139,76 @@ class OriginTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             worker.validate_tool_error_attribution({**value, "counts": value["counts"] * 2}, 2)
 
+    def test_email_containment_is_bounded_literal_and_content_free(self):
+        email = CANARY + "@example.test"
+        compare = worker.prior_user_text_contains_argument
+        self.assertIs(compare(email, [UserMessage(content="Prefix " + email.lower() + " suffix")], UserMessage), True)
+        self.assertIs(compare(email, [UserMessage(content="Different email")], UserMessage), False)
+        for value, messages in ((None, []), (1, []), ("", []), ("x@ y", []), ("x@@y", []),
+                ("x" * 320 + "@y", []), (email, []), (email, (UserMessage(content=email),)),
+                (email, [UserMessage(content=email)] * 257), (email, [UserMessage(content=1)]),
+                (email, [UserMessage(content="x" * (worker.MAX_REQUEST + 1))]),
+                (email, [types.SimpleNamespace(content=email)]), (email, [UserMessage(content=None)])):
+            with self.subTest(value_type=type(value).__name__):
+                self.assertIsNone(compare(value, messages, UserMessage))
+        class Hostile:
+            def __getattribute__(self, name):
+                raise AssertionError(CANARY)
+        self.assertIsNone(compare(email, [Hostile()], UserMessage))
+
+    def test_optional_relation_only_applies_to_exact_origin_and_remains_aggregate(self):
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            _, digest, call, _ = self.fixture(directory, stack)
+            stack.enter_context(mock.patch.object(worker, "EMAIL_LOOKUP_ORIGIN", (digest, 2)))
+            observer = worker.ToolErrors()
+            for relation in (None, False, True):
+                observer.record("assistant", True, captured(call), prior_user_match=relation)
+            rows = observer.project(3)["counts"]
+            self.assertEqual(len(rows), 3)
+            self.assertEqual({row.get("prior_user_text_contains_argument") for row in rows}, {None, False, True})
+            self.assertNotIn(CANARY, json.dumps(rows))
+            self.assertNotIn(directory, json.dumps(observer.project(3)))
+            for requestor, known, relation in (("user", True, True), ("assistant", False, True),
+                                               ("assistant", True, 1), ("assistant", True, CANARY)):
+                other = worker.ToolErrors()
+                other.record(requestor, known, captured(call), prior_user_match=relation)
+                self.assertNotIn("prior_user_text_contains_argument", other.project(1)["counts"][0])
+
+    def test_relation_validation_rejects_wrong_origin_requestor_type_and_missing_origin(self):
+        digest, line = worker.EMAIL_LOOKUP_ORIGIN
+        row = {"requestor": "assistant", "known_tool": True, "category": "value_error", "count": 1,
+               "origin": {"source_sha256": digest, "line": line}, "prior_user_text_contains_argument": True}
+        base = {"path": "live_make_tool_call", "counts": [row], "unattributed": 0}
+        self.assertEqual(worker.validate_tool_error_attribution(base, 1), base)
+        for changes in ({"prior_user_text_contains_argument": None}, {"prior_user_text_contains_argument": 1},
+                {"prior_user_text_contains_argument": CANARY}, {"requestor": "user"}, {"known_tool": False},
+                {"category": "type_error"}, {"origin": {"source_sha256": digest, "line": line - 1}}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                worker.validate_tool_error_attribution({**base, "counts": [{**row, **changes}]}, 1)
+        with self.assertRaises(ValueError):
+            worker.validate_tool_error_attribution({**base, "counts": [{k: v for k, v in row.items() if k != "origin"}]}, 1)
+
+    def test_live_wrapper_observation_does_not_change_result_or_retain_inputs(self):
+        for available in (True, False):
+            environment, orchestrator = tool_types()
+            env, state, message = tool_state(environment, orchestrator, ValueError(CANARY))
+            message.name = "find_user_id_by_email"
+            message.arguments = {"email": CANARY + "@example.test"}
+            env.tools.has_tool = lambda name: name == message.name
+            state.get_messages = mock.Mock(return_value=[UserMessage(content=message.arguments["email"])],
+                                          side_effect=None if available else ValueError(CANARY))
+            before = state._execute_tool_calls([message])
+            with upstream(None, environment=environment, orchestrator=orchestrator), \
+                    mock.patch.object(worker, "tool_error_origin", return_value=worker.EMAIL_LOOKUP_ORIGIN), \
+                    worker.observe_selected_tools() as observer:
+                result = state._execute_tool_calls([message])
+            self.assertEqual([vars(item) for item in result], [vars(item) for item in before])
+            row, = observer.project(1)["counts"]
+            self.assertIs(row.get("prior_user_text_contains_argument"), True if available else None)
+            self.assertNotIn(CANARY, json.dumps(row))
+            self.assertEqual(env.operation.call_count, 2)
+            self.assertNotIn("make_tool_call", vars(env))
+
 
 def pinned_upstream_audit(archive):
     """Check exact source pins and execute original retail lookup methods only."""
@@ -160,8 +231,18 @@ def pinned_upstream_audit(archive):
             stack.enter_context(mock.patch.dict(worker.sys.modules, {NAME: loaded}))
             methods = [node for cls in ast.parse(raw).body if isinstance(cls, ast.ClassDef)
                        for node in cls.body if isinstance(node, ast.FunctionDef)
-                       and node.name in ("_get_order", "_get_user")]
-            worker.require(len(methods) == 2 and all(not node.decorator_list for node in methods))
+                       and node.name in ("_get_order", "_get_user", "find_user_id_by_email")]
+            worker.require(len(methods) == 3)
+            for method in methods:
+                if method.name == "find_user_id_by_email":
+                    expected = ast.parse("is_tool(ToolType.READ)", mode="eval").body
+                    worker.require(len(method.decorator_list) == 1
+                        and ast.dump(method.decorator_list[0]) == ast.dump(expected))
+                    # Registration is not executed; the original method body
+                    # and line numbers remain unchanged in this isolated audit.
+                    method.decorator_list = []
+                else:
+                    worker.require(not method.decorator_list)
             tree = ast.Module(body=[ast.ImportFrom(module="__future__",
                 names=[ast.alias(name="annotations")], level=0), *methods], type_ignores=[])
             scope = {}
@@ -170,13 +251,18 @@ def pinned_upstream_audit(archive):
                 owner = types.SimpleNamespace(db=types.SimpleNamespace(orders={}, users={}))
                 error = captured(lambda: scope[method.name](owner, CANARY))
                 observer = worker.ToolErrors()
-                observer.record("assistant", True, error)
+                email_lookup = method.name == "find_user_id_by_email"
+                observer.record("assistant", True, error,
+                                prior_user_match=True if email_lookup else None)
                 row, = observer.project(1)["counts"]
                 raises = [node.lineno for node in ast.walk(method) if isinstance(node, ast.Raise)]
                 worker.require(len(raises) == 1 and row == {"requestor": "assistant", "known_tool": True,
-                    "category": "value_error", "count": 1, "origin": {"source_sha256": digest, "line": raises[0]}})
+                    "category": "value_error", "count": 1, "origin": {"source_sha256": digest, "line": raises[0]},
+                    **({"prior_user_text_contains_argument": True} if email_lookup else {})})
+                if email_lookup:
+                    worker.require((digest, raises[0]) == worker.EMAIL_LOOKUP_ORIGIN)
                 worker.require(CANARY not in json.dumps(row) and str(path) not in json.dumps(row))
-    print("Pinned source origins PASS; two original retail rejection sites, no model execution.")
+    print("Pinned source origins PASS; three original retail rejection sites, no model execution.")
 
 
 if __name__ == "__main__":

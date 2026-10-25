@@ -1,9 +1,12 @@
 # P2.T4: content-free selected tool rejection origin
 
-Status: implemented and tested without models. The preceding
+Status: the origin observer ran in the
+[second hardware diagnostic](../../evidence/p2/2026-10-25-selected-tau-email-rejection-0333/README.md),
+identifying the pinned retail email-lookup rejection at line 330. The preceding
 [hardware diagnostic](../../evidence/p2/2026-10-25-selected-tau-tool-rejection-0245/README.md)
 failed on one known assistant tool raising `ValueError`. Its originals do not
-contain an exact rejection site. This change has not yet run on hardware.
+contain an exact rejection site. The optional containment diagnostic below
+has only local test coverage and has not run on hardware.
 
 The selected operational observer may now include `origin` with only
 `source_sha256` and an integer `line`. Only three exact source files already
@@ -20,6 +23,17 @@ variable, tool identity, argument, exception message, prompt or response is
 serialized. The wire validator rejects all additional fields and unknown
 digests or lines. Old observations without an origin remain valid.
 
+For the exact known assistant email-lookup `ValueError` at line 330, a future
+observation may also include `prior_user_text_contains_argument`, a boolean.
+It compares the submitted email with earlier simulator-user text transiently,
+using the upstream lookup's case-insensitive spelling. Neither the email nor
+the message text is retained in the diagnostic. Inputs are bounded to 256
+messages, 1,048,576 user-text characters and a 320-character email; unavailable, oversized
+or unexpected inputs omit the field rather than claiming a mismatch. A
+substring match is not proof of the correct customer identity, user intent,
+or simulator correctness. No relation can be reconstructed for the earlier
+hardware evidence, and this field cannot change scoring or tool execution.
+
 This is an ordinary trusted diagnostic, not an attestation or proof against
 arbitrary modifications of Python modules in memory. It changes no task,
 request, token, retry or error limit, and cannot turn a failed trial into a
@@ -29,8 +43,10 @@ source identity.
 Validation includes byte-pin joins, missing/changed/symlink/FIFO files,
 unknown and overlong tracebacks, hostile exception hooks, legacy records,
 mixed sources and private-content canaries. The optional local audit checks
-the pinned upstream archive and executes only its original `_get_user` and
-`_get_order` lookup methods with synthetic absent entries:
+the pinned upstream archive and executes only its original `_get_user`,
+`_get_order` and `find_user_id_by_email` method bodies with synthetic absent
+entries. The email method's exact registration decorator is checked and omitted
+from this isolated audit; its body and line numbers are unchanged:
 
 ```sh
 python3 scripts/test_tau_tool_origin.py --upstream-source /path/to/pinned-tau.tar.gz
