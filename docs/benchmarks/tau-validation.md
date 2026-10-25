@@ -2,7 +2,7 @@
 
 Status: **manifest/budget, aggregation, isolated scorer/container wiring,
 runtime-identity checks and selected-owner lifecycle implemented;
-original-revision full quality gate unproven** (2026-10-24). The
+original-revision full quality gate unproven** (2026-10-25). The
 [preflight foundation](../tasks/p2-t3-tau-preflight.md) verifies pinned public
 inputs without importing upstream or contacting endpoints. The
 [content-free aggregator](../tasks/p2-t3-tau-aggregation.md) checks frozen coverage
@@ -18,12 +18,26 @@ not proof of model quality or confidentiality.
 Separate selected abliterated-checkpoint observations include
 [8K tokenizer parity](../../evidence/p2/2026-10-24-selected-tau8k-parity/output.log)
 and [eight concurrency-one graph-stream requests](../../evidence/p2/2026-10-24-selected-graphs-stream/output.log),
-not scored tau tasks. The latest retained
-[selected controller failure](../../evidence/p2/2026-10-24-selected-tau-readiness-failure-1800/evidence/output.log)
-has no READY/scorer result and unconfirmed cleanup. The later
+not scored tau tasks. The earlier
+[October 24 controller failure](../../evidence/p2/2026-10-24-selected-tau-readiness-failure-1800/README.md)
+retains no READY/scorer result and unconfirmed cleanup. The separate
 [CPU-only parity pass](../../evidence/p2/2026-10-24-cpu-http-threads-pass/output.log)
-does not promote that failure or prove an end-to-end selected trial. These
-operational experiments use a different checkpoint from the original revision
+does not promote that failure.
+
+The latest merged [selected tau diagnostic](../../evidence/p2/2026-10-25-selected-tau-email-relation-0429/README.md),
+producer `32771fb4ca03cc25ab3177b70c431813cd1a2bf0`, reached GPU readiness in
+840,203 ms and passed four tokenizer-parity cases. Its
+[joined controller/scorer report](../../evidence/p2/2026-10-25-selected-tau-email-relation-0429/evidence/output.log)
+records **FAIL** / `protocol_error`: `too_many_errors` after one tool rejection
+at the retail customer-email lookup. The trial made six requests (three agent,
+three simulator, zero evaluator) in 25,040 ms; reward remains null. Both owners,
+the scorer and the controller confirmed cleanup. This establishes startup and
+scorer execution, not a successful task or quality score. The bounded
+prior-user-text relation does not establish the correct customer identity,
+simulator correctness or which model caused the failure. The Qwen3-0.6B
+simulator and Qwen3-1.7B evaluator remain unqualified support models.
+
+These operational experiments use a different checkpoint from the original revision
 required below and cannot satisfy its matched-reference quality gate.
 This is an additional
 P2.T3 acceptance requirement requested by Joseph, repeated under confidential
@@ -150,8 +164,8 @@ do not add benchmark dependencies or debug logging to the attested service.
 
 Reviewed original-revision serving/reference identities, matched simulator and
 evaluator settings, measured smoke limits, complete scored coverage and separate
-run-cost approvals remain prerequisites for the full quality gate. A successful
-selected operational trial also needs its own original joined report; none is
-established by the retained startup failures or CPU-only pass. Follow
+run-cost approvals remain prerequisites for the full quality gate. The latest
+selected joined report establishes startup, failed scorer execution and cleanup,
+not task success or qualification of its checkpoint or support models. Follow
 the [run gates](../gates.md); this plan does not rent resources, spend credits,
 extend a rental or publish a score.
