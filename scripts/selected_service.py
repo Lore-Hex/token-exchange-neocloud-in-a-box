@@ -33,6 +33,8 @@ CONFORMANCE_MODE = "conformance-smoke"
 CONFORMANCE_SCHEMA = "nib.selected-service-lifecycle/v3"
 PROTOCOL_MODE = "protocol-smoke"
 PROTOCOL_SCHEMA = "nib.selected-service-lifecycle/v4"
+TOOL_MODE = "tool-smoke"
+TOOL_SCHEMA = "nib.selected-service-lifecycle/v5"
 # pilot.stop_serving: 140s graceful + pilot.stop's 10s forced wait.
 # snapshot.cleanup_process_group: 10s TERM + 10s KILL + 5s absence proof.
 DRAIN_SECONDS, REAP_SECONDS = 150, observer.CLEANUP_SECONDS
@@ -245,16 +247,18 @@ class Supervisor:
         self.checkpoint(deadline)
         return True
 
-    def run(self, *, inference_smoke=False, conformance_smoke=False, protocol_smoke=False):
+    def run(self, *, inference_smoke=False, conformance_smoke=False, protocol_smoke=False, tool_smoke=False):
         require(type(inference_smoke) is bool and type(conformance_smoke) is bool
-                and type(protocol_smoke) is bool and sum((inference_smoke, conformance_smoke, protocol_smoke)) <= 1,
+                and type(protocol_smoke) is bool and type(tool_smoke) is bool
+                and sum((inference_smoke, conformance_smoke, protocol_smoke, tool_smoke)) <= 1,
                 "contract")
-        smoke = inference_smoke or conformance_smoke or protocol_smoke
+        smoke = inference_smoke or conformance_smoke or protocol_smoke or tool_smoke
         require(not self.used, "already-used")
         self.used = True
         reason, admitted, cleanup = "owner-failed", False, []
         inference_result = None
         conformance_result = None
+        tool_result = None
         protocol_run = protocol_result = None
         protocol_finished = False
         reader_closed = True
@@ -300,6 +304,14 @@ class Supervisor:
                     inference.encoded(conformance.run_once(self, inference_result)),
                     self.owner.prepared.receipt_sha256, inference_result)
                 require(conformance_result["result"] == "pass", "owner-failed")
+                self.checkpoint(self.cutoff() - CLEANUP_RESERVE)
+            if tool_smoke:
+                import selected_service_tool as tool
+                reader_closed = False
+                tool_result = tool.validate_report(inference.encoded(tool.run_once(self, inference_result)),
+                    self.owner.prepared.receipt_sha256, inference_result)
+                reader_closed = all(tool_result["resources_closed"].values())
+                require(tool_result["result"] == "pass", "owner-failed")
                 self.checkpoint(self.cutoff() - CLEANUP_RESERVE)
             if protocol_smoke:
                 import selected_service_protocol as protocol
@@ -399,6 +411,10 @@ class Supervisor:
             if conformance_smoke:
                 result.update(schema=CONFORMANCE_SCHEMA, mode=CONFORMANCE_MODE, conformance=conformance_result)
                 if conformance_result is None or conformance_result["result"] != "pass":
+                    result["status"] = "failed"
+            if tool_smoke:
+                result.update(schema=TOOL_SCHEMA, mode=TOOL_MODE, tool_roundtrip=tool_result)
+                if tool_result is None or tool_result["result"] != "pass":
                     result["status"] = "failed"
             if protocol_smoke:
                 result.update(schema=PROTOCOL_SCHEMA, mode=PROTOCOL_MODE, protocol=protocol_result)
