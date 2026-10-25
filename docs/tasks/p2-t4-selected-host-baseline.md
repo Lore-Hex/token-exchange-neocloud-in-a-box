@@ -1,11 +1,14 @@
 # Private baseline for the isolated quarantine proof
 
-Status: the first wrapper attempt at `e890860` failed during pre-snapshot;
+Status: the [bounded wrapper/quarantine observation at `3f86b99`](../../evidence/p2/2026-10-25-selected-quarantine-baseline-pass/README.md)
+passed, with verified quarantine, cleanup/namespace reaping and reported equal
+private pre/post firewall/DNS baselines. Only the two content-free originals are
+public; raw host snapshots remain private. The first attempt at `e890860` failed during pre-snapshot;
 its [original content-free summary](../../evidence/p2/2026-10-25-selected-quarantine-presnapshot-failure/README.md)
 does not establish a proof, complete baseline or cleanup. The resolver admission
-correction below is software and mocked/local-file tested only, not a successful
-rerun. Independent final-head review, hosted CI and separate operator authorization
-remain required before another observation. This is P2.T4 proof preparation, not
+correction below was exercised by the later passing observation, without changing
+the failed original. Independent final-head review, hosted CI and separate operator
+authorization remain required before any new observation. This is a P2.T4 isolated proof, not
 a persistent service owner or permission to change a host firewall. The earlier
 ordinary-host observation did not retain a full pre-run ruleset and cannot be
 retroactively given an equality claim.
