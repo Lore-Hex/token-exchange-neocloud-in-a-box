@@ -21,7 +21,9 @@ FILES = ("versions.tf", "variables.tf", "main.tf", "outputs.tf",
          ".terraform.lock.hcl", "tests/lab.tftest.hcl")
 RUNS = {"default_zero", "one_spot_lab", "explicit_zero", "reject_two",
         "reject_fraction", "reject_public_ssh", "reject_subnet_ssh", "reject_ipv6",
-        "reject_family", "reject_production", "reject_unbounded_runtime"}
+        "reject_family", "reject_production", "reject_unbounded_runtime",
+        "h100_default_zero", "one_h100_tdx_spot_lab", "h100_europe_zone",
+        "h100_east_zone", "reject_h100_other_zone", "reject_unknown_hardware"}
 COMMANDS = (
     ("fmt", "-check", "-recursive", "-no-color"),
     ("init", "-backend=false", "-input=false", "-lockfile=readonly", "-no-color"),
