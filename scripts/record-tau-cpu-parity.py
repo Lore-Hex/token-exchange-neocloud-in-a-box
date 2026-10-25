@@ -29,7 +29,7 @@ WHEEL = "cmake-3.31.6-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
 WHEEL_SHA = "1c8b05df0602365da91ee6a3336fe57525b137706c4ab5675498f662ae1dbcec"
 SOURCES = (SCRIPT, SNAPSHOT, "scripts/e2e/exercise.py", "scripts/pilot/run.py",
            "scripts/pilot/pins.json", "scripts/pilot/build-requirements.lock", "scripts/e2e/pins.json",
-           "scripts/tau_cpu_parity.py", "scripts/tau_cpu_session.py", "scripts/tau_cpu_probe.py",
+           "scripts/tau_cpu_parity.py", "scripts/tau_cpu_session.py", "scripts/tau_cpu_probe.py", "scripts/tau_cpu_identity.py",
            "scripts/tau_aggregate.py", "scripts/tau_pipe_driver.py", "scripts/tau_support_probe.py",
            "scripts/tau_cpu_parity.cpp", "scripts/tau_cpu_parity.cmake",
            "scripts/tau_cpu_parity.Dockerfile", "scripts/tau_cpu_support_models.json",
@@ -61,7 +61,7 @@ def load(path, name, raw=None):
 def toolkit(root, *, selected_owner=False):
     # This path is private and freshly extracted, with no ignored bytecode.
     # Order the explicit source closure instead of importing ambient modules.
-    names = ("engine_tokenizer_parity", "tau_preflight", "tau_support_probe", "tau_trial_worker", "tau_transport",
+    names = ("engine_tokenizer_parity", "tau_preflight", "tau_support_probe", "tau_cpu_identity", "tau_trial_worker", "tau_transport",
                  "tau_local_vllm", "tau_local_llama", "tau_llama_identity", "tau_live_identity", "tau_cpu_parity",
                  "tau_aggregate", "tau_pipe_driver", "tau_cpu_probe", "tau_cpu_session")
     if selected_owner:
@@ -157,7 +157,14 @@ def execute(source, work, env, snapshot, inputs, report, home, *, session_fd=Non
                                                    parent_pipe=True, support_probe=True)
             require(digest(cpu.identity.tau.encoded(plan)) == probe["sha"])
             prepared = sys.modules["tau_cpu_probe"].inputs(plan, manifest,
-                sys.modules["tau_pipe_driver"].selected_assertions(probe["payload"], plan["selection"]))
+                sys.modules["tau_pipe_driver"].selected_assertions(probe["payload"], plan["selection"]),
+                **({"fixture": sys.modules["tau_cpu_identity"].fixture(
+                    {"data/tau2/domains/retail/" + name: runner.runtime.read_file(
+                        probe["payload"] / "upstream/data/tau2/domains/retail" / name, 16 << 20, deadline)
+                     for name in ("tasks.json", "db.json")},
+                    cpu.identity.tau.json_value(runner.runtime.read_file(
+                        source / cpu.identity.tau.PINS, 1 << 20, deadline)))}
+                   if manifest["schema"] == sys.modules["tau_support_probe"].IDENTITY_SCHEMA else {}))
             require(env["DOCKER_HOST"].startswith("unix://"))
             probe["socket"] = Path(env["DOCKER_HOST"].removeprefix("unix://"))
             probe["record"] = None
