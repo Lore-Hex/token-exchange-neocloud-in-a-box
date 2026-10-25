@@ -229,10 +229,12 @@ their missing detail is not reconstructed. The
 records `readback`, with cleanup unconfirmed and the namespace reaped. The
 diagnostic does not change policy, deadlines or pass gates.
 
-## Execution gate and next step
+## Legacy CPU venue execution gate
 
-**Only the recorded CPU experiment is qualified.** Before another execution,
-independently review the exact commit and verify a dedicated CPU-only Linux amd64 venue with:
+The following instructions apply only to `ubuntu24-cpu`. The separate
+[ordinary-host profile](p2-t4-selected-nat-venue.md) has its own closed admission
+and measured result. Before another legacy-venue execution, independently
+review the exact commit and verify a dedicated CPU-only Linux amd64 venue with:
 
 - CPython **3.12.13** as the host supervisor, Docker daemon **29.1.3**, nftables
   **1.0.9**, and util-linux unshare **2.39.3**. Host and image interpreters are

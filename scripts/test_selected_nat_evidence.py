@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 import unittest
 
+from test_evidence_history import git
+
 ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE = ROOT / "evidence/p2/2026-10-25-selected-nat-policy-failure"
 SPEC = importlib.util.spec_from_file_location("nat_evidence_producer", ROOT / "scripts/prove-selected-nat.py")
@@ -129,6 +131,10 @@ class SelectedNatEvidenceTests(unittest.TestCase):
             "scripts/selected_network_policy.py": "05f84c0dfeb846a8d15fc2f694bfb7d2a5c5c5a5dffcfc7578ec7722fe8207c9",
         }
         self.assertEqual(outer["source_sha256"], sources)
+        self.assertIn(outer["git_sha"], git(ROOT, "rev-list", "HEAD").decode().splitlines())
+        for name, digest in sources.items():
+            source = git(ROOT, "show", outer["git_sha"] + ":" + name)
+            self.assertEqual(hashlib.sha256(source).hexdigest(), digest, name)
         self.assertEqual(outer["venue_manifest_sha256"], sources[PROOF.VENUE_FILE])
         self.assertIs(outer["namespace_reaped"], True)
         for key in ("gpu_used", "deployment_eligible", "published"):
