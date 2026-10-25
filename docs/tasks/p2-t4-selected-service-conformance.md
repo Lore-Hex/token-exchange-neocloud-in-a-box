@@ -108,6 +108,17 @@ no listening ports or hardware calls. The checker-dependent tests run in a
 disposable environment installed from `scripts/e2e/requirements.lock` with
 `--require-hashes`; without that environment they are explicitly skipped.
 
+The required `Check` workflow separately installs that same lock, wheels only,
+into a fresh CPython 3.12.13 environment and runs
+[`check_checker_tests.py`](../../scripts/check_checker_tests.py). This gate
+verifies every locked package version and executes all tests in
+`PinnedCheckerTests` and `PinnedProtocolTests`, including future methods in
+those classes. Missing dependencies, test import errors, empty classes, skips,
+expected failures and incomplete execution fail this required step. Ordinary
+local discovery retains its explicit optional skips; a green local discovery
+without the checker environment is not evidence that these tests ran. The
+separate Docker E2E checker run does not substitute for this coverage.
+
 Focused command from `scripts/`, using that environment's Python:
 
 ```sh
