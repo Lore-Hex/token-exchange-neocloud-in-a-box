@@ -3,6 +3,7 @@
 
 import copy
 import importlib.util
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -73,6 +74,18 @@ class NetworkProbeTests(unittest.TestCase):
             docker.inspect("container", "owned")
         with mock.patch.object(docker, "call", side_effect=[missing, ValueError()]), self.assertRaises(ValueError):
             docker.inspect("network", "owned")
+
+    def test_image_preflight_selects_exact_cached_amd64_variant(self):
+        docker = probe.Docker("unix:///socket", Path("/nonexistent"))
+        value = {"Os": "linux", "Architecture": "amd64"}
+        with mock.patch.object(docker, "call", return_value=
+                subprocess.CompletedProcess([], 0, json.dumps([value]).encode(), b"")) as call:
+            self.assertEqual(docker.inspect("image", probe.IMAGE), value)
+        call.assert_called_once_with("image", "inspect", "--platform", "linux/amd64", probe.IMAGE, check=False)
+        with mock.patch.object(docker, "call", return_value=
+                subprocess.CompletedProcess([], 1, b"", b"missing")) as call, self.assertRaises(ValueError):
+            docker.inspect("image", probe.IMAGE)
+        self.assertEqual(call.call_count, 1)
 
     def test_partial_creation_retains_failure_and_attempts_owned_cleanup(self):
         docker = mock.Mock(cleaning=False)

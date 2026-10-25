@@ -42,6 +42,11 @@ python3 -I -S -B scripts/probe-selected-network.py \
 ```
 
 Version 29.4.0 is the inspected local Linux VM, not the GPU host's 29.1.3.
+Image inspection explicitly selects `linux/amd64`, matching container creation:
+the daemon can otherwise return its native variant from a cached multi-platform
+index ([Docker image inspection](https://docs.docker.com/reference/cli/docker/image/inspect/),
+API 1.49+, accessed 2026-10-25). A missing variant fails before resource creation;
+the probe does not pull or substitute an image.
 The recorder requires its own and the listener's bytes to match the named Git
 commit and includes their hashes, without embedding any machine-local paths.
 Results must retain the actual engine version and may not qualify a different

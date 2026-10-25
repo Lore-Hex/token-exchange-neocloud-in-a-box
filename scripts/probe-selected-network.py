@@ -88,8 +88,11 @@ class Docker:
         return result
 
     def inspect(self, kind, name):
-        result = self.call(kind, "inspect", name, check=False)
+        require(kind in ("image", "container", "network"))
+        platform = ("--platform", "linux/amd64") if kind == "image" else ()
+        result = self.call(kind, "inspect", *platform, name, check=False)
         if result.returncode:
+            require(kind != "image")
             # A failed inspect alone is not absence. A successful inventory
             # must also omit the exact name before cleanup can be confirmed.
             names = self.call(kind, "ls", *(('-a',) if kind == 'container' else ()),
@@ -197,6 +200,7 @@ def main():
             report["engine_version"] = version["Version"]
             report["daemon_arch"] = version["Arch"]
             report["image_reference"] = IMAGE
+            report["stage"] = "image-preflight"
             image = docker.inspect("image", IMAGE)
             require(image is not None and image["Os"] == "linux" and image["Architecture"] == "amd64")
             report["image_id"] = image["Id"]
