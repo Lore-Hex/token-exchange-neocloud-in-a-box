@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Prepare only the fixed original tau CPU prompt probe, without model execution."""
+"""Prepare one fixed tau CPU probe profile, without model execution."""
 import sys
 
 if __name__ == "__main__" and not (sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode):
@@ -42,7 +42,8 @@ def plan(runtime):
     return archive, wheels
 
 
-def prepare(directory, source, work, env, snapshot, deadline):
+def prepare(directory, source, work, env, snapshot, deadline, *, identity_followup=False):
+    require(type(identity_followup) is bool)
     runner = rec.load(source / "scripts/tau_trial.py", "cpu_probe_setup")
     archive, wheels = plan(runner.runtime)
     cache = work / "inputs"
@@ -55,9 +56,11 @@ def prepare(directory, source, work, env, snapshot, deadline):
     finally:
         os.close(fd)
     files, contract = runner.prepare(cache / "tau.tar.gz", cache, None, None, None,
-        min(deadline, time.monotonic() + runner.runtime.SECONDS), parent_pipe=True, support_probe=True)
+        min(deadline, time.monotonic() + runner.runtime.SECONDS), parent_pipe=True, support_probe=True,
+        **({"identity_followup": True} if identity_followup else {}))
     runner.publish(directory, files)
-    receipt = {"schema": "nib.tau-cpu-probe-setup/v1", "git_sha": contract["producer"]["git_sha"],
+    receipt = {"schema": ("nib.tau-cpu-identity-probe-setup/v1" if identity_followup
+                          else "nib.tau-cpu-probe-setup/v1"), "git_sha": contract["producer"]["git_sha"],
         "plan_sha256": rec.digest(files["trial.json"]), "source_archive_sha256": archive[2],
         "runtime_lock_sha256": runner.runtime.CATALOG_SHA, "wheels": len(wheels),
         "target": "scripted", "pricing": "not-measured", "upstream_executed": False,
@@ -74,6 +77,7 @@ def prepare(directory, source, work, env, snapshot, deadline):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--identity-followup", action="store_true")
     args = parser.parse_args()
     rec.host("github-actions")
     require(os.environ.get("GITHUB_REF") == "refs/heads/main")
@@ -92,7 +96,8 @@ def main():
         require((source / SCRIPT).read_bytes() == Path(__file__).read_bytes()
                 and (source / rec.SCRIPT).read_bytes() == rec.BOOTSTRAP
                 and (source / native.SCRIPT).read_bytes() == Path(native.__file__).read_bytes())
-        prepare(args.output.absolute(), source, work, env, snapshot, deadline)
+        prepare(args.output.absolute(), source, work, env, snapshot, deadline,
+                **({"identity_followup": True} if args.identity_followup else {}))
         snapshot.validate_snapshot(source, files)
     print("Pinned CPU prompt probe inputs verified; no model execution performed.")
 
