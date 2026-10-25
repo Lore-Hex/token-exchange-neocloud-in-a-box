@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Bounded credential-free startup observation of one explicitly pinned TLS peer."""
+"""Bounded credential-free startup observation of one explicitly verified TLS peer."""
 
 import sys
 from pathlib import Path
@@ -77,6 +77,9 @@ def run(args):
     try:
         require(args.run and threading.current_thread() is threading.main_thread(), "contract")
         probe.validate_target(args)
+        system_roots = probe.tls_mode(args) == "system-roots"
+        if system_roots:
+            result.update(schema="nib.selected-external-startup/v2", tls_mode="system-roots")
         wall = datetime.strptime(args.deadline, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
         seconds = wall - time.time()
         require(0 < seconds <= SECONDS, "deadline")
@@ -89,7 +92,8 @@ def run(args):
         result["deadline"] = args.deadline
         result["target_sha256"] = hashlib.sha256(encoded({
             "address": args.address, "port": args.port, "hostname": args.hostname,
-            "certificate_sha256": args.certificate_sha256})).hexdigest()
+            **({"tls_mode": "system-roots"} if system_roots else
+               {"certificate_sha256": args.certificate_sha256})})).hexdigest()
 
         def cutoff():
             nonlocal hard
@@ -162,8 +166,9 @@ def main(argv=None):
     try:
         parser = probe.QuietParser(description=__doc__, allow_abbrev=False)
         parser.add_argument("--run", action="store_true")
-        for name in ("address", "hostname", "certificate", "certificate-sha256", "deadline"):
+        for name in ("address", "hostname", "deadline"):
             parser.add_argument("--" + name, required=True)
+        probe.tls_arguments(parser)
         parser.add_argument("--port", type=int, required=True)
         result = run(parser.parse_args(argv))
     except BaseException:

@@ -94,6 +94,8 @@ class ExternalTests(unittest.TestCase):
         wrapped.__enter__.return_value = wrapped
         wrapped.getpeercert.return_value = b"certificate"
         trust = mock.Mock()
+        trust.check_hostname, trust.verify_mode = True, ssl.CERT_REQUIRED
+        trust.minimum_version, trust.keylog_filename = ssl.TLSVersion.TLSv1_2, None
         trust.wrap_socket.return_value = wrapped
         with mock.patch.object(probe.socket, "socket", return_value=raw):
             with probe.pinned_tls(args(), trust, hashlib.sha256(b"certificate").digest(), probe.time.monotonic() + 5):
