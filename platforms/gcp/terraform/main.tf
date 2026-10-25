@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 locals {
-  region = join("-", slice(split("-", var.zone), 0, 2))
+  region  = join("-", slice(split("-", var.zone), 0, 2))
+  h100_td = var.hardware_profile == "a3-h100-tdx"
 }
 
 resource "google_compute_network" "lab" {
@@ -22,7 +23,7 @@ resource "google_compute_subnetwork" "lab" {
 resource "google_service_account" "lab" {
   count        = var.instance_count
   account_id   = "${var.name}-vm"
-  display_name = "Isolated non-confidential A4 lab; no IAM roles granted"
+  display_name = local.h100_td ? "Isolated H100 TDX lab; no IAM roles granted" : "Isolated non-confidential A4 lab; no IAM roles granted"
 }
 
 # Fresh custom VPC: no default internal/SSH rules, no 443 allow, no IPv6.
@@ -47,20 +48,38 @@ resource "google_compute_firewall" "ssh" {
 resource "google_compute_instance_template" "lab" {
   count          = var.instance_count
   name_prefix    = "${var.name}-"
-  machine_type   = "a4-highgpu-8g"
+  machine_type   = local.h100_td ? "a3-highgpu-1g" : "a4-highgpu-8g"
   can_ip_forward = false
   region         = local.region
 
   disk {
     boot         = true
     auto_delete  = true
-    disk_type    = "hyperdisk-balanced"
+    disk_type    = local.h100_td ? "pd-balanced" : "hyperdisk-balanced"
+    interface    = local.h100_td ? "NVME" : null
     disk_size_gb = 100
     source_image = var.boot_image
   }
 
-  # A4 includes eight B200 GPUs and 32 Local SSDs automatically. Do not add
-  # guest_accelerator, SCRATCH disks, or unsupported Persistent Disk resources.
+  # A4 includes GPUs/local SSD automatically; A3 includes its H100. TDX only
+  # supports NVMe Balanced PD, not Local SSD on A3. Do not add accelerators.
+  # https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/supported-configurations
+  dynamic "confidential_instance_config" {
+    for_each = local.h100_td ? [true] : []
+    content {
+      confidential_instance_type = "TDX"
+    }
+  }
+
+  dynamic "shielded_instance_config" {
+    for_each = local.h100_td ? [true] : []
+    content {
+      enable_secure_boot          = true
+      enable_vtpm                 = true
+      enable_integrity_monitoring = true
+    }
+  }
+
   network_interface {
     subnetwork = google_compute_subnetwork.lab[0].id
     nic_type   = "GVNIC"
@@ -93,8 +112,8 @@ resource "google_compute_instance_template" "lab" {
   }
 
   labels = {
-    purpose         = "nib-p2-lab"
-    confidentiality = "none"
+    purpose         = local.h100_td ? "nib-p3-lab" : "nib-p2-lab"
+    confidentiality = local.h100_td ? "unverified-tdx" : "none"
   }
 
   lifecycle {

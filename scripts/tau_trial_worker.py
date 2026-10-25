@@ -459,9 +459,11 @@ class Bridge:
                 and not (support_probe and selected_operational))
         self.tau, self.role, self.transport, self.clock = tau, role, transport, clock
         self.selected_operational = selected_operational
+        self.customer_resolution_mode = False
         if support_probe or selected_operational:
             if selected_operational:
                 import tau_selected_policy as policy
+                self.customer_resolution_mode = policy.is_resolution(config)
             else:
                 import tau_support_probe as policy
             require(role == "candidate")
@@ -492,6 +494,7 @@ class Bridge:
             request = {"messages": messages, "tools": tools}
             bounded_json(request, MAX_REQUEST)
             category = MODEL_ROLES[model]
+            require(not self.customer_resolution_mode or category != "evaluator")
             role = self.role if category == "agent" else category
         except Exception:
             self.stop("protocol_error")
@@ -653,7 +656,25 @@ def run_support_probe(root, manifest, selection, bridge):
 
 
 def run_selected_upstream(root, manifest, selection, bridge):
+    import tau_selected_policy as policy
+    if policy.is_resolution(manifest):
+        import tau_customer_resolution
+        return tau_customer_resolution.run(root, manifest, selection, bridge)
     return run_upstream(root, manifest, selection, bridge, selected_operational=True)
+
+
+def text_config(selection, settings, seconds):
+    from tau2.data_model.simulation import TextRunConfig
+    args = {"temperature": 0, "num_retries": 0}
+    return TextRunConfig(
+        domain=selection["domain"], task_set_name=selection["domain"], task_split_name="base",
+        task_ids=[selection["task_id"]], num_tasks=1, llm_agent="nib-scripted-agent",
+        llm_args_agent=args, llm_user="nib-scripted-simulator", llm_args_user=args,
+        agent="llm_agent", user="user_simulator", num_trials=1, max_concurrency=1,
+        max_steps=settings["limits"]["turns"], max_errors=1,
+        timeout=min(seconds, settings["limits"]["trial_seconds"]),
+        max_retries=0, hallucination_retries=0, auto_review=False, auto_resume=False,
+        verbose_logs=False, seed=selection["seed"], save_to=None)
 
 
 def run_upstream(root, manifest, selection, bridge, *, selected_operational=False):
@@ -671,23 +692,13 @@ def run_upstream(root, manifest, selection, bridge, *, selected_operational=Fals
     configure_upstream(bridge)
     from tau2.runner.batch import run_single_task
     from tau2.runner.helpers import get_tasks
-    from tau2.data_model.simulation import TextRunConfig
     from tau2.evaluator.evaluator import EvaluationType
     from tau2.utils import llm_utils
     task = get_tasks(selection["domain"], task_split_name="base",
                      task_ids=[selection["task_id"]], num_tasks=1)[0]
     bridge.assertions = list(task.evaluation_criteria.nl_assertions or []) if task.evaluation_criteria else []
     require(not selected_operational or len(bridge.assertions) == 1)
-    args = {"temperature": 0, "num_retries": 0}
-    config = TextRunConfig(
-        domain=selection["domain"], task_set_name=selection["domain"], task_split_name="base",
-        task_ids=[selection["task_id"]], num_tasks=1, llm_agent="nib-scripted-agent",
-        llm_args_agent=args, llm_user="nib-scripted-simulator", llm_args_user=args,
-        agent="llm_agent", user="user_simulator", num_trials=1, max_concurrency=1,
-        max_steps=settings["limits"]["turns"], max_errors=1,
-        timeout=min(seconds, settings["limits"]["trial_seconds"]),
-        max_retries=0, hallucination_retries=0, auto_review=False, auto_resume=False,
-        verbose_logs=False, seed=selection["seed"], save_to=None)
+    config = text_config(selection, settings, seconds)
     try:
         with observe_selected_tools() if selected_operational else contextlib.nullcontext() as observer:
             simulation = run_single_task(config, task, seed=selection["seed"], save_dir=None,
@@ -842,7 +853,8 @@ def main():
                 try:
                     seconds = SELECTED_TRIAL_SECONDS if selected_operational else SECONDS
                     proxy = tau_transport.WorkerProxy(channel, min(operation_deadline, time.monotonic() + seconds),
-                                                     selected_operational=selected_operational)
+                        selected_operational=selected_operational,
+                        customer_resolution=selected_operational and policy.is_resolution(manifest))
                     if contract.get("agent_prefix") is True:
                         prefix = load(root, "scripts/tau_agent_prefix.py")
                         value = prefix.materialize(sys.modules[__name__], policy, manifest, contract["selection"])

@@ -1,6 +1,6 @@
-# GCP A4 Lab Skeleton
+# GCP GPU Lab Skeleton
 
-P2.T1 software only: reusable Terraform configuration with **mocked plans**, not
+P2.T1 / P3.T2 preparation only: reusable Terraform configuration with **mocked plans**, not
 a real cloud plan, allocated capacity, boot validation or deployment approval.
 No cloud resource, billing link, API enablement, quota request or IAM change was
 performed to develop or test it. Never use the production project for model
@@ -15,7 +15,8 @@ bring-up. [Human gates](../../../docs/gates.md) still apply.
   On an existing deployment, an approved apply of zero **destroys** the entire
   managed lab, including boot disk and ephemeral Local SSD data; it is not a
   reversible stopped VM. A plan alone never stops anything.
-- One VM uses `a4-highgpu-8g`, **Spot only**, `TERMINATE` on host maintenance,
+- The default `a4-b200-ordinary` profile uses `a4-highgpu-8g`. The explicit
+  `a3-h100-tdx` profile uses `a3-highgpu-1g`. Both are **Spot only**, `TERMINATE` on host maintenance,
   no automatic restart, and `DELETE` on termination. No on-demand fallback,
   reservations, managed group or autoscaler. Each run must supply a
   whole-second lifetime of 60 through 28,800 seconds (our conservative policy,
@@ -27,6 +28,14 @@ bring-up. [Human gates](../../../docs/gates.md) still apply.
   configured disk is a 100-GiB **Hyperdisk Balanced** auto-deleted boot disk.
   `pd-standard`, `pd-balanced` and `pd-ssd` are not supported A4 alternatives.
   No formatting, mounting, RAID, driver or model bootstrap is performed.
+- The H100 profile requests **Intel TDX**, a 100-GiB NVMe **Balanced Persistent
+  Disk**, Secure Boot, vTPM and integrity monitoring. It adds neither Local SSD
+  nor a separate accelerator declaration. Only `us-central1-a`, `us-east5-a`
+  and `europe-west4-c` are admitted, based on Google's October 22, 2026
+  supported-configuration documentation. It is labeled `unverified-tdx`:
+  requesting TDX does not prove CPU attestation, GPU CC enablement, driver
+  signing, model integrity or end-to-end confidentiality. GPU mode and
+  attestation must be verified after boot; no automatic downgrade is allowed.
 - Separate custom-mode IPv4 VPC/subnet, one GVNIC and ephemeral external IPv4.
   Only TCP/22 from an explicit operator IPv4 **/32** is allowed, targeted to
   this VM's dedicated service account. No 443 or internal-traffic allow rule,
@@ -44,7 +53,9 @@ bring-up. [Human gates](../../../docs/gates.md) still apply.
 ## Inputs And Gates
 
 Required inputs are `project_id`, `zone`, `operator_cidr`, `boot_image` and
-`max_run_seconds`. `name` defaults to `nib-a4-lab`; choose a unique lab prefix.
+`max_run_seconds`. `name` defaults to `nib-a4-lab`; choose a unique lab prefix
+(for example `nib-h100-lab` for the H100 profile). `hardware_profile` defaults
+to `a4-b200-ordinary`; selecting H100 alone still creates **zero** resources.
 Region is derived from the zone. The project must already be isolated and
 approved, with the required APIs, billing, quota, policy and operator access.
 The provider does not create a project, enable an API or grant any role.
@@ -55,6 +66,17 @@ operators must verify its numeric image identity, provenance, license and
 A4/GVNIC/OS Login compatibility in the approval record. There is deliberately
 no default image or zone. The test image, project, zone and RFC 5737 SSH address
 are synthetic and **must not be used to deploy**.
+
+For H100, verify the exact image's `TDX_CAPABLE`, `UEFI_COMPATIBLE` and `GVNIC`
+features, supported GPU image provenance, signed driver boot path and numerical
+image identity before a real plan. Google documents GPU support for specific
+Ubuntu and Container-Optimized OS images, not every `TDX_CAPABLE` image.
+The module deliberately does not resolve a moving image family or assert that
+an arbitrary custom image works. PLAN P3.T2 still requires stopping/reporting if
+Google rejects the custom image; a vendor-image plumbing test is not proof of
+our own image measurements. Quota and supported-zone membership are not
+evidence of available capacity. The module does not request quota or rent a VM
+when its software tests run.
 
 TODO(verify): select and pin an A4-supported Linux image; review its bootstrap
 and driver compatibility in P2.T2. Real provider/API acceptance, template
@@ -115,6 +137,15 @@ log does not change this: all plans use synthetic state and provider values.
 ## Primary Sources
 
 Reviewed 2026-10-22; external documented behavior, not our hardware measurements:
+
+- H100 addition reviewed 2026-10-25 against Google's
+  [GPU-confidential VM creation guide](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/create-a-confidential-vm-instance-with-gpu)
+  (**Standard or spot**, A3 High `a3-highgpu-1g` / `TDX`, Secure Boot) and
+  [supported configurations](https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/supported-configurations)
+  (**Intel TDX**, NVMe Balanced PD; **NVIDIA Confidential Computing**, zones;
+  **Supported images**, explicit image-family limits). The pinned provider's
+  [confidential and shielded template blocks](https://github.com/hashicorp/terraform-provider-google/blob/40d7f42ae1094aeb14f8cb5c9fb24ab560b196cb/website/docs/r/compute_instance_template.html.markdown)
+  supply the exact field names. All H100 verification here is mock-only.
 
 - [Google A4 creation guide](https://docs.cloud.google.com/compute/docs/gpus/create-gpu-vm-a3u-a4),
   **Create VPC networks** (single GVNIC explicitly allowed for a quick test),

@@ -252,8 +252,10 @@ def check_bounds(receipt, manifest, manifest_sha, role, body):
 
 class WorkerProxy:
     """Completion-shaped proxy only: no Budget, model destination or credentials."""
-    def __init__(self, channel, deadline, *, selected_operational=False):
+    def __init__(self, channel, deadline, *, selected_operational=False, customer_resolution=False):
         require(type(selected_operational) is bool)
+        require(type(customer_resolution) is bool and (not customer_resolution or selected_operational))
+        self.customer_resolution_mode, self.customer_resolution = customer_resolution, None
         self.channel, self.deadline, self.sequence, self.failed = channel, deadline, 0, None
         self.selected_operational, self.upstream_termination = selected_operational, None
         self.finished = False
@@ -294,7 +296,7 @@ class WorkerProxy:
             self.channel.close()
             raise worker.Abort(self.failed)
         try:
-            terminal(outcome, reward)
+            terminal(outcome, reward, diagnostic=self.customer_resolution_mode)
             require(type(self.assertions) is list and all(type(item) is str for item in self.assertions))
             assertion_hash = tau.digest(worker.bounded_json(self.assertions, worker.MAX_RESPONSE))
             sequence = self.sequence + 1
@@ -302,7 +304,12 @@ class WorkerProxy:
                       "status": outcome, "reward": reward, "assertions_sha256": assertion_hash}
             if self.selected_operational:
                 packet["upstream_termination"] = worker.validate_upstream_termination(
-                    self.upstream_termination, evaluated=outcome == "evaluated")
+                    self.upstream_termination, evaluated=outcome == "evaluated" and not self.customer_resolution_mode)
+                if self.customer_resolution_mode:
+                    import tau_selected_policy as policy
+                    require(self.upstream_termination is None)
+                    packet["customer_resolution"] = policy.resolution_result(
+                        self.customer_resolution, completed=outcome == "evaluated")
             self.channel.send(packet, self.deadline)
             reply = self.channel.receive(self.deadline)
             require(type(reply) is dict and set(reply) == {"schema", "kind", "sequence"}
@@ -317,9 +324,9 @@ class WorkerProxy:
             self.busy.release()
 
 
-def terminal(outcome, reward):
+def terminal(outcome, reward, *, diagnostic=False):
     require(type(outcome) is str and outcome in worker.STATUSES)
-    if outcome == "evaluated":
+    if outcome == "evaluated" and not diagnostic:
         require(type(reward) is float and math.isfinite(reward) and -1000 <= reward <= 1000)
     else:
         require(reward is None)
@@ -354,6 +361,7 @@ class ParentSession:
                                     role, self.dispatch, clock=clock, support_probe=support_probe,
                                     selected_operational=selected_operational)
         self.identity_followup = support_probe and policy.is_identity(self.manifest["input"])
+        self.customer_resolution_mode = selected_operational and policy.is_resolution(self.manifest["input"])
         self.started, self.result = clock(), None
         require(type(assertions) in (list, tuple) and all(type(item) is str for item in assertions))
         self.bridge.assertions = snapshot(list(assertions), worker.MAX_RESPONSE)
@@ -421,11 +429,14 @@ class ParentSession:
                 and packet["schema"] == SCHEMA and packet["kind"] == "finished"
                 and type(packet["sequence"]) is int and packet["sequence"] == self.sequence + 1
                 and self.bridge.budget.pending is None and self.bridge.usage_known)
-        terminal(packet["status"], packet["reward"])
+        terminal(packet["status"], packet["reward"], diagnostic=self.customer_resolution_mode)
         if packet["status"] == "evaluated":
             require(packet["assertions_sha256"] == tau.digest(worker.bounded_json(
                         self.bridge.assertions, worker.MAX_RESPONSE)))
-            if self.identity_followup:
+            if self.customer_resolution_mode:
+                require(self.bridge.counts["agent"] > 0 and self.bridge.counts["simulator"] > 0
+                        and self.bridge.counts["evaluator"] == 0 and packet["reward"] is None)
+            elif self.identity_followup:
                 require(self.bridge.counts == {"agent": 0, "simulator": 3, "evaluator": 0}
                         and packet["reward"] == 0.0)
             else:

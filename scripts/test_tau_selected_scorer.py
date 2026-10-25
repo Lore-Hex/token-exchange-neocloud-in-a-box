@@ -212,9 +212,10 @@ class Channel:
     def send(self,value,deadline): os.write(self.write,json.dumps(value).encode()+b'\n')
     def close(self): os.close(self.read);os.close(self.write)
 class Proxy:
-    def __init__(self,channel,deadline,*,selected_operational=False):
+    def __init__(self,channel,deadline,*,selected_operational=False,customer_resolution=False):
         self.channel,self.deadline=channel,deadline
         self.finished=self.failed=False
+        self.customer_resolution_mode=customer_resolution
     def finish(self,status,reward):
         self.channel.send({'status':status,'reward':reward},self.deadline)
         self.finished=True
