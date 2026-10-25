@@ -449,6 +449,8 @@ class ProfileCacheTests(unittest.TestCase):
                 if kind == "old-manifest": attach.assert_not_called()
 
     def test_cli_explicit_profiles_keep_original_restore_routing(self):
+        flags = types.SimpleNamespace(**({name: getattr(cache.sys.flags, name) for name in dir(cache.sys.flags)
+            if type(getattr(cache.sys.flags, name)) is int} | {"isolated": True, "no_site": True}))
         base = ["cache", "--export", "nfs.example.test:/public", "--mount", str(self.root / "mount"),
                 "--output", str(self.root / "receipt"), "--producer", "b" * 40, "--timeout", "120",
                 "--manifest", str(self.root / "manifest")]
@@ -461,7 +463,7 @@ class ProfileCacheTests(unittest.TestCase):
                 if mode == "--seed-to": argv += ["--seed-manifest", str(self.root / "old-manifest")]
                 with self.subTest(profile=profile, mode=mode), mock.patch.object(cache.sys, "argv", argv), \
                         mock.patch.object(cache.sys, "platform", "linux"), \
-                        mock.patch.object(cache.sys, "flags", types.SimpleNamespace(isolated=True, no_site=True)), \
+                        mock.patch.object(cache.sys, "flags", flags), \
                         mock.patch.object(cache.os, "getuid", return_value=0), \
                         mock.patch.object(cache, "restore_report", return_value=0) as legacy, \
                         mock.patch.object(cache, "profile_report", return_value=0) as current:
