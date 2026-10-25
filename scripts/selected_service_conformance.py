@@ -33,20 +33,21 @@ def contract():
         "full_provider_gate": False}
 
 
-def payload_files(root, deadline):
+def payload_files(root, deadline, expected_sha256=None):
     """Reuse the lab payload verifier; the prepared receipt binds every byte."""
     with service.identity.worker.alarm(deadline):
         raw = process.bootstrap.read_source(str(root / "trial.json"))
+        require(expected_sha256 is None or process.digest(raw) == expected_sha256, "identity")
         plan = pinned.verify(root, process.digest(raw))
         require(plan.get("model_profile") == service.models.select("uncensored"), "identity")
         return set(plan["files"]) | {"trial.json"}
 
 
 @contextmanager
-def checker_modules(root, deadline):
+def checker_modules(root, deadline, expected_sha256=None):
     # The isolated owner has no site-packages. Only the offline, locked payload
     # enters its import path. In particular, never use the engine's dependencies.
-    payload_files(root, deadline)
+    payload_files(root, deadline, expected_sha256)
     packages = root / "packages"
     names = {path.name.split(".")[0] for path in packages.iterdir() if ".dist-info" not in path.name}
     require(not any(name in sys.modules for name in names), "identity")
@@ -121,7 +122,7 @@ def response(supervisor, identities, deadline, case, key, body, report):
             inference.checkpoint(supervisor, identities, deadline)
 
 
-def validate_catalog(checker, raw, supervisor, deadline):
+def catalog_payload(checker, raw):
     payload = service.correctness.strict_json(raw)
     catalog = checker.catalog
     try:
@@ -130,6 +131,12 @@ def validate_catalog(checker, raw, supervisor, deadline):
     except catalog.ValidationError:
         raise inference.Rejected("protocol") from None
     catalog._validate_vendored_rules(payload)
+    return payload
+
+
+def validate_catalog(checker, raw, supervisor, deadline):
+    payload = catalog_payload(checker, raw)
+    catalog = checker.catalog
     require(len(payload["data"]) == 1, "protocol")
     row = payload["data"][0]
     provider = service.correctness.strict_json(service.identity.private_read(
@@ -147,6 +154,48 @@ def validate_catalog(checker, raw, supervisor, deadline):
     return evidence
 
 
+@asynccontextmanager
+async def measured_response(checker, observed, connection, deadline, report, started, checkpoint,
+                            *, prompt_limit=4096, request_url="https://127.0.0.1:8443/v1/chat/completions"):
+    """Shared SSE accounting/parser; callers retain their distinct trust boundaries."""
+    meter = measurement.StreamMeasurement(service.MODEL, timeout_seconds=inference.REQUEST_SECONDS,
+        max_prompt_tokens=prompt_limit, max_output_tokens=service.OUTPUT)
+    length = transport.response_length(observed)
+    complete = False
+    class Blocks(checker.httpx.AsyncByteStream):
+        async def __aiter__(self):
+            nonlocal complete, deadline
+            count = 0
+            while True:
+                deadline = min(deadline, checkpoint(deadline))
+                connection.settimeout(max(.001, deadline - time.monotonic()))
+                block = observed.read1(measurement.MAX_EVENT)
+                if not block:
+                    break
+                count += len(block)
+                require(count <= LIMIT, "protocol")
+                meter.feed(block, time.monotonic() - started)
+                if meter.usage is not None:
+                    report.update(usage={"prompt_tokens": meter.usage[0],
+                        "completion_tokens": meter.usage[1]}, usage_unknown=False)
+                require(meter.failure is None, "deadline" if meter.failure == "timeout" else "protocol")
+                deadline = min(deadline, checkpoint(deadline))
+                yield block
+            require(length is None or count == length, "protocol")
+            require(observed.tail is not None and observed.tail.read1(1) == b"", "protocol")
+            sample = meter.close(time.monotonic() - started)
+            require(sample.status == "completed" and sample.first_content_seconds is not None
+                    and sample.prompt_tokens > 0 and sample.completion_tokens > 0, "protocol")
+            complete = True
+    value = checker.httpx.Response(200, headers=observed.getheaders(), stream=Blocks(),
+        request=checker.httpx.Request("POST", request_url))
+    try:
+        yield value
+        require(complete, "protocol")
+    finally:
+        await value.aclose()
+
+
 async def collect(checker, supervisor, identities, deadline, key, report):
     # Source-verified 0.1.8 accepts this narrow client interface. Do not invoke
     # GatewayClient transport/retries or run_catalog_checks' independent client.
@@ -159,45 +208,14 @@ async def collect(checker, supervisor, identities, deadline, key, report):
             require(model == service.MODEL and prompt == checker.rules.PONG_PROMPT
                     and temperature is None, "contract")
             started = time.monotonic()
-            meter = measurement.StreamMeasurement(service.MODEL, timeout_seconds=inference.REQUEST_SECONDS,
-                max_prompt_tokens=4096, max_output_tokens=service.OUTPUT)
-            complete = False
-            class Blocks(checker.httpx.AsyncByteStream):
-                async def __aiter__(self):
-                    nonlocal complete
-                    count = 0
-                    while True:
-                        connection.settimeout(max(.001, request_deadline - time.monotonic()))
-                        block = observed.read1(measurement.MAX_EVENT)
-                        if not block:
-                            break
-                        count += len(block)
-                        require(count <= LIMIT, "protocol")
-                        meter.feed(block, time.monotonic() - started)
-                        # Preserve known usage even if framing, identity, close,
-                        # upstream checks or subsequent cleanup later fails.
-                        if meter.usage is not None:
-                            report.update(usage={"prompt_tokens": meter.usage[0],
-                                "completion_tokens": meter.usage[1]}, usage_unknown=False)
-                        require(meter.failure is None, "deadline" if meter.failure == "timeout" else "protocol")
-                        inference.checkpoint(supervisor, identities, request_deadline)
-                        yield block
-                    require(length is None or count == length, "protocol")
-                    require(observed.tail is not None and observed.tail.read1(1) == b"", "protocol")
-                    sample = meter.close(time.monotonic() - started)
-                    require(sample.status == "completed" and sample.first_content_seconds is not None
-                            and sample.prompt_tokens > 0 and sample.completion_tokens > 0, "protocol")
-                    complete = True
+            def checkpoint(deadline):
+                inference.checkpoint(supervisor, identities, deadline)
+                return deadline
             with response(supervisor, identities, deadline, "stream", key, body, report) as state:
                 observed, connection, request_deadline = state
-                length = transport.response_length(observed)
-                value = checker.httpx.Response(200, headers=observed.getheaders(), stream=Blocks(),
-                    request=checker.httpx.Request("POST", "https://127.0.0.1:8443/v1/chat/completions"))
-                try:
+                async with measured_response(checker, observed, connection, request_deadline,
+                        report, started, checkpoint) as value:
                     yield value
-                    require(complete, "protocol")
-                finally:
-                    await value.aclose()
 
     client = Client()
     body = encoded(client.chat_body(model=service.MODEL, prompt=checker.rules.PONG_PROMPT,

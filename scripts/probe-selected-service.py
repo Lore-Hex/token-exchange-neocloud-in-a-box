@@ -55,7 +55,7 @@ def remaining(deadline):
     return left
 
 
-def source_identity(deadline):
+def source_identity(deadline, *, extra_files=()):
     env = {"PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin", "HOME": "/nonexistent",
         "LC_ALL": "C", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
         "GIT_NO_REPLACE_OBJECTS": "1", "GIT_NO_LAZY_FETCH": "1", "GIT_ALLOW_PROTOCOL": ""}
@@ -68,7 +68,8 @@ def source_identity(deadline):
     revision = git("rev-parse", "HEAD").decode().strip()
     require(re.fullmatch("[0-9a-f]{40}", revision), "identity")
     hashes = {}
-    for name in SOURCES:
+    for name in dict.fromkeys((*SOURCES, *extra_files)):
+        require(type(name) is str and re.fullmatch(r"scripts/(?:[a-z0-9_-]+/)*[a-z0-9_-]+\.py", name), "identity")
         committed = git("show", revision + ":" + name)
         require(committed == (ROOT / name).read_bytes(), "identity")
         hashes[name] = hashlib.sha256(committed).hexdigest()
@@ -148,7 +149,7 @@ def pinned_tls(args, trust, peer_digest, deadline):
         yield connection
 
 
-def fixed_body(response, *, status, limit, category, media=None):
+def fixed_payload(response, *, status, limit, category, media=None):
     headers = response.getheaders()
     lengths = response.headers.get_all("Content-Length")
     require(not response.headers.defects and len(headers) <= 32
@@ -156,15 +157,24 @@ def fixed_body(response, *, status, limit, category, media=None):
             and all("\r" not in value and "\n" not in value for _, value in headers)
             and response.version in (10, 11) and response.status == status
             and lengths is not None and len(lengths) == 1
-            and re.fullmatch(r"0|[1-9][0-9]{0,3}", lengths[0]) is not None
+            and re.fullmatch(r"0|[1-9][0-9]{0," + str(len(str(limit)) - 1) + r"}", lengths[0]) is not None
             and int(lengths[0]) <= limit
             and response.getheader("Transfer-Encoding") is None
             and response.getheader("Content-Encoding") is None, category)
     if media is not None:
         require(response.headers.get_all("Content-Type") == [media], category)
     raw = response.read(limit + 1)
-    require(len(raw) == int(lengths[0]) and response.tail is not None
-            and response.tail.read1(1) == b"", category)
+    require(len(raw) == int(lengths[0]), category)
+    return raw
+
+
+def end_of_body(response, category):
+    require(response.tail is not None and response.tail.read1(1) == b"", category)
+
+
+def fixed_body(response, *, status, limit, category, media=None):
+    raw = fixed_payload(response, status=status, limit=limit, category=category, media=media)
+    end_of_body(response, category)
     return raw
 
 
