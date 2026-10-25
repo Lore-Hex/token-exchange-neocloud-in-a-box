@@ -53,13 +53,17 @@ and the inference exchange took 3.370 seconds. This single short cross-network
 sample is not a throughput benchmark, uptime measurement or SLA. The probe does
 not measure upstream call counts for rejected credentials. No retry occurred.
 
-The still-running owner's planned admission cutoff is 2026-10-26 06:40:45 UTC,
+At the time of these startup observations, the owner's planned admission cutoff was 2026-10-26 06:40:45 UTC,
 child cutoff 06:47 and outer cleanup cutoff 06:50, as operator context only.
 This evidence does not include terminal owner completion or cleanup. The
 planned run is shorter than 24 hours, and the external clients prove only the
 observed API exchanges, not continuous readiness. There is no public trusted
 DNS/TLS, production gateway settlement, full provider conformance, tau quality
 result, confidential-compute or E2EE claim. Earlier failures remain failures.
+
+The later [cancelled-owner terminal artifact](../2026-10-25-selected-owner-cancelled/README.md)
+is preserved separately: FAIL/lifecycle with reported cleanup confirmed, not a
+natural-retirement PASS or completed day run. These startup originals are unchanged.
 
 The [replay tests](../../../scripts/test_selected_day_startup_evidence.py) pin
 the original bytes, input joins, source closure and false-capability fields.
