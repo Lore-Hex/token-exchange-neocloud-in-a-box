@@ -6,6 +6,7 @@ import time
 import tau_cpu_parity as cpu
 import tau_pipe_driver as driver
 import tau_support_probe as policy
+import tau_cpu_identity as identity
 
 transport, tau, worker = driver.transport, driver.tau, driver.worker
 require = transport.require
@@ -22,18 +23,24 @@ class ProbeClient(cpu.MeasuredClient):
         return row
 
 
-def inputs(plan, manifest, assertions):
+def inputs(plan, manifest, assertions, *, fixture=None):
     require(plan.get("support_probe") is True and plan.get("transport") == "scripted-parent-pipe"
             and plan["selection"] == policy.SELECTION
             and type(assertions) is list and len(assertions) == 1 and type(assertions[0]) is str)
     policy.validate(manifest, plan["manifest_sha256"])
+    require((fixture is not None) == (manifest["schema"] == policy.IDENTITY_SCHEMA))
     return prepared_input(transport.snapshot({"schema": "nib.tau-cpu-probe-input/v1",
         "plan_sha256": tau.digest(tau.encoded(plan)), "manifest": manifest,
-        "selection": plan["selection"], "assertions": assertions}, 1 << 20))
+        "selection": plan["selection"], "assertions": assertions,
+        **({"identity_fixture": identity.validate_fixture(fixture)} if fixture is not None else {})}, 1 << 20))
 
 
 def prepared_input(value):
-    cpu.identity.keys(value, ("schema", "plan_sha256", "manifest", "selection", "assertions"))
+    followup = value.get("manifest", {}).get("schema") == policy.IDENTITY_SCHEMA
+    cpu.identity.keys(value, ("schema", "plan_sha256", "manifest", "selection", "assertions")
+                      + (("identity_fixture",) if followup else ()))
+    if followup:
+        identity.validate_fixture(value["identity_fixture"])
     require(value["schema"] == "nib.tau-cpu-probe-input/v1")
     tau.sha(value["plan_sha256"])
     policy.validate(value["manifest"])
@@ -51,6 +58,8 @@ class ProbeSession(driver.ScriptedSession):
         require(set(endpoints) == set(runtimes) == {"simulator", "evaluator"})
         prepared_input(prepared)
         manifest = prepared["manifest"]
+        self.identity_fixture = prepared.get("identity_fixture")
+        self.order = ("simulator",) * 3 if self.identity_fixture is not None else ORDER
         frozen = {"schema": "nib.tau-cpu-support-transport/v1", "input": manifest, "settings": policy.settings(manifest),
                   "framing": {role: {"served_model": "scripted-candidate", "context_tokens": 4096,
                     "parallel_tool_calls": False, "reasoning_effort": "none",
@@ -70,11 +79,14 @@ class ProbeSession(driver.ScriptedSession):
         self.observations = []
 
     def prepare_record(self, role, body, deadline):
-        require(self.sequence < len(ORDER) and role == ORDER[self.sequence])
+        order = getattr(self, "order", ORDER)
+        require(self.sequence < len(order) and role == order[self.sequence])
         if role == "candidate":
             return super().prepare_record(role, body, deadline)
         observation = {"role": role, "request_sha256": tau.digest(tau.encoded(body)),
                        "prompt_tokens": None, "completion_tokens": None, "status": "not-completed"}
+        if getattr(self, "identity_fixture", None) is not None:
+            observation.update(step=identity.STEPS[self.sequence], identity=None)
         self.observations.append(observation)
         client = self.clients[role]
         client.ids, client.token_shape = None, False
@@ -108,6 +120,12 @@ class ProbeSession(driver.ScriptedSession):
         self.response_deadline = self.bridge.budget.pending[4]
         response = self.clients[category].complete(body, record["bounds"]["prompt_tokens"], self.response_deadline)
         self.observations[-1]["completion_tokens"] = response["usage"]["completion_tokens"]
+        if self.identity_fixture is not None:
+            content = response["choices"][0]["message"].get("content")
+            # Invalid content is left to the existing bridge. Do not interrupt
+            # its usage settlement with an additional observation parser.
+            if type(content) is str and 0 < len(content) <= 1 << 20:
+                self.observations[-1]["identity"] = identity.project(content, self.identity_fixture)
         return response
 
 
@@ -115,7 +133,9 @@ def execute(prepared, endpoints, runtimes, processes, read_fd, write_fd, deadlin
     require(time.monotonic() < deadline <= time.monotonic() + SECONDS + 1)
     channel = transport.Channel(read_fd, write_fd, cancelled=lambda: any(p.poll() is not None for p in processes))
     session = None
-    report = {"schema": "nib.tau-cpu-probe/v1", "result": "fail", "status": "protocol_error",
+    followup = prepared.get("manifest", {}).get("schema") == policy.IDENTITY_SCHEMA
+    order = ("simulator",) * 3 if followup else ORDER
+    report = {"schema": identity.REPORT if followup else "nib.tau-cpu-probe/v1", "result": "fail", "status": "protocol_error",
               "plan_sha256": prepared["plan_sha256"], "selection": prepared["selection"],
               "upstream_revision": tau.REVISION, "observations": [], "roles": {},
               "target": "scripted", "pricing": "not-measured", "quality_eligible": False,
@@ -125,14 +145,16 @@ def execute(prepared, endpoints, runtimes, processes, read_fd, write_fd, deadlin
         while True:
             before = session.sequence
             finished = session.serve_once()
-            if not finished and before < len(ORDER) and ORDER[before] in ("simulator", "evaluator"):
+            if not finished and before < len(order) and order[before] in ("simulator", "evaluator"):
                 session.observations[-1]["status"] = "pass"
             if finished:
                 break
         report["status"] = session.result["status"]
         if report["status"] == "evaluated":
-            require(session.bridge.counts == {"agent": 1, "simulator": 1, "evaluator": 1}
-                    and len(session.observations) == 2 and all(row["status"] == "pass" for row in session.observations))
+            require(session.bridge.counts == ({"agent": 0, "simulator": 3, "evaluator": 0} if followup else
+                                              {"agent": 1, "simulator": 1, "evaluator": 1})
+                    and len(session.observations) == (3 if followup else 2)
+                    and all(row["status"] == "pass" for row in session.observations))
             report["result"] = "pass"
     except BaseException as error:
         report["status"] = transport.status(error)

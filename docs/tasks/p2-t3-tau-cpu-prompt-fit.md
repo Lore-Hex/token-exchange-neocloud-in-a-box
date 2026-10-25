@@ -8,6 +8,10 @@ cleanup confirmed. See the [original evidence and limits](../../evidence/p2/2026
 The fresh [CPU pair lifecycle](p2-t3-tau-cpu-controller.md) succeeded first; its
 earlier failure remains unexplained. This does not authorize another CPU or GPU run.
 
+The separate [fixed identity follow-up](p2-t4-tau-cpu-identity.md) reuses this owner
+and transport for three simulator replies. It is software-tested only and does
+not change this probe's default behavior or qualify a support model.
+
 ## Source and Scope
 
 Two-model tokenizer parity does not establish original tau prompt fit or

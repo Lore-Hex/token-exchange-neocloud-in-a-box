@@ -35,9 +35,13 @@ def evidence_host(verified):
             "machine": "native-cpu-controller" if verified else "unverified"}
 
 
-def preflight():
-    rec.host("github-actions")
-    require(os.environ.get("GITHUB_REF") == "refs/heads/main")
+def preflight(*, local_identity=False):
+    require(type(local_identity) is bool)
+    if local_identity:
+        require(sys.platform == "linux" and os.uname().machine == "x86_64")
+    else:
+        rec.host("github-actions")
+        require(os.environ.get("GITHUB_REF") == "refs/heads/main")
     raw = Path("/proc/meminfo").read_bytes()
     require(len(raw) <= 16384)
     rows = dict(line.split(b":", 1) for line in raw.splitlines())
@@ -106,6 +110,8 @@ def probe_receipts(session, directory, notice, held, probe, deadline):
         sys.modules["tau_cpu_probe"].validate(row["diagnostic"])
         require(row["diagnostic"]["plan_sha256"] == probe["sha"]
                 and row["diagnostic"]["selection"] == probe["plan"]["selection"])
+        require(row["diagnostic"]["schema"] == ("nib.tau-cpu-identity-probe/v1"
+                if probe.get("identity_followup", False) else "nib.tau-cpu-probe/v1"))
     require(row["result"] != "pass" or row["stage"] == "completed" and row["cleanup"] == "confirmed"
             and row["diagnostic"] is not None and row["diagnostic"]["result"] == "pass")
     require(notice["scorer_sha256"] == rec.digest(session.tau.encoded(row))
@@ -246,7 +252,8 @@ def supervise(argv, env, snapshot, session, directory, producer, report, deadlin
                     stream.close()
 
 
-def execute(source, env, snapshot, inputs, directory, report, deadline, *, probe=None):
+def execute(source, env, snapshot, inputs, directory, report, deadline, *, probe=None, local_identity=False):
+    require(type(local_identity) is bool and (not local_identity or probe is not None))
     cpu = rec.toolkit(source)
     session = sys.modules["tau_cpu_session"]
     producer = {"git_sha": report["git_sha"], "script": rec.SCRIPT,
@@ -260,9 +267,11 @@ def execute(source, env, snapshot, inputs, directory, report, deadline, *, probe
     else:
         runner = rec.load(source / "scripts/tau_trial.py", "cpu_controller_probe")
         toolkit = runner.identity(min(deadline, time.monotonic() + 60), parent_pipe=True, support_probe=True)
-        plan, _ = runner.validate_plan(probe["payload"], probe["sha"], toolkit,
+        plan, manifest = runner.validate_plan(probe["payload"], probe["sha"], toolkit,
             min(deadline, time.monotonic() + 60), parent_pipe=True, support_probe=True)
-        probe.update(runner=runner, toolkit=toolkit, plan=plan)
+        require(not local_identity or manifest["schema"] == "nib.tau-cpu-identity-probe-input/v1")
+        probe.update(runner=runner, toolkit=toolkit, plan=plan,
+                     identity_followup=manifest["schema"] == "nib.tau-cpu-identity-probe-input/v1")
         command += ["--probe-payload", str(probe["payload"]), "--probe-plan-sha256", probe["sha"]]
     require(cpu.TOTAL_SECONDS == 1800 and time.monotonic() < deadline)
     report["stage"] = "producer"
@@ -279,7 +288,8 @@ def execute(source, env, snapshot, inputs, directory, report, deadline, *, probe
         require(probe["scorer"]["result"] == "pass" and probe["scorer"]["cleanup"] == "confirmed")
 
 
-def evidence_record(revision, probe_sha=None):
+def evidence_record(revision, probe_sha=None, *, local_identity=False):
+    require(type(local_identity) is bool and (not local_identity or probe_sha is not None))
     require(rec.re.fullmatch("[0-9a-f]{40}", revision))
     record = {"schema": "nib.evidence/v1", "phase": "P2", "task": "T3", "git_sha": revision,
               "command": "python3 -I -S -B scripts/record-tau-cpu-session.py --archive PRIVATE --model-06 PRIVATE --model-17 PRIVATE --cmake-wheel PRIVATE --output PRIVATE",
@@ -290,6 +300,9 @@ def evidence_record(revision, probe_sha=None):
         require(rec.re.fullmatch("[0-9a-f]{64}", probe_sha))
         record["command"] += " --probe-payload PRIVATE --probe-plan-sha256 " + probe_sha
         record["notes"] = "Fixed original tau CPU prompt-fit only; scripted target, no full tau, live admission, quality or confidentiality."
+    if local_identity:
+        record["command"] += " --local-identity-followup"
+        record["notes"] = "Fixed three-reply CPU identity diagnostic only; literal observations, no target/evaluator generation, quality or confidentiality."
     return record
 
 
@@ -302,10 +315,12 @@ def main():
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--probe-payload", type=Path)
     parser.add_argument("--probe-plan-sha256")
+    parser.add_argument("--local-identity-followup", action="store_true")
     args = parser.parse_args()
     probing = args.probe_payload is not None or args.probe_plan_sha256 is not None
     require(not probing or args.probe_payload is not None and type(args.probe_plan_sha256) is str
             and rec.re.fullmatch("[0-9a-f]{64}", args.probe_plan_sha256))
+    require(not args.local_identity_followup or probing)
     os.umask(0o077)
     deadline = time.monotonic() + SECONDS
     raw = (ROOT / rec.SNAPSHOT).read_bytes()
@@ -341,17 +356,22 @@ def main():
                       "stage": "preflight", "runtime_context": None, "ready": None,
                       "producer_receipts": {}, "cleanup": {"process_group": "not-started", "producer": "not-started"},
                       "live_admission": False, "quality_eligible": False, "confidential": False}
-            record = evidence_record(revision, args.probe_plan_sha256 if probing else None)
+            record = evidence_record(revision, args.probe_plan_sha256 if probing else None,
+                                     **({"local_identity": True} if args.local_identity_followup else {}))
             if probing:
                 report.update(schema="nib.tau-cpu-probe-controller/v1", probe=None, scorer_receipts={})
+            if args.local_identity_followup:
+                report["schema"] = "nib.tau-cpu-identity-controller/v1"
             rec.write(fd, "run.json", record)
             try:
-                report["runtime_context"] = preflight()
-                record["host"] = evidence_host(True)
+                report["runtime_context"] = preflight(**({"local_identity": True} if args.local_identity_followup else {}))
+                record["host"] = ({**rec.host("local"), "machine": "native-cpu-controller"}
+                                  if args.local_identity_followup else evidence_host(True))
                 execute(source, env, snapshot,
                         [p.absolute() for p in (args.archive, args.model_06, args.model_17, args.cmake_wheel)],
                         directory, report, deadline,
-                        **({"probe": {"payload": args.probe_payload.absolute(), "sha": args.probe_plan_sha256}} if probing else {}))
+                        **({"probe": {"payload": args.probe_payload.absolute(), "sha": args.probe_plan_sha256}} if probing else {}),
+                        **({"local_identity": True} if args.local_identity_followup else {}))
                 snapshot.validate_snapshot(source, files)
                 require(time.monotonic() < deadline)
                 report.update(result="pass", stage="complete")

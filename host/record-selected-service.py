@@ -182,10 +182,11 @@ def runtime_plan(args, admitted, selected, commands, result):
         datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     result["reason"] = "runtime-intent"
     require(commands.remaining() > smoke.HOST_RESERVE + smoke.service.CLEANUP_RESERVE)
+    labels = owner.image_labels(image["Config"].get("Labels"))
     def runtime(identifier):
         return {"command": owner.container_command(selected, identifier, build, base, weights, inputs, args, stop_at),
             "network_id": identifier, "image_id": build["image_id"], "entrypoint": image["Config"]["Entrypoint"],
-            "weights": str(weights), "inputs": str(inputs)}
+            "image_labels": labels, "weights": str(weights), "inputs": str(inputs)}
     # Exact IDs have fixed width. Reject an oversized private intent before
     # any firewall/network mutation, not after resource creation.
     require(len(policy.encoded(runtime("0" * 64))) + 1 <= owner.State.file_limit("runtime.json"))

@@ -43,6 +43,14 @@ def document(name):
     return session.llama.worker.decode((EVIDENCE / name).read_bytes())
 
 
+def historical_sources():
+    source = git(ROOT, "show", PRODUCER + ":scripts/record-tau-cpu-parity.py")
+    assignments = {target.id: node.value for node in ast.parse(source).body if isinstance(node, ast.Assign)
+                   for target in node.targets if isinstance(target, ast.Name)}
+    return tuple(ast.literal_eval(assignments[node.id] if isinstance(node, ast.Name) else node)
+                 for node in assignments["SOURCES"].elts)
+
+
 def ready_packet():
     runtime = document("pair/simulator-runtime.json")
     return {"schema": "nib.tau-cpu-pair-ready/v1", "producer": runtime["producer"],
@@ -61,11 +69,7 @@ class CPUProbeEvidenceTests(unittest.TestCase):
             self.assertLessEqual(len(raw), 65536)
             self.assertEqual(hashlib.sha256(raw).hexdigest(), sha)
             document(name)
-        source = git(ROOT, "show", PRODUCER + ":scripts/record-tau-cpu-parity.py")
-        assignments = {target.id: node.value for node in ast.parse(source).body if isinstance(node, ast.Assign)
-                       for target in node.targets if isinstance(target, ast.Name)}
-        closure = {ast.literal_eval(assignments[node.id] if isinstance(node, ast.Name) else node)
-                   for node in assignments["SOURCES"].elts}
+        closure = set(historical_sources())
         self.assertEqual(len(closure), 27)
         controller_closure = closure | {"scripts/record-tau-cpu-session.py",
             ".github/workflows/tau-cpu-session-native.yml", "scripts/pilot/export.py",
@@ -138,18 +142,30 @@ class CPUProbeEvidenceTests(unittest.TestCase):
             self.assertEqual(spec["receipts"], outer["scorer_receipts"])
             args = (session, private, outer["ready"], inner["image_id"].removeprefix("sha256:"),
                     PRODUCER, outer["source_archive_sha256"], outer["sources"])
-            self.assertEqual(control.final_receipts(*args, time.monotonic() + 5, probe=spec),
-                             outer["producer_receipts"])
-            for mutation in (lambda r: r.update(quality_eligible=True),
-                             lambda r: r["runtime"].update(acknowledged=False),
-                             lambda r: r["cleanup"].update(container="unknown"),
-                             lambda r: r["runtime"]["probe"].update(status="timeout"),
-                             lambda r: r["runtime"]["probe"]["roles"].update(agent=0)):
-                changed = copy.deepcopy(inner)
-                mutation(changed)
-                (private / "output.log").write_bytes(session.tau.encoded(changed))
-                with self.assertRaises((ValueError, session.llama.worker.Abort)):
-                    control.final_receipts(*args, time.monotonic() + 5, probe=spec)
+            historical = historical_sources()
+            self.assertEqual(len(historical), 27)
+            self.assertEqual(set(control.rec.SOURCES), set(historical) | {"scripts/tau_cpu_identity.py"})
+            # Old originals are not current-source evidence. Only this replay
+            # uses the exact producer's closure; every receipt byte stays old.
+            with self.assertRaises((KeyError, ValueError, session.llama.worker.Abort)):
+                control.final_receipts(*args, time.monotonic() + 5, probe=spec)
+            with mock.patch.object(control.rec, "SOURCES", historical):
+                self.assertEqual(control.final_receipts(*args, time.monotonic() + 5, probe=spec),
+                                 outer["producer_receipts"])
+                for mutation in (lambda r: r.update(quality_eligible=True),
+                                 lambda r: r["runtime"].update(acknowledged=False),
+                                 lambda r: r["cleanup"].update(container="unknown"),
+                                 lambda r: r["runtime"]["probe"].update(status="timeout"),
+                                 lambda r: r["runtime"]["probe"]["roles"].update(agent=0),
+                                 lambda r: r["sources"].pop(historical[0]),
+                                 lambda r: r["sources"].update({historical[0]: "0" * 64}),
+                                 lambda r: r["sources"].update({"scripts/tau_cpu_identity.py": "0" * 64})):
+                    changed = copy.deepcopy(inner)
+                    mutation(changed)
+                    (private / "output.log").write_bytes(session.tau.encoded(changed))
+                    with self.assertRaises((ValueError, session.llama.worker.Abort)):
+                        control.final_receipts(*args, time.monotonic() + 5, probe=spec)
+            self.assertEqual(set(control.rec.SOURCES), set(historical) | {"scripts/tau_cpu_identity.py"})
             for mutation in (lambda r: r.update(cleanup="failed"),
                              lambda r: r.update(plan_sha256="0" * 64),
                              lambda r: r["diagnostic"]["observations"][0].update(prompt_tokens=4097)):
