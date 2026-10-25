@@ -26,21 +26,30 @@ class Session(local.CountedSession):
         super().__init__(channel, manifest, manifest_sha, "candidate", [], assertions=assertions,
                          clock=clock, selected_operational=True)
         self.owners = (candidate, support)
+        bindings = manifest["input"].get("owner_roles", {"simulator": "simulator", "evaluator": "evaluator"})
         self.endpoints = {"candidate": candidate.client("candidate"),
-                          **{role: support.client(role) for role in ("simulator", "evaluator")}}
+                          **{role: support.client(owner_role) for role, owner_role in bindings.items()}}
         self.bridge.budget.trial_deadline = min(self.bridge.budget.trial_deadline,
                                                candidate.deadline, support.deadline)
 
     def accept_result(self, packet, deadline):
         require(type(packet) is dict and "upstream_termination" in packet)
+        resolution = policy.is_resolution(self.manifest["input"])
+        if resolution:
+            require("customer_resolution" in packet and packet["upstream_termination"] is None)
+            observation = policy.resolution_result(packet["customer_resolution"], completed=packet.get("status") == "evaluated")
+            packet = {key: value for key, value in packet.items() if key != "customer_resolution"}
         upstream = local.worker.validate_upstream_termination(packet["upstream_termination"],
-                                                              evaluated=packet.get("status") == "evaluated")
+                                                              evaluated=packet.get("status") == "evaluated" and not resolution)
         require(upstream is None or upstream["tool_errors"] <= local.worker.MAX_TOOL_CALLS * (
             self.bridge.counts["agent"] + self.bridge.counts["simulator"]))
         packet = {key: value for key, value in packet.items() if key != "upstream_termination"}
         sequence, result = super().accept_result(packet, deadline)
         result.update(schema="nib.tau-selected-operational-trial/v1", pricing="not-measured",
                       selection=dict(policy.support.SELECTION), live_admission=False, upstream_termination=upstream)
+        if resolution:
+            result.update(schema="nib.tau-selected-customer-resolution-trial/v1", customer_resolution=observation,
+                          simulator_binding=self.manifest["simulator_binding"])
         if result["usage"] is not None:
             result["usage"]["cost_usd"] = None
         return sequence, result
