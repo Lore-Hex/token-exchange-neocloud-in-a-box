@@ -37,6 +37,12 @@ jobs:
         with:
           terraform_version: 1.14.9
           terraform_wrapper: false
+      - name: Required pinned checker tests
+        run: |
+          uv venv --python 3.12.13 "$RUNNER_TEMP/checker-tests"
+          uv pip sync --python "$RUNNER_TEMP/checker-tests/bin/python" \
+            --require-hashes --only-binary=:all: --strict scripts/e2e/requirements.lock
+          "$RUNNER_TEMP/checker-tests/bin/python" -E -s -B -W error::ResourceWarning scripts/check_checker_tests.py
       - name: Check repository
         run: make check
       - name: Build operator CLI
