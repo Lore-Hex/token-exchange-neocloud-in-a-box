@@ -22,7 +22,29 @@ do not infer the cause from its coarse stage.
 `cleanup_confirmed=false` and `policy_removed=false` remain unchanged. The
 outer owner reports `namespace_reaped=true`; this is containment, not proof of
 normal fixture cleanup or a passing policy. No confidentiality, deployment or
-publication claim is made. All three JSON files are unmodified originals.
+publication claim is made. All four JSON files are unmodified originals.
+
+## Diagnostic observation
+
+The [second original observation](readback-observation.json), produced by
+`c82b983ef950b24cec820647a010dc6afb7c8211`, ran from 2026-10-25
+02:10:39.408534 to 02:10:49.242604 UTC. Its SHA-256 is
+`3797ef9d3264a547a7d5fc484341ec1fdee77cb966e8aa21eff941c5411bfd5c`.
+It again **failed**, with all 15 positive controls passing and no negative
+controls reached. The archive, inspected image and policy-source hashes match
+the first observation; the producer adds the closed stage diagnostic.
+
+`policy_step=readback` establishes that check/apply completed and readback was
+attempted. That step includes both fetching and validating the rules. No actual
+rules or exception details were captured, so it does not distinguish retrieval
+failure from a comparison mismatch. The
+[source-backed canonicalization fix](../../../docs/tasks/p2-t4-selected-nat-proof.md#pinned-canonical-readback)
+is a candidate explanation, not a measured diagnosis or passing rerun.
+`namespace_reaped=true`, `cleanup_confirmed=false` and `policy_removed=false`
+remain unchanged. All deployment, confidentiality, GPU and publication flags
+remain false.
+
+## Inputs and command
 
 The observed kernel was `6.8.0-147-generic`; the bootstrap receipt binds exact
 tool versions and hashes. This is compatibility evidence for the limited test,
@@ -39,6 +61,6 @@ The producing command shape was:
 ```
 
 Private hosts, paths, namespace scratch data and the synthetic TLS private key
-are not published. This follow-up adds a closed `policy_step` diagnostic enum
-for a future separately gated run. It neither changes the policy nor retries
-this failed observation; no new hardware result is claimed.
+are not published. Neither observation qualifies the policy. The canonical
+readback correction still requires independent review and a separately gated
+run; this evidence does not report execution of that correction.

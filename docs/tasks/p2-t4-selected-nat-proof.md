@@ -1,8 +1,9 @@
 # Selected closed-NAT proof candidate
 
-Status: implemented; the [first real observation](../../evidence/p2/2026-10-25-selected-nat-policy-failure/README.md)
-failed at the policy stage after all 15 baseline controls passed. The negative
-controls were not reached and this policy is **not qualified**. This is a
+Status: implemented; the [two real observations](../../evidence/p2/2026-10-25-selected-nat-policy-failure/README.md)
+failed at the policy stage after all 15 baseline controls passed. The second
+locates the attempted step at readback. The negative controls were not reached
+and this policy is **not qualified**. This is a
 GPU-free network experiment, not a public service owner or permission to change
 a host firewall. The earlier [isolated-bridge observation](p2-t4-selected-network-probe.md)
 does not qualify this alternative. No inference, credentials, model weights,
@@ -69,8 +70,11 @@ relevant conntrack expression bases). Actual readback is not normalized and
 arbitrary missing or added expressions are not accepted. Predicate removals,
 wrong family/address/port, changed verdicts, extra rules/fields and rule-order
 changes fail. Full input-batch hash and existing packet-condition tests protect
-the unchanged installed policy. This is software-only compatibility work;
-the first observation's root cause remains unknown pending its diagnostic run.
+the unchanged installed policy. This correction is software-only compatibility
+work. The diagnostic observation failed at readback, after check/apply completed,
+but captured no rules or exception details. Canonicalization remains a candidate
+cause, not a measured mismatch; fetching and validation share that step. No run
+of the corrected expected form is claimed.
 
 ### DNS is a separate boundary
 
@@ -104,7 +108,7 @@ CDI directory and cgroup name. It never queries or connects to an existing
 Docker daemon. The classic VFS image store avoids an unverified containerd image
 store switch. Multiple daemons are explicitly experimental in the
 [Docker daemon documentation](https://docs.docker.com/reference/cli/dockerd/);
-this combination has not been run or qualified here.
+the failed observations do not qualify this combination.
 
 There is no external interface, veth to the real host, default uplink or public
 port. Two private dual-stack Docker bridges simulate ingress and the service
@@ -164,8 +168,10 @@ After the first failed run, policy setup records the optional closed
 `protected-create`. It names the attempted step, not successful completion.
 It does not retain stderr, exceptions, rule contents or response data. Cleanup
 does not overwrite it. Historical receipts without the field remain valid;
-their missing detail is not reconstructed. This diagnostic change has not
-been executed on hardware and does not change policy, deadlines or pass gates.
+their missing detail is not reconstructed. The
+[diagnostic observation](../../evidence/p2/2026-10-25-selected-nat-policy-failure/readback-observation.json)
+records `readback`, with cleanup unconfirmed and the namespace reaped. The
+diagnostic does not change policy, deadlines or pass gates.
 
 ## Execution gate and next step
 
