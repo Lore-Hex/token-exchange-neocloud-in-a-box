@@ -40,6 +40,53 @@ TOOL_ERROR_CATEGORIES = {ValueError: "value_error", TypeError: "type_error", Key
                          IndexError: "index_error", AssertionError: "assertion_error",
                          RuntimeError: "runtime_error"}
 TOOL_ERROR_REQUESTORS = ("assistant", "user", "other")
+# Exact fc0055dc source identities already sealed by the tau runtime lock.
+TOOL_ERROR_SOURCES = {
+    "tau2.domains.retail.tools": (29202, "34f4fe9702d36f0dd4697700fbcd63d0cf5386e6eb8e7499aaa336243bad8750", 752),
+    "tau2.environment.environment": (18486, "b5357f11e2914c11ce0372af919cc1d726191b91cd97f776b8fb388ae0615350", 490),
+    "tau2.environment.toolkit": (11313, "3e897891e8878c3399aec72e42eb0eb5546642420c0c902b225421fc936b924a", 323),
+}
+
+
+def tool_error_sources():
+    """Observe only already-loaded, hash-pinned modules; never import a tool."""
+    sources = {}
+    for name, (size, digest, lines) in TOOL_ERROR_SOURCES.items():
+        module = sys.modules.get(name)
+        if type(module) is not types.ModuleType:
+            continue
+        path = vars(module).get("__file__")
+        try:
+            require(type(path) is str and Path(path).is_absolute())
+            with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as stream:
+                info = os.fstat(stream.fileno())
+                require(stat.S_ISREG(info.st_mode) and info.st_size == size)
+                raw = stream.read(size + 1)
+                after = os.fstat(stream.fileno())
+            fields = ("st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns", "st_ctime_ns")
+            require(all(getattr(info, key) == getattr(after, key) for key in fields)
+                    and len(raw) == size and len(raw.splitlines()) == lines
+                    and hashlib.sha256(raw).hexdigest() == digest)
+            sources[path] = (digest, lines)
+        except Exception:
+            continue
+    return sources
+
+
+def tool_error_origin(error, sources):
+    # The deepest frame is the raise site. Never substitute an outer frame when
+    # the real origin is unpinned or the bounded walk cannot reach it.
+    frame = BaseException.__traceback__.__get__(error)
+    for _ in range(32):
+        if frame is None:
+            return None
+        if frame.tb_next is None:
+            source = sources.get(frame.tb_frame.f_code.co_filename)
+            if source is not None and 1 <= frame.tb_lineno <= source[1]:
+                return (source[0], frame.tb_lineno)
+            return None
+        frame = frame.tb_next
+    return None
 
 
 def require(value):
@@ -75,12 +122,23 @@ def validate_tool_error_attribution(value, errors):
             and type(value["unattributed"]) is int and 0 <= value["unattributed"] <= errors)
     rows, seen, total = [], set(), value["unattributed"]
     for row in value["counts"]:
-        require(type(row) is dict and set(row) == {"requestor", "known_tool", "category", "count"}
+        require(type(row) is dict and set(row) in (
+                    {"requestor", "known_tool", "category", "count"},
+                    {"requestor", "known_tool", "category", "count", "origin"})
                 and type(row["requestor"]) is str and row["requestor"] in TOOL_ERROR_REQUESTORS
                 and type(row["known_tool"]) is bool and type(row["category"]) is str
                 and row["category"] in (*TOOL_ERROR_CATEGORIES.values(), "other_exception")
                 and type(row["count"]) is int and 1 <= row["count"] <= MAX_TOOL_CALLS)
-        key = (row["requestor"], row["known_tool"], row["category"])
+        origin = row.get("origin")
+        if "origin" in row:
+            require(type(origin) is dict and set(origin) == {"source_sha256", "line"}
+                    and type(origin["source_sha256"]) is str
+                    and origin["source_sha256"] in {value[1] for value in TOOL_ERROR_SOURCES.values()}
+                    and type(origin["line"]) is int and 1 <= origin["line"] <=
+                    next(value[2] for value in TOOL_ERROR_SOURCES.values()
+                         if value[1] == origin["source_sha256"]))
+        key = (row["requestor"], row["known_tool"], row["category"],
+               (origin["source_sha256"], origin["line"]) if origin is not None else None)
         require(key not in seen)
         seen.add(key)
         total += row["count"]
@@ -93,6 +151,7 @@ class ToolErrors:
     """Bounded aggregate only; never retain an exception, name, argument or result."""
     def __init__(self):
         self.counts, self.total, self.overflow = {}, 0, False
+        self.sources = None
 
     def record(self, requestor, known, error):
         if self.total == MAX_TOOL_CALLS:
@@ -100,7 +159,13 @@ class ToolErrors:
             return
         requestor = requestor if type(requestor) is str and requestor in TOOL_ERROR_REQUESTORS[:2] else "other"
         category = TOOL_ERROR_CATEGORIES.get(type(error), "other_exception")
-        key = (requestor, known, category)
+        try:
+            if self.sources is None:
+                self.sources = tool_error_sources()
+            origin = tool_error_origin(error, self.sources)
+        except Exception:
+            origin = None
+        key = (requestor, known, category, origin or ("", 0))
         self.counts[key] = self.counts.get(key, 0) + 1
         self.total += 1
 
@@ -108,8 +173,9 @@ class ToolErrors:
         # Do not invent attribution if observations cannot join the completed
         # simulation. Argument binding and sync_tools errors are not observed.
         counts = {} if self.overflow or self.total > errors else self.counts
-        rows = [{"requestor": requestor, "known_tool": known, "category": category, "count": count}
-                for (requestor, known, category), count in sorted(counts.items())]
+        rows = [{"requestor": requestor, "known_tool": known, "category": category, "count": count,
+                 **({"origin": {"source_sha256": origin[0], "line": origin[1]}} if origin[0] else {})}
+                for (requestor, known, category, origin), count in sorted(counts.items())]
         return validate_tool_error_attribution({"path": "live_make_tool_call", "counts": rows,
             "unattributed": errors - sum(counts.values())}, errors)
 

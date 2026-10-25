@@ -95,6 +95,12 @@ Cleanup was confirmed. GPU CC was disabled; outer FAIL/BLOCKED records remain
 unchanged. These are not a capacity sweep, full tau result, quality acceptance
 or confidential qualification.
 
+The latest [selected tau diagnostic](evidence/p2/2026-10-25-selected-tau-tool-rejection-0245/README.md)
+reached a known assistant tool, which raised one `ValueError`; the strict smoke
+stopped with no quality score and confirmed cleanup. The exact rejection site
+is not recorded in that run. A [content-free source-line diagnostic](docs/tasks/p2-t4-selected-tau-tool-origin.md)
+is now implemented for a future run without changing scoring or retry limits.
+
 A later [selected tau controller attempt](evidence/p2/2026-10-24-selected-tau-readiness-failure-1736/README.md)
 failed during readiness: both owners exited 1, no READY hashes or scorer result
 were recorded, and cleanup remained **unconfirmed**. No inference or quality
