@@ -43,8 +43,8 @@ def document(name):
     return session.llama.worker.decode((EVIDENCE / name).read_bytes())
 
 
-def historical_sources():
-    source = git(ROOT, "show", PRODUCER + ":scripts/record-tau-cpu-parity.py")
+def historical_sources(producer=PRODUCER):
+    source = git(ROOT, "show", producer + ":scripts/record-tau-cpu-parity.py")
     assignments = {target.id: node.value for node in ast.parse(source).body if isinstance(node, ast.Assign)
                    for target in node.targets if isinstance(target, ast.Name)}
     return tuple(ast.literal_eval(assignments[node.id] if isinstance(node, ast.Name) else node)

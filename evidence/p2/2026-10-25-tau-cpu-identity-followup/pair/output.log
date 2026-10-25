@@ -1,0 +1,439 @@
+{
+  "base_images": {
+    "go_image": "docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61",
+    "python_image": "docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2"
+  },
+  "cleanup": {
+    "build_completion": "confirmed",
+    "container": "confirmed",
+    "image": "confirmed"
+  },
+  "confidential": false,
+  "context_sha256": "9d791cbd840f19551e7cc8ace9b9973acab505b5b19aec653d886227998deb76",
+  "git_sha": "fa59772be64e61147058e448d28cc1f3eb34ae03",
+  "image_id": "sha256:5022f129557eb98bdafb8b82d36190bc3c4fbf734004cd164a55658918c4e15c",
+  "live_admission": false,
+  "quality_eligible": false,
+  "result": "pass",
+  "runtime": {
+    "acknowledged": true,
+    "cleanup": "confirmed",
+    "confidential": false,
+    "failure": null,
+    "live_admission": false,
+    "probe": {
+      "confidential": false,
+      "live_admission": false,
+      "observations": [
+        {
+          "completion_tokens": 24,
+          "identity": {
+            "email_like_literal": false,
+            "first_name_literal": false,
+            "last_name_literal": false,
+            "zip_literal": false
+          },
+          "prompt_tokens": 382,
+          "request_sha256": "feb5d22909329c4aff854ddefd584d4e7f93115279a232379b52d094958f2193",
+          "role": "simulator",
+          "status": "pass",
+          "step": "initial"
+        },
+        {
+          "completion_tokens": 11,
+          "identity": {
+            "email_like_literal": false,
+            "first_name_literal": false,
+            "last_name_literal": false,
+            "zip_literal": false
+          },
+          "prompt_tokens": 425,
+          "request_sha256": "25c9c6991c1b8d73d4d1910cf478ad96fc65c31734822479e2868c78edc45149",
+          "role": "simulator",
+          "status": "pass",
+          "step": "email"
+        },
+        {
+          "completion_tokens": 18,
+          "identity": {
+            "email_like_literal": false,
+            "first_name_literal": false,
+            "last_name_literal": false,
+            "zip_literal": false
+          },
+          "prompt_tokens": 458,
+          "request_sha256": "6c43e5bcb1405e60390ec043def44deb789ba1ed30a80fa504e8bfaf56fd7eab",
+          "role": "simulator",
+          "status": "pass",
+          "step": "name_zip"
+        }
+      ],
+      "plan_sha256": "5db8bd56b1c657d180703153238fcd14f2ddcca6d10b1e6c3b53ad250165c46a",
+      "pricing": "not-measured",
+      "quality_eligible": false,
+      "result": "pass",
+      "roles": {
+        "agent": 0,
+        "evaluator": 0,
+        "simulator": 3
+      },
+      "schema": "nib.tau-cpu-identity-probe/v1",
+      "selection": {
+        "domain": "retail",
+        "role": "candidate",
+        "seed": 42,
+        "task_id": "2",
+        "trial": 0
+      },
+      "status": "evaluated",
+      "target": "scripted",
+      "upstream_revision": "fc0055dc4e0a316c3f83133267fbd6faaa770992"
+    },
+    "progress": {
+      "model_index": 1,
+      "parity": {
+        "binaries": {
+          "helper": "fc0c6382abcda6070e7ad783b3c264e7107e8130a541d87d434e798092c97166",
+          "server": "2021283a2e11f2c12688ab6ed44f7c03819cb908b3dbda5e073d542833e618f5"
+        },
+        "confidential": false,
+        "engine_revision": "620d2225cc436ab0b001e3200e590e3b286ef9ab",
+        "failure": null,
+        "live_admission": false,
+        "models": [
+          {
+            "cases": [
+              {
+                "id": "text",
+                "local": {
+                  "count": 20,
+                  "tokens_sha256": "1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd"
+                },
+                "result": "pass",
+                "server": {
+                  "count": 20,
+                  "tokens_sha256": "1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd"
+                },
+                "usage": {
+                  "completion_tokens": 1,
+                  "prompt_tokens": 20,
+                  "total_tokens": 21
+                }
+              },
+              {
+                "id": "system",
+                "local": {
+                  "count": 28,
+                  "tokens_sha256": "fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4"
+                },
+                "result": "pass",
+                "server": {
+                  "count": 28,
+                  "tokens_sha256": "fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4"
+                },
+                "usage": {
+                  "completion_tokens": 1,
+                  "prompt_tokens": 28,
+                  "total_tokens": 29
+                }
+              },
+              {
+                "id": "tools",
+                "local": {
+                  "count": 160,
+                  "tokens_sha256": "c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b"
+                },
+                "result": "pass",
+                "server": {
+                  "count": 160,
+                  "tokens_sha256": "c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b"
+                },
+                "usage": {
+                  "completion_tokens": 1,
+                  "prompt_tokens": 160,
+                  "total_tokens": 161
+                }
+              },
+              {
+                "id": "tool-continuation",
+                "local": {
+                  "count": 198,
+                  "tokens_sha256": "8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe"
+                },
+                "result": "pass",
+                "server": {
+                  "count": 198,
+                  "tokens_sha256": "8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe"
+                },
+                "usage": {
+                  "completion_tokens": 1,
+                  "prompt_tokens": 198,
+                  "total_tokens": 199
+                }
+              }
+            ],
+            "model": "qwen/qwen3-0.6b",
+            "owner_socket_checked": true,
+            "process": {
+              "argv_sha256": "b702943dbf9531d52dfe38d89b51ea7fe00ceb605e8f69ced79005a469afa7fe",
+              "boot_id_sha256": "d5d409edc0e578d929759a8d6ae7877480c8cf71c9788e4af8f5ccf941cbc2fc",
+              "exe_sha256": "2021283a2e11f2c12688ab6ed44f7c03819cb908b3dbda5e073d542833e618f5",
+              "listener_inode": 20745,
+              "netns_inode": 4026532320,
+              "pid": 1547,
+              "start_ticks": 40352
+            },
+            "ready_ms": 791,
+            "result": "pass",
+            "weight_sha256": "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031"
+          },
+          {
+            "cases": [
+              {
+                "id": "text",
+                "local": {
+                  "count": 20,
+                  "tokens_sha256": "1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd"
+                },
+                "result": "pass",
+                "server": {
+                  "count": 20,
+                  "tokens_sha256": "1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd"
+                },
+                "usage": {
+                  "completion_tokens": 1,
+                  "prompt_tokens": 20,
+                  "total_tokens": 21
+                }
+              },
+              {
+                "id": "system",
+                "local": {
+                  "count": 28,
+                  "tokens_sha256": "fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4"
+                },
+                "result": "pass",
+                "server": {
+                  "count": 28,
+                  "tokens_sha256": "fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4"
+                },
+                "usage": {
+                  "completion_tokens": 1,
+                  "prompt_tokens": 28,
+                  "total_tokens": 29
+                }
+              },
+              {
+                "id": "tools",
+                "local": {
+                  "count": 160,
+                  "tokens_sha256": "c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b"
+                },
+                "result": "pass",
+                "server": {
+                  "count": 160,
+                  "tokens_sha256": "c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b"
+                },
+                "usage": {
+                  "completion_tokens": 1,
+                  "prompt_tokens": 160,
+                  "total_tokens": 161
+                }
+              },
+              {
+                "id": "tool-continuation",
+                "local": {
+                  "count": 198,
+                  "tokens_sha256": "8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe"
+                },
+                "result": "pass",
+                "server": {
+                  "count": 198,
+                  "tokens_sha256": "8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe"
+                },
+                "usage": {
+                  "completion_tokens": 1,
+                  "prompt_tokens": 198,
+                  "total_tokens": 199
+                }
+              }
+            ],
+            "model": "qwen/qwen3-1.7b",
+            "owner_socket_checked": true,
+            "process": {
+              "argv_sha256": "7d25eab50cffbf75fd1ed1a6c5b02378a4341c43ea8004315747332c94d8de18",
+              "boot_id_sha256": "d5d409edc0e578d929759a8d6ae7877480c8cf71c9788e4af8f5ccf941cbc2fc",
+              "exe_sha256": "2021283a2e11f2c12688ab6ed44f7c03819cb908b3dbda5e073d542833e618f5",
+              "listener_inode": 22739,
+              "netns_inode": 4026532320,
+              "pid": 1561,
+              "start_ticks": 40691
+            },
+            "ready_ms": 1797,
+            "result": "pass",
+            "weight_sha256": "061b54daade076b5d3362dac252678d17da8c68f07560be70818cace6590cb1a"
+          }
+        ],
+        "quality_eligible": false,
+        "result": "pass",
+        "schema": "nib.tau-cpu-parity/v1",
+        "stage": "complete"
+      },
+      "substage": "released"
+    },
+    "quality_eligible": false,
+    "ready_sha256": "e65f58ab9cdfc2c506ff29138e01d58a0bf78327b1b922e299ae1e405fcd696c",
+    "receipts": {
+      "evaluator-runtime.json": "5f00d514c54498bd9b7d6be085b0931b53457aebecef148ba9351d0155b80cdd",
+      "evaluator-tokenizer.json": "092cb8e872d01648096dc113b225e4cdca377794593fe899822ea88b2e73a1c6",
+      "simulator-runtime.json": "4fdf73791fe9a465c05c6fb96daa788089222dbcb63c621a2d719cf76024b062",
+      "simulator-tokenizer.json": "d00605c53bcc2f82eaefcaa59b1ee1aaee43ce9698f0606441bbb3c5f7e74bd5"
+    },
+    "result": "pass",
+    "schema": "nib.tau-cpu-session/v3",
+    "stage": "released"
+  },
+  "schema": "nib.tau-cpu-probe-run/v1",
+  "scorer": {
+    "cleanup": "confirmed",
+    "confidential": false,
+    "cpu_ready_sha256": "e65f58ab9cdfc2c506ff29138e01d58a0bf78327b1b922e299ae1e405fcd696c",
+    "diagnostic": {
+      "confidential": false,
+      "live_admission": false,
+      "observations": [
+        {
+          "completion_tokens": 24,
+          "identity": {
+            "email_like_literal": false,
+            "first_name_literal": false,
+            "last_name_literal": false,
+            "zip_literal": false
+          },
+          "prompt_tokens": 382,
+          "request_sha256": "feb5d22909329c4aff854ddefd584d4e7f93115279a232379b52d094958f2193",
+          "role": "simulator",
+          "status": "pass",
+          "step": "initial"
+        },
+        {
+          "completion_tokens": 11,
+          "identity": {
+            "email_like_literal": false,
+            "first_name_literal": false,
+            "last_name_literal": false,
+            "zip_literal": false
+          },
+          "prompt_tokens": 425,
+          "request_sha256": "25c9c6991c1b8d73d4d1910cf478ad96fc65c31734822479e2868c78edc45149",
+          "role": "simulator",
+          "status": "pass",
+          "step": "email"
+        },
+        {
+          "completion_tokens": 18,
+          "identity": {
+            "email_like_literal": false,
+            "first_name_literal": false,
+            "last_name_literal": false,
+            "zip_literal": false
+          },
+          "prompt_tokens": 458,
+          "request_sha256": "6c43e5bcb1405e60390ec043def44deb789ba1ed30a80fa504e8bfaf56fd7eab",
+          "role": "simulator",
+          "status": "pass",
+          "step": "name_zip"
+        }
+      ],
+      "plan_sha256": "5db8bd56b1c657d180703153238fcd14f2ddcca6d10b1e6c3b53ad250165c46a",
+      "pricing": "not-measured",
+      "quality_eligible": false,
+      "result": "pass",
+      "roles": {
+        "agent": 0,
+        "evaluator": 0,
+        "simulator": 3
+      },
+      "schema": "nib.tau-cpu-identity-probe/v1",
+      "selection": {
+        "domain": "retail",
+        "role": "candidate",
+        "seed": 42,
+        "task_id": "2",
+        "trial": 0
+      },
+      "status": "evaluated",
+      "target": "scripted",
+      "upstream_revision": "fc0055dc4e0a316c3f83133267fbd6faaa770992"
+    },
+    "ended_utc": "2026-10-25T06:41:43Z",
+    "image": "docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2",
+    "live_admission": false,
+    "plan_sha256": "5db8bd56b1c657d180703153238fcd14f2ddcca6d10b1e6c3b53ad250165c46a",
+    "platform": "linux/amd64",
+    "quality_eligible": false,
+    "result": "pass",
+    "schema": "nib.tau-cpu-probe-scorer/v1",
+    "stage": "completed",
+    "started_utc": "2026-10-25T06:41:30Z",
+    "toolkit": {
+      "files": {
+        "bench/tau-runtime-lock.json": "6b15cca1ebb3d3766756d9f9aa9b4ec6fb892bb9c936fd73d4905abaef2b8787",
+        "bench/tau-upstream-pins.json": "4dbc7214f1160bb1b883087fa261d299aedc4b5d77d945c377d32063f518fceb",
+        "host/probe.py": "dd196679dc4b6d7ee335b3d62900b25484734884bd3da6e74f925260ad7864ff",
+        "models/deepseek-v4.1-flash-1017/1/files.sha256": "b74ae635c35372cf6c350e4b33ef60c90ff01fe6426ad0fa7bc99b1982fe5bed",
+        "models/deepseek-v4.1-flash-1017/1/pack.yaml": "5e14356aec339deaad2bfdbd1a86b958d4aa4f0e4be109112388d7348598cd3f",
+        "schemas/common.schema.json": "6800f1dbfe7e23756a920e99f6bfb6a243b9a2029aaf46e75c75671a754fa34f",
+        "schemas/evidence.schema.json": "7b81df9f1c0dadaba6d3b35fd31e830da69b0972e35f7a4e22883518240e8061",
+        "scripts/e2e/pins.json": "10d5e7c6b6ad09522c2fd6f595ca9591a51d5fc916e105561aca564bd940e6cc",
+        "scripts/e2e/snapshot.py": "e73a5a1e3ddb7a6e7b20afce39f7c080a0317d78340f224b2bd95f705bccb59c",
+        "scripts/tau_aggregate.py": "7865849f6dd7c6c837c420dacf2b4560968074706e2b7020861d971a97f1602b",
+        "scripts/tau_cpu_identity.py": "d7dae857a731b80df88bbcc52f0ff32a6821749979412707afd65dfb766230fd",
+        "scripts/tau_cpu_support_models.json": "35ba507ae8669e7f08f73232d312555a2cc2d49023d48414fefe0b7ece5952d3",
+        "scripts/tau_pipe_driver.py": "0164bf2e20bfc191d4eb1590c8883e88f775239464bf552371a0a078a78b6fb8",
+        "scripts/tau_pipe_trial.py": "03596f8f1451b9a5992f482973657405204e7fd8de0bf2f3047abf2d23d36e34",
+        "scripts/tau_preflight.py": "c38f9876dbdeb78663f9ffab5d39a28c6d87c7b298215d6179ff079072822704",
+        "scripts/tau_runtime.py": "bba26279580ed48959c571cffa9b386ce094e7ac524a0cfbcad917d442341090",
+        "scripts/tau_support_probe.py": "45c016bb41714bb2d6025538ba36ba5547835f8b40c38a50b356071275c62173",
+        "scripts/tau_transport.py": "21b4a9b0c2b855115a035a0d1f8ca72ca2590823276a44a67ba2b8c6c1e1bc4f",
+        "scripts/tau_trial.py": "446d6e4351e593e43b215f38eaa84c7bcedda99b4fbfae586a88575cd75c4a37",
+        "scripts/tau_trial_worker.py": "7f353dfa0209c58a3e9f794b462a7855dafe442c0d5eaa6fc6d0ef95198cc257",
+        "scripts/test_tau_pipe_driver.py": "95b5c3e65860a066d044d60f7ebdd12e04038a76ac8e4670e4e90b4becad8585",
+        "scripts/test_tau_trial.py": "8111c536a2c773f93d32a192046190d2629ec2dae65983b1a071080b40df41ef"
+      },
+      "git_sha": "fa59772be64e61147058e448d28cc1f3eb34ae03"
+    }
+  },
+  "source_archive_sha256": "8ed51589300fdf2e3b411f9b833e498da73c7d45150defcfcad98bffbc8b7a07",
+  "sources": {
+    ".github/workflows/tau-cpu-parity-native.yml": "897e0693526feb48ccde724ecdcfb1cfca1ec18948555456fc302d8a507b558d",
+    "scripts/e2e/exercise.py": "876c4e0e4c4b2e25ffa9089c062e5109623b2445a7d88b5eab253c81d3050763",
+    "scripts/e2e/pins.json": "10d5e7c6b6ad09522c2fd6f595ca9591a51d5fc916e105561aca564bd940e6cc",
+    "scripts/e2e/snapshot.py": "e73a5a1e3ddb7a6e7b20afce39f7c080a0317d78340f224b2bd95f705bccb59c",
+    "scripts/engine_tokenizer_parity.py": "6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f",
+    "scripts/pilot/build-requirements.lock": "26d6931e5c9a9df9ecf0673e9d697c2b9aed3d5739954225d80ff96e0a91a513",
+    "scripts/pilot/pins.json": "dbe453145b5ef21cb13d713f8635ea4e6b234ce3b75ffb9e33ffdaa1c102fbed",
+    "scripts/pilot/run.py": "7a0d23e8b95e998a09ec7a0b066d067441e1fb1cd6121bd5172d9373c10d6cf8",
+    "scripts/prepare-tau-cpu-parity-native.py": "df5548127be58372efbce1ee417506d9f24f451dddf78a10503ff6c51a967150",
+    "scripts/record-tau-cpu-parity.py": "6aa17a47ce7fcf32ea399043ecbd52a40fe1b2aa988e8de0ec7f9b08647947ad",
+    "scripts/tau_aggregate.py": "7865849f6dd7c6c837c420dacf2b4560968074706e2b7020861d971a97f1602b",
+    "scripts/tau_cpu_identity.py": "d7dae857a731b80df88bbcc52f0ff32a6821749979412707afd65dfb766230fd",
+    "scripts/tau_cpu_parity.Dockerfile": "c9ee111331a910014537b1cd2eb9b5d1bd67f5d5195195510e8974753c6c6525",
+    "scripts/tau_cpu_parity.cmake": "c148d18d01836aee6cfd4f821f0e82506791cd074da8a4a00991500b02183ff2",
+    "scripts/tau_cpu_parity.cpp": "04bdddfc1bbdf559b8a90532b4b9c5dd00b52deab5fb19f03eac8fd3420e5eef",
+    "scripts/tau_cpu_parity.py": "b4473e18e2886aecea97fbe3a96a8fe5adb230cf2a0724b3fef6637ba05ee0f9",
+    "scripts/tau_cpu_probe.py": "6387fb0da306e37b4e835ec856303dcb2c1058df8f3a3da48f0e98f88cf8b6f6",
+    "scripts/tau_cpu_session.py": "d67cc9b703c7fb92611ee880df05f283b4f81be50ec1949720085aa11a9fcca4",
+    "scripts/tau_cpu_support_models.json": "35ba507ae8669e7f08f73232d312555a2cc2d49023d48414fefe0b7ece5952d3",
+    "scripts/tau_live_identity.py": "a51e8c271dd0dd1fef22ef41babc76ab0991de11ddcc567630309395072cf2c7",
+    "scripts/tau_llama_identity.py": "f292626bc218c21e682e61d7358517432c47dd6dac7b5c0fc91434508feb35b3",
+    "scripts/tau_local_llama.py": "02d8023a72010821eb84f8b9f482569a0d8419d8a2baa70ffd78f4aabdb6f911",
+    "scripts/tau_local_vllm.py": "88efe065276e1b4888e2cf5471fd14e6fcb51c527ef370a87e74eca6032486e1",
+    "scripts/tau_pipe_driver.py": "0164bf2e20bfc191d4eb1590c8883e88f775239464bf552371a0a078a78b6fb8",
+    "scripts/tau_preflight.py": "c38f9876dbdeb78663f9ffab5d39a28c6d87c7b298215d6179ff079072822704",
+    "scripts/tau_support_probe.py": "45c016bb41714bb2d6025538ba36ba5547835f8b40c38a50b356071275c62173",
+    "scripts/tau_transport.py": "21b4a9b0c2b855115a035a0d1f8ca72ca2590823276a44a67ba2b8c6c1e1bc4f",
+    "scripts/tau_trial_worker.py": "7f353dfa0209c58a3e9f794b462a7855dafe442c0d5eaa6fc6d0ef95198cc257"
+  },
+  "stage": "complete"
+}
