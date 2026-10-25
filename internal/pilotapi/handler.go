@@ -189,7 +189,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	controller := http.NewResponseController(w)
 	_ = controller.SetReadDeadline(time.Now().Add(30 * time.Second))
 	defer r.Body.Close()
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 65536))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, int64(h.profile.bodyLimit())))
 	_ = controller.SetReadDeadline(time.Time{})
 	if err != nil {
 		writeError(w, 413, "invalid_request_body")
@@ -223,7 +223,7 @@ func BoundRequest(body []byte) ([]byte, error) {
 }
 
 func (p serviceProfile) boundRequest(body []byte) ([]byte, error) {
-	if p.nativeTools && (len(body) > 65536 || !toolJSON(body)) {
+	if p.nativeTools && !boundedToolJSON(body, p.bodyLimit()) {
 		return nil, errSelectedTools
 	}
 	var value map[string]json.RawMessage
@@ -235,7 +235,7 @@ func (p serviceProfile) boundRequest(body []byte) ([]byte, error) {
 		return nil, errors.New("unsupported model")
 	}
 	if p.nativeTools {
-		if err := validateSelectedTools(value); err != nil {
+		if err := validateSelectedTools(value, p.bodyLimit()); err != nil {
 			return nil, err
 		}
 	} else {
@@ -257,6 +257,17 @@ func (p serviceProfile) boundRequest(body []byte) ([]byte, error) {
 			return nil, err
 		}
 	}
+	// Only the trusted upstream holding the provider key may supply a cache
+	// namespace. Omission isolates this request instead of sharing a global cache.
+	var salt json.RawMessage
+	if p.longContext {
+		var err error
+		salt, err = selectedCacheSalt(value["cache_salt"])
+		if err != nil {
+			return nil, err
+		}
+		delete(value, "cache_salt")
+	}
 	if err := validateOptions(value, p.reasoningHints, p.nativeReasoning, p.nativeTools); err != nil {
 		return nil, err
 	}
@@ -267,8 +278,10 @@ func (p serviceProfile) boundRequest(body []byte) ([]byte, error) {
 		}
 	}
 	limit := p.maxOutput
+	specified := false
 	for _, field := range []string{"max_tokens", "max_completion_tokens"} {
 		if raw, ok := value[field]; ok {
+			specified = true
 			var n int
 			if bytes.Equal(raw, []byte("null")) || json.Unmarshal(raw, &n) != nil || n < 1 || n > p.maxOutput {
 				return nil, errors.New("invalid output limit")
@@ -278,8 +291,14 @@ func (p serviceProfile) boundRequest(body []byte) ([]byte, error) {
 			}
 		}
 	}
+	if !specified {
+		limit = p.defaultOutput()
+	}
 	value["max_tokens"], _ = json.Marshal(limit)
 	delete(value, "max_completion_tokens")
+	if p.longContext {
+		value["cache_salt"] = salt
+	}
 	return json.Marshal(value)
 }
 

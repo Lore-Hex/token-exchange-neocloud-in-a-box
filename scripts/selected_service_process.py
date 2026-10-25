@@ -258,6 +258,8 @@ class ProcessOwner:
             command = service.pilot.pilot.shim_command(ROOT / "bin/trcs", TLS_PORT, 8001,
                 inputs.root / "cert.pem", inputs.root / "key.pem", host="0.0.0.0")
             command[command.index("--max-inflight") + 1] = str(contract.max_inflight)
+            if contract.execution_profile == engine_entry.LONG_PROFILE:
+                command[command.index("--max-request-bytes") + 1] = str(4 << 20)
             env = self.env
         else:
             raise service.Rejected("contract")

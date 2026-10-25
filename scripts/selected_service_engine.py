@@ -6,7 +6,8 @@ import ast
 SERVICE_MODEL = "dealignai/deepseek-v4.1-flash-1017-uncensored-fp8"
 EAGER_PROFILE, GRAPHS_PROFILE = "tau8k-eager", "batch8-graphs"
 QUALITY_PROFILE = "quality32k-eager"
-BOUND_PROFILES = (GRAPHS_PROFILE, QUALITY_PROFILE)
+LONG_PROFILE = "long128k-eager"
+BOUND_PROFILES = (GRAPHS_PROFILE, QUALITY_PROFILE, LONG_PROFILE)
 
 
 def execution_limits(profile):
@@ -16,6 +17,10 @@ def execution_limits(profile):
         return {"profile": profile, "context_tokens": 32768,
                 "max_output_tokens": 2048, "max_inflight": 1,
                 "guard_profile": "selected-deepseek-quality"}
+    if profile == LONG_PROFILE:
+        return {"profile": profile, "context_tokens": 131072,
+                "max_output_tokens": 16384, "max_inflight": 1,
+                "guard_profile": "selected-deepseek-long"}
     graphs = profile == GRAPHS_PROFILE
     return {"profile": profile, "context_tokens": 4096 if graphs else 8192,
             "max_output_tokens": 256, "max_inflight": 8 if graphs else 1,
@@ -44,23 +49,26 @@ def canonical_arguments(contract):
               and type(contract.get("tokenizer_materialization")) is dict)
     else:
         check("stream_cohort" not in contract)
-    if limits["profile"] == QUALITY_PROFILE:
+    if limits["profile"] in (QUALITY_PROFILE, LONG_PROFILE):
         check(contract.get("tokenizer_parity") is True and contract.get("runtime_observation") is True
               and type(contract.get("tokenizer_materialization")) is dict)
     result = list(contract["arguments"])
     expected = {"--served-model-name": SERVICE_MODEL.split("/", 1)[1],
                 "--host": "127.0.0.1", "--port": "8000", "--max-model-len": str(limits["context_tokens"]),
                 "--max-num-seqs": str(limits["max_inflight"]),
-                "--max-num-batched-tokens": str(limits["context_tokens"]),
+                "--max-num-batched-tokens": "4096" if limits["profile"] == LONG_PROFILE else str(limits["context_tokens"]),
                 "--data-parallel-size": "2", "--tensor-parallel-size": "4"}
     if graphs:
         check("--enforce-eager" not in result and "--speculative-config" not in result)
         # Exact deepseek_tuning.arguments profile, source-pinned to vLLM 5df63a7.
         expected["--compilation-config"] = ('{"pass_config":{"fuse_allreduce_rms":false},'
             '"cudagraph_mode":"FULL_DECODE_ONLY","cudagraph_capture_sizes":[1,2,4,8]}')
-    elif limits["profile"] == QUALITY_PROFILE:
+    elif limits["profile"] in (QUALITY_PROFILE, LONG_PROFILE):
         check(result.count("--enforce-eager") == 1 and "--speculative-config" not in result)
         expected["--compilation-config"] = '{"pass_config":{"fuse_allreduce_rms":false}}'
+    if limits["profile"] == LONG_PROFILE:
+        for flag in ("--enable-chunked-prefill", "--enable-prefix-caching", "--enable-prompt-tokens-details"):
+            check(result.count(flag) == 1 and flag.replace("--enable-", "--no-enable-") not in result)
     for flag, value in expected.items():
         check(result.count(flag) == 1)
         index = result.index(flag) + 1
