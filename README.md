@@ -65,9 +65,13 @@ completed all eight requests at **645.28 output tokens/second overall** and
 **1,835.91 ms median TTFT**, excluding warmup. This improves aggregate throughput
 in the small synthetic test while increasing first-token latency; it is not
 a sustained-load guarantee or quality qualification.
-A separate [selected-service image build](evidence/p2/2026-10-24-selected-service-image/README.md)
-passed on the ordinary node. Its nonroot service image is built, not yet
-runtime-validated or published; the original receipt retains those limits.
+The latest nonroot/read-only selected-service image passed one bounded
+[private TLS inference smoke](evidence/p2/2026-10-24-selected-service-inference/README.md)
+on the ordinary node: engine/guard/TLS ready, missing/wrong keys rejected,
+36 prompt and 13 completion tokens, and cleanup confirmed. It remains unpublished;
+this is not public serving, full provider/quality qualification or confidential
+inference. The earlier [build-only receipt](evidence/p2/2026-10-24-selected-service-image/README.md)
+retains its original scope.
 The [8K-profile parity prerequisite](evidence/p2/2026-10-24-selected-tau8k-parity/README.md)
 also passed four fixed cases and eight requests; this does not establish full
 8K request fit. Both [DSpark attempts](evidence/p2/2026-10-24-selected-dspark-startup-failure/README.md)
