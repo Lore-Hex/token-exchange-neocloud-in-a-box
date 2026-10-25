@@ -87,6 +87,11 @@ blocked 13 other paths including DNS relays, and confirmed cleanup. The same
 [isolated experiment on the ordinary GPU host](evidence/p2/2026-10-25-selected-nat-ubuntu26-pass/README.md)
 also passed with its separately pinned Ubuntu 26.04 venue and no GPU use.
 Neither experiment qualifies persistent public serving or confidential inference.
+A later [isolated quarantine proof with private host baselines](evidence/p2/2026-10-25-selected-quarantine-baseline-pass/README.md)
+passed: verified quarantine blocked all 15 paths after serving-policy withdrawal,
+cleanup was confirmed, and the wrapper reported equal pre/post firewall/DNS
+snapshots. Raw host captures remain private; no real-service/public qualification
+or continuous host-integrity claim follows.
 The [8K-profile parity prerequisite](evidence/p2/2026-10-24-selected-tau8k-parity/README.md)
 also passed four fixed cases and eight requests; this does not establish full
 8K request fit. Both [DSpark attempts](evidence/p2/2026-10-24-selected-dspark-startup-failure/README.md)
