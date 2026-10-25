@@ -301,7 +301,9 @@ class ExternalTests(unittest.TestCase):
                 module = types.SimpleNamespace(policy=policy, Runtime=mock.Mock(return_value=held),
                     run_process=mock.Mock(return_value=observed), accepted=external.accepted)
                 if failure == "runtime": module.Runtime.side_effect = ValueError("SYNTHETIC_PRIVATE_CANARY")
-                if failure == "driver": module.run_process.side_effect = KeyboardInterrupt
+                if failure == "driver":
+                    held.endpoints["candidate"].measured.append({"prompt_tokens": 20, "completion_tokens": 3, "total_tokens": 23})
+                    module.run_process.side_effect = KeyboardInterrupt
                 if failure == "close": held.close.side_effect = OSError("SYNTHETIC_PRIVATE_CANARY")
                 state, calls, published = {"exists": False, "inspections": 0}, [], {}
                 def capture(argv, **kwargs):
@@ -346,6 +348,8 @@ class ExternalTests(unittest.TestCase):
                     parent_pipe=True, external_inputs={"arguments": (None,) * 7, "deadline": deadline})
                 self.assertEqual(report["result"], "pass" if failure is None else "fail")
                 self.assertNotIn(b"CANARY", b"".join(published.values()))
+                if failure == "driver":
+                    self.assertEqual(report["endpoint_usage"]["candidate"]["known_usage"]["total_tokens"], 23)
                 if failure in ("image", "runtime"):
                     self.assertFalse(any(args[0] == "create" for args in calls))
                 if failure not in ("image", "runtime"):
@@ -423,6 +427,38 @@ print("signal-and-reap PASS")
         result = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", program, str(runner.ROOT / "scripts")],
                                 capture_output=True, timeout=10, check=True)
         self.assertEqual(result.stdout, b"signal-and-reap PASS\n")
+        self.assertEqual(result.stderr, b"")
+
+    def test_actual_signal_during_restore_waits_until_both_handlers_restored(self):
+        program = '''import sys,signal,os,time
+from pathlib import Path
+from unittest import mock
+sys.path.insert(0,sys.argv[1])
+import tau_external as e
+from test_tau_external import runtime
+def cancel(s,f): raise KeyboardInterrupt
+signal.signal(signal.SIGINT,cancel);signal.signal(signal.SIGTERM,cancel)
+original=signal.signal
+mask=signal.pthread_sigmask(signal.SIG_BLOCK,set())
+injected=False
+def restore(number,handler):
+ global injected
+ old=original(number,handler)
+ if number==signal.SIGINT and handler is cancel and not injected:
+  injected=True
+  assert signal.SIGTERM in signal.pthread_sigmask(signal.SIG_BLOCK,set())
+  os.kill(os.getpid(),signal.SIGTERM)
+ return old
+with mock.patch.object(e.pipe,"selected_assertions",return_value=["synthetic"]),mock.patch.object(signal,"signal",side_effect=restore):
+ r=e.run_process([sys.executable,"-I","-S","-c","print('invalid',flush=True)"],{},Path("/unused"),{"selection":{}},runtime(),time.monotonic()+65)
+assert injected and r["attach_cleanup"]=="reaped" and not e.accepted(r)
+assert all(signal.getsignal(s) is cancel for s in (signal.SIGINT,signal.SIGTERM))
+assert signal.pthread_sigmask(signal.SIG_BLOCK,set())==mask
+print("restore PASS")
+'''
+        result = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", program, str(runner.ROOT / "scripts")],
+                                capture_output=True, timeout=10, check=True)
+        self.assertEqual(result.stdout, b"restore PASS\n")
         self.assertEqual(result.stderr, b"")
 
 

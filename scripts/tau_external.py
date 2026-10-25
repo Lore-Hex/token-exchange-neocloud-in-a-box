@@ -314,8 +314,15 @@ def run_process(command, environment, payload, plan, runtime, deadline):
                 except (OSError, subprocess.TimeoutExpired):
                     completed = False
         finally:
-            for sig, handler in prior.items():
-                signal.signal(sig, handler)
+            try:
+                mask = signal.pthread_sigmask(signal.SIG_BLOCK, set(prior))
+                try:
+                    for sig, handler in prior.items():
+                        signal.signal(sig, handler)
+                finally:
+                    signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+            except KeyboardInterrupt:
+                completed = False
     return {"schema": "nib.tau-external-lookup/v1", "scorer_protocol_completed": completed,
             "attach_cleanup": cleanup, "scorer_exit_code": code, "trial": trial,
             "endpoints": {name: endpoint.observation() for name, endpoint in runtime.endpoints.items()},

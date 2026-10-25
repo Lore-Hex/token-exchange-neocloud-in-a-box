@@ -96,8 +96,12 @@ def main():
         return 1
     finally:
         cancelled = True
-        for sig, handler in prior.items():
-            signal.signal(sig, handler)
+        mask = signal.pthread_sigmask(signal.SIG_BLOCK, set(prior))
+        try:
+            for sig, handler in prior.items():
+                signal.signal(sig, handler)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, mask)
 
 
 if __name__ == "__main__":

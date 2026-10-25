@@ -708,8 +708,17 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
                 except Exception:
                     cleaned = False
             if external_simulator:
-                signal.signal(signal.SIGINT, prior_int)
-            signal.signal(signal.SIGTERM, old)
+                try:
+                    mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM})
+                    try:
+                        signal.signal(signal.SIGINT, prior_int)
+                        signal.signal(signal.SIGTERM, old)
+                    finally:
+                        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+                except KeyboardInterrupt:
+                    stage = "cancelled"
+            else:
+                signal.signal(signal.SIGTERM, old)
     if external_simulator:
         record = {"schema": "nib.tau-external-scorer-run/v1", "toolkit": toolkit, "plan_sha256": sha,
                   "image": plan["image"], "platform": plan["platform"],
@@ -717,6 +726,8 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
                   "endpoint_binding_sha256": external.manifest["binding_sha256"] if external is not None else None,
                   "started_utc": started, "ended_utc": now(), "stage": stage,
                   "cleanup": "create-completion-unknown" if create_unknown else "confirmed" if cleaned else "failed",
+                  "endpoint_usage": {name: endpoint.observation() for name, endpoint in external.endpoints.items()}
+                    if external is not None else None,
                   "diagnostic": result, "result": "pass" if stage == "completed" and cleaned and result
                     and driver.accepted(result) else "fail", "quality_eligible": False, "confidential": False,
                   "live_admission": False, "public_owner_mutated": False}
