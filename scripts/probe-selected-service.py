@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""One explicitly pinned external TLS smoke; never an attestation or quality gate."""
+"""One external TLS smoke with closed trust modes; never an attestation or quality gate."""
 
 import sys
 from pathlib import Path
@@ -81,11 +81,39 @@ def validate_target(args):
             and type(args.port) is int and 1 <= args.port <= 65535, "contract")
     require(type(args.hostname) is str and len(args.hostname) <= 253
             and re.fullmatch(r"[a-z0-9]+(?:[.-][a-z0-9]+)*", args.hostname), "contract")
-    require(type(args.certificate_sha256) is str
-            and re.fullmatch("[0-9a-f]{64}", args.certificate_sha256), "contract")
+    if tls_mode(args) == "pinned":
+        require(type(args.certificate) is str and bool(args.certificate)
+                and type(args.certificate_sha256) is str
+                and re.fullmatch("[0-9a-f]{64}", args.certificate_sha256), "contract")
+    else:
+        require(args.certificate is None and args.certificate_sha256 is None, "contract")
+
+
+def tls_mode(args):
+    mode = getattr(args, "tls_mode", "pinned")
+    require(mode in ("pinned", "system-roots"), "contract")
+    return mode
+
+
+def tls_arguments(parser):
+    parser.add_argument("--tls-mode", choices=("pinned", "system-roots"), default="pinned")
+    for name in ("certificate", "certificate-sha256"):
+        parser.add_argument("--" + name)
 
 
 def trust_input(args, deadline):
+    if tls_mode(args) == "system-roots":
+        require(args.certificate is None and args.certificate_sha256 is None, "contract")
+        paths = ssl.get_default_verify_paths()
+        # OpenSSL honors these even under Python -I. Do not label an injected
+        # CA file/directory as installed-system-root validation.
+        require(not any(name in os.environ for name in ("SSL_CERT_FILE", "SSL_CERT_DIR",
+                paths.openssl_cafile_env, paths.openssl_capath_env)), "contract")
+        trust = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        trust.minimum_version = ssl.TLSVersion.TLSv1_2
+        trust.load_default_certs(ssl.Purpose.SERVER_AUTH)
+        require(trust.check_hostname and trust.verify_mode == ssl.CERT_REQUIRED, "identity")
+        return trust, None
     pem = service.identity.private_read(args.certificate, deadline)
     require(len(pem) <= 65536 and hashlib.sha256(pem).hexdigest() == args.certificate_sha256
             and pem.count(b"-----BEGIN CERTIFICATE-----") == 1
@@ -101,6 +129,12 @@ def trust_input(args, deadline):
 
 @contextmanager
 def pinned_tls(args, trust, peer_digest, deadline):
+    mode = tls_mode(args)
+    require(trust.check_hostname is True and trust.verify_mode == ssl.CERT_REQUIRED
+            and trust.minimum_version >= ssl.TLSVersion.TLSv1_2
+            and trust.keylog_filename is None, "identity")
+    require(peer_digest is None if mode == "system-roots" else
+            type(peer_digest) is bytes and len(peer_digest) == 32, "identity")
     with ExitStack() as stack:
         raw = stack.enter_context(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
         raw.set_inheritable(False)
@@ -108,7 +142,8 @@ def pinned_tls(args, trust, peer_digest, deadline):
         # A numeric IPv4 target avoids DNS changes and proxy/environment routing.
         raw.connect((args.address, args.port))
         connection = stack.enter_context(trust.wrap_socket(raw, server_hostname=args.hostname))
-        require(hashlib.sha256(connection.getpeercert(binary_form=True)).digest() == peer_digest, "identity")
+        if mode == "pinned":
+            require(hashlib.sha256(connection.getpeercert(binary_form=True)).digest() == peer_digest, "identity")
         connection.settimeout(remaining(deadline))
         yield connection
 
@@ -205,6 +240,8 @@ def run(args):
     try:
         require(args.run and threading.current_thread() is threading.main_thread(), "contract")
         validate_target(args)
+        if tls_mode(args) == "system-roots":
+            result.update(schema="nib.selected-external-smoke/v2", tls_mode="system-roots")
         cutoff = datetime.strptime(args.deadline, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
         seconds = cutoff - time.time()
         require(0 < seconds <= SECONDS, "deadline")
@@ -253,8 +290,9 @@ def main(argv=None):
     try:
         parser = QuietParser(description=__doc__, allow_abbrev=False)
         parser.add_argument("--run", action="store_true")
-        for name in ("address", "hostname", "certificate", "certificate-sha256", "api-key-file", "deadline"):
+        for name in ("address", "hostname", "api-key-file", "deadline"):
             parser.add_argument("--" + name, required=True)
+        tls_arguments(parser)
         parser.add_argument("--port", type=int, required=True)
         result = run(parser.parse_args(argv))
     except BaseException:

@@ -14,7 +14,11 @@ the smoke automatically or extend an owner's deadline.
 
 The operator supplies exactly one numeric global IPv4 address, port, TLS
 hostname, private certificate-file path, exact certificate-file SHA256 and UTC
-cutoff. No API key argument, environment credential, arbitrary URL/path,
+cutoff in the default pinned mode. Explicit `--tls-mode system-roots` instead
+requires both certificate arguments to be absent and validates against the
+client's installed roots using the shared
+[closed TLS policy](p2-t4-selected-external-client.md#explicit-system-roots).
+No API key argument, environment credential, arbitrary URL/path,
 redirect, DNS lookup, prompt, model, callback or target fallback is supported.
 The target fields are hashed together in the report for a private operator join;
 the literal address, hostname and file path are not emitted. This digest is
@@ -22,7 +26,9 @@ provenance, not anonymization or proof of remote process ownership.
 
 The command reuses the external smoke's private certificate reader,
 hostname/chain verification, exact DER leaf pin and strict `GET /healthz`
-parser. Every attempt uses a new pinned TLS connection. A successful response
+parser. Every attempt uses a new verified TLS connection with the same selected
+trust mode; a chain/hostname failure never falls back to pinned trust or retries.
+A successful response
 requires HTTP 200, exactly one `Content-Length: 0`, no transfer/content encoding,
 empty body and complete EOF. Sockets and readers close before success.
 Pinned [trcs health](https://github.com/Lore-Hex/trustedrouter-confidential-stack/blob/8a87d9765ceabe76bbfa5e56a72c91da6d8290d5/internal/shim/server.go#L122-L143)
@@ -30,6 +36,9 @@ checks its listener audit and the guard; the
 [guard](../../internal/pilotapi/handler.go) checks engine health. These checks do
 not submit a model request. A PASS is only point-in-time health of this pinned
 peer, not ownership, continued readiness, capacity, quality or deployment proof.
+System-root mode proves only this client's chain and hostname validation, not
+universal public trust or revocation checking. Client roots and clock are trusted
+inputs; this command never installs a CA or modifies a certificate.
 
 ## Bounds and Failure
 
@@ -62,6 +71,13 @@ continued-readiness, conformance, quality, deployment and privacy claims remain
 false. The named source hashes are producer provenance, not a measured software
 closure. Preserve failed observations; a new invocation needs separate approval.
 
+Pinned mode retains its v1 receipt and exact target-digest inputs. System-root
+mode emits `nib.selected-external-startup/v2` with `tls_mode: "system-roots"` and
+binds that mode instead of a certificate hash in the private target digest. The
+same 1200-second/128-attempt/five-second bounds, cutoff checks, cleanup and
+content-free counters apply. Selecting a mode is not proof of successful TLS:
+the result, TLS counters and health status remain authoritative.
+
 ## Operator Template
 
 This is not an execution record. Supply the same approved peer and out-of-band
@@ -78,6 +94,10 @@ python3 -I -S -B scripts/wait-selected-service.py --run \
   --certificate-sha256 "$APPROVED_CERTIFICATE_FILE_SHA256" \
   --deadline "$FIXED_STARTUP_UTC_CUTOFF"
 ```
+
+For a separately approved system-root observation, replace both certificate
+arguments with `--tls-mode system-roots`. Keep the same private address/name and
+bounded cutoff. No inference, service action or credential access is added.
 
 After PASS the operator may separately run the already-approved one-shot
 external probe. Its own pinned health check remains mandatory, since readiness
