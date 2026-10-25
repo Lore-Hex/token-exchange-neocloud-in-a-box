@@ -82,6 +82,13 @@ class Network:
 
     def check(self, row, identifier):
         """Only an empty, exact owned local bridge is admitted in this increment."""
+        config = {"Subnet": self.subnet, "Gateway": self.gateway}
+        ipam = row["IPAM"]
+        # Docker 29's netip.Prefix can serialize an unset range as an empty
+        # string. Admit only that representation or omission, never a range.
+        require(type(ipam) is dict and set(ipam) == {"Driver", "Options", "Config"}
+                and ipam["Driver"] == "default" and ipam["Options"] == {}
+                and ipam["Config"] in ([config], [{**config, "IPRange": ""}]))
         require(row["Id"] == full_id(identifier) and row["Name"] == self.name
                 and row["Labels"] == {LABEL: self.policy.token}
                 and row["Driver"] == "bridge" and row["Scope"] == "local"
@@ -89,8 +96,6 @@ class Network:
                 and row["Internal"] is False and row["Attachable"] is False
                 and row["Ingress"] is False and row["ConfigOnly"] is False
                 and row["ConfigFrom"] == {"Network": ""} and row["Options"] == self.options
-                and row["IPAM"] == {"Driver": "default", "Options": {},
-                    "Config": [{"Subnet": self.subnet, "Gateway": self.gateway}]}
                 and row["Containers"] == {} and not row.get("Peers") and not row.get("Services"))
 
 
