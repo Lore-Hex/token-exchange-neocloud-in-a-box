@@ -83,8 +83,9 @@ usage and confirmed cleanup. No retries were used; this is not general tool
 reliability, full tau evaluation, public serving or a capability/privacy claim.
 A separate [ordinary day-profile startup](evidence/p2/2026-10-25-selected-day-startup/README.md)
 passed external pinned-TLS health and one authenticated stream after a preserved
-pre-container failure. The long-run owner has not yet completed; this is not a
-24-hour soak, public deployment or confidential result.
+pre-container failure. Its later [cancelled-owner terminal record](evidence/p2/2026-10-25-selected-owner-cancelled/README.md)
+remains FAIL with reported cleanup confirmed and unknown process exit status;
+this is not a completed 24-hour soak, public deployment or confidential result.
 
 A completed [finite externally reachable service run](evidence/p2/2026-10-25-selected-finite-owner-pass/README.md)
 reached readiness, retired naturally, drained all three roles, and confirmed
