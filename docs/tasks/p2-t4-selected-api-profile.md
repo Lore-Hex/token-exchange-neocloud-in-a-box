@@ -22,9 +22,11 @@ bounds body bytes and output tokens; it is not a tokenizer or prompt-fit gate.
 An owned engine must independently enforce the total context budget.
 
 Tools, structured output, reasoning and prompt caching remain unadvertised.
-Selected requests reject all reasoning/thinking controls, including disabling
-hints, rather than inheriting Qwen's engine-specific hint stripping. Existing
-Qwen requests retain their exact compatibility behavior.
+The initial selected profile rejected reasoning/thinking controls. The
+[explicit reasoning follow-up](p2-t4-selected-reasoning-controls.md) now validates
+and forwards the pinned engine's native effort settings without inheriting
+Qwen's hint stripping. Existing Qwen requests retain their exact compatibility
+behavior; live reasoning qualification remains separate.
 
 ## Model identity boundary
 

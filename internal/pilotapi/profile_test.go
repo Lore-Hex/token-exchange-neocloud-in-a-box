@@ -148,8 +148,7 @@ func TestSelectedProfileRequestBoundary(t *testing.T) {
 	for _, field := range []string{
 		`"max_tokens":0`, `"max_tokens":257`, `"max_tokens":null`, `"max_tokens":1.5`,
 		`"max_tokens":1,"max_completion_tokens":257`, `"n":2`, `"tools":[]`, `"tool_choice":"auto"`,
-		`"response_format":{}`, `"thinking":{"type":"disabled"}`, `"thinking":{"type":"enabled"}`,
-		`"reasoning":{"effort":"none"}`, `"reasoning_effort":"none"`, `"reasoning_effort":"high"`,
+		`"response_format":{}`, `"thinking":{"type":"enabled"}`, `"reasoning_effort":"medium"`,
 		`"chat_template_kwargs":{"enable_thinking":false}`, `"cache_prompt":true`, `"stream":null`,
 		`"stream_options":{"include_usage":true,"extra":1}`, `"n_predict":-1`,
 	} {

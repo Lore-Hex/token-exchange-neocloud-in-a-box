@@ -40,8 +40,10 @@ checker HTTP client, provider retry or model alias rewrite is introduced.
 
 `checks` retains each upstream `pass`, `fail`, `warn` or `skip` exactly.
 `checker_result` summarizes them with fail/warn/skip precedence; `all_17_pass`
-is true only for 17 passes. The selected API intentionally rejects reasoning
-hints, so `chat.forwarded-fields` may WARN. **That WARN still permits the drain
+is true only for 17 passes. The initial selected API rejected reasoning
+hints; the [native-control follow-up](p2-t4-selected-reasoning-controls.md)
+changes that boundary but does not rewrite older receipts. Any
+`chat.forwarded-fields` WARN still remains visible. **That WARN still permits the drain
 observation, but cannot produce overall PASS.** The receipt can therefore show
 checker WARN, completed drain and confirmed cleanup together without discarding
 the useful observations or claiming full conformance. All unknown accounting
