@@ -1,0 +1,172 @@
+# Selected closed-NAT proof candidate
+
+Status: implemented and tested against mocks only. **Not executed.** This is a
+GPU-free network experiment, not a public service owner or permission to change
+a host firewall. The earlier [isolated-bridge observation](p2-t4-selected-network-probe.md)
+does not qualify this alternative. No inference, credentials, model weights,
+external endpoints, DNS publication, customer traffic or confidentiality claim
+are involved.
+
+## Boundary and sources
+
+The reusable [policy renderer](../../scripts/selected_network_policy.py) produces
+create-only, uniquely named `inet` and `bridge` nftables tables. It never executes
+commands, flushes a ruleset, modifies Docker-owned tables or changes the daemon's
+firewall backend. All unrelated traffic keeps its existing policy.
+
+- `inet input`: deny traffic from the owned bridge except established replies
+  from the candidate's TLS port. Match original/reply conntrack tuples so reverse
+  NAT does not confuse the published port with the container port.
+- `inet forward`: allow only the exact published IPv4 TCP destination, approved
+  ingress interface, DNAT tuple and candidate port 8443, plus its established
+  replies. Deny all other traffic entering or leaving the owned bridge.
+- `inet output`: permit host-originated candidate TLS only, denying other host
+  access to that bridge, including ports 8000/8001 and IPv6.
+- Native `bridge forward`: deny L2 peer forwarding in either direction. This
+  does not rely on `bridge-nf-call-iptables`. ARP needed for routed traffic is
+  not an authorization for raw sockets; fixtures drop every capability.
+
+[Docker's firewall documentation](https://docs.docker.com/engine/network/firewall-nftables/)
+requires separate operator tables, explains base-chain priority and that an
+accept verdict does not bypass a later drop. This proof leaves Docker 29.1.3's
+default iptables backend enabled; its additive nft rules run before the normal
+filter priority. It does not switch to Docker's experimental nft backend.
+[Netfilter hooks](https://wiki.nftables.org/wiki-nftables/index.php/Netfilter_hooks)
+and [bridge filtering](https://wiki.nftables.org/wiki-nftables/index.php/Bridge_filtering)
+describe the independent routed and L2 paths. Exact owned-table readback rejects
+drift and any flowtable, which could bypass the forwarding path.
+
+The JSON format was checked against the
+[nftables 1.0.9 source archive](https://netfilter.org/projects/nftables/files/nftables-1.0.9.tar.xz),
+SHA-256 `a3c304cd9ba061239ee0474f9afb938a9bb99d89b960246f66f0c3a0a85e14cd`:
+`configure.ac`, `src/ct.c`, `src/meta.c`, `src/parser_json.c` and `src/json.c`.
+The exact release label is `Old Doc Yak #3`. In this revision,
+conntrack IPv4 keys are `ip daddr`/`ip saddr` with `dir`; bridge-name keys are
+`ibrname`/`obrname`. Readback ignores only object handles and independent
+table/chain enumeration, preserving rule order and every expression.
+
+### DNS is a separate boundary
+
+Bridge filtering alone does not block inherited Docker DNS. At Docker tag
+`docker-v29.1.3`, commit `fbf3ed25f893e6ce21336f1101590e40a13934f4`,
+[TransformForIntNS](https://github.com/moby/moby/blob/fbf3ed25f893e6ce21336f1101590e40a13934f4/daemon/libnetwork/internal/resolvconf/resolvconf.go)
+marks inherited resolvers `HostLoopback`; the
+[resolver's dialExtDNS](https://github.com/moby/moby/blob/fbf3ed25f893e6ce21336f1101590e40a13934f4/daemon/libnetwork/resolver.go)
+then dials from the daemon's host namespace. Explicit resolver overrides instead
+use the container namespace. The protected fixture therefore requires exactly
+`--dns 127.0.0.1`, with no extra resolver/search/options/hosts overrides, checked
+before start. This is container loopback, not host loopback, as documented in
+[Docker DNS services](https://docs.docker.com/engine/network/#dns-services).
+Docker-local names may still resolve; no upstream DNS forwarding is authorized.
+
+## Concrete experiment
+
+[prove-selected-nat.py](../../scripts/prove-selected-nat.py) stages its committed
+four-file source closure and a hash-verified, private read-only copy of a supplied
+offline Python image archive. It launches util-linux `unshare` with new mount,
+network and PID namespaces, private mount propagation, a new procfs and
+`--kill-child=KILL`. The inner process must be PID 1, have different network and
+mount namespace inodes, initially only loopback, and an empty nft ruleset.
+The [pinned util-linux implementation](https://github.com/util-linux/util-linux/blob/v2.39.3/sys-utils/unshare.c)
+and [PID namespace semantics](https://man7.org/linux/man-pages/man7/pid_namespaces.7.html)
+are the basis for this teardown boundary.
+
+Inside that namespace it hides `/run`, substitutes a private resolver file,
+and starts its **own** Docker daemon with private socket, config, data/exec roots,
+CDI directory and cgroup name. It never queries or connects to an existing
+Docker daemon. The classic VFS image store avoids an unverified containerd image
+store switch. Multiple daemons are explicitly experimental in the
+[Docker daemon documentation](https://docs.docker.com/reference/cli/dockerd/);
+this combination has not been run or qualified here.
+
+There is no external interface, veth to the real host, default uplink or public
+port. Two private dual-stack Docker bridges simulate ingress and the service
+network. Three synthetic fixture containers run nonroot, read-only, without
+capabilities/devices/restarts/logs, limited to 128 MiB, one CPU and 32 PIDs each.
+The synthetic fixture disables AppArmor confinement to avoid loading a global
+Docker profile; **this is not a production container profile**. Its generated
+short-lived TLS key stays in the private output tree, mode 0600, mounted read-only.
+
+The archive must contain the already-pinned Python 3.12.13 slim-bookworm amd64
+configuration `sha256:64d91f7b885eed272bba87909446b12ff408d4aaa5f1a0e9ca787bbea1a020b9`.
+Its known reference manifest is
+`sha256:6e13e65c55e33adf203d77ee371cf8bf5d81bd4902ef07565721f46bf44917af`,
+from the existing [classic-store pin](p2-t4-provider-classic-store.md).
+The report distinguishes this reference from the actually inspected config ID;
+it does not invent a registry receipt for a Docker-save archive. No pull occurs.
+
+Before protection, positive controls must reach all 15 tested paths: host and
+forwarded TLS, host engine/guard/IPv6, container-to-host/L2-peer/forwarded IPv4
+and IPv6, and host-direct plus embedded DNS over TCP and UDP. A controlled
+host-namespace DNS sink proves the inherited-relay bypass actually operates.
+Only then is the baseline candidate removed, policy installed and read back,
+and a replacement candidate created with the exact DNS override. Afterward,
+only the two TLS paths may succeed. TLS verifies a generated certificate for
+`nib.invalid` and exchanges two fixed frames on the same connection. DNS sink
+counters must remain unchanged; all sinks must still be alive after negative
+probes. No client-selected payload, URL or hostname is accepted.
+
+## Lifecycle and reporting
+
+The original monotonic budget is 480 seconds of operations plus 90 seconds for
+namespace cleanup. Bounded tool collectors retain at most 256 KiB stdout and
+64 KiB stderr, using the existing process-group helper. The outer owner reserves
+a further bounded 25 seconds for final group absence/reaping. SIGINT/SIGTERM
+cooperatively stop new work but retain the original cleanup budget; repeated
+cancellation does not extend it. No retries restart the experiment.
+
+Cleanup checks exact labels/image identities, removes the fixtures, proves
+container and network absence, and reads policy back before deletion. Unknown
+create completion, inventory failure or policy drift prevents rule removal.
+An ambiguous namespace is terminated with protection retained until namespace
+destruction; neither timeout nor an empty inventory promotes an uncertain create
+to success. Only an empty, uniquely owned cgroup is removed, never `cgroup.kill`.
+Cleanup or final reaping failure prevents PASS. Original failures remain FAIL
+even if subsequent cleanup succeeds.
+
+The output is `observation.json`, not a generic hardware `run.json`. It binds
+source hashes/revision, archive hash, UTC interval and strict content-free
+observations. Stderr, exceptions, DNS bodies and TLS frames are never copied into
+the report. The private scratch tree retains daemon data and the ephemeral key;
+do not publish that tree. Publish only the reviewed original receipt in a
+separate evidence task. Early CLI/source/input preflight errors occur before any
+namespace and must be retained as failed command results, not synthesized PASS.
+
+## Execution gate and next step
+
+**No venue is qualified by this change.** Before execution, independently review
+this exact commit and verify a dedicated CPU-only Linux amd64 venue with:
+
+- CPython **3.12.13** as the host supervisor, Docker daemon **29.1.3**, nftables
+  **1.0.9**, and util-linux unshare **2.39.3**. Host and image interpreters are
+  distinct inputs. Neither a host running 3.14.4 nor a service image running
+  3.12.3 satisfies the host interpreter gate.
+- Cgroup v2, root namespace privileges, ordinary nonsymlink `/etc/resolv.conf`,
+  and available bridge/netfilter/IPv6 support. Pin/review the venue's actual
+  kernel, Docker CLI, containerd, runc, iproute2, mount and OpenSSL binaries before
+  approval. The script does not install packages or change daemon configuration.
+- A verified offline archive (maximum 512 MiB), a new private scratch directory
+  and adequate local space for its VFS store. Existing cgroup names are rejected.
+
+This is not a hardened sandbox against malicious privileged tools. Kernel-module
+autoload and cgroup operations share the kernel: the venue must be disposable
+and approved, with required modules already available. Do not execute on the GPU
+host, a production host, or adapt version checks until the actual compatibility
+question has been independently reviewed.
+
+After those gates, the closed command template is:
+
+```sh
+"$PROOF_PYTHON" -I -S -B scripts/prove-selected-nat.py --run \
+  --archive "$OFFLINE_IMAGE_ARCHIVE" --archive-sha256 "$ARCHIVE_SHA256" \
+  --output "$NEW_PRIVATE_OUTPUT_DIRECTORY"
+```
+
+The focused test module uses only mocks and temporary files, never sockets,
+namespaces, Docker or nft. It covers policy rules/readback, DNS admission,
+archive sealing, all-control requirements, sink liveness, cancellation,
+uncertain create, cleanup drift, failed spawn, lost/oversized output and reap
+failure. It is **not** a kernel or daemon compatibility result. A real, separately
+approved namespace observation is still required before adapting the existing
+selected-service host owner to this policy. No public-owner integration,
+external ingress, production firewall mutation or listing is implemented here.
