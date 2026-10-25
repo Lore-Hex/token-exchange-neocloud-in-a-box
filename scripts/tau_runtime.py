@@ -302,8 +302,13 @@ def make_catalog(files, sources):
 
 
 def check_wheel(raw, expected, deadline):
-    require(len(raw) == expected["bytes"] and digest(raw) == expected["sha256"]
-            and wheel_tags(expected["filename"]))
+    require(wheel_tags(expected["filename"]))
+    return check_wheel_archive(raw, expected, deadline)
+
+
+def check_wheel_archive(raw, expected, deadline):
+    """Archive integrity only; callers must first admit their fixed target tags."""
+    require(len(raw) == expected["bytes"] and digest(raw) == expected["sha256"])
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:
         rows = archive.infolist()
         require(0 < len(rows) <= 10000)

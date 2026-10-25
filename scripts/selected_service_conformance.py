@@ -48,6 +48,13 @@ def checker_modules(root, deadline, expected_sha256=None):
     # The isolated owner has no site-packages. Only the offline, locked payload
     # enters its import path. In particular, never use the engine's dependencies.
     payload_files(root, deadline, expected_sha256)
+    with imported_checker(root) as checker:
+        yield checker
+
+
+@contextmanager
+def imported_checker(root):
+    """Import only after the caller has verified its complete sealed inventory."""
     packages = root / "packages"
     names = {path.name.split(".")[0] for path in packages.iterdir() if ".dist-info" not in path.name}
     require(not any(name in sys.modules for name in names), "identity")

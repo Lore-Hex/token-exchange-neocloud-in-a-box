@@ -86,13 +86,19 @@ is client-observed accounting, not a billing ledger or server-side call count.
 
 ## Software preparation and execution gate
 
-The checker payload is the existing optional prepared `checker/` subtree with
-its 17 hash-locked packages, for the observer's OS/Python ABI. The supplied
+On Linux the checker payload is the existing optional prepared `checker/`
+subtree. A macOS observer instead requires the distinct
+[sealed macOS payload](p2-t4-external-checker-macos.md), explicitly bound to
+arm64 CPython 3.12.13 and the same 17 hash-locked packages. The supplied
 `trial.json` hash is checked before any package import, then the complete pinned
 inventory is verified by the existing loader. Relative payload paths, symlinks,
 extras and byte/hash drift are not accepted. Import paths/modules are restored
 afterward; upstream stdout/stderr and exception chains never reach the receipt.
 No package installation or download occurs during a run.
+
+All 11 checker-dependent external tests are included in the mandatory CI checker
+suite alongside the owned subset/protocol classes. Missing dependencies, skips,
+expected failures or incomplete execution fail that gate.
 
 An explicitly authorized operator can use this form, substituting private
 absolute paths and an independently approved input digest:

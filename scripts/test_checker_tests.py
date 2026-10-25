@@ -42,17 +42,18 @@ class CheckerGateTests(unittest.TestCase):
                 gate.main()
             suite.assert_not_called()
 
-    def test_exact_two_classes_include_every_current_test(self):
+    def test_exact_three_classes_include_every_current_test(self):
         self.assertEqual(gate.CASES, (
             "test_selected_service_conformance.PinnedCheckerTests",
             "test_selected_service_protocol.PinnedProtocolTests",
+            "test_selected_external_conformance.ExternalCheckerTests",
         ))
         suite = gate.required_suite()
         ids = {test.id() for test in suite}
         loader = unittest.TestLoader()
         expected = {test.id() for name in gate.CASES for test in loader.loadTestsFromName(name)}
         self.assertEqual(ids, expected)
-        self.assertGreaterEqual(len(ids), 20)
+        self.assertGreaterEqual(len(ids), 32)
 
     def test_missing_and_empty_classes_fail_before_runner(self):
         with mock.patch.object(gate, "check_dependencies"), \
@@ -67,6 +68,20 @@ class CheckerGateTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "missing or empty"):
                 gate.main()
             runner.assert_not_called()
+
+    def test_external_checker_class_cannot_be_silently_skipped(self):
+        suite = gate.required_suite()
+        external = next(test for test in suite if test.id().startswith(
+            "test_selected_external_conformance.ExternalCheckerTests."))
+        result = unittest.TestResult()
+        result.testsRun = suite.countTestCases()
+        result.addSkip(external, "missing optional checker")
+        with mock.patch.object(gate, "check_dependencies"), \
+                mock.patch.object(gate, "required_suite", return_value=suite), \
+                mock.patch.object(gate.unittest, "TextTestRunner") as runner:
+            runner.return_value.run.return_value = result
+            with self.assertRaisesRegex(RuntimeError, "failed, skipped"):
+                gate.main()
 
     def test_success_runs_and_skips_failures_errors_expected_failures_fail(self):
         def fail():

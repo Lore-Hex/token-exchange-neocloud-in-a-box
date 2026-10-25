@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 CASES = (
     "test_selected_service_conformance.PinnedCheckerTests",
     "test_selected_service_protocol.PinnedProtocolTests",
+    "test_selected_external_conformance.ExternalCheckerTests",
 )
 
 
