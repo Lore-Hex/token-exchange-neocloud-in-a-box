@@ -69,6 +69,31 @@ original evidence or any selected-trial scoring/tool-error policy.
 ## Operator Handoff
 
 Review and green CI are required before a separately authorized CPU-only run.
+
+### Hosted Ephemeral Runner
+
+The existing [native CPU pair workflow](../../.github/workflows/tau-cpu-session-native.yml)
+accepts an explicit `identity_followup=true`, with `support_probe=false`.
+Both default to false (readiness/release only); `support_probe=true` retains the
+original prompt-fit probe. Selecting both is rejected before input preparation.
+This is workflow support, not a recorded model run or simulator qualification.
+
+The job still accepts only `main` on a native GitHub-hosted Ubuntu 24.04 amd64
+runner, with read-only repository permission, no persisted checkout credentials,
+and the existing serial concurrency, 60-minute job, preparation, controller and
+cleanup limits. The same locked public inputs, source snapshot and exact plan
+validation are reused. No local-host bypass, caller-selected URL, model, input,
+budget or secret is introduced. The explicit native preparer flag emits
+`nib.tau-cpu-identity-probe-setup/v1`; the default setup schema is unchanged.
+
+The controller runs without `--local-identity-followup`, so its existing
+main-only GitHub preflight remains mandatory. The unchanged metadata-only
+artifact paths retain original controller, pair, setup and scorer receipts on
+failure as well as success; no payload, prompt, reply or private input is
+uploaded. A run must be separately authorized after review and required CI.
+
+### Existing Local Venue
+
 Use a clean exact source checkout, approved Linux amd64 venue with at least four
 CPUs, 10 GiB total/8 GiB available RAM and 12 GiB free Docker storage. Existing
 pinned Docker images, Buildx, llama source, both GGUF files, CMake wheel and the

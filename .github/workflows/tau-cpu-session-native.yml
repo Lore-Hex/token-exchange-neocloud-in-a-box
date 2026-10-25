@@ -7,6 +7,10 @@ on:
         description: Fixed original tau CPU prompt-fit probe (no target or quality claim)
         type: boolean
         default: false
+      identity_followup:
+        description: Fixed CPU simulator identity follow-up (exclusive with support_probe; no quality claim)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -26,21 +30,33 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - name: Require native ephemeral runner
+        env:
+          SUPPORT_PROBE: ${{ inputs.support_probe }}
+          IDENTITY_FOLLOWUP: ${{ inputs.identity_followup }}
         run: |
           test "$(uname -m)" = x86_64
           test "$RUNNER_ENVIRONMENT" = github-hosted
+          case "$SUPPORT_PROBE:$IDENTITY_FOLLOWUP" in
+            false:false|true:false|false:true) ;;
+            *) printf '%s\n' 'Select at most one fixed CPU probe profile.'; exit 1 ;;
+          esac
           umask 077
           mkdir -m 700 -p build/tau-cpu-session
       - name: Prepare existing immutable public inputs
         timeout-minutes: 17
         env:
           SUPPORT_PROBE: ${{ inputs.support_probe }}
+          IDENTITY_FOLLOWUP: ${{ inputs.identity_followup }}
         run: |
           python3 -I -S -B scripts/prepare-tau-cpu-parity-native.py \
             --output "$PWD/build/tau-cpu-session/inputs"
-          if [ "$SUPPORT_PROBE" = true ]; then
+          if [ "$SUPPORT_PROBE" = true ] || [ "$IDENTITY_FOLLOWUP" = true ]; then
+            profile_args=()
+            if [ "$IDENTITY_FOLLOWUP" = true ]; then
+              profile_args=(--identity-followup)
+            fi
             python3 -I -S -B scripts/prepare-tau-cpu-probe-native.py \
-              --output "$PWD/build/tau-cpu-session/probe-inputs"
+              --output "$PWD/build/tau-cpu-session/probe-inputs" "${profile_args[@]}"
           fi
       - name: Record fresh pair readiness and bound release
         id: record
@@ -48,10 +64,11 @@ jobs:
         timeout-minutes: 40
         env:
           SUPPORT_PROBE: ${{ inputs.support_probe }}
+          IDENTITY_FOLLOWUP: ${{ inputs.identity_followup }}
         run: |
           inputs="$PWD/build/tau-cpu-session/inputs"
           probe_args=()
-          if [ "$SUPPORT_PROBE" = true ]; then
+          if [ "$SUPPORT_PROBE" = true ] || [ "$IDENTITY_FOLLOWUP" = true ]; then
             probe="$PWD/build/tau-cpu-session/probe-inputs"
             plan_sha=$(jq -er '.plan_sha256' "$probe/setup.json")
             probe_args=(--probe-payload "$probe/payload" --probe-plan-sha256 "$plan_sha")
@@ -79,7 +96,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Preserve only original probe metadata
-        if: always() && inputs.support_probe
+        if: always() && (inputs.support_probe || inputs.identity_followup)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: tau-cpu-support-probe-${{ github.run_id }}-${{ github.run_attempt }}
