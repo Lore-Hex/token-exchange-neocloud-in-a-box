@@ -4,25 +4,51 @@
 import ast
 
 SERVICE_MODEL = "dealignai/deepseek-v4.1-flash-1017-uncensored-fp8"
+EAGER_PROFILE, GRAPHS_PROFILE = "tau8k-eager", "batch8-graphs"
+
+
+def execution_limits(profile):
+    if type(profile) is not str or profile not in (EAGER_PROFILE, GRAPHS_PROFILE):
+        raise ValueError("selected engine profile rejected")
+    graphs = profile == GRAPHS_PROFILE
+    return {"profile": profile, "context_tokens": 4096 if graphs else 8192,
+            "max_output_tokens": 256, "max_inflight": 8 if graphs else 1,
+            "guard_profile": "selected-deepseek-graphs" if graphs else "selected-deepseek"}
 
 
 def canonical_arguments(contract):
     def check(value):
         if not value:
             raise ValueError("selected engine arguments rejected")
+    limits = execution_limits(contract.get("execution_profile"))
+    graphs = limits["profile"] == GRAPHS_PROFILE
     check(contract.get("operation") == "local-correctness"
           and contract.get("gpu_family") == "B300"
           and contract.get("gpu_security") == "nonconfidential"
-          and contract.get("execution_profile") == "tau8k-eager"
           and type(contract.get("data_parallel_size")) is int
           and contract["data_parallel_size"] == 2
           and contract.get("model_profile", {}).get("name") == "uncensored"
-          and not {"provider_conformance", "stream_cohort", "tau_owner"} & set(contract))
+          and not {"provider_conformance", "tau_owner"} & set(contract))
+    if graphs:
+        # Preserve the authenticated C8 lab metadata. selected_engine_entry
+        # calls run_engine only, never the lab's cohort or tokenizer requests.
+        check(contract.get("stream_cohort") == {"schema": "nib.owned-stream-input/v1",
+              "profile": "chat-2k-512-c8-600s"} and contract.get("tokenizer_parity") is True
+              and contract.get("runtime_observation") is True
+              and type(contract.get("tokenizer_materialization")) is dict)
+    else:
+        check("stream_cohort" not in contract)
     result = list(contract["arguments"])
     expected = {"--served-model-name": SERVICE_MODEL.split("/", 1)[1],
-                "--host": "127.0.0.1", "--port": "8000", "--max-model-len": "8192",
-                "--max-num-seqs": "1", "--max-num-batched-tokens": "8192",
+                "--host": "127.0.0.1", "--port": "8000", "--max-model-len": str(limits["context_tokens"]),
+                "--max-num-seqs": str(limits["max_inflight"]),
+                "--max-num-batched-tokens": str(limits["context_tokens"]),
                 "--data-parallel-size": "2", "--tensor-parallel-size": "4"}
+    if graphs:
+        check("--enforce-eager" not in result and "--speculative-config" not in result)
+        # Exact deepseek_tuning.arguments profile, source-pinned to vLLM 5df63a7.
+        expected["--compilation-config"] = ('{"pass_config":{"fuse_allreduce_rms":false},'
+            '"cudagraph_mode":"FULL_DECODE_ONLY","cudagraph_capture_sizes":[1,2,4,8]}')
     for flag, value in expected.items():
         check(result.count(flag) == 1)
         index = result.index(flag) + 1

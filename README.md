@@ -81,6 +81,11 @@ A subsequent [private native tool smoke](evidence/p2/2026-10-25-selected-tool-pa
 passed one fixed tool call and its continuation through owned TLS, with actual
 usage and confirmed cleanup. No retries were used; this is not general tool
 reliability, full tau evaluation, public serving or a capability/privacy claim.
+A later [finite externally reachable service run](evidence/p2/2026-10-25-selected-finite-owner-pass/README.md)
+reached readiness, retired naturally, drained all three roles, and confirmed
+watchdog resource cleanup and private-input removal. The separate external
+client passed health, authentication rejection and one stream. This is a bounded
+ordinary test, not continuous availability, marketplace or confidential service.
 An [external pinned-TLS smoke](evidence/p2/2026-10-25-selected-external-smoke/README.md)
 subsequently passed health, missing/wrong API-key rejection and one authenticated
 stream with 36 input and 13 output tokens. It proves a bounded external API path,
@@ -116,6 +121,12 @@ Scoring and retry limits were unchanged. The [preceding email-lookup failure](ev
 did not record that relation. The earlier
 [known-tool diagnostic](evidence/p2/2026-10-25-selected-tau-tool-rejection-0245/README.md)
 did not record an exact rejection site and remains uninterpreted at that level.
+
+A separate [three-turn CPU identity diagnostic](evidence/p2/2026-10-25-tau-cpu-identity-followup/README.md)
+completed transport and cleanup, but detected none of the expected name/ZIP
+literals, even after the direct question. No email-like literal was detected.
+This does not establish semantic refusal or explain the earlier failure;
+the simulator remains unqualified.
 
 A later [selected tau controller attempt](evidence/p2/2026-10-24-selected-tau-readiness-failure-1736/README.md)
 failed during readiness: both owners exited 1, no READY hashes or scorer result

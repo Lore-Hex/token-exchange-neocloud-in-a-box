@@ -624,7 +624,8 @@ class CallerTests(Fixture, unittest.TestCase):
         args = copy.copy(self.fixture.args)
         args.state_dir = str(self.root)
         contract = types.SimpleNamespace(hard_wall=self.contract["wall"], hard_monotonic=self.contract["monotonic"],
-                                         lifetime_profile=owner.smoke.service.SMOKE_PROFILE)
+                                         lifetime_profile=owner.smoke.service.SMOKE_PROFILE,
+                                         execution_profile="tau8k-eager")
         admitted = (contract, self.fixture.lab, recorder,
                     self.fixture.lab.controlled_env(args.docker_host), self.fixture.build,
                     self.fixture.base, self.fixture.image, Path("/private/stage"))

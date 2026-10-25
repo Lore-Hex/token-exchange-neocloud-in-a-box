@@ -9,11 +9,13 @@ nonroot engine execution and hardware validation remain unproven.
 ## Implemented packaging path
 
 Preparation accepts an existing exact-receipt-validated **non-owner** selected
-lab bundle: B300, ordinary nonconfidential operation, DP2/TP4, `tau8k-eager`.
+lab bundle: B300, ordinary nonconfidential operation, DP2/TP4, `tau8k-eager`
+by default or the explicit [graph profile](p2-t4-selected-service-graphs.md).
 The shared lab validator checks receipt filenames, bytes, hashes and raw OCI
 metadata before the service adapter derives a new payload. The original lab
-bundle is never modified. Tau-owner, provider and stream-cohort roles are not
-accepted as service payloads.
+bundle is never modified. Tau-owner and provider roles are not accepted.
+Eager rejects stream cohorts; graphs require and preserve the exact sealed
+C8 cohort metadata but launch only the engine, never the cohort requests.
 
 The lab bundle must use the current reviewed host recorder and original
 launcher bytes. A historical bundle can have a valid original receipt yet be
