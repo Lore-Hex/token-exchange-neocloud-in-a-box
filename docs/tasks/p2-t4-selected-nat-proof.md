@@ -1,8 +1,9 @@
 # Selected closed-NAT proof candidate
 
-Status: implemented; the [first real observation](../../evidence/p2/2026-10-25-selected-nat-policy-failure/README.md)
-failed at the policy stage after all 15 baseline controls passed. The negative
-controls were not reached and this policy is **not qualified**. This is a
+Status: implemented; the [two real observations](../../evidence/p2/2026-10-25-selected-nat-policy-failure/README.md)
+failed at the policy stage after all 15 baseline controls passed. The second
+locates the attempted step at readback. The negative controls were not reached
+and this policy is **not qualified**. This is a
 GPU-free network experiment, not a public service owner or permission to change
 a host firewall. The earlier [isolated-bridge observation](p2-t4-selected-network-probe.md)
 does not qualify this alternative. No inference, credentials, model weights,
@@ -45,7 +46,35 @@ SHA-256 `a3c304cd9ba061239ee0474f9afb938a9bb99d89b960246f66f0c3a0a85e14cd`:
 The exact release label is `Old Doc Yak #3`. In this revision,
 conntrack IPv4 keys are `ip daddr`/`ip saddr` with `dir`; bridge-name keys are
 `ibrname`/`obrname`. Readback ignores only object handles and independent
-table/chain enumeration, preserving rule order and every expression.
+table/chain enumeration, preserving rule order and comparing every expression
+against the exact expected canonical form described below.
+
+### Pinned canonical readback
+
+The input batch remains byte-identical. nftables 1.0.9 removes a stored
+`meta nfproto ipv4` dependency when a later IPv4 address payload implies it,
+and a stored `meta l4proto tcp` dependency when a later TCP port payload implies
+it. See `src/netlink_delinearize.c:2030-2077` and
+`src/payload.c:870-940` in the same hash-pinned archive. Upstream
+`tests/py/inet/meta.t.json` and `.json.output` demonstrate the IPv4 elision and
+that IPv4 is retained when the only payload is a TCP port (TCP alone also
+matches IPv6).
+
+The [source-derived fixture](../../scripts/fixtures/nftables-1.0.9-canonical.json)
+includes those upstream cases and an explicitly labelled derivation for the
+policy's input guard. It is not captured output from our failed run. The six
+rules with both IPv4 address and TCP port payloads have an exact expected form
+without the two implied meta expressions. The two conntrack-only input reply
+rules retain both explicit protocol matches (`src/ct.c:450-470` gives the
+relevant conntrack expression bases). Actual readback is not normalized and
+arbitrary missing or added expressions are not accepted. Predicate removals,
+wrong family/address/port, changed verdicts, extra rules/fields and rule-order
+changes fail. Full input-batch hash and existing packet-condition tests protect
+the unchanged installed policy. This correction is software-only compatibility
+work. The diagnostic observation failed at readback, after check/apply completed,
+but captured no rules or exception details. Canonicalization remains a candidate
+cause, not a measured mismatch; fetching and validation share that step. No run
+of the corrected expected form is claimed.
 
 ### DNS is a separate boundary
 
@@ -79,7 +108,7 @@ CDI directory and cgroup name. It never queries or connects to an existing
 Docker daemon. The classic VFS image store avoids an unverified containerd image
 store switch. Multiple daemons are explicitly experimental in the
 [Docker daemon documentation](https://docs.docker.com/reference/cli/dockerd/);
-this combination has not been run or qualified here.
+the failed observations do not qualify this combination.
 
 There is no external interface, veth to the real host, default uplink or public
 port. Two private dual-stack Docker bridges simulate ingress and the service
@@ -139,8 +168,10 @@ After the first failed run, policy setup records the optional closed
 `protected-create`. It names the attempted step, not successful completion.
 It does not retain stderr, exceptions, rule contents or response data. Cleanup
 does not overwrite it. Historical receipts without the field remain valid;
-their missing detail is not reconstructed. This diagnostic change has not
-been executed on hardware and does not change policy, deadlines or pass gates.
+their missing detail is not reconstructed. The
+[diagnostic observation](../../evidence/p2/2026-10-25-selected-nat-policy-failure/readback-observation.json)
+records `readback`, with cleanup unconfirmed and the namespace reaped. The
+diagnostic does not change policy, deadlines or pass gates.
 
 ## Execution gate and next step
 

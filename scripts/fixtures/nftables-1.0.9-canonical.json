@@ -1,0 +1,50 @@
+{
+  "source": {
+    "archive": "https://netfilter.org/projects/nftables/files/nftables-1.0.9.tar.xz",
+    "sha256": "a3c304cd9ba061239ee0474f9afb938a9bb99d89b960246f66f0c3a0a85e14cd",
+    "fixtures": ["tests/py/inet/meta.t.json", "tests/py/inet/meta.t.json.output"],
+    "implementation": ["src/netlink_delinearize.c:2030-2077", "src/payload.c:870-940", "src/ct.c:450-470"]
+  },
+  "upstream_cases": [
+    {
+      "command": "meta nfproto ipv4 ip saddr 1.2.3.4",
+      "input": [
+        {"match": {"left": {"meta": {"key": "nfproto"}}, "op": "==", "right": "ipv4"}},
+        {"match": {"left": {"payload": {"field": "saddr", "protocol": "ip"}}, "op": "==", "right": "1.2.3.4"}}
+      ],
+      "output": [
+        {"match": {"left": {"payload": {"field": "saddr", "protocol": "ip"}}, "op": "==", "right": "1.2.3.4"}}
+      ]
+    },
+    {
+      "command": "meta nfproto ipv4 tcp dport 22",
+      "input": [
+        {"match": {"left": {"meta": {"key": "nfproto"}}, "op": "==", "right": "ipv4"}},
+        {"match": {"left": {"payload": {"field": "dport", "protocol": "tcp"}}, "op": "==", "right": 22}}
+      ],
+      "output": [
+        {"match": {"left": {"meta": {"key": "nfproto"}}, "op": "==", "right": "ipv4"}},
+        {"match": {"left": {"payload": {"field": "dport", "protocol": "tcp"}}, "op": "==", "right": 22}}
+      ]
+    }
+  ],
+  "derived_policy_input_guard": {
+    "basis": "Source-derived, not captured kernel output. IPv4 daddr and TCP dport release their own stored meta dependencies; all other expressions remain.",
+    "input": [
+      {"match": {"left": {"meta": {"key": "nfproto"}}, "op": "==", "right": "ipv4"}},
+      {"match": {"left": {"meta": {"key": "l4proto"}}, "op": "==", "right": "tcp"}},
+      {"match": {"left": {"payload": {"field": "daddr", "protocol": "ip"}}, "op": "==", "right": "198.19.0.1"}},
+      {"match": {"left": {"payload": {"field": "dport", "protocol": "tcp"}}, "op": "==", "right": 443}},
+      {"match": {"left": {"meta": {"key": "iifname"}}, "op": "!=", "right": "nib-ingress"}},
+      {"match": {"left": {"meta": {"key": "iifname"}}, "op": "!=", "right": "lo"}},
+      {"drop": null}
+    ],
+    "output": [
+      {"match": {"left": {"payload": {"field": "daddr", "protocol": "ip"}}, "op": "==", "right": "198.19.0.1"}},
+      {"match": {"left": {"payload": {"field": "dport", "protocol": "tcp"}}, "op": "==", "right": 443}},
+      {"match": {"left": {"meta": {"key": "iifname"}}, "op": "!=", "right": "nib-ingress"}},
+      {"match": {"left": {"meta": {"key": "iifname"}}, "op": "!=", "right": "lo"}},
+      {"drop": null}
+    ]
+  }
+}
