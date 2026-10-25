@@ -11,8 +11,6 @@ if __name__ == "__main__":
         sys.exit("Use python3 -I -S -B host/record-selected-service.py")
     sys.path.insert(0, str(ROOT / "scripts"))
 
-from dataclasses import asdict
-import datetime
 import json
 import os
 import select
@@ -76,7 +74,8 @@ def read_reservation(root):
     value = policy.decode(network.tau_runtime.read_file(path / "contract.json", 4096, time.monotonic() + 1))
     selected = network.Network(policy.Policy(**value["network"]["policy"]),
                                value["network"]["subnet"], value["network"]["gateway"])
-    journal = network.Journal(path, selected, value["hard_wall"], value["hard_monotonic"])
+    journal = network.Journal(path, selected, value["hard_wall"], value["hard_monotonic"],
+        lifetime_profile=value.get("lifetime_profile", smoke.service.SMOKE_PROFILE))
     journal.read()
     return journal
 
@@ -97,7 +96,9 @@ def watchdog(root, life_fd):
         commands = GuardCommands(recorder, environment(), journal.contract["hard_wall"],
                                  journal.contract["hard_monotonic"])
         reservation = network.Reservation(commands, journal)
+        commands.reserve = 0
         reservation.admit()
+        commands.reserve = MONITOR_RESERVE
         daemon = owner.daemon_identity(commands)
         acknowledge(b"ready\n")
         serving = False
@@ -172,14 +173,71 @@ def cleanup_record(raw):
     return row
 
 
+class AttachedProgress:
+    """Bounded stdout sink for the day protocol; only closed phases reach stderr."""
+    def __init__(self, lifetime, prepared_sha256):
+        self.lifetime, self.prepared = lifetime, prepared_sha256
+        self.buffer, self.total, self.phases, self.terminal = bytearray(), 0, [], None
+
+    def write(self, chunk):
+        require(type(chunk) is bytes and self.terminal is None)
+        self.total += len(chunk)
+        require(self.total <= 16384)
+        self.buffer.extend(chunk)
+        while b"\n" in self.buffer:
+            raw, _, tail = self.buffer.partition(b"\n")
+            self.buffer = bytearray(tail)
+            row = policy.decode(bytes(raw))
+            require(type(row) is dict and self.terminal is None)
+            if row.get("schema") == smoke.service.PROGRESS_SCHEMA:
+                phase = row.get("phase")
+                require(row == smoke.service.progress_record(phase, self.lifetime, self.prepared))
+                index = len(self.phases)
+                require(phase not in self.phases and (phase == "draining" or
+                    index < len(smoke.service.PROGRESS_PHASES) and phase == smoke.service.PROGRESS_PHASES[index]))
+                require(not self.phases or self.phases[-1] != "draining")
+                self.phases.append(phase)
+                # Reconstruct, never relay arbitrary container/Docker output.
+                print(json.dumps({**smoke.service.progress_record(phase, self.lifetime, self.prepared),
+                    "observed_at": smoke.service.retirement_at(time.time())}, sort_keys=True),
+                    file=sys.stderr, flush=True)
+            else:
+                require(row.get("schema") == smoke.service.ORDINARY_SCHEMA)
+                self.terminal = bytes(raw)
+                require(not self.buffer)
+        return len(chunk)
+
+    def finish(self, *, success):
+        require(not self.buffer and self.terminal is not None)
+        require(not success or self.phases == list(smoke.service.PROGRESS_PHASES))
+        return self.terminal
+
+
+def start_day(commands, command, lifetime, prepared_sha256):
+    output = AttachedProgress(lifetime, prepared_sha256)
+    remaining = commands.remaining() - 120
+    require(remaining > 0)
+    result = commands.recorder.snapshot.execute_process_group(command, env=commands.env,
+        timeout=remaining, stdout_file=output, max_output_bytes=16384, max_stderr_bytes=65536)
+    require(type(result.returncode) is int)
+    raw = output.finish(success=result.returncode == 0)
+    if result.returncode != 0:
+        raise subprocess.CalledProcessError(result.returncode, command, output=raw)
+    return raw
+
+
 def runtime_plan(args, admitted, selected, commands, result):
     contract, lab, recorder, _, build, base, image, inputs = admitted
+    require(getattr(args, "lifetime_profile", smoke.service.SMOKE_PROFILE) == contract.lifetime_profile)
     result["reason"] = "weights"
     weights = smoke.private_path(args.weights)
     smoke.weights_view(lab, weights, min(commands.end - smoke.service.CLEANUP_RESERVE,
                                       time.monotonic() + smoke.SECONDS))
-    stop_at = datetime.datetime.fromtimestamp(contract.hard_wall - smoke.HOST_RESERVE,
-        datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stop_at = smoke.service.retirement_at(contract.hard_wall - smoke.HOST_RESERVE)
+    if contract.lifetime_profile == smoke.service.ORDINARY_PROFILE:
+        result.update(schema="nib.selected-service-owner/v2", lifetime={
+            **smoke.service.lifetime_record(contract.lifetime_profile, contract.hard_wall - smoke.HOST_RESERVE),
+            "owner_hard_stop_at": contract.hard_stop_at})
     result["reason"] = "runtime-intent"
     require(commands.remaining() > smoke.HOST_RESERVE + smoke.service.CLEANUP_RESERVE)
     labels = owner.image_labels(image["Config"].get("Labels"))
@@ -199,7 +257,8 @@ def run(args, admitted, selected, result):
     env = commands.env
     root = smoke.private_path(args.state_dir)
     state_directories(root)
-    journal = network.Journal(root / "network", selected, contract.hard_wall, contract.hard_monotonic)
+    journal = network.Journal(root / "network", selected, contract.hard_wall, contract.hard_monotonic,
+                              lifetime_profile=contract.lifetime_profile)
     journal.initialize()
     reservation = network.Reservation(commands, journal)
     result.update(preflight_pass=False, reason="host-identity")
@@ -221,8 +280,7 @@ def run(args, admitted, selected, result):
         owner.host_target(commands, selected, initial=True)
         identifier = reservation.reserve()
         state = owner.State(root / "container")
-        state.initialize({"schema": "nib.selected-service-owner-intent/v1", "network": asdict(selected),
-            "wall": contract.hard_wall, "monotonic": contract.hard_monotonic}, runtime(identifier))
+        state.initialize(owner.owner_intent(journal), runtime(identifier))
         selected_owner = owner.Owner(commands, reservation, state)
         result["reason"] = "container"
         container = selected_owner.create()
@@ -234,9 +292,15 @@ def run(args, admitted, selected, result):
         join = {name: getattr(args, name, False) for name in (
             "inference_smoke", "conformance_smoke", "protocol_smoke", "tool_smoke")}
         join["prepared_sha256"] = build["prepared_sha256"]
+        if contract.lifetime_profile == smoke.service.ORDINARY_PROFILE:
+            join["lifetime"] = smoke.service.lifetime_record(contract.lifetime_profile,
+                                                            contract.hard_wall - smoke.HOST_RESERVE)
         start = ["docker", "container", "start", "--attach", container]
         try:
-            raw = commands.call(start, seconds=commands.remaining() - 120, limit=16384)
+            if contract.lifetime_profile == smoke.service.ORDINARY_PROFILE:
+                raw = start_day(commands, start, join["lifetime"], build["prepared_sha256"])
+            else:
+                raw = commands.call(start, seconds=commands.remaining() - 120, limit=16384)
         except subprocess.CalledProcessError as error:
             if error.cmd == start and type(error.returncode) is int and error.returncode == 1:
                 result["owner_failure"] = smoke.lifecycle_failure(error.stdout, **join)
@@ -286,7 +350,10 @@ def preflight(args):
         token = uuid.uuid4().hex
         selected = network.Network(policy.Policy(token, "nib" + token[:12], args.ingress,
             args.address, args.published_address, args.published_port, "1.1.6"), args.subnet, args.gateway)
-        with smoke.admitted_runtime(args, result) as admitted:
+        profile = getattr(args, "lifetime_profile", smoke.service.SMOKE_PROFILE)
+        smoke.service.lifetime_seconds(profile)
+        with smoke.admitted_runtime(args, result,
+                **({"lifetime_profile": profile} if profile != smoke.service.SMOKE_PROFILE else {})) as admitted:
             try:
                 if args.run:
                     run(args, admitted, selected, result)
@@ -295,7 +362,7 @@ def preflight(args):
                     contract = admitted[0]
                     commands = admitted_commands(admitted)
                     journal = network.Journal(Path(args.state_dir) / "network", selected,
-                                              contract.hard_wall, contract.hard_monotonic)
+                        contract.hard_wall, contract.hard_monotonic, lifetime_profile=contract.lifetime_profile)
                     network.Reservation(commands, journal).admit()
                     owner.daemon_identity(commands)
                     result["reason"] = "host-network"
@@ -329,6 +396,7 @@ def main(argv=None):
                      "address", "published-address", "subnet", "gateway"):
             parser.add_argument("--" + name, required=True)
         parser.add_argument("--published-port", type=int, required=True)
+        parser.add_argument("--lifetime-profile", default=smoke.service.SMOKE_PROFILE)
         cancelled = False
         def cancel(*_):
             nonlocal cancelled

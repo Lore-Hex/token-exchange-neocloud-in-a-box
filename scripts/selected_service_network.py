@@ -105,12 +105,19 @@ JOURNAL_LIMIT = 4096
 class Journal:
     """Private append-only, fsynced intent. Missing completion never means failure."""
 
-    def __init__(self, root, network, wall, monotonic):
+    def __init__(self, root, network, wall, monotonic, *, lifetime_profile=smoke.service.SMOKE_PROFILE):
         require(type(network) is Network and all(type(v) in (int, float) and 0 < v < 1e12
                                                for v in (wall, monotonic)))
+        smoke.service.lifetime_seconds(lifetime_profile)
         self.root, self.network = Path(root), network
         self.contract = {"schema": SCHEMA, "network": asdict(network),
                          "hard_wall": wall, "hard_monotonic": monotonic}
+        if lifetime_profile != smoke.service.SMOKE_PROFILE:
+            self.contract.update(schema="nib.selected-service-network-intent/v2", lifetime_profile=lifetime_profile)
+
+    @property
+    def lifetime_profile(self):
+        return self.contract.get("lifetime_profile", smoke.service.SMOKE_PROFILE)
 
     def _directory(self):
         return tau_runtime.directory(self.root)
@@ -232,7 +239,7 @@ class Reservation:
 
     def admit(self):
         require(os.getuid() == 0 and proof.sys.platform == "linux"
-                and 0 < self.commands.remaining() <= 4800)
+                and 0 < self.commands.remaining() <= smoke.service.lifetime_seconds(self.journal.lifetime_profile))
         require(self.commands.env == {**proof.ENV, "HOME": "/nonexistent",
             "DOCKER_CONFIG": "/nonexistent/nib-lab-docker-config",
             "DOCKER_HOST": "unix:///var/run/docker.sock"})

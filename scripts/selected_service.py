@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 import datetime
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -35,6 +36,11 @@ PROTOCOL_MODE = "protocol-smoke"
 PROTOCOL_SCHEMA = "nib.selected-service-lifecycle/v4"
 TOOL_MODE = "tool-smoke"
 TOOL_SCHEMA = "nib.selected-service-lifecycle/v5"
+SMOKE_PROFILE, ORDINARY_PROFILE = "smoke", "ordinary-24h"
+ORDINARY_SCHEMA = "nib.selected-service-lifecycle/v6"
+PROGRESS_SCHEMA = "nib.selected-service-progress/v1"
+PROGRESS_PHASES = ("preparation", "inputs", "weights", "engine-starting",
+                   "guard-starting", "tls-starting", "ready", "draining")
 # pilot.stop_serving: 140s graceful + pilot.stop's 10s forced wait.
 # snapshot.cleanup_process_group: 10s TERM + 10s KILL + 5s absence proof.
 DRAIN_SECONDS, REAP_SECONDS = 150, observer.CLEANUP_SECONDS
@@ -55,6 +61,34 @@ def require(condition, category):
         raise Rejected(category)
 
 
+def lifetime_seconds(profile):
+    require(type(profile) is str and profile in (SMOKE_PROFILE, ORDINARY_PROFILE), "lifetime")
+    return 4800 if profile == SMOKE_PROFILE else 86400
+
+
+def retirement_at(wall):
+    return datetime.datetime.fromtimestamp(wall, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def lifetime_record(profile, wall):
+    lifetime_seconds(profile)
+    return {"profile": profile, "hard_stop_at": retirement_at(wall),
+            "admission_stop_at": retirement_at(wall - CLEANUP_RESERVE)}
+
+
+def progress_record(phase, lifetime, prepared_sha256):
+    require(type(phase) is str and phase in PROGRESS_PHASES and type(prepared_sha256) is str
+            and re.fullmatch("[0-9a-f]{64}", prepared_sha256), "contract")
+    return {"schema": PROGRESS_SCHEMA, "phase": phase, "lifetime": lifetime,
+            "prepared_sha256": prepared_sha256}
+
+
+def progress(phase, contract, prepared_sha256):
+    if contract.lifetime_profile == ORDINARY_PROFILE:
+        print(json.dumps(progress_record(phase, contract.lifetime, prepared_sha256),
+                         sort_keys=True, allow_nan=False), flush=True)
+
+
 @dataclass(frozen=True)
 class Contract:
     hard_stop_at: str
@@ -63,6 +97,7 @@ class Contract:
     startup_deadline: float
     input_price: str
     output_price: str
+    lifetime_profile: str = SMOKE_PROFILE
     model: str = field(default=MODEL, init=False)
     revision: str = field(default=models.select("uncensored")["hf_revision"], init=False)
     manifest_sha256: str = field(default=models.select("uncensored")["manifest_sha256"], init=False)
@@ -73,24 +108,28 @@ class Contract:
     swap_bytes: int = field(default=SWAP_BYTES, init=False)
 
     @classmethod
-    def begin(cls, hard_stop_at, *, input_price, output_price):
+    def begin(cls, hard_stop_at, *, input_price, output_price, lifetime_profile=SMOKE_PROFILE):
         # Capture before snapshots/preparation. Neither startup nor restart may
         # replace the original absolute cutoff with a new duration.
+        limit = lifetime_seconds(lifetime_profile)
         try:
             wall, monotonic = pilot.retirement_deadline(hard_stop_at, public=True)
         except (pilot.pilot.PilotError, TypeError, ValueError):
             raise Rejected("lifetime") from None
-        require(monotonic - time.monotonic() > CLEANUP_RESERVE, "lifetime")
+        require(CLEANUP_RESERVE < monotonic - time.monotonic() <= limit, "lifetime")
         for price in (input_price, output_price):
             require(type(price) is str and re.fullmatch(r"(0|[1-9][0-9]{0,5})(\.[0-9]{1,6})?", price), "price")
         return cls(hard_stop_at, wall, monotonic,
                    min(time.monotonic() + engine_lab.STARTUP_SECONDS, monotonic - CLEANUP_RESERVE),
-                   input_price, output_price)
+                   input_price, output_price, lifetime_profile)
 
     @property
     def admission_stop_at(self):
-        return datetime.datetime.fromtimestamp(self.hard_wall - CLEANUP_RESERVE,
-            datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return retirement_at(self.hard_wall - CLEANUP_RESERVE)
+
+    @property
+    def lifetime(self):
+        return lifetime_record(self.lifetime_profile, self.hard_wall)
 
     def guard_arguments(self, inputs):
         # Paths are private snapshots. The existing Go CLI owns provider/schema
@@ -253,6 +292,8 @@ class Supervisor:
                 and sum((inference_smoke, conformance_smoke, protocol_smoke, tool_smoke)) <= 1,
                 "contract")
         smoke = inference_smoke or conformance_smoke or protocol_smoke or tool_smoke
+        lifetime_seconds(self.contract.lifetime_profile)
+        require(not smoke or self.contract.lifetime_profile == SMOKE_PROFILE, "contract")
         require(not self.used, "already-used")
         self.used = True
         reason, admitted, cleanup = "owner-failed", False, []
@@ -292,6 +333,8 @@ class Supervisor:
                 require(self.ready("engine", deadline), "readiness")
             admitted = True
             self.phase = "ready"
+            if self.contract.lifetime_profile == ORDINARY_PROFILE:
+                progress("ready", self.contract, self.owner.prepared.receipt_sha256)
             if smoke:
                 import selected_service_inference as inference
                 inference_result = inference.validate_report(inference.encoded(inference.run_once(self)),
@@ -335,6 +378,12 @@ class Supervisor:
         except BaseException:
             reason = "owner-failed"
         finally:
+            if self.contract.lifetime_profile == ORDINARY_PROFILE:
+                try:
+                    progress("draining", self.contract, self.owner.prepared.receipt_sha256)
+                except BaseException:
+                    # Observation failure must not bypass child cleanup.
+                    reason = "owner-failed"
             try:
                 if reason in ("retired", "cancelled") and any(child.poll() is not None
                         for child in self.children.values()):
@@ -403,6 +452,9 @@ class Supervisor:
                 "ready": admitted, "cleanup_confirmed": confirmed, "cleanup": cleanup,
                 "deployable": False, "hardware_validated": False,
                 "tools": False, "reasoning": False, "zdr": False, "confidential": False, "e2ee": False}
+        if self.contract.lifetime_profile == ORDINARY_PROFILE:
+            result.update(schema=ORDINARY_SCHEMA, lifetime=self.contract.lifetime,
+                          prepared_sha256=self.owner.prepared.receipt_sha256)
         if smoke:
             result.update(schema=INFERENCE_SCHEMA, mode=INFERENCE_MODE, inference=inference_result)
             if reason != "retired" or self.shutdown.is_set() or inference_result is None \

@@ -69,7 +69,9 @@ separately. This does not assert packet-level isolation from inspections alone.
 ## One cutoff and independent supervision
 
 Both processes retain the original wall and monotonic cutoff, capped at 4800
-seconds. The in-container owner retains the existing 180-second outer cleanup
+seconds by default. The explicit [ordinary day profile](p2-t4-selected-service-day-profile.md)
+admits at most 24 hours with newly bound owner source and no smoke mode.
+The in-container owner retains the existing 180-second outer cleanup
 reserve and its existing front-first drain. There is no deadline extension,
 second start, auto-retry or unattended relaunch. Optional existing inference,
 conformance, protocol and tool smoke modes remain mutually exclusive.

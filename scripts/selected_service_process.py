@@ -223,6 +223,9 @@ class ProcessOwner:
         return child
 
     def start(self, role, contract, inputs, register, deadline):
+        if contract.lifetime_profile == service.ORDINARY_PROFILE:
+            service.progress("weights" if role == "engine" else role + "-starting", contract,
+                             self.prepared.receipt_sha256)
         if role == "engine":
             # Full existing manifest checker, not an asserted prepared=true bit.
             validator = self.spawn("weights", [str(PAYLOAD / "nib"), "model", "check-local",
@@ -242,6 +245,8 @@ class ProcessOwner:
                 absent = self.reap("weights", validator, min(deadline, time.monotonic() + service.REAP_SECONDS))
             require(valid and absent, "model")
             self.check_mounts(deadline)
+            if contract.lifetime_profile == service.ORDINARY_PROFILE:
+                service.progress("engine-starting", contract, self.prepared.receipt_sha256)
             command = [self.prepared.interpreter, "-I", "-S", "-B", str(PAYLOAD / "launch.py"),
                        self.prepared.lab_sha, "selected-service-engine"]
             env = self.prepared.lab["environment"]
@@ -452,6 +457,7 @@ def main(argv=None):
     parser.add_argument("--input-price", required=True)
     parser.add_argument("--output-price", required=True)
     parser.add_argument("--hard-stop-at", required=True)
+    parser.add_argument("--lifetime-profile", default=service.SMOKE_PROFILE)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--inference-smoke", action="store_true")
     mode.add_argument("--conformance-smoke", action="store_true")
@@ -461,15 +467,19 @@ def main(argv=None):
     shutdown = threading.Event()
     handlers = {number: signal.signal(number, lambda *_: shutdown.set())
                 for number in (signal.SIGINT, signal.SIGTERM)}
-    result, stage = None, "contract"
+    result, stage, contract = None, "contract", None
     try:
         contract = service.Contract.begin(args.hard_stop_at, input_price=args.input_price,
-                                          output_price=args.output_price)
+            output_price=args.output_price, lifetime_profile=args.lifetime_profile)
+        require(args.lifetime_profile == service.SMOKE_PROFILE or not any((args.inference_smoke,
+            args.conformance_smoke, args.protocol_smoke, args.tool_smoke)), "contract")
+        service.progress("preparation", contract, args.prepared_sha256)
         stage = "prepared"
         prepared = Prepared(args.prepared_sha256, contract.startup_deadline)
         if args.conformance_smoke or args.protocol_smoke:
             require("checker/trial.json" in prepared.files, "contract")
         stage = "inputs"
+        service.progress("inputs", contract, args.prepared_sha256)
         with service.snapshot_inputs(provider=args.provider_config, cert=args.cert, key=args.key,
                                      api_key=args.api_key_file) as inputs:
             stage = "owner"
@@ -483,6 +493,13 @@ def main(argv=None):
         return 0 if result["status"] in ("retired", "cancelled") else 1
     except BaseException as error:
         if not (args.inference_smoke or args.conformance_smoke or args.protocol_smoke or args.tool_smoke):
+            if args.lifetime_profile == service.ORDINARY_PROFILE:
+                print(json.dumps({"schema": service.ORDINARY_SCHEMA, "status": "failed",
+                    "reason": "preparation", "deployable": False, "hardware_validated": False,
+                    "lifetime": contract.lifetime if contract is not None else None,
+                    "prepared_sha256": args.prepared_sha256
+                        if re.fullmatch("[0-9a-f]{64}", args.prepared_sha256) else None}, sort_keys=True))
+                return 1
             print('{"schema":"nib.selected-service-lifecycle/v1","status":"failed","reason":"preparation",'
                   '"deployable":false,"hardware_validated":false}')
             return 1
