@@ -39,6 +39,9 @@ This is not a complete release image or a verified boot policy.
 The [appraiser CLI probe](../docs/tasks/p3-t1-appraisal-cli.md) tests loading the
 installed vendor executable offline; it cannot collect GPU evidence or grant
 a confidential verdict.
+The opt-in [single-H100 collector](../docs/tasks/p3-t1-h100-appraisal-collector.md)
+adds a bounded diagnostic around that pinned CLI. It is software-tested only,
+not installed in the image, and does not enable the production GPU gate.
 The optional [private initrd/UKI stage](../docs/tasks/p3-t1-initrd-uki.md) follows
 the private EROFS/verity stage using existing authenticated tools and packages.
 It assembles and inspects an unsigned UKI, then deletes all private images;
