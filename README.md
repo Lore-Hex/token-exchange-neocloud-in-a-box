@@ -97,11 +97,15 @@ Cleanup was confirmed. GPU CC was disabled; outer FAIL/BLOCKED records remain
 unchanged. These are not a capacity sweep, full tau result, quality acceptance
 or confidential qualification.
 
-The latest [selected tau diagnostic](evidence/p2/2026-10-25-selected-tau-tool-rejection-0245/README.md)
-reached a known assistant tool, which raised one `ValueError`; the strict smoke
-stopped with no quality score and confirmed cleanup. The exact rejection site
-is not recorded in that run. A [content-free source-line diagnostic](docs/tasks/p2-t4-selected-tau-tool-origin.md)
-is now implemented for a future run without changing scoring or retry limits.
+The latest [selected tau diagnostic](evidence/p2/2026-10-25-selected-tau-email-rejection-0333/README.md)
+reached the retail customer-email lookup, which rejected an unknown email. Its
+hash-pinned source line identifies the operation without logging conversation
+content or arguments; it does not establish whether the assistant or the small
+simulator supplied the wrong email. The strict smoke failed with no quality
+score and confirmed cleanup. Startup and four tokenizer-parity cases passed;
+scoring and retry limits were unchanged. The earlier
+[known-tool diagnostic](evidence/p2/2026-10-25-selected-tau-tool-rejection-0245/README.md)
+did not record an exact rejection site and remains uninterpreted at that level.
 
 A later [selected tau controller attempt](evidence/p2/2026-10-24-selected-tau-readiness-failure-1736/README.md)
 failed during readiness: both owners exited 1, no READY hashes or scorer result
