@@ -5,8 +5,10 @@ Status: the origin observer ran in the
 identifying the pinned retail email-lookup rejection at line 330. The preceding
 [hardware diagnostic](../../evidence/p2/2026-10-25-selected-tau-tool-rejection-0245/README.md)
 failed on one known assistant tool raising `ValueError`. Its originals do not
-contain an exact rejection site. The optional containment diagnostic below
-has only local test coverage and has not run on hardware.
+contain an exact rejection site. The optional containment diagnostic below ran
+in the [04:29 hardware diagnostic](../../evidence/p2/2026-10-25-selected-tau-email-relation-0429/README.md)
+and reported true; the task still failed with confirmed cleanup. This narrows
+one substring relation, not the correct identity or responsibility for failure.
 
 The selected operational observer may now include `origin` with only
 `source_sha256` and an integer `line`. Only three exact source files already
@@ -23,7 +25,7 @@ variable, tool identity, argument, exception message, prompt or response is
 serialized. The wire validator rejects all additional fields and unknown
 digests or lines. Old observations without an origin remain valid.
 
-For the exact known assistant email-lookup `ValueError` at line 330, a future
+For the exact known assistant email-lookup `ValueError` at line 330, an
 observation may also include `prior_user_text_contains_argument`, a boolean.
 It compares the submitted email with earlier simulator-user text transiently,
 using the upstream lookup's case-insensitive spelling. Neither the email nor

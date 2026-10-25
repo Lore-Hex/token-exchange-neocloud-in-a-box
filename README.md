@@ -87,6 +87,11 @@ blocked 13 other paths including DNS relays, and confirmed cleanup. The same
 [isolated experiment on the ordinary GPU host](evidence/p2/2026-10-25-selected-nat-ubuntu26-pass/README.md)
 also passed with its separately pinned Ubuntu 26.04 venue and no GPU use.
 Neither experiment qualifies persistent public serving or confidential inference.
+A later [isolated quarantine proof with private host baselines](evidence/p2/2026-10-25-selected-quarantine-baseline-pass/README.md)
+passed: verified quarantine blocked all 15 paths after serving-policy withdrawal,
+cleanup was confirmed, and the wrapper reported equal pre/post firewall/DNS
+snapshots. Raw host captures remain private; no real-service/public qualification
+or continuous host-integrity claim follows.
 The [8K-profile parity prerequisite](evidence/p2/2026-10-24-selected-tau8k-parity/README.md)
 also passed four fixed cases and eight requests; this does not establish full
 8K request fit. Both [DSpark attempts](evidence/p2/2026-10-24-selected-dspark-startup-failure/README.md)
@@ -97,13 +102,14 @@ Cleanup was confirmed. GPU CC was disabled; outer FAIL/BLOCKED records remain
 unchanged. These are not a capacity sweep, full tau result, quality acceptance
 or confidential qualification.
 
-The latest [selected tau diagnostic](evidence/p2/2026-10-25-selected-tau-email-rejection-0333/README.md)
-reached the retail customer-email lookup, which rejected an unknown email. Its
-hash-pinned source line identifies the operation without logging conversation
-content or arguments; it does not establish whether the assistant or the small
-simulator supplied the wrong email. The strict smoke failed with no quality
-score and confirmed cleanup. Startup and four tokenizer-parity cases passed;
-scoring and retry limits were unchanged. The earlier
+The latest [selected tau diagnostic](evidence/p2/2026-10-25-selected-tau-email-relation-0429/README.md)
+failed at the retail customer-email lookup. A bounded boolean records that the
+submitted argument occurred case-insensitively in earlier simulator-user text;
+it does not establish the correct email, full identity or model blame. No
+conversation or arguments were retained. The strict smoke failed with no quality
+score and confirmed cleanup; startup and four tokenizer-parity cases passed.
+Scoring and retry limits were unchanged. The [preceding email-lookup failure](evidence/p2/2026-10-25-selected-tau-email-rejection-0333/README.md)
+did not record that relation. The earlier
 [known-tool diagnostic](evidence/p2/2026-10-25-selected-tau-tool-rejection-0245/README.md)
 did not record an exact rejection site and remains uninterpreted at that level.
 
