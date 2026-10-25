@@ -18,6 +18,11 @@ ordinary `--publish` is not a working ingress mechanism for that topology:
 Sources accessed 2026-10-25. These are source-derived expectations, not measured
 deployment results.
 
+The [local observation](../../evidence/p2/2026-10-25-selected-network-probe/README.md)
+subsequently confirmed this limitation on Docker 29.4.0 only: the isolated
+listener was alive internally, but its requested host port was not operational
+or reachable. The ordinary-bridge positive control worked; both cases cleaned up.
+
 ## Bounded local proof
 
 [`probe-selected-network.py`](../../scripts/probe-selected-network.py) records

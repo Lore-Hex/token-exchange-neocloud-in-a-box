@@ -2,6 +2,7 @@
 """Network-proof envelope checks only; no Docker or network mutation."""
 
 import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -9,6 +10,8 @@ from pathlib import Path
 import subprocess
 import unittest
 from unittest import mock
+
+from test_evidence_history import git
 
 
 PATH = Path(__file__).with_name("probe-selected-network.py")
@@ -18,6 +21,28 @@ SPEC.loader.exec_module(probe)
 
 
 class NetworkProbeTests(unittest.TestCase):
+    def test_original_observations_and_committed_producer_joins(self):
+        root = PATH.parent.parent
+        directory = root / "evidence/p2/2026-10-25-selected-network-probe"
+        for name, expected in (
+            ("preflight-failure.json", "a906e3e9dd9bb891d24567a5fe2dae26279e615086b311ecef7a3358a44d04ca"),
+            ("observations.json", "41bd726bd95ca1a45016d3f891597e7bc13a7b5881b5a8f5ad956d4765287480"),
+        ):
+            raw = (directory / name).read_bytes()
+            self.assertEqual(hashlib.sha256(raw).hexdigest(), expected)
+            row = json.loads(raw)
+            self.assertEqual(row["engine_version"], "29.4.0")
+            for field in ("gpu_used", "tls_verified", "egress_verified", "confidential", "deployment_eligible"):
+                self.assertIs(row[field], False)
+            self.assertEqual(set(row["source_sha256"]), {
+                "scripts/probe-selected-network.py", "scripts/fixtures/selected_network_listener.py"})
+            for source, sha in row["source_sha256"].items():
+                self.assertEqual(hashlib.sha256(git(root, "show", row["git_sha"] + ":" + source)).hexdigest(), sha)
+        self.assertEqual(row["result"], "recorded")
+        self.assertEqual([case["host_reachable"] for case in row["cases"]], [True, False])
+        self.assertEqual([case["operational_port_mapping"] for case in row["cases"]], [True, False])
+        self.assertTrue(all(case["listener_ready"] and case["cleanup_confirmed"] for case in row["cases"]))
+
     def test_requested_mapping_does_not_prove_operational_mapping(self):
         requested = {"8443/tcp": [{"HostIp": "127.0.0.1", "HostPort": "49123"}]}
         row = {"HostConfig": {"PortBindings": requested}, "NetworkSettings": {"Ports": {}}}
