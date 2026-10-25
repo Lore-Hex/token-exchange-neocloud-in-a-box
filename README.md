@@ -72,6 +72,11 @@ on the ordinary node: engine/guard/TLS ready, missing/wrong keys rejected,
 this is not public serving, full provider/quality qualification or confidential
 inference. The earlier [build-only receipt](evidence/p2/2026-10-24-selected-service-image/README.md)
 retains its original scope.
+A later [private protocol and active-drain run](evidence/p2/2026-10-25-selected-protocol-pass/README.md)
+passed all 17 provider checks and completed an active streamed response through
+retirement, with all three roles reaped and host cleanup confirmed. This remains
+a bounded private test, not tool/quality qualification or public/confidential
+serving; the earlier failed drain observation is preserved.
 The [8K-profile parity prerequisite](evidence/p2/2026-10-24-selected-tau8k-parity/README.md)
 also passed four fixed cases and eight requests; this does not establish full
 8K request fit. Both [DSpark attempts](evidence/p2/2026-10-24-selected-dspark-startup-failure/README.md)
