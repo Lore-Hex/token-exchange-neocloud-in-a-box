@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S -B scripts/record-tau-cpu-session.py --archive PRIVATE --model-06 PRIVATE --model-17 PRIVATE --cmake-wheel PRIVATE --output PRIVATE --probe-payload PRIVATE --probe-plan-sha256 5db8bd56b1c657d180703153238fcd14f2ddcca6d10b1e6c3b53ad250165c46a",
+  "ended_utc": "2026-10-25T06:41:44Z",
+  "execution": "software",
+  "git_sha": "fa59772be64e61147058e448d28cc1f3eb34ae03",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "native-cpu-controller",
+    "provider": "github-actions"
+  },
+  "notes": "Fixed original tau CPU prompt-fit only; scripted target, no full tau, live admission, quality or confidentiality.",
+  "phase": "P2",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-25T06:36:20Z",
+  "task": "T3"
+}

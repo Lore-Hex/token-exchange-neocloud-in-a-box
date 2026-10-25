@@ -117,6 +117,12 @@ did not record that relation. The earlier
 [known-tool diagnostic](evidence/p2/2026-10-25-selected-tau-tool-rejection-0245/README.md)
 did not record an exact rejection site and remains uninterpreted at that level.
 
+A separate [three-turn CPU identity diagnostic](evidence/p2/2026-10-25-tau-cpu-identity-followup/README.md)
+completed transport and cleanup, but detected none of the expected name/ZIP
+literals, even after the direct question. No email-like literal was detected.
+This does not establish semantic refusal or explain the earlier failure;
+the simulator remains unqualified.
+
 A later [selected tau controller attempt](evidence/p2/2026-10-24-selected-tau-readiness-failure-1736/README.md)
 failed during readiness: both owners exited 1, no READY hashes or scorer result
 were recorded, and cleanup remained **unconfirmed**. No inference or quality
