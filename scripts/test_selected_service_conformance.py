@@ -221,6 +221,9 @@ class PackagingTests(unittest.TestCase):
             self.assertEqual(prepare.call_args.args[0], root / "wheels")
             self.assertEqual(prepare.call_args.kwargs, {"model_profile": "uncensored"})
             image.validated_files(destination, result["receipt_sha256"])
+            dockerfile = (destination / "context/Dockerfile").read_bytes()
+            self.assertIn(b"checker-imports --prepared-sha256 ", dockerfile)
+            self.assertLess(dockerfile.index(b"USER 65532:65532"), dockerfile.index(b"checker-imports"))
             service_root = destination / "context/service"
             prepared = json.loads((service_root / "prepared.json").read_bytes())
             for name, raw in files.items():
@@ -238,7 +241,8 @@ class PackagingTests(unittest.TestCase):
         record = json.loads((destination / "receipt.json").read_bytes())
         record["prepared_sha256"] = process.digest((destination / "context/service/prepared.json").read_bytes())
         lab = json.loads((destination / "context/payload/lab.json").read_bytes())
-        (destination / "context/Dockerfile").write_bytes(image.dockerfile(lab, record["prepared_sha256"]))
+        (destination / "context/Dockerfile").write_bytes(image.dockerfile(lab, record["prepared_sha256"],
+            checker=(destination / "context/service/checker/trial.json").exists()))
         record["files"] = {path.relative_to(destination).as_posix(): {
             "bytes": len(path.read_bytes()), "sha256": process.digest(path.read_bytes())}
             for path in destination.rglob("*") if path.is_file() and path != destination / "receipt.json"}

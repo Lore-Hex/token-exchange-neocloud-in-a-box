@@ -142,6 +142,21 @@ class ImageTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             image.dockerfile(contract, image.digest(b"preparation"))
 
+    def test_optional_import_step_is_exact_nonroot_and_default_bytes_unchanged(self):
+        contract = lab_contract()
+        contract.update(base_image="vllm/vllm-openai@sha256:" + "1" * 64,
+                        sources={"application/contract.json": "2" * 64})
+        old = image.dockerfile(contract, "3" * 64)
+        self.assertEqual(image.digest(old), "18b55b9192c32d997bd9986da3d4f8f249346352286c789329e0e244875cc4b4")
+        line = ("RUN --network=none /usr/bin/python3.12 -I -S -B "
+            "/opt/nib-service/scripts/selected_service_image.py checker-imports --prepared-sha256 "
+            + "3" * 64 + "\n").encode()
+        self.assertEqual(image.dockerfile(contract, "3" * 64, checker=True),
+                         old.replace(b"USER 65532:65532\n", b"USER 65532:65532\n" + line))
+        for value in (None, 1, "true"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                image.dockerfile(contract, "3" * 64, checker=value)
+
     def test_rehashed_receipt_still_rejects_bad_types_and_unknown_claims(self):
         for change in ("bytes", "hash", "git", "claim", "extra"):
             with self.subTest(change=change), self.preparation() as (root, bundle, trcs, _, _, _):
