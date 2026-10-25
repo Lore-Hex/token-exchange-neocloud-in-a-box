@@ -39,6 +39,12 @@ onboarding steps; running the toolkit does not automatically list a provider.
 
 ## Status
 
+An opt-in [128K-context / 16K-output candidate](docs/tasks/p2-t3-long-context-cache.md)
+adds bounded chunked prefill, isolated prefix-cache namespaces and actual
+cached-token usage reporting. It is not yet GPU-qualified or enabled by default;
+gateway namespace injection and cold/warm, long-input and long-output evidence
+remain required before advertising these limits or a cache discount.
+
 Pre-alpha. **No fully verified confidential inference service yet.** Real
 8xB200 and 8xB300 lab checks and complete DeepSeek weight downloads have run. Fresh
 eight-GPU appraisal and readiness readback have passed. DeepSeek generated real

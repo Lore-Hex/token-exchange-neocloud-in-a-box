@@ -16,7 +16,11 @@ var toolID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 // The pinned DeepSeek V4.1 parser/encoder already supports these native fields.
 // No tool is executed here. See docs/tasks/p2-t4-selected-service-tools.md.
-func validateSelectedTools(value map[string]json.RawMessage) error {
+func validateSelectedTools(value map[string]json.RawMessage, textLimit int) error {
+	argumentLimit := 32768
+	if textLimit > 65536 {
+		argumentLimit = textLimit
+	}
 	names := map[string]bool{}
 	if raw, present := value["tools"]; present {
 		var tools []map[string]json.RawMessage
@@ -65,12 +69,12 @@ func validateSelectedTools(value map[string]json.RawMessage) error {
 		}
 		switch role {
 		case "system", "user":
-			if len(message) != 2 || !toolString(message["content"], 65536) {
+			if len(message) != 2 || !toolString(message["content"], textLimit) {
 				return errSelectedTools
 			}
 		case "tool":
 			id := toolText(message["tool_call_id"])
-			if len(message) != 3 || !pending[id] || !toolString(message["content"], 65536) {
+			if len(message) != 3 || !pending[id] || !toolString(message["content"], textLimit) {
 				return errSelectedTools
 			}
 			delete(pending, id)
@@ -78,11 +82,11 @@ func validateSelectedTools(value map[string]json.RawMessage) error {
 			if !toolFields(message, "role", "content", "tool_calls", "reasoning") {
 				return errSelectedTools
 			}
-			if raw, present := message["reasoning"]; present && !toolString(raw, 32768) {
+			if raw, present := message["reasoning"]; present && !toolString(raw, argumentLimit) {
 				return errSelectedTools
 			}
 			callsRaw, hasCalls := message["tool_calls"]
-			if !toolString(message["content"], 65536) && !(hasCalls && bytes.Equal(message["content"], []byte("null"))) {
+			if !toolString(message["content"], textLimit) && !(hasCalls && bytes.Equal(message["content"], []byte("null"))) {
 				return errSelectedTools
 			}
 			if !hasCalls {
@@ -97,12 +101,12 @@ func validateSelectedTools(value map[string]json.RawMessage) error {
 				id := toolText(call["id"])
 				if len(call) != 3 || !toolID.MatchString(id) || seen[id] || toolText(call["type"]) != "function" ||
 					json.Unmarshal(call["function"], &function) != nil || len(function) != 2 ||
-					!names[toolText(function["name"])] || !toolString(function["arguments"], 32768) {
+					!names[toolText(function["name"])] || !toolString(function["arguments"], argumentLimit) {
 					return errSelectedTools
 				}
 				arguments := []byte(toolText(function["arguments"]))
 				var object map[string]json.RawMessage
-				if !toolJSON(arguments) || json.Unmarshal(arguments, &object) != nil || object == nil {
+				if !boundedToolJSON(arguments, argumentLimit) || json.Unmarshal(arguments, &object) != nil || object == nil {
 					return errSelectedTools
 				}
 				seen[id], pending[id] = true, true
@@ -145,7 +149,11 @@ func toolText(raw json.RawMessage) string {
 // Reuse encoding/json, but reject duplicate keys and excessive nesting before
 // forwarding opaque schema/history data. Argument strings get the same check.
 func toolJSON(raw []byte) bool {
-	if len(raw) == 0 || len(raw) > 65536 || !utf8.Valid(raw) {
+	return boundedToolJSON(raw, 65536)
+}
+
+func boundedToolJSON(raw []byte, limit int) bool {
+	if len(raw) == 0 || len(raw) > limit || !utf8.Valid(raw) {
 		return false
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))

@@ -1,0 +1,110 @@
+# P2.T3: Long context and isolated prefix-cache candidate
+
+Status: implemented candidate, **not GPU-qualified or a public capacity claim**.
+The explicit `long128k-eager` profile keeps the selected abliterated checkpoint,
+B300 TP4 x DP2, one admitted request, eager execution, GPU-resident Engram,
+512 GiB host-memory bound and zero swap. Existing profiles remain unchanged.
+
+| Bound | Candidate |
+|---|---|
+| Context, including generated tokens | 131,072 tokens |
+| Maximum output, when requested | 16,384 tokens |
+| Default output when omitted | 2,048 tokens |
+| Prefill scheduling budget | 4,096 tokens per iteration, chunking enabled |
+| HTTP request body | 4 MiB |
+| Completion deadline | 120 seconds, unchanged |
+| Total admitted requests | 1 |
+
+Context is not an input-only allowance. The engine's tokenizer must verify that
+the prompt plus requested output fits. The byte bound is a separate resource
+limit, not a tokenizer or truncation policy. Text, tool results, reasoning and
+tool arguments can round-trip larger replies within the aggregate body bound;
+message count, tool count, JSON depth, duplicate-key rejection and authentication
+are unchanged. The guard never truncates a request to make it fit.
+
+The deadline is deliberately unchanged: the pinned TLS shim has a 130-second
+shutdown grace and the owner has matching bounded drain/cleanup budgets. A
+600-second request would be unsafe with those budgets. Longer request durations
+require a separately reviewed TLS-shim revision, rebuilt pinned binary, matching
+guard and owner budgets, and active-stream retirement tests. The 16K value is a
+request ceiling, not a promise that every prompt/output combination finishes
+within 120 seconds. Do not advertise the paired maxima until measured.
+
+## Pinned engine settings
+
+The engine revision remains
+[`5df63a7203cdb9328d824a27b682e77c7b9928be`](https://github.com/vllm-project/vllm/tree/5df63a7203cdb9328d824a27b682e77c7b9928be).
+No claim about a newer engine's performance applies to this candidate.
+
+- `--max-model-len 131072`, `--max-num-batched-tokens 4096`, and
+  `--enable-chunked-prefill` use the pinned
+  [scheduler](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/config/scheduler.py)
+  and [argument parser](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/engine/arg_utils.py).
+  A large context does not require allocating a whole-context prefill batch.
+- `--enable-prefix-caching` explicitly enables the pinned
+  [cache configuration](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/config/cache.py).
+  The KV cache used within a generation and automatic prefix reuse across
+  generations are different properties. Neither successful startup nor low
+  latency alone proves cross-request cache hits.
+- `--enable-prompt-tokens-details` is defined by
+  [FrontendArgs](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/entrypoints/launchers/cli_args.py).
+  The [chat serving code](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/entrypoints/openai/chat_completion/serving.py)
+  exposes actual `usage.prompt_tokens_details.cached_tokens`, including in the
+  final usage chunk when streaming usage is requested. The guard forwards it
+  unchanged. An absent field must never be interpreted as a measured cache hit.
+
+The new source files are hash-pinned in `scripts/deepseek_tuning.py`; startup
+rejects source drift. The prepared payload, image, guard, catalog, observed
+context and selected execution-profile receipt must agree. Use the existing
+selected-service prepare/build/run path with `--execution-profile long128k-eager`
+and `--tokenizer-parity --tokenizer-materialization --runtime-observation`.
+Do not relabel an old image or start another engine on occupied GPUs.
+
+## Cache isolation and routing
+
+The provider API has one long, private gateway credential, not end-user keys.
+The trusted gateway must overwrite any end-user `cache_salt` and derive an
+opaque 64-character lowercase hexadecimal namespace from the authenticated
+workspace. The guard domain-separates that namespace before forwarding it.
+The same workspace can reuse its prefix; different workspaces cannot share it.
+If no namespace is supplied, the guard generates fresh randomness per request,
+preserving isolation at the expense of cross-request reuse. Invalid namespaces
+are rejected, not ignored. Do not enable reuse by accepting end-user-selected
+tenant IDs. Gateway-side namespace injection is a separate integration gate.
+
+vLLM's pinned [block hashing](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/core/kv_cache_utils.py)
+incorporates `cache_salt` in the first block and propagates it through descendant
+hashes. Cache reuse is local to an engine replica. DP2 does not imply a shared
+cache: measure repeated requests on both ranks and consider workspace/session
+affinity before attributing cold misses to the model. Never use content-derived
+metrics labels or retain prompts/completions for these tests.
+
+## Required live qualification
+
+1. Build and run the reviewed source-bound image after all software gates pass.
+   Drain the old owner first and preserve its rollback artifacts.
+2. Confirm allocated KV-cache capacity and engine settings from content-free
+   observations. Reject insufficient-memory or startup failures; do not
+   silently shorten the context, offload weights or disable cache safeguards.
+3. Tokenize synthetic long prompts with the pinned tokenizer. Test progressively
+   at 32K, 64K and near 128K, reserving output inside the total context. Also test
+   a requested 16K generation. Record actual generated tokens and finish reason:
+   accepting `max_tokens=16384` is not evidence of a 16K completion.
+4. With fresh workspace namespaces, record cold and repeated warm runs, actual
+   cached-token counts, TTFT and per-replica cache statistics. Change namespaces
+   as a negative control. Zero or missing counters fail the reuse claim; do not
+   manufacture a speedup from timers. Include tool-loop prefixes and independent
+   checks that reuse has not changed answer/tool correctness.
+5. Measure concurrency separately. More context and cached prefill do not imply
+   faster decode, sustained throughput or unlimited concurrent long requests.
+   Leave DSpark and newer graph recipes as separate controlled experiments.
+
+The catalog deliberately keeps `prompt_caching=false` and `cached_input=null`
+until live qualification and customer billing terms exist. This candidate does
+not establish 1M context, a cache discount, model quality or confidentiality.
+
+Tests: `scripts/test_selected_service_long.py` covers source-bound preparation,
+argument tampering, profile/observation mismatches and admission;
+`internal/pilotapi/long_profile_test.go` covers guard/body/output bounds, cache
+namespace isolation, preserved deadlines and unchanged usage. These are software tests,
+not hardware evidence.

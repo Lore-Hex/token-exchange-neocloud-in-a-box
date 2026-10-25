@@ -5,7 +5,8 @@ import hashlib
 import json
 
 BATCH_NAMES = ("batch8-eager", "batch8-graphs", "batch8-dspark")
-EAGER_CONTEXTS = {"tau8k-eager": 8192, "quality32k-eager": 32768}
+LONG_PROFILE = "long128k-eager"
+EAGER_CONTEXTS = {"tau8k-eager": 8192, "quality32k-eager": 32768, LONG_PROFILE: 131072}
 NAMES = (*BATCH_NAMES, *EAGER_CONTEXTS)
 REVISION = "5df63a7203cdb9328d824a27b682e77c7b9928be"
 # https://github.com/vllm-project/vllm/tree/5df63a7203cdb9328d824a27b682e77c7b9928be
@@ -15,6 +16,12 @@ SOURCES = {
     "vllm/config/scheduler.py": "2fb86b1572a4925be59f304d13b4f6ec03d496b67a7c4abbb976ecda2232839a",
     "vllm/config/speculative.py": "ce135651a7a0343ff526f72e9545932617378161abd03135d67eda6de89c617c",
     "vllm/v1/worker/gpu/cudagraph_utils.py": "ef2aae2eb3ec5ea97d4732f65c886b7a4688247721aacf23e536485e0ffc05ab",
+    "vllm/config/cache.py": "d37db21e7a6a1b477a580b54d90011d8708c4e7f6e3903221432d9a39830559b",
+    "vllm/entrypoints/launchers/cli_args.py": "76221e2c10a0c5cffb7820a25c176a436777eb2008737cc5b1effaa014ebad28",
+    "vllm/engine/arg_utils.py": "c10281277fd9a90dc8b22670db4f1af53708c5caa2aefee7aa861fa579329219",
+    "vllm/v1/core/kv_cache_utils.py": "af4164bca819f1cdc416077522a7019936fd38a523a482283eb91b08dae0e57a",
+    "vllm/entrypoints/openai/chat_completion/serving.py": "5e619c0a6866758a247c76e7b8c472f6e008ddbc720f7efe47cc6776cb986d4f",
+    "vllm/entrypoints/openai/chat_completion/protocol.py": "8744d5e2004b2d376e34cf17de51c919bca6d81b0cc8392da138db1ef05a7c61",
 }
 
 
@@ -76,7 +83,13 @@ def arguments(baseline, name):
         # budget >= context when chunked prefill is disabled. Keep one sequence.
         replace("--max-num-seqs", "1", "1")
         replace("--max-model-len", "4096", str(EAGER_CONTEXTS[name]))
-        replace("--max-num-batched-tokens", "4096", str(EAGER_CONTEXTS[name]))
+        replace("--max-num-batched-tokens", "4096", "4096" if name == LONG_PROFILE else str(EAGER_CONTEXTS[name]))
+        if name == LONG_PROFILE:
+            # Pinned arg_utils, CacheConfig and FrontendArgs: bounded chunks,
+            # explicit APC and real cached-token usage, not an estimated hit.
+            for flag in ("--enable-chunked-prefill", "--enable-prefix-caching", "--enable-prompt-tokens-details"):
+                require(flag not in result and flag.replace("--enable-", "--no-enable-") not in result)
+                result.append(flag)
         return result
     replace("--max-num-seqs", "1", "8")
     if name != "batch8-eager":
