@@ -1,0 +1,53 @@
+{
+  "harness": {
+    "repository": "EleutherAI/lm-evaluation-harness",
+    "revision": "ddd67220430a2470529f25fd5c05a576ca1057a0",
+    "release": "v0.4.13",
+    "files": {
+      "lm_eval/evaluator.py": "628120153cf24471ead0789106e5c18b02855a7cc77a9aa5da8069fdeab57ed5",
+      "lm_eval/api/task.py": "4c25a4f1949488483b833ce4fcf91cfd3e066084a9ea00079c6879ae3ba95657",
+      "lm_eval/tasks/gsm8k/gsm8k.yaml": "82eb1780b263bc040729032b3e076990c7933f42163c91e359f38820dd1d8833",
+      "lm_eval/tasks/mmlu_pro/_default_template_yaml": "8dbe91b2fa23a2310e9f37ebaf1567ea7cf50716d851c9549a13d660c8988a17",
+      "lm_eval/tasks/mmlu_pro/_mmlu_pro.yaml": "0271e3fdbbb0e8df5b6909786600c1292da29842086b521a1181954941156f94",
+      "lm_eval/tasks/mmlu_pro/utils.py": "d47eae06ecf1e9535b033394de62185327a1dca977cb29049003699adeb92801",
+      "lm_eval/tasks/mmlu_pro/mmlu_pro_biology.yaml": "71dc96ee3c684c68dbd4447d2f10f2971ae6291eb9d3ee78c20e8fc163e5f1c4",
+      "lm_eval/tasks/mmlu_pro/mmlu_pro_business.yaml": "2d53801203698aa59a976eba4d73f29305dfed4158747e2da92026f3709efe28",
+      "lm_eval/tasks/mmlu_pro/mmlu_pro_chemistry.yaml": "0fa839a646acc1f9699d141920a37a270ec8c3febd980aff4bbb2626f13510a2",
+      "lm_eval/tasks/mmlu_pro/mmlu_pro_computer_science.yaml": "a01f0c410aa31b28f431f649bc0c3ba28f6d77d4b41e62df06c3f5afb12c7aff",
+      "lm_eval/tasks/mmlu_pro/mmlu_pro_economics.yaml": "2e3e9a34ff6eda511c28c94d406be6da4b6dbd780f226429c2cf99508ca0796d",
+      "lm_eval/tasks/mmlu_pro/mmlu_pro_engineering.yaml": "35bbf42a23518c5aec8ae6f123a0f8260b83b73f63289294617cc80aed4efc53",
+      "lm_eval/tasks/mmlu_pro/mmlu_pro_health.yaml": "e76c20cb43f2baba3b70d8dc180e2df7ddbef40b77b72dcec28bc9ac7dc993aa",
+      "lm_eval/tasks/mmlu_pro/mmlu_pro_history.yaml": "f886129cfd559ad7f9f3cf1b445f942dc35b25ed4e8694ca9737134b1d11f884",
+      "lm_eval/tasks/mmlu_pro/mmlu_pro_law.yaml": "9fa02d2309ddb74a3b3a532a06f8a324b61088bc0535c07c1ab8b0919fcf5cec",
+      "lm_eval/tasks/mmlu_pro/mmlu_pro_math.yaml": "7994ac90a800ea0d906172dd920e1e60df56c44e42f7aa087693b85eda879964",
+      "lm_eval/tasks/mmlu_pro/mmlu_pro_other.yaml": "146e6506f6ff1869d9b2feaae29dd979db59ec0d0d17cb5aac5603d1f2c4ba88",
+      "lm_eval/tasks/mmlu_pro/mmlu_pro_philosophy.yaml": "63c23b850a6168060d97acbabcb787b15b2aa49e64945644b013a589c90c41fa",
+      "lm_eval/tasks/mmlu_pro/mmlu_pro_physics.yaml": "25a05b69e5effa5b1c786b57cec29704331045a1c3a73f017d39c161b889409b",
+      "lm_eval/tasks/mmlu_pro/mmlu_pro_psychology.yaml": "ba2b68f401149ebb592c50403c7b2710979ed6eb7b1ead7d4170d3749c8d9189"
+    }
+  },
+  "datasets": {
+    "gsm8k": {
+      "repository": "openai/gsm8k",
+      "revision": "740312add88f781978c0658806c59bc2815b9866",
+      "configuration": "main",
+      "test_rows": 1319,
+      "fewshot_split": "train",
+      "files": {
+        "main/test-00000-of-00001.parquet": {"bytes": 419088, "sha256": "ee7b8da9e381df27b9e3f7758a159ab2bdaa4dbaa910546cbbc47e0cb44e4f59"},
+        "main/train-00000-of-00001.parquet": {"bytes": 2306545, "sha256": "ea82612ea9582142387730c793eb67d3b12849002bc0b7fa6f8efafa7351419d"}
+      }
+    },
+    "mmlu_pro": {
+      "repository": "TIGER-Lab/MMLU-Pro",
+      "revision": "b189ec765aa7ed75c8acfea42df31fdae71f97be",
+      "configuration": "default",
+      "test_rows": 12032,
+      "fewshot_split": "validation",
+      "files": {
+        "data/test-00000-of-00001.parquet": {"bytes": 4144185, "sha256": "0e24a191921c2f453518a537a8b2117bd137e7714d4ef1565e9ba06c1ecb9ad8"},
+        "data/validation-00000-of-00001.parquet": {"bytes": 42857, "sha256": "139423c23722e480c807ac4a191409a710cfce4eba744c1d641cf88e730e2078"}
+      }
+    }
+  }
+}
