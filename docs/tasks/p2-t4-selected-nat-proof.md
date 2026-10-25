@@ -1,9 +1,11 @@
 # Selected closed-NAT proof candidate
 
-Status: implemented; the [two real observations](../../evidence/p2/2026-10-25-selected-nat-policy-failure/README.md)
-failed at the policy stage after all 15 baseline controls passed. The second
-locates the attempted step at readback. The negative controls were not reached
-and this policy is **not qualified**. This is a
+Status: the [corrected CPU experiment passed](../../evidence/p2/2026-10-25-selected-nat-pass/README.md):
+all 15 baseline controls, only two protected TLS paths allowed, 13 negative
+paths blocked, unchanged DNS relay counters and confirmed cleanup. The
+[two earlier failures](../../evidence/p2/2026-10-25-selected-nat-policy-failure/README.md)
+remain failures. This qualifies only the exact CPU experiment, **not GPU-host
+networking or a public service**. This is a
 GPU-free network experiment, not a public service owner or permission to change
 a host firewall. The earlier [isolated-bridge observation](p2-t4-selected-network-probe.md)
 does not qualify this alternative. No inference, credentials, model weights,
@@ -70,11 +72,60 @@ relevant conntrack expression bases). Actual readback is not normalized and
 arbitrary missing or added expressions are not accepted. Predicate removals,
 wrong family/address/port, changed verdicts, extra rules/fields and rule-order
 changes fail. Full input-batch hash and existing packet-condition tests protect
-the unchanged installed policy. This correction is software-only compatibility
-work. The diagnostic observation failed at readback, after check/apply completed,
+the unchanged installed policy. The diagnostic observation failed at readback, after check/apply completed,
 but captured no rules or exception details. Canonicalization remains a candidate
-cause, not a measured mismatch; fetching and validation share that step. No run
-of the corrected expected form is claimed.
+cause, not a captured mismatch; fetching and validation share that step. The
+subsequent corrected experiment passed without changing the installed batch;
+it does not recover the missing historical rules or exception details.
+
+### Pure-policy 1.1.6 compatibility
+
+`Policy.nft_version` is a final, optional field defaulting to `1.0.9`; only
+exact `1.0.9` and `1.1.6` are accepted. It selects the expected readback, not a
+different installed policy. Installation and removal bytes are identical for
+both versions, including the existing installation SHA-256 golden.
+`readback_args()` returns these fixed argv lists without executing them:
+
+```text
+1.0.9: nft --json list ruleset
+1.1.6: nft --json --numeric-protocol list ruleset
+```
+
+The [1.1.6 source-derived fixture](../../scripts/fixtures/nftables-1.1.6-canonical.json)
+is based on the official
+[nftables 1.1.6 archive](https://www.netfilter.org/projects/nftables/files/nftables-1.1.6.tar.xz),
+SHA-256 `372931bda8556b310636a2f9020adc710f9bab66f47efe0ce90bff800ac2530c`.
+It includes upstream JSON cases and separately labelled policy derivations,
+**not captured kernel output**. `src/ct.c:464-475` assigns typed IPv4 conntrack
+addresses a network-header base. `src/netlink_delinearize.c:2274-2402` recognizes
+those addresses as implying IPv4, removing the explicit `nfproto` dependency;
+conntrack ports do not remove the transport dependency. Consequently, only the
+two conntrack-only input reply rules differ from the 1.0.9 expected form: they
+omit `meta nfproto ipv4` but retain `meta l4proto` as integer `6`. All remaining
+predicates and their order stay exact. The six payload rules retain the existing
+canonical form (`src/payload.c:856-940`).
+
+The numeric flag is defined in `src/main.c:134,495-497` and suppresses protocol
+name lookup in `src/json.c:1242-1252`. Upstream's JSON test runner explicitly
+enables numeric protocols (`tests/py/nft-test.py:935-939`); its
+`tests/py/inet/meta.t.json.output` demonstrates TCP as integer `6`. This is a
+fixed rendering request, not a rule rewrite or an attempt to accept arbitrary
+host protocol names. The version, release label (`Commodore Bullmoose #7` for
+1.1.6, `Old Doc Yak #3` for 1.0.9) and integer schema version `1` must match
+exactly; unknown metadata fields fail. Owned-object comparison also preserves
+JSON scalar types, so a floating-point `6.0` is not accepted as protocol `6`.
+No actual readback expressions are normalized or repaired.
+
+The original tests, fixture and golden remain intact. Additional pure tests
+cover both versions, exact argv/metadata, unchanged installation bytes,
+cross-version rejection, every object/predicate/verdict removal, unexpected
+fields/expressions, family/tuple changes and rule/predicate ordering. These are
+source-derived software checks, not a new kernel, daemon or host result.
+`prove-selected-nat.py` is unchanged, still using the default 1.0.9 contract and
+its existing host gates. This change does **not** authorize execution on an
+existing GPU host or choose a host-profile schema. Actual host/tool identity
+pins, separately reviewed proof-runner integration and an approved isolated
+synthetic-network observation remain prerequisites for that compatibility claim.
 
 ### DNS is a separate boundary
 
@@ -175,8 +226,8 @@ diagnostic does not change policy, deadlines or pass gates.
 
 ## Execution gate and next step
 
-**No venue is qualified by this change.** Before execution, independently review
-this exact commit and verify a dedicated CPU-only Linux amd64 venue with:
+**Only the recorded CPU experiment is qualified.** Before another execution,
+independently review the exact commit and verify a dedicated CPU-only Linux amd64 venue with:
 
 - CPython **3.12.13** as the host supervisor, Docker daemon **29.1.3**, nftables
   **1.0.9**, and util-linux unshare **2.39.3**. Host and image interpreters are

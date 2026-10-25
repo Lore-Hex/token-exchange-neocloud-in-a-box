@@ -81,6 +81,10 @@ A subsequent [private native tool smoke](evidence/p2/2026-10-25-selected-tool-pa
 passed one fixed tool call and its continuation through owned TLS, with actual
 usage and confirmed cleanup. No retries were used; this is not general tool
 reliability, full tau evaluation, public serving or a capability/privacy claim.
+A separate [closed-NAT CPU experiment](evidence/p2/2026-10-25-selected-nat-pass/README.md)
+passed all 15 baseline controls, allowed only the two TLS paths after protection,
+blocked 13 other paths including DNS relays, and confirmed cleanup. This does
+not yet qualify networking on the GPU host or public serving.
 The [8K-profile parity prerequisite](evidence/p2/2026-10-24-selected-tau8k-parity/README.md)
 also passed four fixed cases and eight requests; this does not establish full
 8K request fit. Both [DSpark attempts](evidence/p2/2026-10-24-selected-dspark-startup-failure/README.md)

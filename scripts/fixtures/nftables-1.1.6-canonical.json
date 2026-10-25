@@ -1,0 +1,103 @@
+{
+  "source": {
+    "archive": "https://www.netfilter.org/projects/nftables/files/nftables-1.1.6.tar.xz",
+    "sha256": "372931bda8556b310636a2f9020adc710f9bab66f47efe0ce90bff800ac2530c",
+    "version": "1.1.6",
+    "release_name": "Commodore Bullmoose #7",
+    "json_schema_version": 1,
+    "fixtures": ["tests/py/inet/ct.t.json", "tests/py/inet/ct.t.json.output", "tests/py/inet/meta.t.json", "tests/py/inet/meta.t.json.output"],
+    "implementation": ["src/ct.c:464-475", "src/netlink_delinearize.c:2274-2402", "src/payload.c:856-940", "src/json.c:1242-1252", "src/json.c:2041-2046", "src/main.c:134", "src/main.c:495-497", "tests/py/nft-test.py:935-939"]
+  },
+  "readback_args": ["nft", "--json", "--numeric-protocol", "list", "ruleset"],
+  "upstream_cases": [
+    {
+      "command": "meta nfproto ipv4 ct original saddr 1.2.3.4",
+      "input": [
+        {"match": {"left": {"meta": {"key": "nfproto"}}, "op": "==", "right": "ipv4"}},
+        {"match": {"left": {"ct": {"dir": "original", "key": "saddr"}}, "op": "==", "right": "1.2.3.4"}}
+      ],
+      "output": [
+        {"match": {"left": {"ct": {"dir": "original", "key": "saddr"}}, "op": "==", "right": "1.2.3.4"}}
+      ]
+    },
+    {
+      "command": "ct original ip daddr 1.2.3.4 accept",
+      "input": [
+        {"match": {"left": {"ct": {"dir": "original", "key": "ip daddr"}}, "op": "==", "right": "1.2.3.4"}},
+        {"accept": null}
+      ],
+      "output": [
+        {"match": {"left": {"ct": {"dir": "original", "key": "ip daddr"}}, "op": "==", "right": "1.2.3.4"}},
+        {"accept": null}
+      ]
+    },
+    {
+      "command": "meta nfproto ipv6 meta l4proto tcp",
+      "input": [
+        {"match": {"left": {"meta": {"key": "nfproto"}}, "op": "==", "right": "ipv6"}},
+        {"match": {"left": {"meta": {"key": "l4proto"}}, "op": "==", "right": "tcp"}}
+      ],
+      "output": [
+        {"match": {"left": {"meta": {"key": "nfproto"}}, "op": "==", "right": "ipv6"}},
+        {"match": {"left": {"meta": {"key": "l4proto"}}, "op": "==", "right": 6}}
+      ]
+    }
+  ],
+  "derived_policy_input_replies": {
+    "basis": "Source-derived, not a kernel capture: typed IPv4 conntrack addresses elide nfproto; conntrack ports retain l4proto, rendered as integer 6 by the fixed numeric-protocol readback flag.",
+    "rules": [
+      {
+        "input": [
+          {"match": {"left": {"meta": {"key": "iifname"}}, "op": "==", "right": "nib-service"}},
+          {"match": {"left": {"meta": {"key": "nfproto"}}, "op": "==", "right": "ipv4"}},
+          {"match": {"left": {"meta": {"key": "l4proto"}}, "op": "==", "right": "tcp"}},
+          {"match": {"left": {"ct": {"key": "state"}}, "op": "in", "right": "established"}},
+          {"match": {"left": {"ct": {"key": "direction"}}, "op": "==", "right": "reply"}},
+          {"match": {"left": {"ct": {"key": "ip saddr", "dir": "reply"}}, "op": "==", "right": "198.18.0.2"}},
+          {"match": {"left": {"ct": {"key": "proto-src", "dir": "reply"}}, "op": "==", "right": 8443}},
+          {"match": {"left": {"ct": {"key": "ip daddr", "dir": "original"}}, "op": "==", "right": "198.18.0.2"}},
+          {"match": {"left": {"ct": {"key": "proto-dst", "dir": "original"}}, "op": "==", "right": 8443}},
+          {"accept": null}
+        ],
+        "output": [
+          {"match": {"left": {"meta": {"key": "iifname"}}, "op": "==", "right": "nib-service"}},
+          {"match": {"left": {"meta": {"key": "l4proto"}}, "op": "==", "right": 6}},
+          {"match": {"left": {"ct": {"key": "state"}}, "op": "in", "right": "established"}},
+          {"match": {"left": {"ct": {"key": "direction"}}, "op": "==", "right": "reply"}},
+          {"match": {"left": {"ct": {"key": "ip saddr", "dir": "reply"}}, "op": "==", "right": "198.18.0.2"}},
+          {"match": {"left": {"ct": {"key": "proto-src", "dir": "reply"}}, "op": "==", "right": 8443}},
+          {"match": {"left": {"ct": {"key": "ip daddr", "dir": "original"}}, "op": "==", "right": "198.18.0.2"}},
+          {"match": {"left": {"ct": {"key": "proto-dst", "dir": "original"}}, "op": "==", "right": 8443}},
+          {"accept": null}
+        ]
+      },
+      {
+        "input": [
+          {"match": {"left": {"meta": {"key": "iifname"}}, "op": "==", "right": "nib-service"}},
+          {"match": {"left": {"meta": {"key": "nfproto"}}, "op": "==", "right": "ipv4"}},
+          {"match": {"left": {"meta": {"key": "l4proto"}}, "op": "==", "right": "tcp"}},
+          {"match": {"left": {"ct": {"key": "state"}}, "op": "in", "right": "established"}},
+          {"match": {"left": {"ct": {"key": "direction"}}, "op": "==", "right": "reply"}},
+          {"match": {"left": {"ct": {"key": "ip saddr", "dir": "reply"}}, "op": "==", "right": "198.18.0.2"}},
+          {"match": {"left": {"ct": {"key": "proto-src", "dir": "reply"}}, "op": "==", "right": 8443}},
+          {"match": {"left": {"ct": {"key": "status"}}, "op": "in", "right": "dnat"}},
+          {"match": {"left": {"ct": {"key": "ip daddr", "dir": "original"}}, "op": "==", "right": "198.19.0.1"}},
+          {"match": {"left": {"ct": {"key": "proto-dst", "dir": "original"}}, "op": "==", "right": 443}},
+          {"accept": null}
+        ],
+        "output": [
+          {"match": {"left": {"meta": {"key": "iifname"}}, "op": "==", "right": "nib-service"}},
+          {"match": {"left": {"meta": {"key": "l4proto"}}, "op": "==", "right": 6}},
+          {"match": {"left": {"ct": {"key": "state"}}, "op": "in", "right": "established"}},
+          {"match": {"left": {"ct": {"key": "direction"}}, "op": "==", "right": "reply"}},
+          {"match": {"left": {"ct": {"key": "ip saddr", "dir": "reply"}}, "op": "==", "right": "198.18.0.2"}},
+          {"match": {"left": {"ct": {"key": "proto-src", "dir": "reply"}}, "op": "==", "right": 8443}},
+          {"match": {"left": {"ct": {"key": "status"}}, "op": "in", "right": "dnat"}},
+          {"match": {"left": {"ct": {"key": "ip daddr", "dir": "original"}}, "op": "==", "right": "198.19.0.1"}},
+          {"match": {"left": {"ct": {"key": "proto-dst", "dir": "original"}}, "op": "==", "right": 443}},
+          {"accept": null}
+        ]
+      }
+    ]
+  }
+}

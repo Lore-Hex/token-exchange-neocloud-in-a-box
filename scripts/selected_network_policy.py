@@ -7,6 +7,9 @@ import json
 import re
 
 
+NFT_RELEASES = {"1.0.9": "Old Doc Yak #3", "1.1.6": "Commodore Bullmoose #7"}
+
+
 def require(value):
     if not value:
         raise ValueError("selected network contract rejected")
@@ -51,8 +54,10 @@ class Policy:
     address: str
     published: str
     port: int
+    nft_version: str = "1.0.9"
 
     def __post_init__(self):
+        require(type(self.nft_version) is str and self.nft_version in NFT_RELEASES)
         require(type(self.token) is str and re.fullmatch("[0-9a-f]{32}", self.token))
         for name in (self.bridge, self.ingress):
             require(type(name) is str and re.fullmatch("[A-Za-z][A-Za-z0-9_-]{0,14}", name))
@@ -80,9 +85,11 @@ class Policy:
         incoming = match(meta("iifname"), self.bridge)
         outgoing = match(meta("oifname"), self.bridge)
         tcp4 = [match(meta("nfproto"), "ipv4"), match(meta("l4proto"), "tcp")]
-        # nft 1.0.9 elides these dependencies only when IP/TCP payloads imply them.
-        # Conntrack-only rules below still need both explicit protocol matches.
+        # Both pinned versions elide dependencies implied by IP/TCP payloads.
         payload_tcp4 = [] if canonical else tcp4
+        # 1.1.6 also infers IPv4 from typed conntrack addresses, but not TCP
+        # from conntrack ports (src/ct.c, src/netlink_delinearize.c).
+        reply_tcp4 = [match(meta("l4proto"), 6)] if canonical and self.nft_version == "1.1.6" else tcp4
         reply = [match(ct("state"), "established", "in"), match(ct("direction"), "reply")]
         dnat = [match(ct("status"), "dnat", "in"),
                 match(ct("ip daddr", dir="original"), self.published),
@@ -90,7 +97,7 @@ class Policy:
         objects.append({"table": {"family": "inet", "name": table}})
         chain("inet", "input", "input", -10)
         # Conntrack's reply tuple survives reverse NAT before local delivery.
-        host_reply = [incoming] + tcp4 + reply + [
+        host_reply = [incoming] + reply_tcp4 + reply + [
             match(ct("ip saddr", dir="reply"), self.address), match(ct("proto-src", dir="reply"), 8443)]
         rule("inet", "input", host_reply + [match(ct("ip daddr", dir="original"), self.address),
             match(ct("proto-dst", dir="original"), 8443)], "accept")
@@ -126,6 +133,10 @@ class Policy:
         return encoded({"nftables": [{"create" if "table" in row else "add": row}
                                       for row in self.objects()]})
 
+    def readback_args(self):
+        numeric = ["--numeric-protocol"] if self.nft_version == "1.1.6" else []
+        return ["nft", "--json", *numeric, "list", "ruleset"]
+
     def verify(self, raw):
         """Compare owned objects, ignoring only allocated handles and enumeration."""
         value = decode(raw)
@@ -136,7 +147,9 @@ class Policy:
             kind, body = next(iter(row.items()))
             require(type(body) is dict and kind != "flowtable")
             if kind == "metainfo":
-                require(body.get("version") == "1.0.9" and body.get("json_schema_version") == 1)
+                require(type(body.get("json_schema_version")) is int and body == {
+                    "version": self.nft_version, "release_name": NFT_RELEASES[self.nft_version],
+                    "json_schema_version": 1})
                 versions += 1
                 continue
             if body.get("name" if kind == "table" else "table") != self.table:
@@ -147,8 +160,10 @@ class Policy:
             groups = {}
             for row in rows:
                 kind, body = next(iter(row.items()))
+                require(type(body.get("family")) is str)
                 key = (kind, body["family"], body.get("chain", body.get("name", "")))
-                groups.setdefault(key, []).append(row)
+                # Preserve JSON scalar types too: 6.0 is not the pinned TCP integer.
+                groups.setdefault(key, []).append(encoded(row))
             return groups
         require(versions == 1 and grouped(actual) == grouped(self.objects(canonical=True)))
 
