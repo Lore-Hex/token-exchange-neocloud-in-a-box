@@ -353,7 +353,7 @@ The old implementation changed `table inet nib { ... }` into
 `src/parser_bison.y` parses that as `CMD_CREATE`, while
 `src/libnftables.c:nft_evaluate` calls `nft_cmd_expand` **only for CMD_ADD**.
 `src/cmd.c:nft_cmd_expand` is what emits child sets, chains and rules.
-`src/rule.c:do_add_table` applies `NLM_F_EXCL` to the create command but sends
+`src/rule.c:do_command_add` applies `NLM_F_EXCL` to the create command but sends
 only the table. The old block form therefore omits the policy's children.
 
 The corrected single input starts with `create table inet nib` on its own
