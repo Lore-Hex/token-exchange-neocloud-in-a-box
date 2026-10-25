@@ -273,7 +273,7 @@ def run_once(supervisor, prior):
             "not-ready")
         report["prepared_sha256"] = prepared.receipt_sha256
         identities = {role: dict(supervisor.owner.identities[role]) for role in service.ROLES}
-        deadline = min(time.monotonic() + SECONDS, supervisor.cutoff() - service.CLEANUP_RESERVE)
+        deadline = min(time.monotonic() + SECONDS, supervisor.cutoff() - supervisor.contract.cleanup_reserve)
         with inference.cancellation(supervisor.shutdown), service.identity.worker.alarm(deadline):
             inference.checkpoint(supervisor, identities, deadline)
             require("checker/trial.json" in prepared.files

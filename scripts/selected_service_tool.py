@@ -224,7 +224,7 @@ def run_once(supervisor, prior):
             and all(supervisor.children[role] is supervisor.owner.processes[role] for role in service.ROLES),
             "not-ready")
         identities = {role: dict(supervisor.owner.identities[role]) for role in service.ROLES}
-        deadline = min(time.monotonic() + SECONDS, supervisor.cutoff() - service.CLEANUP_RESERVE)
+        deadline = min(time.monotonic() + SECONDS, supervisor.cutoff() - supervisor.contract.cleanup_reserve)
         with inference.cancellation(supervisor.shutdown), service.identity.worker.alarm(deadline):
             inference.checkpoint(supervisor, identities, deadline)
             require(prepared.files["scripts/selected_service_tool.py"] ==

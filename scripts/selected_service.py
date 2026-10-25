@@ -68,14 +68,27 @@ def lifetime_seconds(profile):
     return 4800 if profile == SMOKE_PROFILE else 86400
 
 
+def request_seconds(execution_profile):
+    engine_entry.execution_limits(execution_profile)
+    return 900 if execution_profile == engine_entry.LONG_PROFILE else 120
+
+
+def drain_seconds(execution_profile):
+    return request_seconds(execution_profile) + 30
+
+
+def cleanup_reserve(execution_profile):
+    return 2 * (drain_seconds(execution_profile) + REAP_SECONDS) + REAP_SECONDS
+
+
 def retirement_at(wall):
     return datetime.datetime.fromtimestamp(wall, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def lifetime_record(profile, wall):
+def lifetime_record(profile, wall, execution_profile=engine_entry.EAGER_PROFILE):
     lifetime_seconds(profile)
     return {"profile": profile, "hard_stop_at": retirement_at(wall),
-            "admission_stop_at": retirement_at(wall - CLEANUP_RESERVE)}
+            "admission_stop_at": retirement_at(wall - cleanup_reserve(execution_profile))}
 
 
 def execution_result(row, profile, prepared_sha256):
@@ -131,6 +144,18 @@ class Contract:
     def execution(self):
         return engine_entry.execution_limits(self.execution_profile)
 
+    @property
+    def request_seconds(self):
+        return request_seconds(self.execution_profile)
+
+    @property
+    def drain_seconds(self):
+        return drain_seconds(self.execution_profile)
+
+    @property
+    def cleanup_reserve(self):
+        return cleanup_reserve(self.execution_profile)
+
     @classmethod
     def begin(cls, hard_stop_at, *, input_price, output_price, lifetime_profile=SMOKE_PROFILE,
               execution_profile=engine_entry.EAGER_PROFILE):
@@ -142,20 +167,21 @@ class Contract:
             wall, monotonic = pilot.retirement_deadline(hard_stop_at, public=True)
         except (pilot.pilot.PilotError, TypeError, ValueError):
             raise Rejected("lifetime") from None
-        require(CLEANUP_RESERVE < monotonic - time.monotonic() <= limit, "lifetime")
+        reserve = cleanup_reserve(execution_profile)
+        require(reserve < monotonic - time.monotonic() <= limit, "lifetime")
         for price in (input_price, output_price):
             require(type(price) is str and re.fullmatch(r"(0|[1-9][0-9]{0,5})(\.[0-9]{1,6})?", price), "price")
         return cls(hard_stop_at, wall, monotonic,
-                   min(time.monotonic() + engine_lab.STARTUP_SECONDS, monotonic - CLEANUP_RESERVE),
+                   min(time.monotonic() + engine_lab.STARTUP_SECONDS, monotonic - reserve),
                    input_price, output_price, lifetime_profile, execution_profile)
 
     @property
     def admission_stop_at(self):
-        return retirement_at(self.hard_wall - CLEANUP_RESERVE)
+        return retirement_at(self.hard_wall - self.cleanup_reserve)
 
     @property
     def lifetime(self):
-        return lifetime_record(self.lifetime_profile, self.hard_wall)
+        return lifetime_record(self.lifetime_profile, self.hard_wall, self.execution_profile)
 
     def guard_arguments(self, inputs):
         # Paths are private snapshots. The existing Go CLI owns provider/schema
@@ -288,13 +314,13 @@ class Supervisor:
     def checkpoint(self, deadline):
         if self.shutdown.is_set():
             raise Rejected("cancelled")
-        require(time.monotonic() < min(deadline, self.cutoff() - CLEANUP_RESERVE), "deadline")
+        require(time.monotonic() < min(deadline, self.cutoff() - self.contract.cleanup_reserve), "deadline")
         require(all(child.poll() is None for child in self.children.values()), "child-exited")
         self.inputs.check()
         mounts = self.owner.check_mounts(deadline)
         if self.shutdown.is_set():
             raise Rejected("cancelled")
-        require(time.monotonic() < min(deadline, self.cutoff() - CLEANUP_RESERVE), "deadline")
+        require(time.monotonic() < min(deadline, self.cutoff() - self.contract.cleanup_reserve), "deadline")
         require(all(child.poll() is None for child in self.children.values()), "child-exited")
         require(mounts is True, "mounts")
 
@@ -345,7 +371,7 @@ class Supervisor:
                 reader_closed = drain is None or drain.closed
         try:
             for role in ROLES:
-                deadline = min(self.contract.startup_deadline, self.cutoff() - CLEANUP_RESERVE)
+                deadline = min(self.contract.startup_deadline, self.cutoff() - self.contract.cleanup_reserve)
                 self.checkpoint(deadline)
                 def register(process, role=role):
                     require(role not in self.children, "registration")
@@ -369,14 +395,14 @@ class Supervisor:
                 inference_result = inference.validate_report(inference.encoded(inference.run_once(self)),
                     self.owner.prepared.receipt_sha256)
                 require(inference_result["result"] == "pass", "owner-failed")
-                self.checkpoint(self.cutoff() - CLEANUP_RESERVE)
+                self.checkpoint(self.cutoff() - self.contract.cleanup_reserve)
             if conformance_smoke:
                 import selected_service_conformance as conformance
                 conformance_result = conformance.validate_report(
                     inference.encoded(conformance.run_once(self, inference_result)),
                     self.owner.prepared.receipt_sha256, inference_result)
                 require(conformance_result["result"] == "pass", "owner-failed")
-                self.checkpoint(self.cutoff() - CLEANUP_RESERVE)
+                self.checkpoint(self.cutoff() - self.contract.cleanup_reserve)
             if tool_smoke:
                 import selected_service_tool as tool
                 reader_closed = False
@@ -384,7 +410,7 @@ class Supervisor:
                     self.owner.prepared.receipt_sha256, inference_result)
                 reader_closed = all(tool_result["resources_closed"].values())
                 require(tool_result["result"] == "pass", "owner-failed")
-                self.checkpoint(self.cutoff() - CLEANUP_RESERVE)
+                self.checkpoint(self.cutoff() - self.contract.cleanup_reserve)
             if protocol_smoke:
                 import selected_service_protocol as protocol
                 protocol_run = protocol.start(self, inference_result)
@@ -393,12 +419,12 @@ class Supervisor:
                 # This deliberate whole-owner retirement is not external
                 # cancellation. Ordinary checkpoints remain unchanged.
                 self.phase = "draining"
-            while not smoke and time.monotonic() < self.cutoff() - CLEANUP_RESERVE:
-                deadline = min(self.cutoff() - CLEANUP_RESERVE, time.monotonic() + observer.SECONDS)
+            while not smoke and time.monotonic() < self.cutoff() - self.contract.cleanup_reserve:
+                deadline = min(self.cutoff() - self.contract.cleanup_reserve, time.monotonic() + observer.SECONDS)
                 self.checkpoint(deadline)
                 for role in ROLES:
                     require(self.ready(role, deadline), "readiness")
-                self.shutdown.wait(min(1, max(0, self.cutoff() - CLEANUP_RESERVE - time.monotonic())))
+                self.shutdown.wait(min(1, max(0, self.cutoff() - self.contract.cleanup_reserve - time.monotonic())))
             reason = "retired"
         except Rejected as exc:
             reason = exc.category
@@ -425,7 +451,7 @@ class Supervisor:
                 child = self.children[role]
                 drained = role == "engine"
                 if role != "engine":
-                    deadline = min(self.cutoff(), time.monotonic() + DRAIN_SECONDS)
+                    deadline = min(self.cutoff(), time.monotonic() + self.contract.drain_seconds)
                     try:
                         if role == "tls" and protocol_run is not None and self.phase == "draining":
                             deadline = min(deadline, protocol_run.drain.deadline)

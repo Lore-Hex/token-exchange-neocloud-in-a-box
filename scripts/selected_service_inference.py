@@ -115,7 +115,7 @@ def owned_tls(supervisor, identities, deadline):
 
 def exchange(supervisor, identities, case, key, deadline, report):
     owner = supervisor.owner
-    deadline = min(deadline, supervisor.cutoff() - service.CLEANUP_RESERVE,
+    deadline = min(deadline, supervisor.cutoff() - supervisor.contract.cleanup_reserve,
                    time.monotonic() + (REQUEST_SECONDS if case == "authenticated" else NEGATIVE_SECONDS))
     with tls_connection(supervisor, identities, deadline) as connection, ExitStack() as stack:
         body = request_bytes()
@@ -170,7 +170,7 @@ def run_once(supervisor):
                 and set(owner.identities) == set(service.ROLES)
                 and all(supervisor.children[role] is owner.processes[role] for role in service.ROLES), "not-ready")
         identities = {role: dict(owner.identities[role]) for role in service.ROLES}
-        deadline = min(time.monotonic() + SECONDS, supervisor.cutoff() - service.CLEANUP_RESERVE)
+        deadline = min(time.monotonic() + SECONDS, supervisor.cutoff() - supervisor.contract.cleanup_reserve)
         with cancellation(supervisor.shutdown), service.identity.worker.alarm(deadline):
             checkpoint(supervisor, identities, deadline)
             raw = process.bootstrap.read_source(str(process.ROOT / "prepared.json"))

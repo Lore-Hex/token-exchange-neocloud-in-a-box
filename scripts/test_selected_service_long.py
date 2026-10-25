@@ -14,6 +14,7 @@ import test_deepseek_tuning as tuning_tests
 import test_selected_service as lifecycle_tests
 import test_selected_service_process as process_tests
 import test_selected_service_graphs as graphs_tests
+import test_selected_service_smoke as smoke_tests
 
 
 def long_lab():
@@ -22,6 +23,48 @@ def long_lab():
 
 
 class LongProfileTests(unittest.TestCase):
+    def test_long_budget_is_reserved_before_admission_and_never_renews(self):
+        clock = lifecycle_tests.Clock()
+        with mock.patch.object(service, "time", clock), mock.patch.object(service.pilot, "time", clock):
+            for seconds in (0, 375, 1935):
+                with self.assertRaises(ValueError):
+                    service.Contract.begin(clock.timestamp(seconds), input_price="1", output_price="2",
+                        execution_profile=engine.LONG_PROFILE)
+            contract = service.Contract.begin(clock.timestamp(4800), input_price="1", output_price="2",
+                execution_profile=engine.LONG_PROFILE)
+            self.assertEqual((contract.request_seconds, contract.drain_seconds, contract.cleanup_reserve),
+                             (900, 930, 1935))
+            self.assertEqual(contract.lifetime["admission_stop_at"], clock.timestamp(4800 - 1935))
+            self.assertLessEqual(contract.startup_deadline, contract.hard_monotonic - 1935)
+            clock.advance(4800)
+            with self.assertRaises(ValueError):
+                service.Contract.begin(contract.hard_stop_at, input_price="1", output_price="2",
+                    execution_profile=engine.LONG_PROFILE)
+
+    def test_wait_drain_uses_profile_but_never_exceeds_absolute_deadline(self):
+        fixture = process_tests.ProcessTests()
+        fixture.setUp()
+        try:
+            fixture.prepared.lab = process_tests.lab_contract(engine.LONG_PROFILE)
+            child = mock.Mock()
+            child.wait.return_value = 0
+            with mock.patch.object(process_tests.process.time, "monotonic", return_value=100):
+                self.assertTrue(fixture.owner.wait_drain("tls", child, 1100))
+                child.wait.assert_called_once_with(timeout=920)
+                child.wait.reset_mock()
+                self.assertTrue(fixture.owner.wait_drain("tls", child, 150))
+                child.wait.assert_called_once_with(timeout=50)
+        finally:
+            fixture.doCleanups()
+
+    def test_watchdog_derives_long_cleanup_from_owned_container_profile(self):
+        budget = smoke_tests.smoke.cleanup_budget
+        self.assertEqual(budget({"Config": {"Cmd": ["--execution-profile", engine.LONG_PROFILE]}}), 1935)
+        for command in (None, [], ["--execution-profile"],
+                        ["--execution-profile", engine.LONG_PROFILE, "--execution-profile", engine.EAGER_PROFILE],
+                        ["--execution-profile", engine.EAGER_PROFILE], ["--execution-profile", "invalid"]):
+            self.assertEqual(budget({"Config": {"Cmd": command}}), service.CLEANUP_RESERVE)
+
     def test_tls_body_bound_and_retirement_budget_match_profile(self):
         for profile, limit in ((engine.LONG_PROFILE, 4 << 20), (engine.EAGER_PROFILE, 65536),
                                (engine.QUALITY_PROFILE, 65536), (engine.GRAPHS_PROFILE, 65536)):
@@ -35,8 +78,15 @@ class LongProfileTests(unittest.TestCase):
                 args = popen.call_args.args[0]
                 self.assertEqual(args[args.index("--max-request-bytes") + 1], str(limit))
                 self.assertEqual(args[args.index("--max-inflight") + 1], str(contract.max_inflight))
-                self.assertEqual(contract.admission_stop_at, fixture.contract.admission_stop_at)
-                self.assertEqual(contract.lifetime, fixture.contract.lifetime)
+                if profile == engine.LONG_PROFILE:
+                    self.assertEqual(args[args.index("--shutdown-grace") + 1], "910s")
+                    self.assertEqual(contract.cleanup_reserve, 1935)
+                    self.assertEqual(contract.admission_stop_at,
+                        service.retirement_at(contract.hard_wall - 1935))
+                else:
+                    self.assertNotIn("--shutdown-grace", args)
+                    self.assertEqual(contract.admission_stop_at, fixture.contract.admission_stop_at)
+                    self.assertEqual(contract.lifetime, fixture.contract.lifetime)
             finally:
                 fixture.doCleanups()
 

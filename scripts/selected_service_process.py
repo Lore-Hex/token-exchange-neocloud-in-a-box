@@ -260,6 +260,7 @@ class ProcessOwner:
             command[command.index("--max-inflight") + 1] = str(contract.max_inflight)
             if contract.execution_profile == engine_entry.LONG_PROFILE:
                 command[command.index("--max-request-bytes") + 1] = str(4 << 20)
+                command += ["--shutdown-grace", str(contract.request_seconds + 10) + "s"]
             env = self.env
         else:
             raise service.Rejected("contract")
@@ -394,7 +395,10 @@ class ProcessOwner:
         return True
 
     def wait_drain(self, role, child, deadline):
-        return child.wait(timeout=max(0, min(140, deadline - time.monotonic()))) == 0
+        # The supervisor supplies the profile-bound absolute deadline. Never
+        # restart a timeout here or cap a long stream at the legacy 140 seconds.
+        wait = service.request_seconds(self.prepared.lab["execution_profile"]) + 20
+        return child.wait(timeout=max(0, min(wait, deadline - time.monotonic()))) == 0
 
     def reap(self, role, child, deadline):
         reaped = False

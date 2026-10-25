@@ -62,7 +62,7 @@ func (p serviceProfile) catalog(provider ProviderConfig, inputPrice, outputPrice
 			"pricing": map[string]any{"currency": "USD", "unit": "per_1m_tokens", "input": inputPrice,
 				"output": outputPrice, "cached_input": nil, "cache_write": nil, "minimum_request": "0"},
 			"lifecycle": map[string]any{"status": "active", "deprecation_at": nil, "retirement_at": retirementAt, "replacement_model_id": nil},
-			"reliability": map[string]any{"first_token_timeout_seconds": 30, "completion_timeout_seconds": 120,
+			"reliability": map[string]any{"first_token_timeout_seconds": 30, "completion_timeout_seconds": int(p.requestTimeout() / time.Second),
 				"stream_idle_timeout_seconds": 30, "capacity_scope": "model"},
 		}},
 	})
@@ -76,6 +76,12 @@ type Handler struct {
 	slots      chan struct{}
 	retirement time.Time
 	now        func() time.Time
+}
+
+// ShutdownGrace keeps active inference alive after admissions stop. The outer
+// TLS shim and owner must provide at least this much drain time as well.
+func (h *Handler) ShutdownGrace() time.Duration {
+	return h.profile.requestTimeout() + 10*time.Second
 }
 
 // New fixes the backend to loopback. Neither requests nor environment variables
@@ -106,7 +112,7 @@ func NewWithProfile(profileName string, provider ProviderConfig, key, inputPrice
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	transport.DisableKeepAlives = true
-	transport.ResponseHeaderTimeout = 120 * time.Second
+	transport.ResponseHeaderTimeout = profile.requestTimeout()
 	h := &Handler{profile: profile, key: sha256.Sum256([]byte("Bearer " + key)), catalog: catalog, slots: make(chan struct{}, profile.concurrent),
 		retirement: retirement, now: time.Now}
 	h.proxy = &httputil.ReverseProxy{
@@ -205,9 +211,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 503, "pilot_retired")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), h.profile.requestTimeout())
 	defer cancel()
-	_ = controller.SetWriteDeadline(time.Now().Add(120 * time.Second))
+	_ = controller.SetWriteDeadline(time.Now().Add(h.profile.requestTimeout()))
 	defer func() { _ = controller.SetWriteDeadline(time.Time{}) }()
 	r = r.Clone(ctx)
 	r.Body = io.NopCloser(bytes.NewReader(body))
