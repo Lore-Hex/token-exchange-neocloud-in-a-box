@@ -1,9 +1,11 @@
 # Selected closed-NAT proof candidate
 
-Status: implemented; the [two real observations](../../evidence/p2/2026-10-25-selected-nat-policy-failure/README.md)
-failed at the policy stage after all 15 baseline controls passed. The second
-locates the attempted step at readback. The negative controls were not reached
-and this policy is **not qualified**. This is a
+Status: the [corrected CPU experiment passed](../../evidence/p2/2026-10-25-selected-nat-pass/README.md):
+all 15 baseline controls, only two protected TLS paths allowed, 13 negative
+paths blocked, unchanged DNS relay counters and confirmed cleanup. The
+[two earlier failures](../../evidence/p2/2026-10-25-selected-nat-policy-failure/README.md)
+remain failures. This qualifies only the exact CPU experiment, **not GPU-host
+networking or a public service**. This is a
 GPU-free network experiment, not a public service owner or permission to change
 a host firewall. The earlier [isolated-bridge observation](p2-t4-selected-network-probe.md)
 does not qualify this alternative. No inference, credentials, model weights,
@@ -70,11 +72,11 @@ relevant conntrack expression bases). Actual readback is not normalized and
 arbitrary missing or added expressions are not accepted. Predicate removals,
 wrong family/address/port, changed verdicts, extra rules/fields and rule-order
 changes fail. Full input-batch hash and existing packet-condition tests protect
-the unchanged installed policy. This correction is software-only compatibility
-work. The diagnostic observation failed at readback, after check/apply completed,
+the unchanged installed policy. The diagnostic observation failed at readback, after check/apply completed,
 but captured no rules or exception details. Canonicalization remains a candidate
-cause, not a measured mismatch; fetching and validation share that step. No run
-of the corrected expected form is claimed.
+cause, not a captured mismatch; fetching and validation share that step. The
+subsequent corrected experiment passed without changing the installed batch;
+it does not recover the missing historical rules or exception details.
 
 ### DNS is a separate boundary
 
@@ -175,8 +177,8 @@ diagnostic does not change policy, deadlines or pass gates.
 
 ## Execution gate and next step
 
-**No venue is qualified by this change.** Before execution, independently review
-this exact commit and verify a dedicated CPU-only Linux amd64 venue with:
+**Only the recorded CPU experiment is qualified.** Before another execution,
+independently review the exact commit and verify a dedicated CPU-only Linux amd64 venue with:
 
 - CPython **3.12.13** as the host supervisor, Docker daemon **29.1.3**, nftables
   **1.0.9**, and util-linux unshare **2.39.3**. Host and image interpreters are
