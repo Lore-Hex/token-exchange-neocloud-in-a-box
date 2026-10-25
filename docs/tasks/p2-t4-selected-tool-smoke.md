@@ -47,9 +47,11 @@ and forwarded only as native assistant history, never retained in the receipt.
 fixed route and socket deadlines; no checker wheel or independent HTTP client
 is used. `stream_transport.StreamResponse` and `response_length` retain strict
 chunk framing/status/EOF checks. The new narrow delta collector inherits
-`StreamMeasurement` SSE framing, timing, size bounds and usage arithmetic. Its
-usage method is extracted unchanged for shared use; existing text-only parsing
-still rejects tools. Native response bytes/finish reasons are not rewritten.
+`StreamMeasurement` SSE framing, timing and size bounds. Tool-specific usage
+validation mirrors the legacy integer arithmetic locally; the source-bound
+legacy collector, transport and measurement bytes remain unchanged. Existing
+text-only parsing still rejects tools. Native response bytes/finish reasons are
+not rewritten.
 
 The tool phase is bounded by the minimum of 250 seconds and the original owner
 cutoff minus its cleanup reserve. Each request also retains the existing

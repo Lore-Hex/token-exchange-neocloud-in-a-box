@@ -50,7 +50,7 @@ def contract():
 
 
 class ToolStream(measurement.StreamMeasurement):
-    """Reuse bounded SSE framing/usage, specializing only native delta semantics."""
+    """Reuse frozen SSE framing; native tool deltas and usage stay local."""
 
     def __init__(self):
         super().__init__(service.MODEL, timeout_seconds=inference.REQUEST_SECONDS,
@@ -129,6 +129,24 @@ class ToolStream(measurement.StreamMeasurement):
             check(self.finish_reason is not None and row.get("usage") is not None)
         if row.get("usage") is not None:
             self.record_usage(row["usage"])
+
+    def record_usage(self, usage):
+        # Mirror the legacy arithmetic without changing its source-bound bytes.
+        check, integer = measurement.require, measurement.integer
+        check(self.finish_reason is not None and self.usage is None and type(usage) is dict)
+        prompt, output, total = (usage.get(key) for key in
+                                 ("prompt_tokens", "completion_tokens", "total_tokens"))
+        check(integer(prompt, self.max_prompt) and integer(output, self.max_output) and output > 0
+              and integer(total, self.max_prompt + self.max_output) and total == prompt + output)
+        details = usage.get("prompt_tokens_details")
+        check(details is None or type(details) is dict)
+        cached = None if details is None else details.get("cached_tokens")
+        check(cached is None or integer(cached, prompt))
+        details = usage.get("completion_tokens_details")
+        check(details is None or type(details) is dict)
+        reasoning = None if details is None else details.get("reasoning_tokens")
+        check(reasoning is None or integer(reasoning, output))
+        self.usage = (prompt, output, cached)
 
     def qualify(self, case):
         require(self.closed and not self.failure and self.done and self.usage is not None

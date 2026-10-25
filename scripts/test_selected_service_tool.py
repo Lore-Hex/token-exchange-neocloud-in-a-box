@@ -195,6 +195,31 @@ class ToolTests(unittest.TestCase):
                 self.assertEqual(row["result"], "fail")
                 self.assertEqual(row["usage_unknown"]["call"], "status" in kwargs)
 
+    def test_tool_local_usage_validation_keeps_strict_legacy_integer_bounds(self):
+        good = rows()[-1]["usage"]
+        changes = [{key: value} for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+                   for value in (True, -1, 1.5, "12", 100000)]
+        changes += [{"completion_tokens": 0, "total_tokens": 42},
+                    {"prompt_tokens_details": []}, {"completion_tokens_details": []},
+                    {"prompt_tokens_details": {"cached_tokens": True}},
+                    {"prompt_tokens_details": {"cached_tokens": 43}},
+                    {"completion_tokens_details": {"reasoning_tokens": True}},
+                    {"completion_tokens_details": {"reasoning_tokens": 13}}]
+        for change in changes:
+            values = rows()
+            values[-1]["usage"] = {**good, **change}
+            with self.subTest(change=change), self.fixture(first=chunks(values)) as state:
+                row = self.run_helper(state)
+                self.assertEqual(row["result"], "fail")
+                self.assertIsNone(row["usage"]["call"])
+                self.assertTrue(row["usage_unknown"]["call"])
+                self.assertFalse(row["attempts"]["continuation"])
+        values = rows()
+        values[-1]["usage"].update(prompt_tokens_details={"cached_tokens": 42},
+                                  completion_tokens_details={"reasoning_tokens": 12})
+        with self.fixture(first=chunks(values)) as state:
+            self.assertEqual(self.run_helper(state), receipt(state.sha))
+
     def test_continuation_rejects_another_tool_wrong_answer_or_reasoning_only(self):
         for kind in ("tool", "wrong", "reasoning"):
             values = rows() if kind == "tool" else rows("continuation")

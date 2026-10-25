@@ -191,23 +191,20 @@ class StreamMeasurement:
             require(self.finish_reason is not None and row.get("usage") is not None)
         usage = row.get("usage")
         if usage is not None:
-            self.record_usage(usage)
-
-    def record_usage(self, usage):
-        require(self.finish_reason is not None and self.usage is None and type(usage) is dict)
-        prompt, output, total = (usage.get(key) for key in
-                                 ("prompt_tokens", "completion_tokens", "total_tokens"))
-        require(integer(prompt, self.max_prompt) and integer(output, self.max_output) and output > 0
-                and integer(total, self.max_prompt + self.max_output) and total == prompt + output)
-        details = usage.get("prompt_tokens_details")
-        require(details is None or type(details) is dict)
-        cached = None if details is None else details.get("cached_tokens")
-        require(cached is None or integer(cached, prompt))
-        details = usage.get("completion_tokens_details")
-        require(details is None or type(details) is dict)
-        reasoning = None if details is None else details.get("reasoning_tokens")
-        require(reasoning is None or integer(reasoning, output))
-        self.usage = (prompt, output, cached)
+            require(self.finish_reason is not None and type(usage) is dict)
+            prompt, output, total = (usage.get(key) for key in
+                                     ("prompt_tokens", "completion_tokens", "total_tokens"))
+            require(integer(prompt, self.max_prompt) and integer(output, self.max_output) and output > 0
+                    and integer(total, self.max_prompt + self.max_output) and total == prompt + output)
+            details = usage.get("prompt_tokens_details")
+            require(details is None or type(details) is dict)
+            cached = None if details is None else details.get("cached_tokens")
+            require(cached is None or integer(cached, prompt))
+            details = usage.get("completion_tokens_details")
+            require(details is None or type(details) is dict)
+            reasoning = None if details is None else details.get("reasoning_tokens")
+            require(reasoning is None or integer(reasoning, output))
+            self.usage = (prompt, output, cached)
 
     def close(self, elapsed, *, failure=None):
         require(not self.closed and (failure is None or failure in FAILURES))
