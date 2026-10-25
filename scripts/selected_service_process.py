@@ -456,6 +456,7 @@ def main(argv=None):
     mode.add_argument("--inference-smoke", action="store_true")
     mode.add_argument("--conformance-smoke", action="store_true")
     mode.add_argument("--protocol-smoke", action="store_true")
+    mode.add_argument("--tool-smoke", action="store_true")
     args = parser.parse_args(argv)
     shutdown = threading.Event()
     handlers = {number: signal.signal(number, lambda *_: shutdown.set())
@@ -475,13 +476,13 @@ def main(argv=None):
             owner = ProcessOwner(prepared, inputs, args.hostname, shutdown)
             result = service.Supervisor(contract, inputs, owner, shutdown).run(
                 inference_smoke=args.inference_smoke, conformance_smoke=args.conformance_smoke,
-                protocol_smoke=args.protocol_smoke)
-        if (args.inference_smoke or args.conformance_smoke or args.protocol_smoke) and shutdown.is_set() and result["status"] != "failed":
+                protocol_smoke=args.protocol_smoke, tool_smoke=args.tool_smoke)
+        if (args.inference_smoke or args.conformance_smoke or args.protocol_smoke or args.tool_smoke) and shutdown.is_set() and result["status"] != "failed":
             result.update(status="failed", reason="cancelled")
         print(json.dumps(result, sort_keys=True))
         return 0 if result["status"] in ("retired", "cancelled") else 1
     except BaseException as error:
-        if not (args.inference_smoke or args.conformance_smoke or args.protocol_smoke):
+        if not (args.inference_smoke or args.conformance_smoke or args.protocol_smoke or args.tool_smoke):
             print('{"schema":"nib.selected-service-lifecycle/v1","status":"failed","reason":"preparation",'
                   '"deployable":false,"hardware_validated":false}')
             return 1
@@ -498,6 +499,8 @@ def main(argv=None):
                 result.update(schema=service.CONFORMANCE_SCHEMA, mode=service.CONFORMANCE_MODE, conformance=None)
             if args.protocol_smoke:
                 result.update(schema=service.PROTOCOL_SCHEMA, mode=service.PROTOCOL_MODE, protocol=None)
+            if args.tool_smoke:
+                result.update(schema=service.TOOL_SCHEMA, mode=service.TOOL_MODE, tool_roundtrip=None)
         print(json.dumps(result, sort_keys=True))
         return 1
     finally:
