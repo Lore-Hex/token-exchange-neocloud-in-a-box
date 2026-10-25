@@ -168,22 +168,22 @@ def container_command(name, token, build, base, weights, inputs, args, stop_at):
            ["--inference-smoke"] if getattr(args, "inference_smoke", False) else [])
 
 
-def check_container(info, identifier, name, token, build, image, command, weights, inputs):
+def check_container_runtime(info, identifier, name, token, build, image, command, weights, inputs):
+    """Identity and runtime limits only; callers must also validate networking."""
     config, host = info["Config"], info["HostConfig"]
     require(info["Id"] == identifier and info["Name"] == "/" + name and info["Image"] == build["image_id"]
         and config["Image"] == build["image_id"] and config["Labels"].get(LABEL) == token
         and config["Entrypoint"] == image["Config"]["Entrypoint"]
         and config["Cmd"] == command[command.index(build["image_id"]) + 1:]
         and config["User"] == "65532:65532" and config["WorkingDir"] == "/"
-        and not config.get("Tty") and not config.get("OpenStdin") and not config.get("ExposedPorts")
+        and not config.get("Tty") and not config.get("OpenStdin")
         and config["Healthcheck"]["Test"] == ["NONE"], "identity")
     env = [command[index + 1] for index, value in enumerate(command) if value == "--env"]
     require(len(config["Env"]) == len(env) and set(config["Env"]) == set(env), "identity")
-    require(host["NetworkMode"] == "none" and set(info["NetworkSettings"]["Networks"]) == {"none"}
-        and not info["NetworkSettings"].get("Ports") and host["Privileged"] is False
+    require(host["Privileged"] is False
         and host["ReadonlyRootfs"] is True and host["Runtime"] == "nvidia"
         and host["CapDrop"] == ["ALL"] and not host.get("CapAdd") and not host.get("Devices")
-        and not host.get("DeviceCgroupRules") and not host.get("PortBindings") and not host.get("PublishAllPorts")
+        and not host.get("DeviceCgroupRules")
         and not host.get("PidMode") and not host.get("UTSMode") and not host.get("VolumesFrom")
         and not host.get("Binds") and not host.get("GroupAdd") and not host.get("Init")
         and host["IpcMode"] == "private" and host["ShmSize"] == 2 << 30
@@ -199,6 +199,16 @@ def check_container(info, identifier, name, token, build, image, command, weight
     require(len(info["Mounts"]) == 2 and {(row["Type"], row["Source"], row["Destination"], row["RW"])
         for row in info["Mounts"]} == {("bind", str(weights), "/model", False),
         ("bind", str(inputs), "/run/nib-inputs", False)}, "mounts")
+
+
+def check_container(info, identifier, name, token, build, image, command, weights, inputs):
+    """The existing smoke contract remains strictly network-none."""
+    check_container_runtime(info, identifier, name, token, build, image, command, weights, inputs)
+    require(not info["Config"].get("ExposedPorts"), "identity")
+    host = info["HostConfig"]
+    require(host["NetworkMode"] == "none" and set(info["NetworkSettings"]["Networks"]) == {"none"}
+        and not info["NetworkSettings"].get("Ports") and not host.get("PortBindings")
+        and not host.get("PublishAllPorts"), "runtime-limits")
 
 
 class Docker:
@@ -515,6 +525,49 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
             result.update(result="pass", status="PASS", reason="completed")
 
 
+@contextmanager
+def admitted_runtime(args, result):
+    """Yield one original contract and verified inputs, alive until owner cleanup."""
+    require(threading.current_thread() is threading.main_thread(), "contract")
+    contract = service.Contract.begin(args.hard_stop_at, input_price=args.input_price,
+                                      output_price=args.output_price)
+    require(contract.hard_monotonic - time.monotonic() <= 4800, "lifetime")
+    deadline = min(time.monotonic() + SECONDS, contract.hard_monotonic - service.CLEANUP_RESERVE)
+    with ExitStack() as stack:
+        with service.identity.worker.alarm(deadline):
+            require(sys.platform == "linux" and os.getuid() == 0, "contract")
+            require(type(args.hostname) is str and len(args.hostname) <= 253
+                    and re.fullmatch(r"[a-z0-9]+(?:[.-][a-z0-9]+)*", args.hostname), "contract")
+            lab, recorder = host_recorder()
+            env = lab.controlled_env(args.docker_host)
+            result["reason"] = "build-identity"
+            preparation, _, lab_contract = image_builder.validated_files(Path(args.preparation), args.preparation_sha256)
+            build = image_builder.validate_build_record(lab.read(args.build_report, 16384), args.build_sha256,
+                                                        preparation, args.preparation_sha256, lab_contract)
+            config = recorder.raw_metadata(Path(args.preparation) / "metadata", lab_contract)
+            result["reason"] = "image-identity"
+            def execute(command, **kwargs):
+                require(command[:5] == ["docker", "image", "inspect", "--format", "{{json .}}"]
+                        and len(command) == 6 and command[5] in
+                        (recorder.overlay.BASE_IMAGE, build["image_id"]), "contract")
+                remaining = min(deadline - time.monotonic(), contract.hard_wall - time.time()
+                                - service.CLEANUP_RESERVE) - CLIENT_REAP
+                require(remaining > 0, "deadline")
+                kwargs["timeout"] = min(kwargs["timeout"], remaining)
+                return recorder.snapshot.execute_process_group(command, **kwargs)
+            base = recorder.docker_json("image", recorder.overlay.BASE_IMAGE, env, execute)
+            image = recorder.docker_json("image", build["image_id"], env, execute)
+            check_image(base, image, build, recorder, config, lab_contract)
+            result["reason"] = "private-inputs"
+            inputs = stack.enter_context(staged_inputs(args, lab))
+            require(time.monotonic() < deadline and time.time() <
+                    contract.hard_wall - service.CLEANUP_RESERVE, "deadline")
+            result.update(preflight_pass=True, reason="not-run", build_sha256=args.build_sha256,
+                preparation_sha256=args.preparation_sha256, prepared_sha256=build["prepared_sha256"],
+                image_id=build["image_id"])
+        yield contract, lab, recorder, env, build, base, image, inputs
+
+
 def preflight(args):
     result = report()
     if getattr(args, "inference_smoke", False):
@@ -529,43 +582,7 @@ def preflight(args):
         require(sum(getattr(args, name, False) for name in (
             "inference_smoke", "conformance_smoke", "protocol_smoke", "tool_smoke")) <= 1,
                 "contract")
-        require(threading.current_thread() is threading.main_thread(), "contract")
-        contract = service.Contract.begin(args.hard_stop_at, input_price=args.input_price,
-                                          output_price=args.output_price)
-        require(contract.hard_monotonic - time.monotonic() <= 4800, "lifetime")
-        deadline = min(time.monotonic() + SECONDS, contract.hard_monotonic - service.CLEANUP_RESERVE)
-        with ExitStack() as stack:
-            with service.identity.worker.alarm(deadline):
-                require(sys.platform == "linux" and os.getuid() == 0, "contract")
-                require(type(args.hostname) is str and len(args.hostname) <= 253
-                        and re.fullmatch(r"[a-z0-9]+(?:[.-][a-z0-9]+)*", args.hostname), "contract")
-                lab, recorder = host_recorder()
-                env = lab.controlled_env(args.docker_host)
-                result["reason"] = "build-identity"
-                preparation, _, lab_contract = image_builder.validated_files(Path(args.preparation), args.preparation_sha256)
-                build = image_builder.validate_build_record(lab.read(args.build_report, 16384), args.build_sha256,
-                                                            preparation, args.preparation_sha256, lab_contract)
-                config = recorder.raw_metadata(Path(args.preparation) / "metadata", lab_contract)
-                result["reason"] = "image-identity"
-                def execute(command, **kwargs):
-                    require(command[:5] == ["docker", "image", "inspect", "--format", "{{json .}}"]
-                            and len(command) == 6 and command[5] in
-                            (recorder.overlay.BASE_IMAGE, build["image_id"]), "contract")
-                    remaining = min(deadline - time.monotonic(), contract.hard_wall - time.time()
-                                    - service.CLEANUP_RESERVE) - CLIENT_REAP
-                    require(remaining > 0, "deadline")
-                    kwargs["timeout"] = min(kwargs["timeout"], remaining)
-                    return recorder.snapshot.execute_process_group(command, **kwargs)
-                base = recorder.docker_json("image", recorder.overlay.BASE_IMAGE, env, execute)
-                image = recorder.docker_json("image", build["image_id"], env, execute)
-                check_image(base, image, build, recorder, config, lab_contract)
-                result["reason"] = "private-inputs"
-                inputs = stack.enter_context(staged_inputs(args, lab))
-                require(time.monotonic() < deadline and time.time() <
-                        contract.hard_wall - service.CLEANUP_RESERVE, "deadline")
-                result.update(preflight_pass=True, reason="not-run", build_sha256=args.build_sha256,
-                    preparation_sha256=args.preparation_sha256, prepared_sha256=build["prepared_sha256"],
-                    image_id=build["image_id"])
+        with admitted_runtime(args, result) as (contract, lab, recorder, env, build, base, image, inputs):
             if args.run:
                 run_container(args, contract, lab, recorder, env, build, base, image, inputs, result)
     except BaseException:

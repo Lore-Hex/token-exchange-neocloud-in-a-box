@@ -41,6 +41,38 @@ inventory and public file/directory modes. The service then performs the full
 manifest hash check before starting its engine. Original cache permissions
 are never relaxed by this owner.
 
+## Shared admission boundary
+
+The software-only `admitted_runtime(args, result)` context manager now contains
+the existing non-network admission sequence. It constructs the original finite
+contract exactly once, retains the 80-minute limit and setup/cleanup reserves,
+checks Linux/root, hostname, local Docker environment, prepared source/build
+and image identity, and stages the same private input snapshots. It yields
+`(contract, lab, recorder, env, build, base, image, inputs)` outside the setup
+alarm, keeping inputs alive until the consuming owner has finished cleanup.
+Source, command and deadline checks are unchanged. Exceptions, cancellation
+and input cleanup failures propagate to the caller; the smoke CLI retains its
+existing closed failure projection, including rejection of a tentative PASS
+when private-input cleanup fails.
+
+`check_container_runtime(...)` checks the existing container identity, exact
+command/environment, security/resource/device limits and bind mounts. It does
+**not** approve any network topology. The smoke `check_container(...)` wrapper
+also requires `NetworkMode=none`, exactly the `none` network and no exposed
+ports, requested/operational publication or publish-all. There is no flag to
+disable those checks. A future NAT owner must provide its own strict network
+inspection in addition to the shared runtime checks; changing inspection data
+to masquerade as `none` is not an integration path.
+
+This extraction adds no runtime mode, launcher, Docker command or receipt
+field. It does not start an engine, validate network policy, extend deadlines
+or establish readiness. Weight-view validation remains at its original place
+in `run_container`, before create. A future owner must retain that check and
+the original contract through its complete lifecycle and teardown. The smoke
+argv, lifecycle validators, bounded Docker helper and watchdog are unchanged.
+Focused tests use fake Docker results and clocks only. They do not qualify a
+public endpoint or replace any measured run or independent review gate.
+
 ## Runtime and lifetime
 
 There is exactly one create and one start attempt, with no image pull, build,
