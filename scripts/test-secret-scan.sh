@@ -266,7 +266,7 @@ done <<'CASES'
 CASES
 
 # Selected trial originals retain exact public hashes, not whole-line exemptions.
-for trial_set in protocol-failure-1854 tool-error-2009 tool-rejection-0245; do
+for trial_set in protocol-failure-1854 tool-error-2009 tool-rejection-0245 email-relation-0429; do
 while IFS='|' read -r relative format field known suffix; do
   target="$tmp/selected-trial/evidence/p2/2026-10-24-selected-tau-$trial_set/$relative"
   if [[ "$trial_set" == tool-error-2009 ]]; then
@@ -280,6 +280,13 @@ while IFS='|' read -r relative format field known suffix; do
     case "$field" in
       evaluator-tokenizer.json) known=b18f504ad5436175a17b5a72258e698a9ad85a06c4d83bd32e20e47decb7e19f ;;
       simulator-tokenizer.json) known=7366286c4deaa828cebdbabbb25ae69e2a08751c87e76dcd9c7bfb5be8eb5d6e ;;
+    esac
+  fi
+  if [[ "$trial_set" == email-relation-0429 ]]; then
+    target="$tmp/selected-trial/evidence/p2/2026-10-25-selected-tau-$trial_set/$relative"
+    case "$field" in
+      evaluator-tokenizer.json) known=5399ca695c17ed4a152ae834f258daab23b5fc92a58b67124f86ffc7cb0f0393 ;;
+      simulator-tokenizer.json) known=477d1e86f6fbd5083acaf2560e78abf4b014371c71cc750d68fd1edbaf0ca09a ;;
     esac
   fi
   mkdir -p "$(dirname "$target")"
