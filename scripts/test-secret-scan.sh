@@ -286,8 +286,11 @@ done <<'CASES'
 CASES
 
 # Selected trial originals retain exact public hashes, not whole-line exemptions.
-for trial_set in protocol-failure-1854 tool-error-2009 tool-rejection-0245 email-relation-0429 customer-resolution-1117; do
+for trial_set in protocol-failure-1854 tool-error-2009 tool-rejection-0245 email-relation-0429 customer-resolution-1117 public-conformance; do
 while IFS='|' read -r relative format field known suffix; do
+  if [[ "$trial_set" == public-conformance && ( "$relative" != evidence/output.log || "$field" != scripts/engine_tokenizer_parity.py ) ]]; then
+    continue
+  fi
   if [[ "$field" == tokenizer_sha256 && "$relative" != cpu/* && "$trial_set" != customer-resolution-1117 ]]; then
     continue
   fi
@@ -318,6 +321,9 @@ while IFS='|' read -r relative format field known suffix; do
       evaluator-tokenizer.json) known=f16cd5c46c9cdb24fccba8be1c07222f8632f42a3c2eb541de5b8f6f38bef79b ;;
       simulator-tokenizer.json) known=c712f03c74f4046360aaa5f36e74b15685e24329f9627ac3c3d679be896a765d ;;
     esac
+  fi
+  if [[ "$trial_set" == public-conformance ]]; then
+    target="$tmp/selected-trial/evidence/p2/2026-10-25-selected-public-conformance/conformance.json"
   fi
   mkdir -p "$(dirname "$target")"
   write_receipt_field "$target" "$field" "$known"
