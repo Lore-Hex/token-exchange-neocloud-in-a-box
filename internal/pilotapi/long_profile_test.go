@@ -96,7 +96,9 @@ func TestLongCacheIsolation(t *testing.T) {
 	}
 	a := `,"cache_salt":"` + strings.Repeat("a", 64) + `"`
 	b := `,"cache_salt":"` + strings.Repeat("b", 64) + `"`
-	if salt(a) != salt(a) || salt(a) == salt(b) || salt("") == salt("") || salt(a) == strings.Repeat("a", 64) {
+	first, repeated, other := salt(a), salt(a), salt(b)
+	anonymous, nextAnonymous := salt(""), salt("")
+	if first != repeated || first == other || anonymous == nextAnonymous || first == strings.Repeat("a", 64) {
 		t.Fatal("cache scope not stable, isolated and domain-separated")
 	}
 	for _, raw := range []string{`null`, `true`, `1`, `[]`, `""`, `"abc"`, `"` + strings.Repeat("A", 64) + `"`, `"` + strings.Repeat("z", 64) + `"`} {
