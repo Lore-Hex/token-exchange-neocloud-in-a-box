@@ -12,6 +12,7 @@ if __name__ == "__main__":
 
 import argparse
 import copy
+from contextlib import ExitStack
 from datetime import datetime, timezone
 import hashlib
 import importlib.util
@@ -33,6 +34,8 @@ SOURCES = (*proof.SOURCES, SOURCE)
 FILES = ("firewall.json", "resolver.json", "resolver.conf")
 LIMIT = 262144
 CAPTURE_SECONDS = 30
+# Venue-observed numeric identity, not a portable systemd UID allocation.
+RESOLVED_NAME, RESOLVED_ID = b"systemd-resolve", 989
 
 
 def digest(raw):
@@ -127,12 +130,76 @@ def host_identity():
             "mount": os.stat("/proc/self/ns/mnt").st_ino, "boot_sha256": digest(boot)}
 
 
+def resolver_service_identity():
+    # Bounded local files only; do not invoke NSS or retain account records.
+    for filename, fields in (("passwd", 7), ("group", 4)):
+        raw, _ = read_file(Path("/etc") / filename, private=False)
+        rows = [line.split(b":") for line in raw.splitlines() if line and not line.startswith(b"#")]
+        require(all(len(row) == fields and re.fullmatch(rb"0|[1-9][0-9]{0,9}", row[2])
+                    and int(row[2]) < (1 << 32) - 1 for row in rows))
+        matches = [row for row in rows if row[0] == RESOLVED_NAME
+                   or int(row[2]) == RESOLVED_ID]
+        require(len(matches) == 1 and len(matches[0]) == fields
+                and matches[0][0] == RESOLVED_NAME and matches[0][2] == str(RESOLVED_ID).encode())
+        if filename == "passwd":
+            require(matches[0][3] == str(RESOLVED_ID).encode())
+
+
+def resolver_owner(row, venue, *, link=False):
+    ordinary = venue == proof.ORDINARY_VENUE
+    require(row["uid"] == (RESOLVED_ID if ordinary and not link else 0))
+    if ordinary:
+        require(row["gid"] == (0 if link else RESOLVED_ID))
+
+
+def read_resolved_stub():
+    """Only the closed ordinary venue's service-owned stub; no general owner override."""
+    with ExitStack() as stack:
+        parents = []
+        identity = lambda row: (row.st_dev, row.st_ino, row.st_uid, row.st_gid, row.st_mode)
+        def directory(name, parent=None, owner=0):
+            fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+            stack.callback(os.close, fd)
+            row = os.fstat(fd)
+            require(stat.S_ISDIR(row.st_mode) and row.st_uid == owner and row.st_gid == owner
+                    and not row.st_mode & 0o022)
+            parents.append((parent, name, fd, identity(row)))
+            return fd
+        root = directory("/")
+        directory("etc", root)
+        run = directory("run", root)
+        systemd = directory("systemd", run)
+        resolve = directory("resolve", systemd, RESOLVED_ID)
+        resolver_service_identity()
+        name = "stub-resolv.conf"
+        before = os.stat(name, dir_fd=resolve, follow_symlinks=False)
+        resolver_owner(stamp(before), proof.ORDINARY_VENUE)
+        require(stat.S_ISREG(before.st_mode) and before.st_nlink == 1
+                and not before.st_mode & 0o022 and before.st_size <= 65536)
+        with os.fdopen(os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=resolve), "rb") as stream:
+            require(stamp(os.fstat(stream.fileno())) == stamp(before))
+            raw = stream.read(65537)
+            require(len(raw) == before.st_size and len(raw) <= 65536
+                    and stamp(os.fstat(stream.fileno())) == stamp(before))
+        require(stamp(os.stat(name, dir_fd=resolve, follow_symlinks=False)) == stamp(before))
+        resolver_service_identity()
+        for parent, name, fd, original in parents:
+            require(identity(os.fstat(fd)) == original
+                    and identity(os.stat(name, dir_fd=parent, follow_symlinks=False)) == original)
+        return raw, stamp(before)
+
+
 def resolver_snapshot(venue):
     path = proof.RESOLVER
     before = stamp(path.lstat())
     target = proof.resolver_target(venue)
     link = str(path.readlink()) if path.is_symlink() else None
-    raw, target_stat = read_file(target, 65536, private=False)
+    if venue == proof.ORDINARY_VENUE:
+        require(target == Path("/run/systemd/resolve/stub-resolv.conf"))
+        resolver_owner(before, venue, link=True)
+        raw, target_stat = read_resolved_stub()
+    else:
+        raw, target_stat = read_file(target, 65536, private=False)
     require(stamp(path.lstat()) == before and proof.resolver_target(venue) == target
             and (str(path.readlink()) if path.is_symlink() else None) == link
             and stamp(target.lstat()) == target_stat)
@@ -183,7 +250,8 @@ def check_resolver(raw, venue):
     for key in ("link_stat", "target_stat"):
         row = value[key]
         require(type(row) is dict and set(row) == {"dev", "ino", "uid", "gid", "mode", "size", "mtime_ns", "ctime_ns"}
-                and all(type(item) is int and item >= 0 for item in row.values()) and row["uid"] == 0)
+                and all(type(item) is int and item >= 0 for item in row.values()))
+        resolver_owner(row, venue, link=key == "link_stat")
         if key == "link_stat" and ordinary:
             require(stat.S_ISLNK(row["mode"]))
         else:
