@@ -70,6 +70,11 @@ the closed `prepared` stage, before starting the engine. Existing artifacts are
 never upgraded in place; a new exact prepared receipt and approved image are
 required for this mode.
 
+Pinned wheels include empty package markers. Receipt validation permits zero
+bytes only below `context/service/checker/packages/`, with the empty-file hash,
+the pinned checker inventory and the complete prepared source/hash join all
+validated. Empty files elsewhere remain rejected; no size limit is relaxed.
+
 The new helper has a 160-second total budget, 5 seconds for each rejection and
 catalog request, and at most 120 seconds for the authenticated stream. Every
 bound is clipped to the original cutoff minus the unchanged 375-second cleanup

@@ -205,9 +205,11 @@ def validated_files(path, expected):
             and all(type(receipt[key]) is str and re.fullmatch("[0-9a-f]{64}", receipt[key])
                     for key in ("lab_receipt_sha256", "prepared_sha256", "guard_source_sha256"))
             and all(type(row) is dict and set(row) == {"bytes", "sha256"}
-                    and type(row["bytes"]) is int and 0 < row["bytes"] <= LIMIT
+                    and type(row["bytes"]) is int and 0 <= row["bytes"] <= LIMIT
                     and type(row["sha256"]) is str and re.fullmatch("[0-9a-f]{64}", row["sha256"])
-                    for row in receipt["files"].values()), "contract")
+                    and (row["bytes"] > 0 or name.startswith("context/service/checker/packages/")
+                         and row["sha256"] == digest(b""))
+                    for name, row in receipt["files"].items()), "contract")
     files, pending, seen, total = {}, [(path, 0)], 0, 0
     while pending:
         directory, depth = pending.pop()
@@ -236,6 +238,11 @@ def validated_files(path, expected):
     lab = owner.service.correctness.strict_json(files["context/payload/lab.json"])
     owner.engine_entry.canonical_arguments(lab)
     require(files["context/Dockerfile"] == dockerfile(lab, receipt["prepared_sha256"]), "identity")
+    if any(row["bytes"] == 0 for row in receipt["files"].values()):
+        # Empty wheel markers still require the pinned checker inventory and
+        # the complete prepared source/hash join, not just an allowed pathname.
+        require(owner.service.correctness.strict_json(prepared) == owner.preparation_receipt(
+            path / "context/service", digest(files["context/payload/lab.json"])), "identity")
     return receipt, files, lab
 
 

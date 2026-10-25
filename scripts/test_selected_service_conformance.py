@@ -203,6 +203,8 @@ class PackagingTests(unittest.TestCase):
             ("support.py", "scripts/tau_trial_worker.py"), ("worker.py", "scripts/provider_conformance_worker.py"),
             ("model-profile.py", "scripts/deepseek_model_profile.py"))}
         files["packages/synthetic.py"] = b"# synthetic non-executed dependency\n"
+        files["packages/empty/__init__.py"] = b""
+        files["packages/empty/py.typed"] = b""
         plan = {"schema": "nib.private-provider-payload/v1", "requirements_sha256": payload.LOCK_SHA,
             "checker_wheel_sha256": payload.CHECKER_SHA, "model_profile": service.models.select("uncensored"),
             "files": {name: {"bytes": len(raw), "sha256": process.digest(raw)} for name, raw in files.items()}}
@@ -230,6 +232,69 @@ class PackagingTests(unittest.TestCase):
             target.write_bytes(b"# changed\n")
             with self.assertRaises(ValueError):
                 process.source_files(service_root, conformance.time.monotonic() + 5)
+
+    def resign(self, destination):
+        image = image_tests.image
+        record = json.loads((destination / "receipt.json").read_bytes())
+        record["prepared_sha256"] = process.digest((destination / "context/service/prepared.json").read_bytes())
+        lab = json.loads((destination / "context/payload/lab.json").read_bytes())
+        (destination / "context/Dockerfile").write_bytes(image.dockerfile(lab, record["prepared_sha256"]))
+        record["files"] = {path.relative_to(destination).as_posix(): {
+            "bytes": len(path.read_bytes()), "sha256": process.digest(path.read_bytes())}
+            for path in destination.rglob("*") if path.is_file() and path != destination / "receipt.json"}
+        raw = encode(record)
+        (destination / "receipt.json").write_bytes(raw)
+        return process.digest(raw)
+
+    def test_empty_files_outside_checker_packages_remain_rejected(self):
+        image = image_tests.image
+        for name in ("context/service/scripts/empty.py", "context/payload/empty",
+                     "context/service/checker/worker.py", "metadata/empty"):
+            with self.subTest(name=name), image_tests.ImageTests().preparation() as state:
+                root, bundle, trcs, _, _, _ = state
+                destination = root / "prepared"
+                with mock.patch.object(payload, "prepare", return_value=self.payload()):
+                    image.prepare(bundle, hook.SHA, trcs, destination, checker_wheelhouse=root / "wheels")
+                (destination / name).write_bytes(b"")
+                with self.assertRaises(ValueError):
+                    image.validated_files(destination, self.resign(destination))
+
+    def test_empty_checker_files_require_hash_inventory_and_prepared_source_joins(self):
+        image = image_tests.image
+        for change in ("empty-sha", "trial-missing", "prepared-missing", "prepared-sha", "source", "extra"):
+            with self.subTest(change=change), image_tests.ImageTests().preparation() as state:
+                root, bundle, trcs, _, _, _ = state
+                destination = root / "prepared"
+                with mock.patch.object(payload, "prepare", return_value=self.payload()):
+                    image.prepare(bundle, hook.SHA, trcs, destination, checker_wheelhouse=root / "wheels")
+                service_root = destination / "context/service"
+                prepared = json.loads((service_root / "prepared.json").read_bytes())
+                empty = "packages/empty/py.typed"
+                if change == "trial-missing":
+                    trial = json.loads((service_root / "checker/trial.json").read_bytes())
+                    del trial["files"][empty]
+                    raw = encode(trial)
+                    (service_root / "checker/trial.json").write_bytes(raw)
+                    prepared["files"]["checker/trial.json"] = process.digest(raw)
+                elif change == "prepared-missing":
+                    del prepared["files"]["checker/" + empty]
+                elif change == "prepared-sha":
+                    prepared["files"]["checker/" + empty] = process.digest(b"not empty")
+                elif change == "source":
+                    (service_root / "scripts/selected_service_image.py").write_bytes(b"# changed\n")
+                elif change == "extra":
+                    (service_root / "checker/packages/extra.py").write_bytes(b"")
+                    prepared["files"]["checker/packages/extra.py"] = process.digest(b"")
+                (service_root / "prepared.json").write_bytes(encode(prepared))
+                expected = self.resign(destination)
+                if change == "empty-sha":
+                    record = json.loads((destination / "receipt.json").read_bytes())
+                    record["files"]["context/service/checker/" + empty]["sha256"] = process.digest(b"not empty")
+                    raw = encode(record)
+                    (destination / "receipt.json").write_bytes(raw)
+                    expected = process.digest(raw)
+                with self.assertRaises(ValueError):
+                    image.validated_files(destination, expected)
 
     def test_optional_payload_inventory_rejects_links_extras_and_wrong_model(self):
         image = image_tests.image
