@@ -193,7 +193,7 @@ PY
 done
 done
 
-for receipt_set in cpu-session-native-pass tau-cpu-prompt-fit-pass; do
+for receipt_set in cpu-session-native-pass tau-cpu-prompt-fit-pass tau-cpu-identity-followup; do
 while IFS='|' read -r relative format field known suffix; do
   if [[ "$receipt_set" == tau-cpu-prompt-fit-pass ]]; then
     case "$field" in
@@ -202,6 +202,14 @@ while IFS='|' read -r relative format field known suffix; do
     esac
   fi
   target="$tmp/held/evidence/p2/2026-10-22-$receipt_set/$relative"
+  if [[ "$receipt_set" == tau-cpu-identity-followup ]]; then
+    target="$tmp/held/evidence/p2/2026-10-25-$receipt_set/$relative"
+    case "$field" in
+      scripts/engine_tokenizer_parity.py) known=6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f ;;
+      simulator-tokenizer.json) known=d00605c53bcc2f82eaefcaa59b1ee1aaee43ce9698f0606441bbb3c5f7e74bd5 ;;
+      evaluator-tokenizer.json) known=092cb8e872d01648096dc113b225e4cdca377794593fe899822ea88b2e73a1c6 ;;
+    esac
+  fi
   mkdir -p "$(dirname "$target")"
   write_receipt_field "$target" "$field" "$known"
   expect_receipt_scan "$target" 0

@@ -11,6 +11,7 @@ if __name__ == "__main__":
         sys.exit("Use python3 -I -S -B host/record-selected-service.py")
     sys.path.insert(0, str(ROOT / "scripts"))
 
+from contextlib import contextmanager
 import json
 import os
 import select
@@ -58,12 +59,18 @@ def admitted_commands(admitted):
     return network.Commands(recorder, environment(), contract.hard_wall, contract.hard_monotonic)
 
 
-def state_directories(root):
+@contextmanager
+def empty_state_directory(root):
     with network.tau_runtime.directory(root) as fd:
         info = os.fstat(fd)
         require(info.st_uid == 0 and stat.S_IMODE(info.st_mode) == 0o700)
         with os.scandir(fd) as entries:
             require(next(entries, None) is None)
+        yield fd
+
+
+def state_directories(root):
+    with empty_state_directory(root) as fd:
         for name in ("network", "container"):
             os.mkdir(name, mode=0o700, dir_fd=fd)
         os.fsync(fd)
@@ -259,6 +266,7 @@ def run(args, admitted, selected, result):
     contract, lab, recorder, _, build, base, image, inputs = admitted
     commands = admitted_commands(admitted)
     env = commands.env
+    result.update(preflight_pass=False, reason="state-directory")
     root = smoke.private_path(args.state_dir)
     state_directories(root)
     journal = network.Journal(root / "network", selected, contract.hard_wall, contract.hard_monotonic,
@@ -366,6 +374,9 @@ def preflight(args):
                 if args.run:
                     run(args, admitted, selected, result)
                 else:
+                    result.update(preflight_pass=False, reason="state-directory")
+                    with empty_state_directory(smoke.private_path(args.state_dir)):
+                        pass
                     result.update(preflight_pass=False, reason="host-identity")
                     contract = admitted[0]
                     commands = admitted_commands(admitted)

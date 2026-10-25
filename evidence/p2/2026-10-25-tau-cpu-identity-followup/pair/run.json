@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S -B scripts/record-tau-cpu-parity.py --archive PRIVATE --model-06 PRIVATE --model-17 PRIVATE --cmake-wheel PRIVATE --output PRIVATE --probe-payload PRIVATE --probe-plan-sha256 5db8bd56b1c657d180703153238fcd14f2ddcca6d10b1e6c3b53ad250165c46a",
+  "ended_utc": "2026-10-25T06:41:43Z",
+  "execution": "software",
+  "git_sha": "fa59772be64e61147058e448d28cc1f3eb34ae03",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "owned-linux-amd64-container",
+    "provider": "local"
+  },
+  "notes": "Fixed original tau CPU support probe with scripted target only. No full tau trial, target quality, live admission or confidential claim.",
+  "phase": "P2",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-25T06:36:22Z",
+  "task": "T3"
+}

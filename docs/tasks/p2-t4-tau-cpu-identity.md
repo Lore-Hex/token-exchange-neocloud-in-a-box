@@ -1,7 +1,9 @@
 # P2.T4: Fixed CPU Simulator Identity Follow-Up
 
-Status: implemented and tested with synthetic private-pipe replies; no model run
-or simulator qualification. The original [CPU prompt-fit probe](p2-t3-tau-cpu-prompt-fit.md)
+Status: [one native CPU run](../../evidence/p2/2026-10-25-tau-cpu-identity-followup/README.md)
+completed all three bounded calls with confirmed cleanup. No email-like literal
+or expected name/ZIP literal was detected in any reply; this is transport PASS,
+not simulator qualification or a semantic refusal diagnosis. The original [CPU prompt-fit probe](p2-t3-tau-cpu-prompt-fit.md)
 remains the default. This explicit profile adds three fixed simulator calls, not
 another GPU trial or an evaluator score.
 
@@ -76,7 +78,7 @@ The existing [native CPU pair workflow](../../.github/workflows/tau-cpu-session-
 accepts an explicit `identity_followup=true`, with `support_probe=false`.
 Both default to false (readiness/release only); `support_probe=true` retains the
 original prompt-fit probe. Selecting both is rejected before input preparation.
-This is workflow support, not a recorded model run or simulator qualification.
+The original run above exercises this workflow, not simulator qualification.
 
 The job still accepts only `main` on a native GitHub-hosted Ubuntu 24.04 amd64
 runner, with read-only repository permission, no persisted checkout credentials,
