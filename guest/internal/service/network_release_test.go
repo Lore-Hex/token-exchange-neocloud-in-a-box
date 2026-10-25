@@ -26,8 +26,14 @@ func TestNetworkLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := json.Marshal(map[string]any{"nftables": parsed["nftables"][:1]})
+	tableOnly, _ := json.Marshal(map[string]any{"nftables": parsed["nftables"][:2]})
 	config := []byte(`{"schema":"nib.guest-network/v1","egress":[]}`)
-	for _, scenario := range []string{"pass", "dirty", "read-error", "check-error", "create-error", "final-error", "check-output", "create-output", "changed", "cancelled"} {
+	rendered, err := nftables.Render(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantTransaction := append([]byte("create table inet nib\n"), rendered...)
+	for _, scenario := range []string{"pass", "dirty", "read-error", "check-error", "create-error", "final-error", "check-output", "create-output", "changed", "table-only", "cancelled"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -56,8 +62,8 @@ func TestNetworkLifecycle(t *testing.T) {
 					return before, nil
 				}
 				if op == networkCheck || op == networkCreate {
-					if !bytes.Contains(input, []byte("create table inet nib {")) {
-						t.Fatal("not create-only")
+					if !bytes.Equal(input, wantTransaction) {
+						t.Fatal("exclusive create and additive policy not submitted together")
 					}
 					if op == networkCheck {
 						checkInput = append([]byte(nil), input...)
@@ -72,6 +78,9 @@ func TestNetworkLifecycle(t *testing.T) {
 				if scenario == "changed" {
 					return before, nil
 				}
+				if scenario == "table-only" {
+					return tableOnly, nil
+				}
 				if scenario == "cancelled" {
 					cancel()
 				}
@@ -83,12 +92,12 @@ func TestNetworkLifecycle(t *testing.T) {
 			stages := map[string]error{"dirty": failedNetworkInitialRuleset, "read-error": failedNetworkInitialCommand,
 				"check-error": failedNetworkCheck, "check-output": failedNetworkCheck, "create-error": failedNetworkCreate,
 				"create-output": failedNetworkCreate, "final-error": failedNetworkReadbackCommand,
-				"changed": networkReadbackFailure(96), "cancelled": failedNetworkDeadline}
+				"changed": networkReadbackFailure(96), "table-only": networkReadbackFailure(96), "cancelled": failedNetworkDeadline}
 			if scenario != "pass" && (err != stages[scenario] || err.Error() != "network startup rejected") {
 				t.Fatal("failure classification changed or leaked backend detail", scenario)
 			}
 			expectedCalls := map[string]int{"pass": 4, "dirty": 1, "read-error": 1, "check-error": 2,
-				"create-error": 3, "final-error": 4, "check-output": 2, "create-output": 3, "changed": 4, "cancelled": 4}
+				"create-error": 3, "final-error": 4, "check-output": 2, "create-output": 3, "changed": 4, "table-only": 4, "cancelled": 4}
 			if calls != expectedCalls[scenario] {
 				t.Fatal("failure did not stop subsequent operations")
 			}

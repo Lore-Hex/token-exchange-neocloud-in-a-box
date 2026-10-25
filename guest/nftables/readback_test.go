@@ -28,9 +28,9 @@ func TestCreateAndStrictConfig(t *testing.T) {
 		}
 		rendered, _ := Render(destinations)
 		created, err := Create(destinations)
-		if err != nil || bytes.Count(created, []byte("create table inet nib {")) != 1 ||
-			!bytes.Equal(bytes.Replace(created, []byte("create table"), []byte("table"), 1), rendered) {
-			t.Fatal("create did not preserve rendered policy")
+		if err != nil || !bytes.HasPrefix(created, []byte("create table inet nib\n")) ||
+			!bytes.Equal(bytes.TrimPrefix(created, []byte("create table inet nib\n")), rendered) {
+			t.Fatal("exclusive create did not precede the unchanged additive policy")
 		}
 	}
 	for _, raw := range []string{"", `{}`, `null`, `[]`, `{"schema":"nib.guest-network/v1","egress":null}`,
@@ -43,6 +43,22 @@ func TestCreateAndStrictConfig(t *testing.T) {
 		if _, err := Config([]byte(raw)); err == nil {
 			t.Fatal("accepted invalid configuration")
 		}
+	}
+}
+
+func TestTableWithoutChildrenFailsReadback(t *testing.T) {
+	value, err := Decode(readbackFixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects := value.(map[string]any)["nftables"].([]any)
+	// The old CMD_CREATE block created only the table in nftables 1.0.9.
+	if _, ok := objects[1].(map[string]any)["table"]; !ok {
+		t.Fatal("fixture lost table position")
+	}
+	partial, err := json.Marshal(map[string]any{"nftables": objects[:2]})
+	if err != nil || Verify(partial, nil) != RejectedCount || Empty(partial) == nil {
+		t.Fatal("table without chains, sets and rules was accepted")
 	}
 }
 

@@ -63,9 +63,9 @@ share one eight-second deadline, with two seconds per child and bounded
 process-group cleanup:
 
 1. `--json list ruleset`: require the full ruleset to be empty.
-2. `--check --file -`: check the existing rendered policy, with only its table
-   declaration changed to `create table inet nib`.
-3. `--file -`: commit the exact same create-only policy bytes in one batch.
+2. `--check --file -`: check a standalone `create table inet nib` followed by
+   the unchanged rendered policy's ordinary table block.
+3. `--file -`: commit those exact bytes in one batch, rejecting an existing table.
 4. `--json list ruleset`: compare the entire result to the intended table,
    two sets, three drop-policy chains and nine ordered rules.
 
@@ -337,3 +337,36 @@ keep the same 62-byte maximum and never promote a diagnostic to successful
 boot. No command, deadline, privilege, cap, retry, raw-log path or success
 criterion changes. A new boot remains separately gated and is not authorized
 by preserving this failed run.
+
+## Exclusive Table Create Correction
+
+The [2026-10-25 original receipts](../../evidence/p3/2026-10-25-debug-network-count/README.md)
+record status **96 / readback-count** from producer
+`987b0124be192dd0a27d8a8c05321aa9bc95fc52`. The network gate remained closed;
+the independent validator confirmed image removal. No actual count or ruleset
+was retained, and no boot success is claimed.
+
+The old implementation changed `table inet nib { ... }` into
+`create table inet nib { ... }`. In the pinned
+[nftables 1.0.9 archive](https://netfilter.org/projects/nftables/files/nftables-1.0.9.tar.xz)
+(SHA-256 `a3c304cd9ba061239ee0474f9afb938a9bb99d89b960246f66f0c3a0a85e14cd`),
+`src/parser_bison.y` parses that as `CMD_CREATE`, while
+`src/libnftables.c:nft_evaluate` calls `nft_cmd_expand` **only for CMD_ADD**.
+`src/cmd.c:nft_cmd_expand` is what emits child sets, chains and rules.
+`src/rule.c:do_command_add` applies `NLM_F_EXCL` to the create command but sends
+only the table. The old block form therefore omits the policy's children.
+
+The corrected single input starts with `create table inet nib` on its own
+line, followed by the byte-identical ordinary rendered table block. The first
+command retains exclusive creation; the second expands all children.
+`src/libnftables.c:nft_netlink` submits the commands between one batch begin/end,
+so an existing table rejects the batch rather than modifying it. The service
+still checks the initially empty ruleset, dry-runs the complete input once,
+applies exactly those bytes once, then verifies the complete 15-object ruleset.
+It never flushes, replaces, deletes, retries or accepts partial state.
+
+Unit and service regression tests assert the exact transaction, unchanged
+rendered policy, identical check/apply input, and rejection of a table with no
+children. These tests use synthetic executor results. A real successful boot
+of the correction remains unproven until a separate reviewed, bounded native
+run passes. Confidential hardware verification remains a different gate.
