@@ -31,7 +31,7 @@ import stream_transport as transport
 
 service = inference.service
 require, encoded = inference.require, inference.encoded
-CASES = ("missing-key", "wrong-key", "stream")
+CASES = ("health", "missing-key", "wrong-key", "stream")
 SECONDS, CONNECT_SECONDS, LIMIT = 150, 5, 1 << 20
 SOURCES = ("scripts/probe-selected-service.py", "scripts/selected_service_inference.py",
            "scripts/stream_measurement.py", "scripts/stream_transport.py", "scripts/selected_service.py",
@@ -113,7 +113,28 @@ def pinned_tls(args, trust, peer_digest, deadline):
         yield connection
 
 
+def health(connection, args, deadline, result):
+    result["attempts"]["health"] = True
+    connection.settimeout(remaining(deadline))
+    connection.sendall(("GET /healthz HTTP/1.1\r\nHost: " + args.hostname + ":" + str(args.port)
+        + "\r\nConnection: close\r\nAccept-Encoding: identity\r\n\r\n").encode("ascii"))
+    with transport.StreamResponse(connection) as response:
+        response.begin()
+        headers = response.getheaders()
+        require(not response.headers.defects and len(headers) <= 32
+                and sum(len(key) + len(value) for key, value in headers) <= 65536
+                and all("\r" not in value and "\n" not in value for _, value in headers)
+                and response.version in (10, 11) and response.status == 200
+                and response.headers.get_all("Content-Length") == ["0"]
+                and response.getheader("Transfer-Encoding") is None
+                and response.getheader("Content-Encoding") is None, "not-ready")
+        require(response.read(1) == b"" and response.tail is not None
+                and response.tail.read1(1) == b"", "not-ready")
+
+
 def request(connection, args, case, key, deadline, result):
+    if case == "health":
+        return health(connection, args, deadline, result)
     payload = body()
     header = ("POST /v1/chat/completions HTTP/1.1\r\nHost: " + args.hostname + ":" + str(args.port)
         + "\r\nConnection: close\r\nAccept-Encoding: identity\r\nAccept: text/event-stream"

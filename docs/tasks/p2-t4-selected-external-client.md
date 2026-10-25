@@ -24,17 +24,26 @@ define those checks. No verification is disabled for self-signed test certificat
 
 ## Fixed Request Budget
 
-One invocation makes two fixed negative-auth requests followed by **at most one
+One invocation makes one fixed `GET /healthz`, two negative-auth requests and **at most one
 authenticated streaming request**, with the existing selected model identity,
 short synthetic greeting, temperature zero and 256-token output cap. Missing
 and wrong keys must receive the exact reviewed 401 body. Actual upstream
 non-forwarding is not measured by this external client. It remains a separately
 reviewed server property, not an inference from HTTP status alone.
 
+The health request also requires its own pinned TLS peer and sends no credential.
+It accepts only HTTP 200, one `Content-Length: 0`, no transfer/content encoding,
+an empty body and complete EOF. Pinned
+[trcs health](https://github.com/Lore-Hex/trustedrouter-confidential-stack/blob/8a87d9765ceabe76bbfa5e56a72c91da6d8290d5/internal/shim/server.go#L122-L143)
+checks its listener audit and forwards a bounded health request to the guard;
+the [guard](../../internal/pilotapi/handler.go) checks engine `/health`.
+A successful auth rejection alone does not check the engine. This is one
+point-in-time health observation, not ownership or continued readiness proof.
+
 There are no retries, readiness polling, automatic restart or credential
 fallback. Run only after the owner has separately established readiness. The
 operator supplies a fixed UTC cutoff at most 150 seconds away. TLS connect is
-bounded at five seconds; negative checks have five-second total deadlines and
+bounded at five seconds; health and negative checks have five-second total deadlines and
 the sole inference has at most 120 seconds, all clipped to the original cutoff.
 The existing main-thread alarm and cancellation restoration bound slow/trickled
 responses, including header parsing. Every socket and response is closed.
@@ -67,7 +76,7 @@ python3 -I -S -B scripts/probe-selected-service.py --run \
 The single JSON result binds Git HEAD and exact committed hashes for the named
 probe/parser/input helpers. These are provenance fields, not a complete measured
 software closure. `tls_checks` records each completed peer check;
-`tls_peer_verified` requires all three. Request attempts, passed checks and
+`tls_peer_verified` requires all four. Request attempts, passed checks and
 known/unknown usage remain distinct. The stream measurement is one observation,
 not a capacity or uptime claim. Preserve the original result on failure and
 investigate before any new authorized run.

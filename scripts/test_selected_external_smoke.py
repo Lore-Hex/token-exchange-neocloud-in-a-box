@@ -60,6 +60,24 @@ class Socket:
 
 
 class ExternalTests(unittest.TestCase):
+    def test_health_is_one_empty_200_with_complete_framing_and_no_credential(self):
+        good = b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        for raw in (good, good + b"unexpected", good.replace(b"200 OK", b"503 Down"),
+                    good.replace(b"Content-Length: 0", b"Content-Length: 1"),
+                    good.replace(b"Content-Length: 0", b"Content-Length: 0\r\nContent-Length: 0"),
+                    good.replace(b"Content-Length: 0", b"Transfer-Encoding: chunked") + b"0\r\n\r\n"):
+            sock, report = Socket(raw), probe.empty_result()
+            if raw == good:
+                probe.request(sock, args(), "health", KEY, probe.time.monotonic() + 5, report)
+            else:
+                with self.assertRaises((ValueError, probe.inference.Rejected)):
+                    probe.request(sock, args(), "health", KEY, probe.time.monotonic() + 5, report)
+            self.assertTrue(report["attempts"]["health"])
+            self.assertFalse(report["attempts"]["stream"])
+            self.assertEqual(len(sock.sent), 1)
+            self.assertNotIn(KEY, sock.sent[0])
+            self.assertNotIn(b"Authorization", sock.sent[0])
+
     def test_target_is_explicit_numeric_public_ipv4_and_header_safe(self):
         probe.validate_target(args())
         for change in ({"address": "localhost"}, {"address": "127.0.0.1"}, {"address": "10.0.0.1"},
@@ -135,7 +153,8 @@ class ExternalTests(unittest.TestCase):
     def fixture(self, *, fail_at=None):
         events = []
         denied = probe.encoded({"error": {"message": "invalid_api_key", "type": "invalid_api_key"}})
-        sockets = [Socket(response(401, denied)), Socket(response(401, denied)), Socket(response())]
+        sockets = [Socket(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"),
+                   Socket(response(401, denied)), Socket(response(401, denied)), Socket(response())]
         @contextmanager
         def tls(*_):
             index = len(events)
@@ -144,7 +163,7 @@ class ExternalTests(unittest.TestCase):
                 raise ssl.SSLError("PRIVATE_CERT_CANARY")
             yield sockets[index]
         def private_read(*_):
-            self.assertEqual(events, ["verified"] * 3)
+            self.assertEqual(events, ["verified"] * 4)
             return KEY
         with ExitStack() as stack:
             stack.enter_context(mock.patch.object(probe, "source_identity", return_value=("b" * 40, {})))
@@ -165,7 +184,7 @@ class ExternalTests(unittest.TestCase):
             self.assertIs(report[name], False)
 
     def test_tls_failure_before_secret_access_and_no_retry(self):
-        for failed in range(3):
+        for failed in range(4):
             with self.fixture(fail_at=failed) as (sockets, read):
                 report = probe.run(args())
             self.assertEqual(report["result"], "fail")
@@ -174,6 +193,15 @@ class ExternalTests(unittest.TestCase):
             read.assert_not_called()
             self.assertEqual(sum(len(sock.sent) for sock in sockets), failed)
             self.assertNotIn("PRIVATE_CERT_CANARY", probe.encoded(report).decode())
+
+    def test_failed_health_stops_before_secret_read_or_inference(self):
+        with self.fixture() as (sockets, read):
+            sockets[0].raw = b"HTTP/1.1 503 Down\r\nContent-Length: 0\r\n\r\n"
+            report = probe.run(args())
+        self.assertEqual(report["result"], "fail")
+        self.assertEqual(report["failure"], "not-ready")
+        read.assert_not_called()
+        self.assertEqual([len(sock.sent) for sock in sockets], [1, 0, 0, 0])
 
     def test_cutoff_and_cli_reject_without_network_or_private_output(self):
         with mock.patch.object(probe, "source_identity") as source:
