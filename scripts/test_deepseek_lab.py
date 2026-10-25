@@ -1159,7 +1159,7 @@ class BoundedProcessTests(unittest.TestCase):
 
     def test_cancel_once_cleanup_not_interrupted(self):
         with mock.patch.object(host, "CANCELLED", False), mock.patch.object(host, "CLEANING", False):
-            with self.assertRaises(InterruptedError): host.cancel()
+            with self.assertRaises(host.Cancelled): host.cancel()
             host.cancel()
         with mock.patch.object(host, "CANCELLED", False), mock.patch.object(host, "CLEANING", True):
             host.cancel()

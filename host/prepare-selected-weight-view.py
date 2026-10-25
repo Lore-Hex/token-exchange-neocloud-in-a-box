@@ -16,7 +16,7 @@ import time
 import types
 import uuid
 
-CACHE_SHA256 = "30f8a0ef0fa2fcb88d6d6a63ac636cf518593ef240b74e67cd98e38e83aeca70"
+CACHE_SHA256 = "9390b3124d523f91fe80e5340658c4163f5047ff396bb7cf7de8c043ce683d0a"
 RESERVE = 60
 SHARED_MEMORY = Path("/dev/shm")
 BOOTSTRAP = """
@@ -25,6 +25,10 @@ scope = {'__name__': 'bound_selected_weight_view', '__file__': sys.argv.pop(1)}
 exec(compile(sys.argv.pop(1), '<bound-selected-weight-view>', 'exec'), scope)
 scope['worker'](*sys.argv[1:])
 """
+
+
+class Cancelled(BaseException):
+    """Stop the worker through the existing failed-publication boundary."""
 
 
 def require(value):
@@ -195,7 +199,7 @@ def main(argv=None):
             nonlocal cancelled
             if not cancelled:
                 cancelled = True
-                raise InterruptedError("selected-weight-view-cancelled")
+                raise Cancelled("selected-weight-view-cancelled")
         handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
         persist()
         try:
