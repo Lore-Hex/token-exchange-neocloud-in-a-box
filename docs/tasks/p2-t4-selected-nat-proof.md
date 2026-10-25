@@ -130,6 +130,96 @@ existing GPU host or choose a host-profile schema. Actual host/tool identity
 pins, separately reviewed proof-runner integration and an approved isolated
 synthetic-network observation remain prerequisites for that compatibility claim.
 
+### Software-only drop quarantine
+
+`Quarantine(owned_policy)` is an additive renderer and strict validator, tested
+against synthetic rulesets for both pinned versions. It is **not integrated
+into the service owner, executed against a kernel, or covered by the earlier
+CPU PASS**. It performs no command, host discovery, mount or daemon operation.
+The selected `--network none` smoke owner and its argv/receipt contracts are
+unchanged. Serving installation, canonical expectations, removal and default
+version behavior remain unchanged; shared object comparison and batch helpers
+avoid a second, weaker validator.
+
+Quarantine uses separate `nib_quarantine_<owner-token>` tables in `inet` and
+`bridge`. It never requires the serving tables to exist or pass validation,
+and never replaces, flushes or deletes them. Both tables use `create`, not an
+idempotent adoption of an existing name. A collision or failed/uncertain apply
+is failure, not proof of protection. The `CREATE` section of
+`doc/libnftables-json.adoc` in the hash-pinned
+[1.0.9](https://netfilter.org/projects/nftables/files/nftables-1.0.9.tar.xz) and
+[1.1.6](https://www.netfilter.org/projects/nftables/files/nftables-1.1.6.tar.xz)
+archives above specifies the existing-object error.
+
+Every rule verdict is `drop`; base-chain policy remains `accept` so unmatched
+host traffic remains subject to its existing rules. The same hook families and
+priorities as the serving policy are used:
+
+- `inet input`, `forward` and `output` drop IP traffic entering/leaving the
+  owned bridge, including IPv6, UDP, DNS and existing TLS replies. No conntrack
+  state or direction creates an exception.
+- Input/output also drop the exact published IPv4 TCP destination, including
+  loopback access to a userland proxy. All three hooks drop the matching
+  original conntrack destination/port, including replies and DNAT to a changed
+  address or interface. This does not rely on the old serving predicates.
+- Native `bridge forward` drops L2 peer forwarding in either direction. As
+  with the serving policy, this is not an ARP-to-host isolation claim or a
+  global firewall. It does not depend on bridge IP firewall sysctls.
+
+`doc/statements.txt`, Verdict Statements, in both pinned archives explains that
+an accept in another base chain cannot override a drop. No serving-table
+ordering assumption is required. The two payload rules have the same protocol
+dependency elision as the existing source-derived fixtures. The three
+conntrack-only tuple rules retain both meta protocol tests on 1.0.9; on 1.1.6
+they elide `nfproto` and retain numeric TCP `6`, using the exact source and
+`--numeric-protocol` readback described above. Installation bytes are identical
+across versions. Actual expressions are never normalized, reordered or repaired.
+
+The caller handoff is deliberately small:
+
+```python
+quarantine = Quarantine(owned_policy)
+batch = quarantine.batch()
+readback_argv = quarantine.readback_args()
+# A future bounded owner applies exactly batch, then obtains fresh readback.
+quarantine.verify(raw_readback, install_exit_code=apply_exit_code,
+                  readback_exit_code=readback_exit_code)
+```
+
+`verify` requires literal integer zero for **both** command exits and exact
+bounded readback, including the closed version metadata and global rejection
+of flowtables. A timeout, signal, missing status, failed readback or changed
+rule fails even if the supplied bytes look correct. No success is cached and
+constructing/rendering an object never means it is installed. These are caller
+inputs, not independent proof that commands ran: the future owner must bind
+the statuses and fresh stdout to its exact bounded operations and original
+deadline, without logging private paths or raw errors. It must stop serving
+on failure and must not report a protected state it cannot verify.
+
+`remove_batch` additionally requires literal `containers_absent=True`,
+`networks_absent=True` and `creations_resolved=True`. Unknown/late create
+completion, failed inventory and cleanup ambiguity retain the tables. This
+only renders removal of the quarantine tables, never the serving tables;
+the future owner must establish those facts, revalidate ownership and verify
+deletion. There is no automatic rollback after apply/readback failure, timeout
+or cancellation. If the kernel rejects quarantine, retained serving rules may
+already be compromised: protection remains **unconfirmed**, not fail-safe by
+assertion. The helper cannot prevent host-root mutation, guard a container
+moved outside the bound bridge/tuple, or prove all resources absent. Inherited
+Docker DNS may originate from the host namespace and bypass these bridge
+rules, as described below. The future owner must independently retain the
+exact loopback-DNS and network-identity contracts; rule verification alone is
+not a workload-confinement claim or a remedy for an unverified host relay.
+
+[Focused quarantine tests](../../scripts/test_selected_network_quarantine.py)
+cover both pinned forms, failed/unknown command statuses, absent/corrupt old
+tables, flowtables, every missing object/predicate, verdict and ordering drift,
+IPv6/L2/host/proxy/redirected-publication paths, unrelated traffic and removal
+guards. Packet-condition tests are not kernel observations. Network ownership,
+watchdog integration, continuous drift supervision and an authorized isolated
+kernel experiment remain separate work; no public service or hardware gate is
+satisfied by this increment.
+
 ### DNS is a separate boundary
 
 Bridge filtering alone does not block inherited Docker DNS. At Docker tag
