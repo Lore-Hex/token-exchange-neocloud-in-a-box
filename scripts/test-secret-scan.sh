@@ -193,7 +193,7 @@ PY
 done
 done
 
-for receipt_set in cpu-session-native-pass tau-cpu-prompt-fit-pass tau-cpu-identity-followup; do
+for receipt_set in cpu-session-native-pass tau-cpu-prompt-fit-pass tau-cpu-identity-followup tau-cpu-identity-17b; do
 while IFS='|' read -r relative format field known suffix; do
   if [[ "$receipt_set" == tau-cpu-prompt-fit-pass ]]; then
     case "$field" in
@@ -202,13 +202,22 @@ while IFS='|' read -r relative format field known suffix; do
     esac
   fi
   target="$tmp/held/evidence/p2/2026-10-22-$receipt_set/$relative"
-  if [[ "$receipt_set" == tau-cpu-identity-followup ]]; then
+  if [[ "$receipt_set" == tau-cpu-identity-followup || "$receipt_set" == tau-cpu-identity-17b ]]; then
     target="$tmp/held/evidence/p2/2026-10-25-$receipt_set/$relative"
     case "$field" in
       scripts/engine_tokenizer_parity.py) known=6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f ;;
       simulator-tokenizer.json) known=d00605c53bcc2f82eaefcaa59b1ee1aaee43ce9698f0606441bbb3c5f7e74bd5 ;;
       evaluator-tokenizer.json) known=092cb8e872d01648096dc113b225e4cdca377794593fe899822ea88b2e73a1c6 ;;
     esac
+  fi
+  if [[ "$receipt_set" == tau-cpu-identity-17b ]]; then
+    case "$field" in
+      simulator-tokenizer.json) known=60f179bdd6dccdc4502cac6a7d7e244540077f3467d6659c747467518222ec76 ;;
+      evaluator-tokenizer.json) known=1876eaef26f004664a5e0282c2f810d49cf232e3e2d788f0d17f8f80512cf797 ;;
+    esac
+  fi
+  if [[ "$relative" == pair/scorer/output.log || "$field" == tokenizer_sha256 && "$format" == pretty ]]; then
+    [[ "$receipt_set" == tau-cpu-identity-17b ]] || continue
   fi
   mkdir -p "$(dirname "$target")"
   write_receipt_field "$target" "$field" "$known"
@@ -245,6 +254,9 @@ pair/simulator-tokenizer.json|compact|endpoint_tokens_sha256|1b7419454da94e65624
 pair/evaluator-tokenizer.json|compact|endpoint_tokens_sha256|1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|
 pair/simulator-tokenizer.json|compact|independent_tokens_sha256|1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|
 pair/evaluator-tokenizer.json|compact|independent_tokens_sha256|1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|
+output.log|pretty|tokenizer_sha256|604363ffa22647728e0dd56e84926ad3ca1422999e356af99628fe2535b010a8|
+pair/output.log|pretty|tokenizer_sha256|604363ffa22647728e0dd56e84926ad3ca1422999e356af99628fe2535b010a8|
+pair/scorer/output.log|compact|tokenizer_sha256|604363ffa22647728e0dd56e84926ad3ca1422999e356af99628fe2535b010a8|
 CASES
 done
 

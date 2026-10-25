@@ -1,0 +1,461 @@
+{
+  "base_images": {
+    "go_image": "docker.io/library/golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61",
+    "python_image": "docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2"
+  },
+  "cleanup": {
+    "build_completion": "confirmed",
+    "container": "confirmed",
+    "image": "confirmed"
+  },
+  "confidential": false,
+  "context_sha256": "be26123ba8245bd78df7550be5db50e3e546a18dacb670b5805e568aeaf055dd",
+  "git_sha": "19ece8918ed4f89121bbe704bf5466559e3805a1",
+  "image_id": "sha256:a44f083ab74e391c331add4cb8a877776c738a0aa92e0f3e5873c5ac2f7b5c08",
+  "live_admission": false,
+  "quality_eligible": false,
+  "result": "pass",
+  "runtime": {
+    "acknowledged": true,
+    "cleanup": "confirmed",
+    "confidential": false,
+    "failure": null,
+    "live_admission": false,
+    "probe": {
+      "confidential": false,
+      "live_admission": false,
+      "observations": [
+        {
+          "completion_tokens": 10,
+          "identity": {
+            "email_like_literal": false,
+            "first_name_literal": false,
+            "last_name_literal": false,
+            "zip_literal": false
+          },
+          "prompt_tokens": 382,
+          "request_sha256": "3bca45d8fe19e09457b61873fee7feff5105c8e975eb6a43694466367d3b7ba1",
+          "role": "simulator",
+          "status": "pass",
+          "step": "initial"
+        },
+        {
+          "completion_tokens": 17,
+          "identity": {
+            "email_like_literal": false,
+            "first_name_literal": false,
+            "last_name_literal": false,
+            "zip_literal": false
+          },
+          "prompt_tokens": 411,
+          "request_sha256": "cceb5249028c659f90a6d241ab95254c6b0c690a0c494a1a6adb66973a47a7ec",
+          "role": "simulator",
+          "status": "pass",
+          "step": "email"
+        },
+        {
+          "completion_tokens": 26,
+          "identity": {
+            "email_like_literal": false,
+            "first_name_literal": true,
+            "last_name_literal": true,
+            "zip_literal": true
+          },
+          "prompt_tokens": 450,
+          "request_sha256": "ebf6b4efcab163ed4dd032fd917d3aca014cd38d8d157f6c4491ba3342584acb",
+          "role": "simulator",
+          "status": "pass",
+          "step": "name_zip"
+        }
+      ],
+      "plan_sha256": "48952e2805c3c5cbbb0ef4861ac4b1035b945d57502ee2a3b9096da591344a87",
+      "pricing": "not-measured",
+      "quality_eligible": false,
+      "result": "pass",
+      "roles": {
+        "agent": 0,
+        "evaluator": 0,
+        "simulator": 3
+      },
+      "schema": "nib.tau-cpu-identity-17b-probe/v1",
+      "selection": {
+        "domain": "retail",
+        "role": "candidate",
+        "seed": 42,
+        "task_id": "2",
+        "trial": 0
+      },
+      "simulator_binding": {
+        "framing_sha256": "724529fb75080f5da00e4aba8b8842c81424b4dcedeec6ae9766b4eececfd3cf",
+        "model": "qwen/qwen3-1.7b",
+        "model_files_sha256": "ae6444e629258d2c779a4626d529e7c2ff091467bbd7fa72e40e9c4150037bdf",
+        "owner_role": "evaluator",
+        "process_sha256": "8c53b4ddac511d5d29f79f107a3cbdd4f655ab54f475a495a2792445a7778fde",
+        "revision": "90862c4b9d2787eaed51d12237eafdfe7c5f6077",
+        "role": "simulator",
+        "runtime_sha256": "86ea3a54558050dc7afb056be87f427c62a030564b3a1195b886923a81045112",
+        "tokenizer_sha256": "604363ffa22647728e0dd56e84926ad3ca1422999e356af99628fe2535b010a8"
+      },
+      "status": "evaluated",
+      "target": "scripted",
+      "upstream_revision": "fc0055dc4e0a316c3f83133267fbd6faaa770992"
+    },
+    "progress": {
+      "model_index": 1,
+      "parity": {
+        "binaries": {
+          "helper": "8496d2de54989d42000428ffd838343332755bb061b52a5ed839fde19788c833",
+          "server": "cecbe05e70cb870e7218ce0bf82df6c9ce8e02c473700c9875df3ade445b8dfb"
+        },
+        "confidential": false,
+        "engine_revision": "620d2225cc436ab0b001e3200e590e3b286ef9ab",
+        "failure": null,
+        "live_admission": false,
+        "models": [
+          {
+            "cases": [
+              {
+                "id": "text",
+                "local": {
+                  "count": 20,
+                  "tokens_sha256": "1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd"
+                },
+                "result": "pass",
+                "server": {
+                  "count": 20,
+                  "tokens_sha256": "1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd"
+                },
+                "usage": {
+                  "completion_tokens": 1,
+                  "prompt_tokens": 20,
+                  "total_tokens": 21
+                }
+              },
+              {
+                "id": "system",
+                "local": {
+                  "count": 28,
+                  "tokens_sha256": "fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4"
+                },
+                "result": "pass",
+                "server": {
+                  "count": 28,
+                  "tokens_sha256": "fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4"
+                },
+                "usage": {
+                  "completion_tokens": 1,
+                  "prompt_tokens": 28,
+                  "total_tokens": 29
+                }
+              },
+              {
+                "id": "tools",
+                "local": {
+                  "count": 160,
+                  "tokens_sha256": "c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b"
+                },
+                "result": "pass",
+                "server": {
+                  "count": 160,
+                  "tokens_sha256": "c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b"
+                },
+                "usage": {
+                  "completion_tokens": 1,
+                  "prompt_tokens": 160,
+                  "total_tokens": 161
+                }
+              },
+              {
+                "id": "tool-continuation",
+                "local": {
+                  "count": 198,
+                  "tokens_sha256": "8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe"
+                },
+                "result": "pass",
+                "server": {
+                  "count": 198,
+                  "tokens_sha256": "8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe"
+                },
+                "usage": {
+                  "completion_tokens": 1,
+                  "prompt_tokens": 198,
+                  "total_tokens": 199
+                }
+              }
+            ],
+            "model": "qwen/qwen3-0.6b",
+            "owner_socket_checked": true,
+            "process": {
+              "argv_sha256": "e91d5f212415efa0a3f838b272aa3668807d3a60942fad7465be252e5aa7e5c9",
+              "boot_id_sha256": "2b60594f21199e14b9d1adb5752b756ba5029c01cdfccd35fbdbad3e6c9e1a42",
+              "exe_sha256": "cecbe05e70cb870e7218ce0bf82df6c9ce8e02c473700c9875df3ade445b8dfb",
+              "listener_inode": 21399,
+              "netns_inode": 4026532273,
+              "pid": 1547,
+              "start_ticks": 71936
+            },
+            "ready_ms": 791,
+            "result": "pass",
+            "weight_sha256": "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031"
+          },
+          {
+            "cases": [
+              {
+                "id": "text",
+                "local": {
+                  "count": 20,
+                  "tokens_sha256": "1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd"
+                },
+                "result": "pass",
+                "server": {
+                  "count": 20,
+                  "tokens_sha256": "1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd"
+                },
+                "usage": {
+                  "completion_tokens": 1,
+                  "prompt_tokens": 20,
+                  "total_tokens": 21
+                }
+              },
+              {
+                "id": "system",
+                "local": {
+                  "count": 28,
+                  "tokens_sha256": "fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4"
+                },
+                "result": "pass",
+                "server": {
+                  "count": 28,
+                  "tokens_sha256": "fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4"
+                },
+                "usage": {
+                  "completion_tokens": 1,
+                  "prompt_tokens": 28,
+                  "total_tokens": 29
+                }
+              },
+              {
+                "id": "tools",
+                "local": {
+                  "count": 160,
+                  "tokens_sha256": "c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b"
+                },
+                "result": "pass",
+                "server": {
+                  "count": 160,
+                  "tokens_sha256": "c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b"
+                },
+                "usage": {
+                  "completion_tokens": 1,
+                  "prompt_tokens": 160,
+                  "total_tokens": 161
+                }
+              },
+              {
+                "id": "tool-continuation",
+                "local": {
+                  "count": 198,
+                  "tokens_sha256": "8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe"
+                },
+                "result": "pass",
+                "server": {
+                  "count": 198,
+                  "tokens_sha256": "8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe"
+                },
+                "usage": {
+                  "completion_tokens": 1,
+                  "prompt_tokens": 198,
+                  "total_tokens": 199
+                }
+              }
+            ],
+            "model": "qwen/qwen3-1.7b",
+            "owner_socket_checked": true,
+            "process": {
+              "argv_sha256": "1a80fd82c6947f6e44e4db3456b19f7f75ec971b3bfc7b7e274f61869364825c",
+              "boot_id_sha256": "2b60594f21199e14b9d1adb5752b756ba5029c01cdfccd35fbdbad3e6c9e1a42",
+              "exe_sha256": "cecbe05e70cb870e7218ce0bf82df6c9ce8e02c473700c9875df3ade445b8dfb",
+              "listener_inode": 21757,
+              "netns_inode": 4026532273,
+              "pid": 1561,
+              "start_ticks": 72321
+            },
+            "ready_ms": 1093,
+            "result": "pass",
+            "weight_sha256": "061b54daade076b5d3362dac252678d17da8c68f07560be70818cace6590cb1a"
+          }
+        ],
+        "quality_eligible": false,
+        "result": "pass",
+        "schema": "nib.tau-cpu-parity/v1",
+        "stage": "complete"
+      },
+      "substage": "released"
+    },
+    "quality_eligible": false,
+    "ready_sha256": "2998cd95341658e0cae3d9da74ec376d4ed1e33465121ba0f85cabc3d3ff0125",
+    "receipts": {
+      "evaluator-runtime.json": "86ea3a54558050dc7afb056be87f427c62a030564b3a1195b886923a81045112",
+      "evaluator-tokenizer.json": "1876eaef26f004664a5e0282c2f810d49cf232e3e2d788f0d17f8f80512cf797",
+      "simulator-runtime.json": "9480357fcd406b1e933b2a34e8067b054ccc5a81501bd8575c139267e53c412e",
+      "simulator-tokenizer.json": "60f179bdd6dccdc4502cac6a7d7e244540077f3467d6659c747467518222ec76"
+    },
+    "result": "pass",
+    "schema": "nib.tau-cpu-session/v3",
+    "stage": "released"
+  },
+  "schema": "nib.tau-cpu-probe-run/v1",
+  "scorer": {
+    "cleanup": "confirmed",
+    "confidential": false,
+    "cpu_ready_sha256": "2998cd95341658e0cae3d9da74ec376d4ed1e33465121ba0f85cabc3d3ff0125",
+    "diagnostic": {
+      "confidential": false,
+      "live_admission": false,
+      "observations": [
+        {
+          "completion_tokens": 10,
+          "identity": {
+            "email_like_literal": false,
+            "first_name_literal": false,
+            "last_name_literal": false,
+            "zip_literal": false
+          },
+          "prompt_tokens": 382,
+          "request_sha256": "3bca45d8fe19e09457b61873fee7feff5105c8e975eb6a43694466367d3b7ba1",
+          "role": "simulator",
+          "status": "pass",
+          "step": "initial"
+        },
+        {
+          "completion_tokens": 17,
+          "identity": {
+            "email_like_literal": false,
+            "first_name_literal": false,
+            "last_name_literal": false,
+            "zip_literal": false
+          },
+          "prompt_tokens": 411,
+          "request_sha256": "cceb5249028c659f90a6d241ab95254c6b0c690a0c494a1a6adb66973a47a7ec",
+          "role": "simulator",
+          "status": "pass",
+          "step": "email"
+        },
+        {
+          "completion_tokens": 26,
+          "identity": {
+            "email_like_literal": false,
+            "first_name_literal": true,
+            "last_name_literal": true,
+            "zip_literal": true
+          },
+          "prompt_tokens": 450,
+          "request_sha256": "ebf6b4efcab163ed4dd032fd917d3aca014cd38d8d157f6c4491ba3342584acb",
+          "role": "simulator",
+          "status": "pass",
+          "step": "name_zip"
+        }
+      ],
+      "plan_sha256": "48952e2805c3c5cbbb0ef4861ac4b1035b945d57502ee2a3b9096da591344a87",
+      "pricing": "not-measured",
+      "quality_eligible": false,
+      "result": "pass",
+      "roles": {
+        "agent": 0,
+        "evaluator": 0,
+        "simulator": 3
+      },
+      "schema": "nib.tau-cpu-identity-17b-probe/v1",
+      "selection": {
+        "domain": "retail",
+        "role": "candidate",
+        "seed": 42,
+        "task_id": "2",
+        "trial": 0
+      },
+      "simulator_binding": {
+        "framing_sha256": "724529fb75080f5da00e4aba8b8842c81424b4dcedeec6ae9766b4eececfd3cf",
+        "model": "qwen/qwen3-1.7b",
+        "model_files_sha256": "ae6444e629258d2c779a4626d529e7c2ff091467bbd7fa72e40e9c4150037bdf",
+        "owner_role": "evaluator",
+        "process_sha256": "8c53b4ddac511d5d29f79f107a3cbdd4f655ab54f475a495a2792445a7778fde",
+        "revision": "90862c4b9d2787eaed51d12237eafdfe7c5f6077",
+        "role": "simulator",
+        "runtime_sha256": "86ea3a54558050dc7afb056be87f427c62a030564b3a1195b886923a81045112",
+        "tokenizer_sha256": "604363ffa22647728e0dd56e84926ad3ca1422999e356af99628fe2535b010a8"
+      },
+      "status": "evaluated",
+      "target": "scripted",
+      "upstream_revision": "fc0055dc4e0a316c3f83133267fbd6faaa770992"
+    },
+    "ended_utc": "2026-10-25T08:02:01Z",
+    "image": "docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2",
+    "live_admission": false,
+    "plan_sha256": "48952e2805c3c5cbbb0ef4861ac4b1035b945d57502ee2a3b9096da591344a87",
+    "platform": "linux/amd64",
+    "quality_eligible": false,
+    "result": "pass",
+    "schema": "nib.tau-cpu-probe-scorer/v1",
+    "stage": "completed",
+    "started_utc": "2026-10-25T08:01:38Z",
+    "toolkit": {
+      "files": {
+        "bench/tau-runtime-lock.json": "6b15cca1ebb3d3766756d9f9aa9b4ec6fb892bb9c936fd73d4905abaef2b8787",
+        "bench/tau-upstream-pins.json": "4dbc7214f1160bb1b883087fa261d299aedc4b5d77d945c377d32063f518fceb",
+        "host/probe.py": "dd196679dc4b6d7ee335b3d62900b25484734884bd3da6e74f925260ad7864ff",
+        "models/deepseek-v4.1-flash-1017/1/files.sha256": "b74ae635c35372cf6c350e4b33ef60c90ff01fe6426ad0fa7bc99b1982fe5bed",
+        "models/deepseek-v4.1-flash-1017/1/pack.yaml": "5e14356aec339deaad2bfdbd1a86b958d4aa4f0e4be109112388d7348598cd3f",
+        "schemas/common.schema.json": "6800f1dbfe7e23756a920e99f6bfb6a243b9a2029aaf46e75c75671a754fa34f",
+        "schemas/evidence.schema.json": "7b81df9f1c0dadaba6d3b35fd31e830da69b0972e35f7a4e22883518240e8061",
+        "scripts/e2e/pins.json": "10d5e7c6b6ad09522c2fd6f595ca9591a51d5fc916e105561aca564bd940e6cc",
+        "scripts/e2e/snapshot.py": "e73a5a1e3ddb7a6e7b20afce39f7c080a0317d78340f224b2bd95f705bccb59c",
+        "scripts/tau_aggregate.py": "7865849f6dd7c6c837c420dacf2b4560968074706e2b7020861d971a97f1602b",
+        "scripts/tau_cpu_identity.py": "d7dae857a731b80df88bbcc52f0ff32a6821749979412707afd65dfb766230fd",
+        "scripts/tau_cpu_support_models.json": "35ba507ae8669e7f08f73232d312555a2cc2d49023d48414fefe0b7ece5952d3",
+        "scripts/tau_pipe_driver.py": "fd862ae9a45cc61f43e135c361b064bbfdf6311433ea3e8a8f2fc81e861c59b3",
+        "scripts/tau_pipe_trial.py": "03596f8f1451b9a5992f482973657405204e7fd8de0bf2f3047abf2d23d36e34",
+        "scripts/tau_preflight.py": "c38f9876dbdeb78663f9ffab5d39a28c6d87c7b298215d6179ff079072822704",
+        "scripts/tau_runtime.py": "bba26279580ed48959c571cffa9b386ce094e7ac524a0cfbcad917d442341090",
+        "scripts/tau_support_probe.py": "6d94a734c71a9d3cea8bf5edbe9dce437bc3364d792f5008411d35fb7b2bdbfc",
+        "scripts/tau_transport.py": "6581676b2aa4cdec78fd2957d1e06bac34761413cf74a403292e6db2a6c7d7be",
+        "scripts/tau_trial.py": "7689e6b91d19fe76c52c8beff193b3a7495a7e44d23f6147b0eecd980c24cc49",
+        "scripts/tau_trial_worker.py": "2ef5794f50b4a83645f728d8e189c51d87b39d669e1fffc474ea82575ef4481e",
+        "scripts/test_tau_pipe_driver.py": "95b5c3e65860a066d044d60f7ebdd12e04038a76ac8e4670e4e90b4becad8585",
+        "scripts/test_tau_trial.py": "8111c536a2c773f93d32a192046190d2629ec2dae65983b1a071080b40df41ef"
+      },
+      "git_sha": "19ece8918ed4f89121bbe704bf5466559e3805a1"
+    }
+  },
+  "source_archive_sha256": "01021506956ba241296a9d300876befc894ddf62e258ed6ed5716b036cbb51e3",
+  "sources": {
+    ".github/workflows/tau-cpu-parity-native.yml": "897e0693526feb48ccde724ecdcfb1cfca1ec18948555456fc302d8a507b558d",
+    "scripts/e2e/exercise.py": "876c4e0e4c4b2e25ffa9089c062e5109623b2445a7d88b5eab253c81d3050763",
+    "scripts/e2e/pins.json": "10d5e7c6b6ad09522c2fd6f595ca9591a51d5fc916e105561aca564bd940e6cc",
+    "scripts/e2e/snapshot.py": "e73a5a1e3ddb7a6e7b20afce39f7c080a0317d78340f224b2bd95f705bccb59c",
+    "scripts/engine_tokenizer_parity.py": "6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f",
+    "scripts/pilot/build-requirements.lock": "26d6931e5c9a9df9ecf0673e9d697c2b9aed3d5739954225d80ff96e0a91a513",
+    "scripts/pilot/pins.json": "dbe453145b5ef21cb13d713f8635ea4e6b234ce3b75ffb9e33ffdaa1c102fbed",
+    "scripts/pilot/run.py": "7a0d23e8b95e998a09ec7a0b066d067441e1fb1cd6121bd5172d9373c10d6cf8",
+    "scripts/prepare-tau-cpu-parity-native.py": "df5548127be58372efbce1ee417506d9f24f451dddf78a10503ff6c51a967150",
+    "scripts/record-tau-cpu-parity.py": "61af1c33d6a271f855e78e3267ec2de18b873c60ec6dd211111424e8f4f1eefb",
+    "scripts/tau_aggregate.py": "7865849f6dd7c6c837c420dacf2b4560968074706e2b7020861d971a97f1602b",
+    "scripts/tau_cpu_identity.py": "d7dae857a731b80df88bbcc52f0ff32a6821749979412707afd65dfb766230fd",
+    "scripts/tau_cpu_parity.Dockerfile": "c9ee111331a910014537b1cd2eb9b5d1bd67f5d5195195510e8974753c6c6525",
+    "scripts/tau_cpu_parity.cmake": "c148d18d01836aee6cfd4f821f0e82506791cd074da8a4a00991500b02183ff2",
+    "scripts/tau_cpu_parity.cpp": "04bdddfc1bbdf559b8a90532b4b9c5dd00b52deab5fb19f03eac8fd3420e5eef",
+    "scripts/tau_cpu_parity.py": "b4473e18e2886aecea97fbe3a96a8fe5adb230cf2a0724b3fef6637ba05ee0f9",
+    "scripts/tau_cpu_probe.py": "9c6a08b918dbb953cb38769283d141a207611f0555ec2f5c771c49121db2aab9",
+    "scripts/tau_cpu_session.py": "d67cc9b703c7fb92611ee880df05f283b4f81be50ec1949720085aa11a9fcca4",
+    "scripts/tau_cpu_support_models.json": "35ba507ae8669e7f08f73232d312555a2cc2d49023d48414fefe0b7ece5952d3",
+    "scripts/tau_live_identity.py": "a51e8c271dd0dd1fef22ef41babc76ab0991de11ddcc567630309395072cf2c7",
+    "scripts/tau_llama_identity.py": "f292626bc218c21e682e61d7358517432c47dd6dac7b5c0fc91434508feb35b3",
+    "scripts/tau_local_llama.py": "02d8023a72010821eb84f8b9f482569a0d8419d8a2baa70ffd78f4aabdb6f911",
+    "scripts/tau_local_vllm.py": "88efe065276e1b4888e2cf5471fd14e6fcb51c527ef370a87e74eca6032486e1",
+    "scripts/tau_pipe_driver.py": "fd862ae9a45cc61f43e135c361b064bbfdf6311433ea3e8a8f2fc81e861c59b3",
+    "scripts/tau_preflight.py": "c38f9876dbdeb78663f9ffab5d39a28c6d87c7b298215d6179ff079072822704",
+    "scripts/tau_support_probe.py": "6d94a734c71a9d3cea8bf5edbe9dce437bc3364d792f5008411d35fb7b2bdbfc",
+    "scripts/tau_transport.py": "6581676b2aa4cdec78fd2957d1e06bac34761413cf74a403292e6db2a6c7d7be",
+    "scripts/tau_trial_worker.py": "2ef5794f50b4a83645f728d8e189c51d87b39d669e1fffc474ea82575ef4481e"
+  },
+  "stage": "complete"
+}
