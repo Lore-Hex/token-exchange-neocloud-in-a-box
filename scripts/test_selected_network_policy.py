@@ -3,6 +3,7 @@
 
 import copy
 from contextlib import ExitStack, redirect_stdout
+from dataclasses import replace
 import importlib.util
 import hashlib
 import io
@@ -252,6 +253,161 @@ class PolicyTests(unittest.TestCase):
         for raw in (b'{"nftables":[],"nftables":[]}', b'{"x":NaN}', b'[]' * 200000):
             with self.assertRaises(ValueError):
                 policy.decode(raw)
+
+
+class DualVersionPolicyTests(unittest.TestCase):
+    RELEASES = {"1.0.9": "Old Doc Yak #3", "1.1.6": "Commodore Bullmoose #7"}
+
+    def readback(self, version, rows):
+        return policy.encoded({"nftables": [{"metainfo": {"version": version,
+            "release_name": self.RELEASES[version], "json_schema_version": 1}}, *rows]})
+
+    def test_default_and_exact_allowlist(self):
+        self.assertEqual(contract().nft_version, "1.0.9")
+        self.assertEqual(list(vars(contract()))[-1], "nft_version")
+        for version in self.RELEASES:
+            self.assertEqual(replace(contract(), nft_version=version).nft_version, version)
+        for version in (None, True, 1.16, [], {}, "", "1.0.8", "1.1.5", "1.1.7",
+                        "1.1.6-1", "1.1.6\n", "1.1.6 --file /private"):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                replace(contract(), nft_version=version)
+
+    def test_installed_and_removal_bytes_are_version_independent(self):
+        for original in (contract(), replace(contract(), port=1), replace(contract(), port=65535,
+                bridge="other-service", ingress="other-ingress", address="192.0.2.2", published="192.0.2.1")):
+            other = replace(original, nft_version="1.1.6")
+            self.assertEqual(original.batch(), other.batch())
+            self.assertEqual(original.objects(), other.objects())
+            self.assertEqual(original.remove_batch(containers_absent=True, creations_resolved=True),
+                             other.remove_batch(containers_absent=True, creations_resolved=True))
+        self.assertEqual(hashlib.sha256(replace(contract(), nft_version="1.1.6").batch()).hexdigest(),
+                         "dd250199df014064cf7ca8d43281c9231477738b5e479688b7ddc66f90ee7ec6")
+
+    def test_fixed_readback_argv_and_fresh_list(self):
+        for version, expected in (("1.0.9", ["nft", "--json", "list", "ruleset"]),
+                ("1.1.6", ["nft", "--json", "--numeric-protocol", "list", "ruleset"])):
+            selected = replace(contract(), nft_version=version)
+            self.assertEqual(selected.readback_args(), expected)
+            selected.readback_args().append("unexpected")
+            self.assertEqual(selected.readback_args(), expected)
+
+    def test_source_derived_fixture_changes_only_two_conntrack_rules(self):
+        data = json.loads((ROOT / "scripts/fixtures/nftables-1.1.6-canonical.json").read_text())
+        self.assertEqual(data["source"]["sha256"],
+                         "372931bda8556b310636a2f9020adc710f9bab66f47efe0ce90bff800ac2530c")
+        self.assertEqual({key: data["source"][key] for key in ("version", "release_name", "json_schema_version")},
+                         {"version": "1.1.6", "release_name": "Commodore Bullmoose #7", "json_schema_version": 1})
+        network, typed, numeric = data["upstream_cases"]
+        self.assertEqual(network["output"], network["input"][1:])
+        self.assertEqual(typed["input"], typed["output"])
+        self.assertEqual(typed["output"][0]["match"]["left"], policy.ct("ip daddr", dir="original"))
+        self.assertEqual(numeric["output"], [numeric["input"][0], policy.match(policy.meta("l4proto"), 6)])
+        selected = replace(contract(), nft_version="1.1.6")
+        self.assertEqual(selected.readback_args(), data["readback_args"])
+        before, after = contract().objects(canonical=True), selected.objects(canonical=True)
+        self.assertEqual([i for i, pair in enumerate(zip(before, after, strict=True)) if pair[0] != pair[1]], [2, 3])
+        for i, case in zip((2, 3), data["derived_policy_input_replies"]["rules"], strict=True):
+            self.assertEqual(selected.objects()[i]["rule"]["expr"], case["input"])
+            self.assertEqual(after[i]["rule"]["expr"], case["output"])
+            self.assertEqual(case["output"], [case["input"][0], policy.match(policy.meta("l4proto"), 6),
+                                              *case["input"][3:]])
+
+    def test_exact_version_forms_accept_handles_and_independent_enumeration(self):
+        for version in self.RELEASES:
+            selected = replace(contract(), nft_version=version)
+            rows = selected.objects(canonical=True)
+            for i, row in enumerate(rows):
+                next(iter(row.values()))["handle"] = i + 1
+            rows = rows[16:] + rows[:16]
+            raw = self.readback(version, rows)
+            selected.verify(raw)
+            self.assertEqual(raw, self.readback(version, rows))
+            with self.assertRaises(ValueError):
+                selected.verify(self.readback(version, selected.objects()))
+            other = "1.1.6" if version == "1.0.9" else "1.0.9"
+            with self.assertRaises(ValueError):
+                selected.verify(self.readback(other, rows))
+            with self.assertRaises(ValueError):
+                selected.verify(self.readback(version, replace(selected, nft_version=other).objects(canonical=True)))
+
+    def test_rejects_every_object_predicate_verdict_and_field_loss(self):
+        for version in self.RELEASES:
+            selected = replace(contract(), nft_version=version)
+            rows = selected.objects(canonical=True)
+            for i, row in enumerate(rows):
+                broken = copy.deepcopy(rows)
+                del broken[i]
+                with self.subTest(version=version, missing_object=i), self.assertRaises(ValueError):
+                    selected.verify(self.readback(version, broken))
+                for change in ("extra-field", "missing-family", "wrong-family", "duplicate"):
+                    broken = copy.deepcopy(rows)
+                    body = next(iter(broken[i].values()))
+                    if change == "extra-field":
+                        body["unknown"] = 1
+                    elif change == "missing-family":
+                        del body["family"]
+                    elif change == "wrong-family":
+                        body["family"] = "ip6"
+                    else:
+                        broken.append(copy.deepcopy(broken[i]))
+                    with self.subTest(version=version, object=i, change=change), self.assertRaises(ValueError):
+                        selected.verify(self.readback(version, broken))
+                if "rule" not in row:
+                    continue
+                for j in range(len(row["rule"]["expr"])):
+                    broken = copy.deepcopy(rows)
+                    del broken[i]["rule"]["expr"][j]
+                    with self.subTest(version=version, rule=i, missing_expression=j), self.assertRaises(ValueError):
+                        selected.verify(self.readback(version, broken))
+                for change in ("extra-expression", "nested-field", "verdict", "predicate-order"):
+                    broken = copy.deepcopy(rows)
+                    expr = broken[i]["rule"]["expr"]
+                    if change == "extra-expression":
+                        expr.insert(0, {"accept": None})
+                    elif change == "nested-field":
+                        expr[0]["match"]["unknown"] = 1
+                    elif change == "verdict":
+                        expr[-1] = {"drop" if "accept" in expr[-1] else "accept": None}
+                    else:
+                        expr[0], expr[1] = expr[1], expr[0]
+                    with self.subTest(version=version, rule=i, change=change), self.assertRaises(ValueError):
+                        selected.verify(self.readback(version, broken))
+
+    def test_no_rule_reordering_or_tuple_protocol_repair(self):
+        selected = replace(contract(), nft_version="1.1.6")
+        rows = selected.objects(canonical=True)
+        for left, right in ((2, 3), (7, 8), (13, 14), (18, 19)):
+            broken = copy.deepcopy(rows)
+            broken[left], broken[right] = broken[right], broken[left]
+            with self.subTest(reorder=(left, right)), self.assertRaises(ValueError):
+                selected.verify(self.readback("1.1.6", broken))
+        for i in (2, 3):
+            for j, replacement in ((1, "tcp"), (1, "6"), (1, 6.0), (1, 17), (1, True),
+                    (4, "198.18.0.3"), (5, 8000), (5, 8443.0)):
+                broken = copy.deepcopy(rows)
+                broken[i]["rule"]["expr"][j]["match"]["right"] = replacement
+                with self.subTest(rule=i, expression=j, value=replacement), self.assertRaises(ValueError):
+                    selected.verify(self.readback("1.1.6", broken))
+
+    def test_metadata_is_closed_and_version_bound(self):
+        for version in self.RELEASES:
+            selected = replace(contract(), nft_version=version)
+            original = policy.decode(self.readback(version, selected.objects(canonical=True)))
+            metadata = original["nftables"][0]["metainfo"]
+            mutations = [{key: value for key, value in metadata.items() if key != missing} for missing in metadata]
+            mutations += [{**metadata, key: value} for key, value in (
+                ("unknown", 1), ("release_name", "unverified"), ("version", "1.1.6-1"),
+                ("json_schema_version", True), ("json_schema_version", 1.0), ("json_schema_version", 2))]
+            for mutated in mutations:
+                broken = copy.deepcopy(original)
+                broken["nftables"][0] = {"metainfo": mutated}
+                with self.subTest(version=version, metadata=mutated), self.assertRaises(ValueError):
+                    selected.verify(policy.encoded(broken))
+            for extra in ({"metainfo": metadata}, {"flowtable": {"family": "inet", "table": "foreign"}}):
+                with self.assertRaises(ValueError):
+                    selected.verify(policy.encoded({"nftables": [*original["nftables"], extra]}))
+            with self.assertRaises(ValueError):
+                selected.verify(policy.encoded({**original, "unknown": 1}))
 
 
 class ProofTests(unittest.TestCase):
