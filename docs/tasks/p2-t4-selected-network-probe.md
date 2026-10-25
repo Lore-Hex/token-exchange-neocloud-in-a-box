@@ -49,4 +49,8 @@ daemon. The cached image is never pulled. All owned containers and networks
 are identity-checked and removed, including after a partially successful
 creation. Operations have a 240-second deadline plus a fixed 60-second cleanup
 reserve; the listener exits after 180 seconds. Cleanup ambiguity remains a
-failed result. A local result cannot authorize a production network change.
+failed result. SIGTERM and SIGINT cancel subsequent work without interrupting
+the fixed cleanup reserve. An ambiguous create receives bounded recovery but
+never an absence-based cleanup success. Synthetic frames are accumulated under
+absolute deadlines; TCP packet boundaries are not message boundaries. A local
+result cannot authorize a production network change.

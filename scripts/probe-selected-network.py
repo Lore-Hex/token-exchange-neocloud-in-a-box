@@ -3,11 +3,13 @@
 """Bounded local TCP port-publication experiment, never a serving profile."""
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
 from pathlib import Path
 import socket
+import signal
 import subprocess
 import sys
 import tempfile
@@ -17,7 +19,6 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 IMAGE = "docker.io/library/python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2"
 LABEL = "nib.selected-network-probe"
-PROBE = "import socket; s=socket.create_connection(('127.0.0.1',8443),1); s.sendall(b'NIB-PROBE\\n'); assert s.recv(64)==b'NIB-PROBE-OK\\n'; s.close()"
 
 
 def require(condition):
@@ -39,22 +40,46 @@ def probe(port):
     try:
         with socket.create_connection(("127.0.0.1", port), 1) as connection:
             connection.sendall(b"NIB-PROBE\n")
-            return connection.recv(64) == b"NIB-PROBE-OK\n"
+            expected, data, deadline = b"NIB-PROBE-OK\n", bytearray(), time.monotonic() + 1
+            while len(data) < len(expected):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                connection.settimeout(remaining)
+                block = connection.recv(len(expected) + 1 - len(data))
+                if not block:
+                    return False
+                data.extend(block)
+            return data == expected
     except OSError:
         return False
 
 
+@contextmanager
+def cancellation():
+    state = {"cancelled": False}
+    def cancel(_number, _frame):
+        state["cancelled"] = True
+    old = {number: signal.signal(number, cancel) for number in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        yield state
+    finally:
+        for number, handler in old.items():
+            signal.signal(number, handler)
+
+
 class Docker:
-    def __init__(self, endpoint, config):
+    def __init__(self, endpoint, config, cancelled=None):
         require(endpoint.startswith("unix:///") and "\n" not in endpoint and "\0" not in endpoint)
         self.env = {"PATH": os.defpath + ":/usr/local/bin:/opt/homebrew/bin", "HOME": str(config),
                     "DOCKER_CONFIG": str(config), "DOCKER_HOST": endpoint}
         self.deadline = time.monotonic() + 240
         self.cleaning = False
+        self.cancelled = cancelled if cancelled is not None else {"cancelled": False}
 
     def call(self, *args, check=True):
         left = self.deadline + (60 if self.cleaning else 0) - time.monotonic()
-        require(left > 0)
+        require(left > 0 and (self.cleaning or not self.cancelled["cancelled"]))
         result = subprocess.run(["docker", *args], env=self.env, capture_output=True,
                                 timeout=min(15, left), check=False)
         require(len(result.stdout) <= 131072 and len(result.stderr) <= 131072)
@@ -81,19 +106,22 @@ def case(docker, isolated, cases):
     network, container = "nib-net-" + token, "nib-probe-" + token
     result = {"isolated_internal": isolated, "listener_ready": False,
               "operational_port_mapping": None, "host_reachable": None,
-              "cleanup_confirmed": False}
+              "cleanup_confirmed": False, "creation_outcome_unknown": False}
     cases.append(result)
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         port = reservation.getsockname()[1]
     try:
         options = ("--internal", "--opt", "com.docker.network.bridge.gateway_mode_ipv4=isolated") if isolated else ()
+        result["creation_outcome_unknown"] = True
         docker.call("network", "create", "--driver", "bridge", "--label", LABEL + "=" + token,
                     "--ipv6=false", *options, network)
+        result["creation_outcome_unknown"] = False
         net = docker.inspect("network", network)
         require(net is not None and net["Name"] == network and net["Driver"] == "bridge"
                 and net["Internal"] is isolated and net["EnableIPv6"] is False
                 and net["Labels"].get(LABEL) == token and not net.get("Containers"))
+        result["creation_outcome_unknown"] = True
         docker.call("container", "create", "--name", container, "--label", LABEL + "=" + token,
             "--pull", "never", "--platform", "linux/amd64", "--network", network,
             "--publish", "127.0.0.1:" + str(port) + ":8443/tcp", "--read-only",
@@ -102,11 +130,12 @@ def case(docker, isolated, cases):
             "--pids-limit", "32", "--entrypoint", "/usr/local/bin/python3.12",
             "--mount", "type=bind,source=" + str(ROOT / "scripts/fixtures/selected_network_listener.py")
                 + ",target=/listener.py,readonly", IMAGE, "-I", "-S", "-B", "/listener.py")
+        result["creation_outcome_unknown"] = False
         docker.call("container", "start", container)
         until = time.monotonic() + 20
         while time.monotonic() < until:
             if docker.call("container", "exec", container, "/usr/local/bin/python3.12",
-                           "-I", "-S", "-B", "-c", PROBE, check=False).returncode == 0:
+                           "-I", "-S", "-B", "/listener.py", "--probe", check=False).returncode == 0:
                 result["listener_ready"] = True
                 break
             time.sleep(.1)
@@ -119,6 +148,13 @@ def case(docker, isolated, cases):
         result["host_reachable"] = probe(port)
     finally:
         docker.cleaning = True
+        # A timed-out create may still finish in the daemon. Recover a late
+        # owned object, but never claim absence proves an unknown create ended.
+        if result["creation_outcome_unknown"]:
+            for _ in range(3):
+                docker.inspect("container", container)
+                docker.inspect("network", network)
+                time.sleep(.5)
         info = docker.inspect("container", container)
         if info is not None:
             require(info["Name"] == "/" + container and info["Config"]["Labels"].get(LABEL) == token
@@ -129,7 +165,8 @@ def case(docker, isolated, cases):
         if net is not None:
             require(net["Name"] == network and net["Labels"].get(LABEL) == token and not net.get("Containers"))
             docker.call("network", "rm", net["Id"])
-        result["cleanup_confirmed"] = docker.inspect("network", network) is None
+        result["cleanup_confirmed"] = (docker.inspect("network", network) is None
+                                       and not result["creation_outcome_unknown"])
         docker.cleaning = False
     return result
 
@@ -153,8 +190,8 @@ def main():
             require(committed == (ROOT / name).read_bytes())
             source_hashes[name] = hashlib.sha256(committed).hexdigest()
         report.update(git_sha=revision, source_sha256=source_hashes)
-        with tempfile.TemporaryDirectory(prefix="nib-network-proof-") as directory:
-            docker = Docker(args.docker_host, Path(directory))
+        with cancellation() as cancelled, tempfile.TemporaryDirectory(prefix="nib-network-proof-") as directory:
+            docker = Docker(args.docker_host, Path(directory), cancelled)
             version = json.loads(docker.call("version", "--format", "{{json .Server}}").stdout)
             require(version["Version"] == args.engine_version and version["Os"] == "linux")
             report["engine_version"] = version["Version"]
@@ -168,6 +205,7 @@ def main():
                 observed = case(docker, isolated, report["cases"])
                 if not isolated:
                     require(observed["operational_port_mapping"] and observed["host_reachable"])
+            require(not cancelled["cancelled"])
             report.update(result="recorded", stage="complete")
     except Exception:
         pass

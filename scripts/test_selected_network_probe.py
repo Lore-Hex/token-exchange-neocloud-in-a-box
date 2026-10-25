@@ -3,6 +3,7 @@
 
 import copy
 import importlib.util
+import os
 from pathlib import Path
 import subprocess
 import unittest
@@ -78,25 +79,66 @@ class NetworkProbeTests(unittest.TestCase):
         docker.call.side_effect = ValueError("creation outcome unknown")
         docker.inspect.return_value = None
         cases = []
-        with mock.patch.object(probe.socket, "socket") as socket_factory:
+        with mock.patch.object(probe.socket, "socket") as socket_factory, mock.patch.object(probe.time, "sleep"):
             socket_factory.return_value.__enter__.return_value.getsockname.return_value = ("127.0.0.1", 49123)
             with self.assertRaises(ValueError):
                 probe.case(docker, True, cases)
         self.assertEqual(len(cases), 1)
-        self.assertTrue(cases[0]["cleanup_confirmed"])
+        self.assertFalse(cases[0]["cleanup_confirmed"])
+        self.assertTrue(cases[0]["creation_outcome_unknown"])
         self.assertFalse(cases[0]["listener_ready"])
         self.assertIsNone(cases[0]["host_reachable"])
-        self.assertEqual(docker.inspect.call_count, 4)
+        self.assertEqual(docker.inspect.call_count, 10)
 
     def test_cleanup_does_not_remove_an_unowned_resource(self):
         docker = mock.Mock(cleaning=False)
         docker.call.side_effect = ValueError("creation failed")
         docker.inspect.return_value = {"Name": "/unrelated", "Config": {"Labels": {}}}
-        with mock.patch.object(probe.socket, "socket") as socket_factory:
+        with mock.patch.object(probe.socket, "socket") as socket_factory, mock.patch.object(probe.time, "sleep"):
             socket_factory.return_value.__enter__.return_value.getsockname.return_value = ("127.0.0.1", 49123)
             with self.assertRaises(ValueError):
                 probe.case(docker, True, [])
         self.assertEqual(docker.call.call_count, 1)
+
+    def test_sigterm_and_sigint_cancel_work_but_allow_bounded_cleanup(self):
+        for number in (probe.signal.SIGTERM, probe.signal.SIGINT):
+            previous = probe.signal.getsignal(number)
+            with probe.cancellation() as cancelled:
+                docker = probe.Docker("unix:///socket", Path("/nonexistent"), cancelled)
+                os.kill(os.getpid(), number)
+                self.assertTrue(cancelled["cancelled"])
+                with self.assertRaises(ValueError):
+                    docker.call("container", "create")
+                docker.cleaning = True
+                with mock.patch.object(probe.subprocess, "run", return_value=
+                        subprocess.CompletedProcess([], 0, b"", b"")) as run:
+                    docker.call("container", "ls")
+                run.assert_called_once()
+            self.assertEqual(probe.signal.getsignal(number), previous)
+
+    def test_fragmented_host_response_and_listener_frames(self):
+        stream = mock.MagicMock()
+        stream.__enter__.return_value = stream
+        stream.recv.side_effect = [b"N", b"IB-PRO", b"BE-OK\n"]
+        with mock.patch.object(probe.socket, "create_connection", return_value=stream):
+            self.assertTrue(probe.probe(49123))
+        spec = importlib.util.spec_from_file_location("network_listener",
+            PATH.parent / "fixtures/selected_network_listener.py")
+        listener = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(listener)
+        for expected in (b"NIB-PROBE\n", b"NIB-PROBE-OK\n"):
+            stream.recv.side_effect = [expected[:1], expected[1:4], expected[4:]]
+            self.assertTrue(listener.receive(stream, expected, probe.time.monotonic() + 1))
+        stream.recv.side_effect = [b"N", b""]
+        self.assertFalse(listener.receive(stream, b"NIB-PROBE\n", probe.time.monotonic() + 1))
+
+    def test_slow_fragments_do_not_extend_absolute_deadline(self):
+        stream = mock.MagicMock()
+        stream.__enter__.return_value = stream
+        stream.recv.return_value = b"N"
+        with mock.patch.object(probe.socket, "create_connection", return_value=stream), \
+                mock.patch.object(probe.time, "monotonic", side_effect=[100, 100.5, 101.1]):
+            self.assertFalse(probe.probe(49123))
 
 
 if __name__ == "__main__":
