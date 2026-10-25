@@ -28,6 +28,10 @@ require = owner.require
 MONITOR_RESERVE = smoke.HOST_RESERVE
 
 
+class Cancelled(BaseException):
+    """Must escape selectors, which deliberately swallow InterruptedError."""
+
+
 class GuardCommands(network.Commands):
     """Checks spend a smaller phase budget; cleanup retains the original cutoff."""
     reserve = MONITOR_RESERVE
@@ -422,7 +426,7 @@ def main(argv=None):
             nonlocal cancelled
             if not cancelled:
                 cancelled = True
-                raise InterruptedError("selected owner cancelled")
+                raise Cancelled("selected owner cancelled")
         handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
         try:
             for sig in handlers:
