@@ -33,6 +33,29 @@ native CLI for an offline plan and a Linux/amd64 CLI for transfer:
 python3 -I -S host/record-stage.py prepare --output "$NEW_PRIVATE_BUNDLE"
 ```
 
+The default remains `--model-pack deepseek --model-profile original`.
+The selected [Dealign checkpoint](../operators/dealign-checkpoint.md) uses
+`--model-profile uncensored`. To prepare the existing pinned GLM-5.3 pack:
+
+```sh
+python3 -I -S host/record-stage.py prepare \
+  --model-pack glm-5.3 --output "$NEW_PRIVATE_BUNDLE"
+```
+
+GLM uses `models/glm-5.3/1`: 156 files, **755,663,689,302 bytes**, revision
+`ba32f8c19c8738e2c57c71798c601d477a7bf844`. Its exact `--max-bytes` for the
+run commands below is **755663689458**, and its conservative free-space floor
+is **831,230,058,233 bytes**. The pinned manifest and source links are in
+[sizing](../sizing.md#units-and-source-bytes). These are manifest-derived
+requirements, not evidence of a completed transfer or serving run. GLM has no
+`uncensored` profile here; combining those selectors fails before building.
+
+Pack/profile selection exists only during preparation. The transferred bundle
+uses the same receipt, verifier, bounded downloader and capacity checks for
+either model. `run` cannot change model identity. Use a separate bundle and
+destination for each pack; staging another model neither stops nor changes a
+running engine. This extension does not enable GLM inference or qualify P2.T5.
+
 `NEW_PRIVATE_BUNDLE` must be an absolute new path under an existing trusted
 directory. The output is mode 0700 and contains `record-stage.py`, `nib`,
 `pack.yaml`, `files.sha256` and `receipt.json`. Creation never overwrites an

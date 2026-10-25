@@ -313,7 +313,7 @@ class StageRecorderTests(unittest.TestCase):
             self.assertEqual(env["GO_TELEMETRY_CHILD"], "2")
         self.assertEqual((destination / "nib").stat().st_mode & 0o777, 0o500)
 
-    def prepare_profile_fixture(self, destination, profile="original", *, overrides=None, plan=None):
+    def prepare_profile_fixture(self, destination, profile="original", *, overrides=None, plan=None, model_pack="deepseek"):
         pack = "models/deepseek-v4.1-flash-1017-uncensored-fp8/1"
         manifest = stage.read(ROOT / pack / "files.sha256")
         source = {stage.SCRIPT: stage.BOOTSTRAP,
@@ -322,12 +322,20 @@ class StageRecorderTests(unittest.TestCase):
                   stage.PACK + "/files.sha256": self.files["files.sha256"],
                   pack + "/pack.yaml": stage.read(ROOT / pack / "pack.yaml"),
                   pack + "/files.sha256": manifest}
+        glm_pack = stage.MODEL_PACKS["glm-5.3"]
+        for name in ("pack.yaml", "files.sha256"):
+            source[glm_pack + "/" + name] = stage.read(ROOT / glm_pack / name)
         source.update(overrides or {})
         selected_plan = self.plan if profile == "original" else {
             "hf_repo": "dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8",
             "hf_revision": "c19ca5ca4eaeb79d29fdf08aea8327da95b1116a",
             "manifest_sha256": stage.digest(manifest), "files": 79,
             "total_bytes": 510311056155, "minimum_budget_bytes": 510311056234}
+        if model_pack == "glm-5.3":
+            selected_plan = {
+                "hf_repo": "zai-org/GLM-5.3", "hf_revision": "ba32f8c19c8738e2c57c71798c601d477a7bf844",
+                "manifest_sha256": stage.digest(source[glm_pack + "/files.sha256"]), "files": 156,
+                "total_bytes": 755663689302, "minimum_budget_bytes": 755663689458}
         def committed(_, revision, name):
             self.assertEqual(revision, "b" * 40)
             if source[name] is None:
@@ -346,7 +354,7 @@ class StageRecorderTests(unittest.TestCase):
         with mock.patch.object(stage, "load_builder", return_value=builder), \
                 mock.patch.object(stage, "committed", side_effect=committed) as reads, \
                 redirect_stdout(io.StringIO()) as printed:
-            stage.prepare(destination, profile)
+            stage.prepare(destination, profile, model_pack)
         return builder, reads, json.loads(printed.getvalue())
 
     def test_original_profile_preserves_legacy_bundle_bytes_without_helper(self):
@@ -358,10 +366,57 @@ class StageRecorderTests(unittest.TestCase):
         self.assertEqual([call.args[2] for call in reads.call_args_list],
                          [stage.SCRIPT, stage.PACK + "/pack.yaml", stage.PACK + "/files.sha256"])
         with mock.patch.object(stage, "prepare", return_value=None) as prepare:
-            for extra in ([], ["--model-profile", "original"]):
+            for extra in ([], ["--model-profile", "original"], ["--model-pack", "deepseek"]):
                 with mock.patch.object(sys, "argv", [stage.SCRIPT, "prepare", "--output", str(destination), *extra]):
                     self.assertEqual(stage.main(), 0)
-                prepare.assert_called_with(destination, "original")
+                prepare.assert_called_with(destination, "original", "deepseek")
+
+    def test_glm_uses_existing_receipt_and_capacity_without_deepseek_profile(self):
+        destination = self.root / "glm"
+        builder, reads, printed = self.prepare_profile_fixture(destination, model_pack="glm-5.3")
+        receipt, files = stage.bundle(destination, printed["receipt_sha256"])
+        pack = stage.MODEL_PACKS["glm-5.3"]
+        self.assertEqual(set(receipt), set(self.receipt))
+        self.assertEqual(set(files), set(self.files))
+        self.assertEqual([call.args[2] for call in reads.call_args_list],
+                         [stage.SCRIPT, pack + "/pack.yaml", pack + "/files.sha256"])
+        self.assertEqual(receipt["plan"], {
+            "hf_repo": "zai-org/GLM-5.3", "hf_revision": "ba32f8c19c8738e2c57c71798c601d477a7bf844",
+            "manifest_sha256": stage.digest(stage.read(ROOT / pack / "files.sha256")), "files": 156,
+            "total_bytes": 755663689302, "minimum_budget_bytes": 755663689458})
+        self.assertEqual(builder.build_validator.call_count, 2)
+        for name in ("pack.yaml", "files.sha256"):
+            self.assertEqual(files[name], stage.read(ROOT / pack / name))
+        self.assertEqual(stage.capacity(self.destination, receipt["plan"])["required_bytes"], 831230058233)
+        for name in ("pack.yaml", "files.sha256"):
+            original = (destination / name).read_bytes()
+            (destination / name).write_bytes(b"tampered")
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                stage.bundle(destination, printed["receipt_sha256"])
+            (destination / name).write_bytes(original)
+
+    def test_model_pack_is_prepare_only_and_invalid_combinations_do_not_build(self):
+        destination = self.root / "rejected"
+        with mock.patch.object(stage, "load_builder") as builder:
+            for name in ("", "unknown", "../pack", "https://example.invalid/model", None, True, 1, []):
+                with self.subTest(model_pack=name), self.assertRaises(ValueError):
+                    stage.prepare(destination, model_pack=name)
+            with self.assertRaises(ValueError):
+                stage.prepare(destination, "uncensored", "glm-5.3")
+            builder.assert_not_called()
+        with mock.patch.object(stage, "prepare") as prepare, mock.patch.object(stage, "run") as run:
+            with mock.patch.object(sys, "argv", [stage.SCRIPT, "prepare", "--output", str(destination),
+                                                "--model-pack", "glm-5.3"]):
+                self.assertEqual(stage.main(), 0)
+            prepare.assert_called_once_with(destination, "original", "glm-5.3")
+            for argv in (["prepare", "--output", str(destination), "--model-pack", "unknown"],
+                         ["run", "--receipt-sha256", self.receipt_hash, "--destination", str(self.destination),
+                          "--evidence", str(self.evidence), "--seconds", "60", "--max-bytes", "12",
+                          "--model-pack", "glm-5.3"]):
+                with mock.patch.object(sys, "argv", [stage.SCRIPT, *argv]), self.assertRaises(ValueError):
+                    stage.main()
+            run.assert_not_called()
+        self.assertFalse(destination.exists())
 
     def test_uncensored_profile_binds_helper_pack_manifest_and_existing_receipt(self):
         destination = self.root / "uncensored"
@@ -397,7 +452,7 @@ class StageRecorderTests(unittest.TestCase):
             with mock.patch.object(sys, "argv", [stage.SCRIPT, "prepare", "--output", str(destination),
                                                 "--model-profile", "uncensored"]):
                 self.assertEqual(stage.main(), 0)
-            prepare.assert_called_once_with(destination, "uncensored")
+            prepare.assert_called_once_with(destination, "uncensored", "deepseek")
             for argv in (["prepare", "--output", str(destination), "--model-profile", "unknown"],
                          ["run", "--receipt-sha256", self.receipt_hash, "--destination", str(self.destination),
                           "--evidence", str(self.evidence), "--seconds", "60", "--max-bytes", "12",
