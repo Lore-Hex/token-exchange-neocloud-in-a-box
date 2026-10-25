@@ -54,7 +54,10 @@ func Create(destinations []string) ([]byte, error) {
 	if bytes.Count(raw, []byte("table inet nib {")) != 1 {
 		return nil, errReadback
 	}
-	return bytes.Replace(raw, []byte("table inet nib {"), []byte("create table inet nib {"), 1), nil
+	// nftables 1.0.9 expands children only for CMD_ADD (libnftables.c).
+	// Keep the exclusive create separate from the ordinary table block, but
+	// submit both in the same batch so an existing table rejects everything.
+	return append([]byte("create table inet nib\n"), raw...), nil
 }
 
 // Empty requires a complete, empty ruleset, not merely absence of our table.
