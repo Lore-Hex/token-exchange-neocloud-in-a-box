@@ -29,54 +29,66 @@ HASHES = {
 }
 
 
-class AttributionEvidenceTests(unittest.TestCase):
+class AttributionAssertions:
+    directory = DIRECTORY
+    producer = PRODUCER
+    hashes = HASHES
+    source_count = 36
+    elapsed_ms = 24821
+    prompt_tokens = 16093
+    completion_tokens = 226
+    started = "2026-10-25T02:45:33Z"
+    ended = "2026-10-25T03:04:53Z"
+    origin = {}
+
     def setUp(self):
         self.rows = {}
-        for name, expected in HASHES.items():
-            raw = (DIRECTORY / name).read_bytes()
+        for name, expected in self.hashes.items():
+            raw = (self.directory / name).read_bytes()
             self.assertEqual((len(raw), hashlib.sha256(raw).hexdigest()), expected)
             self.rows[name] = json.loads(raw)
         self.gpu, self.cpu, self.scorer, self.controller = (
             self.rows[name + "/output.log"] for name in ("gpu", "cpu", "scorer", "evidence"))
 
     def test_exact_inventory_sources_and_failed_trial(self):
-        git(ROOT, "merge-base", "--is-ancestor", PRODUCER, "HEAD")
-        self.assertEqual({str(p.relative_to(DIRECTORY)) for p in DIRECTORY.rglob("*") if p.is_file()},
-                         set(HASHES) | {"README.md"})
+        git(ROOT, "merge-base", "--is-ancestor", self.producer, "HEAD")
+        self.assertEqual({str(p.relative_to(self.directory)) for p in self.directory.rglob("*") if p.is_file()},
+                         set(self.hashes) | {"README.md"})
         for owner in ("gpu", "cpu", "scorer", "evidence"):
             row = self.rows[owner + "/run.json"]
-            self.assertEqual((row["git_sha"], row["result"], row["hardware_validated"]), (PRODUCER, "fail", False))
+            self.assertEqual((row["git_sha"], row["result"], row["hardware_validated"]), (self.producer, "fail", False))
         files = self.scorer["toolkit"]["files"]
-        self.assertEqual(len(files), 36)
+        self.assertEqual(len(files), self.source_count)
         for path, digest in files.items():
-            self.assertEqual(hashlib.sha256(git(ROOT, "show", PRODUCER + ":" + path)).hexdigest(), digest)
+            self.assertEqual(hashlib.sha256(git(ROOT, "show", self.producer + ":" + path)).hexdigest(), digest)
         worker = types.ModuleType("original_attribution_worker")
         worker.__file__ = str(ROOT / "scripts/tau_trial_worker.py")
-        exec(compile(git(ROOT, "show", PRODUCER + ":scripts/tau_trial_worker.py"), worker.__file__, "exec"), worker.__dict__)
+        exec(compile(git(ROOT, "show", self.producer + ":scripts/tau_trial_worker.py"), worker.__file__, "exec"), worker.__dict__)
         trial = self.scorer["diagnostic"]["trial"]
         observed = trial["upstream_termination"]
         self.assertEqual(observed, {"reason": "too_many_errors", "tool_errors": 1,
             "tool_error_attribution": {"path": "live_make_tool_call", "unattributed": 0,
-                "counts": [{"requestor": "assistant", "known_tool": True, "category": "value_error", "count": 1}]}})
+                "counts": [{"requestor": "assistant", "known_tool": True, "category": "value_error", "count": 1,
+                            **self.origin}]}})
         self.assertEqual(worker.validate_upstream_termination(observed), observed)
         with self.assertRaises(ValueError):
             worker.validate_upstream_termination(observed, evaluated=True)
         self.assertEqual((trial["status"], trial["reward"], trial["requests"], trial["elapsed_ms"]),
-                         ("protocol_error", None, 6, 24821))
+                         ("protocol_error", None, 6, self.elapsed_ms))
         self.assertEqual(trial["role_requests"], {"agent": 3, "simulator": 3, "evaluator": 0})
-        self.assertEqual(trial["usage"], {"prompt_tokens": 16093, "completion_tokens": 226,
-                                         "total_tokens": 16319, "cost_usd": None})
+        self.assertEqual(trial["usage"], {"prompt_tokens": self.prompt_tokens, "completion_tokens": self.completion_tokens,
+                                         "total_tokens": self.prompt_tokens + self.completion_tokens, "cost_usd": None})
         for row in (trial, self.scorer, self.controller):
             self.assertTrue(all(row[key] is False for key in ("quality_eligible", "live_admission", "confidential")))
 
     def test_original_owner_cleanup_and_receipt_joins(self):
         self.assertEqual((self.controller["started_utc"], self.controller["ended_utc"]),
-                         ("2026-10-25T02:45:33Z", "2026-10-25T03:04:53Z"))
+                         (self.started, self.ended))
         self.assertEqual((self.controller["result"], self.controller["stage"]), ("fail", "trial"))
         self.assertEqual(self.controller["scorer"], self.scorer)
         self.assertEqual(self.controller["owner_exits"], {"candidate": 1, "support": 1})
         self.assertEqual(self.controller["owner_reports"],
-            {owner: {name: HASHES[owner + "/" + name][1] for name in ("run.json", "output.log")}
+            {owner: {name: self.hashes[owner + "/" + name][1] for name in ("run.json", "output.log")}
              for owner in ("cpu", "gpu")})
         finish = {"status": "protocol_error", "completed_requests": 3}
         self.assertEqual(self.scorer["diagnostic"]["owner_finish"], {"candidate": finish, "support": finish})
@@ -87,13 +99,17 @@ class AttributionEvidenceTests(unittest.TestCase):
         for row in (self.gpu, self.cpu["runtime"], self.scorer, self.controller):
             self.assertEqual(row["cleanup"], "confirmed")
         self.assertIs(self.gpu["experiment"]["engine_stopped"], True)
-        with historical_cpu(PRODUCER, self.cpu) as (_, _, session):
+        with historical_cpu(self.producer, self.cpu) as (_, _, session):
             self.assertIs(session.validate(self.cpu["runtime"]), self.cpu["runtime"])
             for name, digest in self.cpu["runtime"]["receipts"].items():
-                self.assertEqual(digest, HASHES["cpu/" + name][1])
+                self.assertEqual(digest, self.hashes["cpu/" + name][1])
             for role in ("simulator", "evaluator"):
                 receipt = self.rows["cpu/" + role + "-tokenizer.json"]
-                self.assertEqual(receipt["runtime_receipt_sha256"], HASHES["cpu/" + role + "-runtime.json"][1])
+                self.assertEqual(receipt["runtime_receipt_sha256"], self.hashes["cpu/" + role + "-runtime.json"][1])
+
+
+class AttributionEvidenceTests(AttributionAssertions, unittest.TestCase):
+    pass
 
 
 if __name__ == "__main__":

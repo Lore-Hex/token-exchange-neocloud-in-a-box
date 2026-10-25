@@ -159,3 +159,45 @@ condition = "AND"
 regexTarget = "line"
 paths = ['''(^|/)evidence/p2/2026-10-25-selected-tau-tool-rejection-0245/cpu/output\.log$''']
 regexes = ['''^\s*"simulator-tokenizer\.json": "7366286c4deaa828cebdbabbb25ae69e2a08751c87e76dcd9c7bfb5be8eb5d6e"\s*$''', '''^\s*"evaluator-tokenizer\.json": "b18f504ad5436175a17b5a72258e698a9ad85a06c4d83bd32e20e47decb7e19f",\s*$''']
+
+[[rules.allowlists]]
+description = "Exact fixed synthetic GPU parity token hashes in the original email-lookup failure"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)evidence/p2/2026-10-25-selected-tau-email-rejection-0333/gpu/output\.log$''']
+regexes = ['''^\s*"tokens_sha256": "(9d6bde6f28006680e5d37e06d816356d782004f1e8dbabf46d42e81b088afc16|c7b86dad075d1d51e4bf9aec664d9ce392e5d04a63babe717ab9354ec0b56032|6ddfa5e6dbf2f45b8efc1e2ebda65f1f79c39b1a4ec8a7fce8e77fc5a0add7d5|4e5eb88296779609b1ef81a335894e3ef5c284a94a8ceb1607421414c43c9cbe)"\s*$''']
+
+[[rules.allowlists]]
+description = "Exact fixed synthetic CPU parity hashes in the original email-lookup failure"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)evidence/p2/2026-10-25-selected-tau-email-rejection-0333/cpu/output\.log$''']
+regexes = ['''^\s*"tokens_sha256": "(1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe)"\s*$''', '''^\s*"scripts/engine_tokenizer_parity\.py": "6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f",\s*$''', '''^\s*"simulator-tokenizer\.json": "4585805850dcd33c1e5dea474953ac2faa26325518143d90158c49b9b075adf5"\s*$''', '''^\s*"evaluator-tokenizer\.json": "eb894f321f90d54d7c91d5810650094a380fc8b7d8848f77eb52d20366e42fcb",\s*$''']
+
+[[rules.allowlists]]
+description = "Exact fixed CPU parity hashes in compact original email-lookup failure receipts"
+condition = "AND"
+regexTarget = "match"
+paths = ['''(^|/)evidence/p2/2026-10-25-selected-tau-email-rejection-0333/cpu/(simulator|evaluator)-tokenizer\.json$''']
+regexes = ['''^(endpoint|independent)_tokens_sha256":"(1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe)"$''']
+
+[[rules.allowlists]]
+description = "Exact public Qwen simulator recipe identity in original email-lookup failure receipts"
+condition = "AND"
+regexTarget = "match"
+paths = ['''(^|/)evidence/p2/2026-10-25-selected-tau-email-rejection-0333/cpu/simulator-(runtime|tokenizer)\.json$''']
+regexes = ['''^tokenizer_sha256":"554324f21418252a59edb045493a143a783b499d67b8680883e310e0f2ee77d9"$''']
+
+[[rules.allowlists]]
+description = "Exact public Qwen evaluator recipe identity in original email-lookup failure receipts"
+condition = "AND"
+regexTarget = "match"
+paths = ['''(^|/)evidence/p2/2026-10-25-selected-tau-email-rejection-0333/cpu/evaluator-(runtime|tokenizer)\.json$''']
+regexes = ['''^tokenizer_sha256":"604363ffa22647728e0dd56e84926ad3ca1422999e356af99628fe2535b010a8"$''']
+
+[[rules.allowlists]]
+description = "Exact public parity source hash in compact email-lookup scorer and controller originals"
+condition = "AND"
+regexTarget = "match"
+paths = ['''(^|/)evidence/p2/2026-10-25-selected-tau-email-rejection-0333/(scorer|evidence)/output\.log$''']
+regexes = ['''^engine_tokenizer_parity\.py":"6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f"$''']
