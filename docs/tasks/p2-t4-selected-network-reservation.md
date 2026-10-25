@@ -77,6 +77,16 @@ retains full IDs with no truncation. Empty IPAM options are an empty map from
 [NewMapOpts](https://github.com/docker/cli/blob/v29.1.3/opts/opts.go#L154-L163),
 not a null fixture invented to match a test.
 
+An unset IP allocation range is accepted only as an omitted `IPRange` or the
+empty string. The pinned Moby IPAM type below uses `netip.Prefix`, whose zero
+value can still serialize as an empty string with `omitempty`. Both forms mean
+no separately configured allocation range; a nonempty range, null, auxiliary
+addresses, multiple IPAM configurations or any other changed field reject.
+The shared synthetic network fixture includes the explicit empty string so
+reservation, service ownership and cleanup tests exercise that representation.
+This does not relax subnet, gateway, driver, empty options or ownership checks,
+nor prove that a previously failed hardware run recovered.
+
 Moby `docker-v29.1.3`, commit
 `fbf3ed25f893e6ce21336f1101590e40a13934f4`, defines the
 [network fields](https://github.com/moby/moby/blob/fbf3ed25f893e6ce21336f1101590e40a13934f4/api/types/network/network.go),
