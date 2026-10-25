@@ -4,10 +4,12 @@ Status: the [corrected CPU experiment passed](../../evidence/p2/2026-10-25-selec
 all 15 baseline controls, only two protected TLS paths allowed, 13 negative
 paths blocked, unchanged DNS relay counters and confirmed cleanup. The
 [two earlier failures](../../evidence/p2/2026-10-25-selected-nat-policy-failure/README.md)
-remain failures. This qualifies only the exact CPU experiment, **not GPU-host
-networking or a public service**. The separate
-[ordinary-host venue profile](p2-t4-selected-nat-venue.md) is implemented but has
-not run on hardware. This is a
+remain failures. The separate
+[ordinary-host venue profile](p2-t4-selected-nat-venue.md) subsequently passed
+the same isolated experiment with its own
+[original evidence](../../evidence/p2/2026-10-25-selected-nat-ubuntu26-pass/README.md).
+Neither result qualifies a persistent public service or confidential inference.
+This is a
 GPU-free network experiment, not a public service owner or permission to change
 a host firewall. The earlier [isolated-bridge observation](p2-t4-selected-network-probe.md)
 does not qualify this alternative. No inference, credentials, model weights,
@@ -382,10 +384,12 @@ their missing detail is not reconstructed. The
 records `readback`, with cleanup unconfirmed and the namespace reaped. The
 diagnostic does not change policy, deadlines or pass gates.
 
-## Execution gate and next step
+## Legacy CPU venue execution gate
 
-**Only the recorded CPU experiment is qualified.** Before another execution,
-independently review the exact commit and verify a dedicated CPU-only Linux amd64 venue with:
+The following instructions apply only to `ubuntu24-cpu`. The separate
+[ordinary-host profile](p2-t4-selected-nat-venue.md) has its own closed admission
+and measured result. Before another legacy-venue execution, independently
+review the exact commit and verify a dedicated CPU-only Linux amd64 venue with:
 
 - CPython **3.12.13** as the host supervisor, Docker daemon **29.1.3**, nftables
   **1.0.9**, and util-linux unshare **2.39.3**. Host and image interpreters are

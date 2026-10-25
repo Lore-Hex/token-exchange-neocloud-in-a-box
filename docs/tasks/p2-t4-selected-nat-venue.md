@@ -1,9 +1,10 @@
 # Selected NAT proof: separate ordinary-host venue
 
-Status: implemented and tested against fakes; **not hardware validated**. This
-extends the existing [closed-NAT proof](p2-t4-selected-nat-proof.md), not the
-inference service owner. The earlier Ubuntu 24.04 CPU observation cannot qualify
-a newer host simply because both report Docker 29.1.3.
+Status: the bounded synthetic experiment **passed on the exact ordinary host**;
+see the [original observation and limits](../../evidence/p2/2026-10-25-selected-nat-ubuntu26-pass/README.md).
+This extends the existing [closed-NAT proof](p2-t4-selected-nat-proof.md), not the
+inference service owner. The earlier Ubuntu 24.04 CPU observation did not qualify
+this newer host; its separate reviewed profile and actual run were required.
 
 ## Closed admission
 
@@ -70,11 +71,18 @@ Tests cover legacy argv preservation, strict profile admission, changed file
 identity/ownership/mode, wrong resolver target, private mount ordering, package
 and kernel drift, and the existing positive/negative/cleanup state machine under
 the new profile. These use fakes and do not prove kernel or daemon compatibility.
+The separate measured experiment passed on 2026-10-25; it did not use GPUs or
+serve inference. Its private outer-host baseline retained only a raw firewall
+digest, not the full ruleset. Because that digest changed, exact outer-host
+firewall invariance was not established; do not substitute the isolated PASS
+for that missing comparison.
 
 Before any actual run: require final-head independent review and full CI, a
 bounded approved execution window, no concurrent host workload, a fresh read-only
 inventory, and the pinned offline archive. Preserve the original terminal receipt
 and verify host resolver, daemon inventory, GPU allocation and firewall remain
-unchanged afterward. A failure must not trigger a retry or host workaround.
+unchanged afterward. Preserve a structured firewall baseline with an explicit
+counter comparison policy, not only a digest containing changing traffic counts.
+A failure must not trigger a retry or host workaround.
 Even a PASS remains a synthetic namespace result, not a persistent public
 service owner, complete production networking qualification or confidentiality.
