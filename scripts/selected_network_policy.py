@@ -67,8 +67,8 @@ class Policy:
     def table(self):
         return "nib_" + self.token
 
-    def objects(self):
-        """nftables 1.0.9 JSON expressions; sources in the task document."""
+    def objects(self, *, canonical=False):
+        """Render input or the exact pinned readback form, never normalize actual rules."""
         table = self.table
         objects = []
         def chain(family, name, hook, priority):
@@ -80,6 +80,9 @@ class Policy:
         incoming = match(meta("iifname"), self.bridge)
         outgoing = match(meta("oifname"), self.bridge)
         tcp4 = [match(meta("nfproto"), "ipv4"), match(meta("l4proto"), "tcp")]
+        # nft 1.0.9 elides these dependencies only when IP/TCP payloads imply them.
+        # Conntrack-only rules below still need both explicit protocol matches.
+        payload_tcp4 = [] if canonical else tcp4
         reply = [match(ct("state"), "established", "in"), match(ct("direction"), "reply")]
         dnat = [match(ct("status"), "dnat", "in"),
                 match(ct("ip daddr", dir="original"), self.published),
@@ -94,22 +97,22 @@ class Policy:
         rule("inet", "input", host_reply + dnat, "accept")
         rule("inet", "input", [incoming], "drop")
         # Also constrain a userland proxy's host listener to the ingress interface.
-        rule("inet", "input", tcp4 + [match(payload("ip", "daddr"), self.published),
+        rule("inet", "input", payload_tcp4 + [match(payload("ip", "daddr"), self.published),
             match(payload("tcp", "dport"), self.port),
             match(meta("iifname"), self.ingress, "!="), match(meta("iifname"), "lo", "!=")], "drop")
         chain("inet", "forward", "forward", -10)
         for state in ("new", "established"):
             original = [match(ct("state"), state, "in"), match(ct("direction"), "original")]
-            rule("inet", "forward", [outgoing, match(meta("iifname"), self.ingress)] + tcp4 + original + dnat + [
+            rule("inet", "forward", [outgoing, match(meta("iifname"), self.ingress)] + payload_tcp4 + original + dnat + [
                 match(payload("ip", "daddr"), self.address), match(payload("tcp", "dport"), 8443)], "accept")
-        rule("inet", "forward", [incoming, match(meta("oifname"), self.ingress)] + tcp4 + reply + dnat + [
+        rule("inet", "forward", [incoming, match(meta("oifname"), self.ingress)] + payload_tcp4 + reply + dnat + [
             match(payload("ip", "saddr"), self.address), match(payload("tcp", "sport"), 8443)], "accept")
         rule("inet", "forward", [incoming], "drop")
         rule("inet", "forward", [outgoing], "drop")
         chain("inet", "output", "output", -10)
         for state in ("new", "established"):
             original = [match(ct("state"), state, "in"), match(ct("direction"), "original")]
-            rule("inet", "output", [outgoing] + tcp4 + original + [
+            rule("inet", "output", [outgoing] + payload_tcp4 + original + [
                 match(payload("ip", "daddr"), self.address), match(payload("tcp", "dport"), 8443)], "accept")
         rule("inet", "output", [outgoing], "drop")
         objects.append({"table": {"family": "bridge", "name": table}})
@@ -147,7 +150,7 @@ class Policy:
                 key = (kind, body["family"], body.get("chain", body.get("name", "")))
                 groups.setdefault(key, []).append(row)
             return groups
-        require(versions == 1 and grouped(actual) == grouped(self.objects()))
+        require(versions == 1 and grouped(actual) == grouped(self.objects(canonical=True)))
 
     def remove_batch(self, *, containers_absent, creations_resolved):
         require(containers_absent is True and creations_resolved is True)

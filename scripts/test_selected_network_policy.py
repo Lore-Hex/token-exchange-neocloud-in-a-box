@@ -83,6 +83,8 @@ class PolicyTests(unittest.TestCase):
 
     def test_create_only_batch_and_exact_four_hooks(self):
         result = policy.decode(contract().batch())["nftables"]
+        self.assertEqual(hashlib.sha256(contract().batch()).hexdigest(),
+                         "dd250199df014064cf7ca8d43281c9231477738b5e479688b7ddc66f90ee7ec6")
         self.assertEqual([next(iter(row)) for row in result].count("create"), 2)
         self.assertFalse(any("flush" in row or "delete" in row for row in result))
         hooks = {(row["chain"]["family"], row["chain"]["hook"]) for row in contract().objects() if "chain" in row}
@@ -129,7 +131,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(verdict(contract().objects(), "inet", "input", reply), "drop")
 
     def test_readback_handles_order_and_every_policy_change(self):
-        rows = contract().objects()
+        rows = contract().objects(canonical=True)
         for index, row in enumerate(rows):
             next(iter(row.values()))["handle"] = index + 1
         contract().verify(readback(rows))
@@ -147,14 +149,87 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             contract().verify(readback(broken))
 
+    def test_upstream_derived_expected_form_changes_only_six_payload_rules(self):
+        fixtures = json.loads((ROOT / "scripts/fixtures/nftables-1.0.9-canonical.json").read_text())
+        self.assertEqual(fixtures["source"]["sha256"],
+                         "a3c304cd9ba061239ee0474f9afb938a9bb99d89b960246f66f0c3a0a85e14cd")
+        network, transport = fixtures["upstream_cases"]
+        self.assertEqual(network["output"], network["input"][1:])
+        self.assertEqual(transport["output"], transport["input"])
+        before, after = contract().objects(), contract().objects(canonical=True)
+        guard = fixtures["derived_policy_input_guard"]
+        self.assertEqual(before[5]["rule"]["expr"], guard["input"])
+        self.assertEqual(after[5]["rule"]["expr"], guard["output"])
+        tcp4 = [policy.match(policy.meta("nfproto"), "ipv4"), policy.match(policy.meta("l4proto"), "tcp")]
+        changed = []
+        for original, canonical in zip(before, after, strict=True):
+            if original == canonical:
+                continue
+            left, right = original["rule"], canonical["rule"]
+            self.assertEqual({k: v for k, v in left.items() if k != "expr"},
+                             {k: v for k, v in right.items() if k != "expr"})
+            self.assertEqual([e for e in left["expr"] if e in tcp4], tcp4)
+            self.assertEqual([e for e in left["expr"] if e not in tcp4], right["expr"])
+            payloads = [e["match"]["left"]["payload"] for e in right["expr"]
+                        if "payload" in e.get("match", {}).get("left", {})]
+            self.assertEqual([p["protocol"] for p in payloads], ["ip", "tcp"])
+            changed.append(left["chain"])
+        self.assertEqual(changed, ["input", "forward", "forward", "forward", "output", "output"])
+        for row in after[2:4]:
+            self.assertEqual(row["rule"]["expr"][1:3], tcp4)
+        contract().verify(readback(after))
+        with self.assertRaises(ValueError):
+            contract().verify(readback(before))
+
+    def test_canonical_readback_rejects_every_predicate_removal_and_added_expression(self):
+        rows = contract().objects(canonical=True)
+        for i, row in enumerate(rows):
+            if "rule" not in row:
+                continue
+            for j in range(len(row["rule"]["expr"])):
+                broken = copy.deepcopy(rows)
+                del broken[i]["rule"]["expr"][j]
+                with self.subTest(rule=i, expression=j), self.assertRaises(ValueError):
+                    contract().verify(readback(broken))
+            broken = copy.deepcopy(rows)
+            broken[i]["rule"]["expr"].insert(0, {"accept": None})
+            with self.subTest(extra_expression=i), self.assertRaises(ValueError):
+                contract().verify(readback(broken))
+
+    def test_canonical_readback_keeps_rule_order_and_rejects_extra_rules_and_fields(self):
+        rows = contract().objects(canonical=True)
+        for left, right in ((2, 3), (7, 8), (13, 14), (18, 19)):
+            broken = copy.deepcopy(rows)
+            broken[left], broken[right] = broken[right], broken[left]
+            with self.subTest(reorder=(left, right)), self.assertRaises(ValueError):
+                contract().verify(readback(broken))
+        for kind in ("extra-rule", "extra-field", "verdict", "port", "address", "family"):
+            broken = copy.deepcopy(rows)
+            rule = broken[5]["rule"]
+            if kind == "extra-rule":
+                broken.append(copy.deepcopy(broken[5]))
+            elif kind == "extra-field":
+                rule["comment"] = "unexpected"
+            elif kind == "verdict":
+                rule["expr"][-1] = {"accept": None}
+            elif kind == "port":
+                rule["expr"][1]["match"]["right"] = 8000
+            elif kind == "address":
+                rule["expr"][0]["match"]["right"] = "198.19.0.2"
+            else:
+                rule["expr"][0]["match"]["left"]["payload"]["protocol"] = "ip6"
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                contract().verify(readback(broken))
+
     def test_pinned_nft_json_keys_and_no_forward_bypass(self):
         raw = contract().batch()
         self.assertIn(b'"key":"ip daddr"', raw)
         self.assertNotIn(b'"family":"ip"', raw)
         self.assertIn(b'"key":"ibrname"', raw)
-        for raw in (policy.encoded({"nftables": contract().objects()}),
-                    readback(contract().objects()).replace(b'"1.0.9"', b'"1.0.8"'),
-                    readback([*contract().objects(), {"flowtable": {"family": "inet", "table": "foreign"}}])):
+        for raw in (policy.encoded({"nftables": contract().objects(canonical=True)}),
+                    readback(contract().objects(canonical=True)).replace(b'"1.0.9"', b'"1.0.8"'),
+                    readback([*contract().objects(canonical=True),
+                              {"flowtable": {"family": "inet", "table": "foreign"}}])):
             with self.assertRaises(ValueError):
                 contract().verify(raw)
 
@@ -491,13 +566,21 @@ class ProofTests(unittest.TestCase):
     def test_cleanup_readback_and_network_ambiguity(self):
         commands = mock.Mock()
         commands.docker.return_value.stdout = b""
-        commands.rules.side_effect = [readback(contract().objects()), readback([])]
+        commands.rules.side_effect = [readback(contract().objects(canonical=True)), readback([])]
         self.assertTrue(proof.owned_cleanup(commands, "a" * 32, contract(), False, True))
         commands.nft.assert_called_once_with(contract().remove_batch(containers_absent=True, creations_resolved=True))
         commands.reset_mock()
-        commands.rules.side_effect = [readback(contract().objects()), readback(contract().objects())]
+        commands.rules.side_effect = [readback(contract().objects(canonical=True)),
+                                      readback(contract().objects(canonical=True))]
         with self.assertRaises(ValueError):
             proof.owned_cleanup(commands, "a" * 32, contract(), False, True)
+        commands.reset_mock()
+        drift = contract().objects(canonical=True)
+        del drift[5]["rule"]["expr"][0]
+        commands.rules.side_effect = [readback(drift)]
+        with self.assertRaises(ValueError):
+            proof.owned_cleanup(commands, "a" * 32, contract(), False, True)
+        commands.nft.assert_not_called()
         commands.reset_mock()
         commands.docker.side_effect = [subprocess.CompletedProcess([], 0, b"", b"")] * 4 + [
             subprocess.CompletedProcess([], 0, b"nib-service\n", b"")]
