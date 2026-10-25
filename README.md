@@ -83,8 +83,10 @@ usage and confirmed cleanup. No retries were used; this is not general tool
 reliability, full tau evaluation, public serving or a capability/privacy claim.
 A separate [closed-NAT CPU experiment](evidence/p2/2026-10-25-selected-nat-pass/README.md)
 passed all 15 baseline controls, allowed only the two TLS paths after protection,
-blocked 13 other paths including DNS relays, and confirmed cleanup. This does
-not yet qualify networking on the GPU host or public serving.
+blocked 13 other paths including DNS relays, and confirmed cleanup. The same
+[isolated experiment on the ordinary GPU host](evidence/p2/2026-10-25-selected-nat-ubuntu26-pass/README.md)
+also passed with its separately pinned Ubuntu 26.04 venue and no GPU use.
+Neither experiment qualifies persistent public serving or confidential inference.
 The [8K-profile parity prerequisite](evidence/p2/2026-10-24-selected-tau8k-parity/README.md)
 also passed four fixed cases and eight requests; this does not establish full
 8K request fit. Both [DSpark attempts](evidence/p2/2026-10-24-selected-dspark-startup-failure/README.md)
