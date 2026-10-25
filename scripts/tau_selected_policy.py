@@ -11,6 +11,8 @@ SCHEMA = "nib.tau-selected-operational-input/v1"
 RESOLUTION_SCHEMA = "nib.tau-selected-customer-resolution-input/v1"
 EXTERNAL_SCHEMA = "nib.tau-external-customer-resolution-input/v1"
 EXTERNAL_TRANSPORT = "nib.tau-external-customer-resolution-transport/v1"
+EXTERNAL_TRIAL_SCHEMA = "nib.tau-external-retail-trial-input/v1"
+EXTERNAL_TRIAL_TRANSPORT = "nib.tau-external-retail-trial-transport/v1"
 EXTERNAL_MODEL = "gpt-4.1-2025-04-14"
 PUBLIC_MODEL = "dealignai/deepseek-v4.1-flash-1017-uncensored-fp8"
 RESOLUTION_REPORT = "nib.tau-selected-customer-resolution/v1"
@@ -27,12 +29,17 @@ def is_resolution(value):
 
 
 def is_external(value):
-    return type(value) is dict and value.get("schema") == EXTERNAL_SCHEMA
+    return type(value) is dict and value.get("schema") in (EXTERNAL_SCHEMA, EXTERNAL_TRIAL_SCHEMA)
 
 
-def configuration(*, customer_resolution=False, external_simulator=False):
+def is_external_trial(value):
+    return type(value) is dict and value.get("schema") == EXTERNAL_TRIAL_SCHEMA
+
+
+def configuration(*, customer_resolution=False, external_simulator=False, full_task=False):
     tau.require(type(customer_resolution) is bool)
-    tau.require(type(external_simulator) is bool and (not external_simulator or customer_resolution))
+    tau.require(type(full_task) is bool and (not full_task or external_simulator and not customer_resolution))
+    tau.require(type(external_simulator) is bool and (not external_simulator or customer_resolution or full_task))
     value = {"schema": SCHEMA, "upstream_revision": tau.REVISION,
             "selection": dict(support.SELECTION), "model_profile": models.select("uncensored"),
             "support": support.configuration()["support"], "generation": dict(support.GENERATION),
@@ -42,7 +49,7 @@ def configuration(*, customer_resolution=False, external_simulator=False):
         value.update(schema=RESOLUTION_SCHEMA, support={"simulator": value["support"]["evaluator"]},
                      owner_roles={"simulator": "evaluator"})
     if external_simulator:
-        value.pop("owner_roles")
+        value.pop("owner_roles", None)
         value.update(schema=EXTERNAL_SCHEMA, support={"simulator": {"model": EXTERNAL_MODEL}},
                      contexts={"candidate": 8192, "simulator": 8192}, pricing="published-ceiling-not-invoice")
         # Pinned tau config.py DEFAULT_LLM_USER; official API/model/pricing and
@@ -51,12 +58,25 @@ def configuration(*, customer_resolution=False, external_simulator=False):
         # https://developers.openai.com/api/docs/pricing#standard-pricing-data
         value["prices"] = {"candidate": ["0.65", "1.45"], "simulator": ["2.00", "8.00"]}
         value["limits"] = {**LIMITS, "cost_usd": "1.00"}
+    if full_task:
+        value.update(schema=EXTERNAL_TRIAL_SCHEMA,
+                     support={role: {"model": EXTERNAL_MODEL} for role in ("simulator", "evaluator")},
+                     contexts={role: 32768 for role in CONTEXTS},
+                     generation={**support.GENERATION, "max_tokens": 2048},
+                     candidate_profile="quality32k-eager",
+                     evaluation={"type": "all_with_nl_assertions", "auto_review": False,
+                                 "reward_basis": "original-task", "first_lookup_stop": False})
+        value["prices"]["evaluator"] = list(value["prices"]["simulator"])
+        value["limits"] = {**LIMITS, "input_tokens_per_request": 32768,
+                           "output_tokens_per_request": 2048, "total_tokens": 32 * (32768 + 2048),
+                           "cost_usd": "3.00"}
     return value
 
 
 def validate(value, sha=None):
     tau.require(tau.encoded(value) == tau.encoded(configuration(customer_resolution=is_resolution(value),
-                                                              external_simulator=is_external(value))))
+                                                              external_simulator=is_external(value),
+                                                              full_task=is_external_trial(value))))
     if sha is not None:
         tau.sha(sha)
         tau.require(tau.digest(tau.encoded(value)) == sha)
@@ -66,7 +86,7 @@ def validate(value, sha=None):
 def settings(value):
     validate(value)
     roles = ("candidate", "simulator") if is_resolution(value) else CONTEXTS
-    result = {"roles": {role: {"generation": dict(support.GENERATION)} for role in roles},
+    result = {"roles": {role: {"generation": dict(value["generation"])} for role in roles},
               "limits": dict(value["limits"])}
     if is_external(value):
         for role, prices in value["prices"].items():
@@ -78,15 +98,17 @@ def transport_manifest(value, sha):
     if type(value) is dict and is_external(value.get("input")):
         validate(value["input"])
         tau.require(set(value) == {"schema", "input", "settings", "framing", "binding_sha256"}
-                    and value["schema"] == EXTERNAL_TRANSPORT and tau.digest(tau.encoded(value)) == sha
+                    and value["schema"] == (EXTERNAL_TRIAL_TRANSPORT if is_external_trial(value["input"])
+                                            else EXTERNAL_TRANSPORT) and tau.digest(tau.encoded(value)) == sha
                     and value["settings"] == settings(value["input"])
-                    and set(value["framing"]) == {"candidate", "simulator"})
+                    and set(value["framing"]) == set(value["input"]["contexts"]))
         tau.sha(value["binding_sha256"])
         for role, row in value["framing"].items():
             tau.require(set(row) == {"reasoning_effort", "parallel_tool_calls", "served_model",
                         "framing_sha256", "tokenizer_sha256", "context_tokens"}
                         and row["reasoning_effort"] == "none" and row["parallel_tool_calls"] is False
-                        and type(row["context_tokens"]) is int and row["context_tokens"] == 8192
+                        and type(row["context_tokens"]) is int
+                        and row["context_tokens"] == value["input"]["contexts"][role]
                         and row["served_model"] == (PUBLIC_MODEL if role == "candidate" else EXTERNAL_MODEL))
             tau.sha(row["framing_sha256"])
             tau.sha(row["tokenizer_sha256"])

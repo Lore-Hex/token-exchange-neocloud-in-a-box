@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Prepare offline, or explicitly run ONE bounded natural lookup diagnostic."""
+"""Prepare offline or run ONE bounded lookup; explicit --full-task runs task 2."""
 
 import sys
 
@@ -51,6 +51,8 @@ def main():
     prepare.add_argument("--wheelhouse", type=Path, required=True)
     prepare.add_argument("--output", type=Path, required=True)
     run = commands.add_parser("run")
+    for command in (prepare, run):
+        command.add_argument("--full-task", action="store_true")
     for name in ("payload", "docker-socket", "contract", "candidate-key", "simulator-key", "vllm-source",
                  "tokenizer", "tokenizer-wheel", "output"):
         run.add_argument("--" + name, type=Path, required=True)
@@ -70,7 +72,8 @@ def main():
         if args.command == "prepare":
             files, plan = trial.prepare(args.source_archive, args.wheelhouse, None, None, None,
                 time.monotonic() + 600, parent_pipe=True, selected_operational=True,
-                customer_resolution=True, external_simulator=True)
+                customer_resolution=not args.full_task, external_simulator=True,
+                **({"full_task": True} if args.full_task else {}))
             trial.publish(args.output, files)
             print(trial.tau.encoded({"plan_sha256": trial.tau.digest(trial.tau.encoded(plan)),
                                     "source_git_sha": plan["producer"]["git_sha"]}).decode(), end="")
@@ -84,13 +87,15 @@ def main():
         record = trial.run(args.payload, args.plan_sha256, args.output, args.docker_socket,
             parent_pipe=True, external_inputs={"deadline": deadline, "arguments": (
                 args.contract, args.contract_sha256, args.candidate_key, args.simulator_key,
-                args.vllm_source, args.tokenizer, args.tokenizer_wheel)})
+                args.vllm_source, args.tokenizer, args.tokenizer_wheel),
+                **({"full_task": True} if args.full_task else {})})
         print(trial.tau.encoded({"result": record["result"], "cleanup": record["cleanup"]}).decode(), end="")
         return 0 if record["result"] == "pass" else 1
     except BaseException:
         if args.command == "run" and not args.output.exists():
             trial.publish_evidence(args.output, {"observation.json": trial.tau.encoded({
-                "schema": "nib.tau-external-preflight/v1", "result": "fail", "cleanup": "unconfirmed",
+                "schema": "nib.tau-external-full-task-preflight/v1" if args.full_task else "nib.tau-external-preflight/v1",
+                "result": "fail", "cleanup": "unconfirmed",
                 "quality_eligible": False, "confidential": False, "live_admission": False})})
         print("External tau diagnostic failed; no automatic retry.", file=sys.stderr)
         return 1

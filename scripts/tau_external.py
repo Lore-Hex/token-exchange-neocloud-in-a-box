@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Closed external simulator and ordinary candidate, only original first lookup."""
+"""Closed external roles and ordinary candidate; explicit lookup or full task."""
 
 from decimal import Decimal
 import os
@@ -24,10 +24,11 @@ COUNT_BINDING = worker.digest(b"OpenAI Responses input_tokens; gpt-4.1-2025-04-1
 COUNT_RESERVATION = Decimal("2.095152")  # Entire published 1,047,576-token context at $2/M.
 
 
-def projected(body):
+def projected(body, *, full_task=False):
     """Only two upstream optional aliases are removed; all values are retained."""
     result = worker.decode(worker.bounded_json(body, 65536))
-    require(0 < len(result["messages"]) <= 128 and result["max_completion_tokens"] == 256
+    require(type(full_task) is bool and 0 < len(result["messages"]) <= 128
+            and result["max_completion_tokens"] == (2048 if full_task else 256)
             and result["reasoning_effort"] == "none" and result["parallel_tool_calls"] is False)
     for message in result["messages"]:
         if "tool_calls" in message and message["tool_calls"] is None:
@@ -39,8 +40,8 @@ def projected(body):
     return result
 
 
-def candidate_request(body):
-    result = projected(body)
+def candidate_request(body, *, full_task=False):
+    result = projected(body, full_task=full_task)
     require(result["model"] == policy.PUBLIC_MODEL)
     tools = result.get("tools")
     require(tools is None or type(tools) is list and 0 < len(tools) <= 16)
@@ -84,8 +85,8 @@ def candidate_request(body):
     return result
 
 
-def simulator_request(body):
-    result = projected(body)
+def simulator_request(body, *, full_task=False):
+    result = projected(body, full_task=full_task)
     require(result["model"] == policy.EXTERNAL_MODEL and result.get("tools") is None
             and result.get("tool_choice") in (None, "none") and "seed" not in result)
     for message in result["messages"]:
@@ -95,32 +96,50 @@ def simulator_request(body):
     # persistent storage. The original full text history remains in each call.
     return {"model": policy.EXTERNAL_MODEL, "input": result["messages"],
             "truncation": "disabled",
-            "max_output_tokens": 256, "temperature": 0, "store": False,
+            "max_output_tokens": result["max_completion_tokens"], "temperature": 0, "store": False,
             "stream": False, "background": False, "service_tier": "default"}
 
 
+class CountBudget:
+    """One serial count-call cap shared by simulator and evaluator."""
+    def __init__(self):
+        self.attempts = 0
+
+    def reserve(self):
+        require(self.attempts < 32)
+        self.attempts += 1
+
+
 class Endpoint:
-    def __init__(self, role, http, key, counter=None):
+    def __init__(self, role, http, key, counter=None, *, full_task=False, count_budget=None):
+        require(type(full_task) is bool and role in (("candidate", "simulator", "evaluator")
+                if full_task else ("candidate", "simulator")))
+        require(not full_task or type(count_budget) is CountBudget)
+        self.full_task, self.count_budget = full_task, count_budget
+        self.context, self.output = (32768, 2048) if full_task else (8192, 256)
         self.role, self.http, self.key, self.counter = role, http, key, counter
         self.count_attempts = self.attempts = self.unknown = 0
         self.measured = []
         self.ready = None
 
     def count(self, body, context, deadline):
-        require(context == 8192 and self.ready is None and self.attempts < 32 and self.count_attempts < 32)
-        wire = candidate_request(body) if self.role == "candidate" else simulator_request(body)
+        require(context == self.context and self.ready is None and self.attempts < 32 and self.count_attempts < 32)
+        wire = (candidate_request(body, full_task=self.full_task) if self.role == "candidate" else
+                simulator_request(body, full_task=self.full_task))
         if self.role == "candidate":
             count = self.counter.count(wire)
         else:
             # This is a separately counted non-generating authenticated call,
             # never an inference retry. Only input-semantic fields are shared.
+            if self.full_task:
+                self.count_budget.reserve()
             self.count_attempts += 1
             counted = self.http.post(COUNT, {key: wire[key] for key in
                 ("model", "input", "truncation")}, self.key, deadline)
             require(type(counted) is dict and set(counted) == {"object", "input_tokens"}
                     and counted["object"] == "response.input_tokens")
             count = counted["input_tokens"]
-        require(type(count) is int and 0 < count <= context - 256)
+        require(type(count) is int and 0 < count <= context - self.output)
         self.ready = worker.digest(worker.encoded(body)), wire, count
         return count
 
@@ -138,13 +157,14 @@ class Endpoint:
         usage = raw["usage"]
         incoming, outgoing = ((usage.get("prompt_tokens"), usage.get("completion_tokens"))
                               if self.role == "candidate" else (usage.get("input_tokens"), usage.get("output_tokens")))
-        require(type(incoming) is int and 0 < incoming <= 8192 and type(outgoing) is int and 0 <= outgoing <= 256
+        require(type(incoming) is int and 0 < incoming <= self.context
+                and type(outgoing) is int and 0 <= outgoing <= self.output
                 and type(usage.get("total_tokens")) is int and usage["total_tokens"] == incoming + outgoing)
         settled = {"prompt_tokens": incoming, "completion_tokens": outgoing, "total_tokens": incoming + outgoing}
         # Preserve known measured usage even if count, finish or content fails.
         self.measured.append(settled)
         self.unknown -= 1
-        require(incoming == prompt and incoming + outgoing <= 8192)
+        require(incoming == prompt and incoming + outgoing <= self.context)
         if self.role == "candidate":
             require(type(raw.get("choices")) is list and len(raw["choices"]) == 1)
             choice = raw["choices"][0]
@@ -183,35 +203,46 @@ class Endpoint:
 
 
 class Runtime:
-    def __init__(self, contract_path, contract_sha, candidate_key, simulator_key, source, tokenizer, wheel, deadline):
+    def __init__(self, contract_path, contract_sha, candidate_key, simulator_key, source, tokenizer, wheel, deadline,
+                 *, full_task=False):
+        require(type(full_task) is bool)
         self.counter, self.endpoints = None, {}
+        config = policy.configuration(customer_resolution=not full_task, external_simulator=True, full_task=full_task)
+        context, output = config["contexts"]["candidate"], config["generation"]["max_tokens"]
         raw = private.private_read(contract_path, deadline)
         require(worker.digest(raw) == contract_sha)
         contract = worker.decode(raw)
         require(type(contract) is dict and set(contract) == {"schema", "hostname", "address", "port", "model",
                 "context_tokens", "output_tokens", "prices", "simulator", "retire_at", "conformance_sha256"}
-                and contract["schema"] == "nib.tau-external-endpoint/v1" and contract["port"] == 443
-                and contract["model"] == policy.PUBLIC_MODEL and contract["context_tokens"] == 8192
-                and contract["output_tokens"] == 256 and contract["prices"] == policy.configuration(
-                    customer_resolution=True, external_simulator=True)["prices"]
+                    | ({"candidate_profile", "evaluator"} if full_task else set())
+                and contract["schema"] == ("nib.tau-external-trial-endpoint/v1" if full_task
+                                           else "nib.tau-external-endpoint/v1") and contract["port"] == 443
+                and contract["model"] == policy.PUBLIC_MODEL and contract["context_tokens"] == context
+                and contract["output_tokens"] == output and contract["prices"] == config["prices"]
                 and contract["simulator"] == policy.EXTERNAL_MODEL
                 and type(contract["retire_at"]) is int and contract["retire_at"] > time.time() + deadline - time.monotonic())
+        require(not full_task or contract["candidate_profile"] == config["candidate_profile"]
+                and contract["evaluator"] == policy.EXTERNAL_MODEL
+                and all(type(contract[key]) is int for key in ("port", "context_tokens", "output_tokens")))
         tau.sha(contract["conformance_sha256"])
         try:
-            self.counter = tau_external_tokenizer.Counter(source, tokenizer, wheel)
+            self.counter = tau_external_tokenizer.Counter(source, tokenizer, wheel,
+                **({"context_tokens": context} if full_task else {}))
             keys = [private.private_read(path, deadline).rstrip(b"\n") for path in (candidate_key, simulator_key)]
             require(all(16 <= len(key) <= 4096 and all(33 <= byte <= 126 for byte in key) for key in keys))
+            options = {"full_task": True, "count_budget": CountBudget()} if full_task else {}
             self.endpoints = {"candidate": Endpoint("candidate", bounded_https.HTTPS(contract["hostname"], (CHAT,),
-                               address=contract["address"]), keys[0], self.counter),
-                              "simulator": Endpoint("simulator", bounded_https.HTTPS("api.openai.com", (COUNT, RESPONSES)), keys[1])}
-            config = policy.configuration(customer_resolution=True, external_simulator=True)
-            self.manifest = {"schema": policy.EXTERNAL_TRANSPORT, "input": config, "settings": policy.settings(config),
+                               address=contract["address"]), keys[0], self.counter, **options),
+                             **{role: Endpoint(role, bounded_https.HTTPS("api.openai.com", (COUNT, RESPONSES)),
+                                               keys[1], **options) for role in config["support"]}}
+            self.manifest = {"schema": policy.EXTERNAL_TRIAL_TRANSPORT if full_task else policy.EXTERNAL_TRANSPORT,
+                "input": config, "settings": policy.settings(config),
                 "binding_sha256": contract_sha, "framing": {role: {
-                    "reasoning_effort": "none", "parallel_tool_calls": False, "context_tokens": 8192,
+                    "reasoning_effort": "none", "parallel_tool_calls": False, "context_tokens": context,
                     "served_model": policy.PUBLIC_MODEL if role == "candidate" else policy.EXTERNAL_MODEL,
                     "framing_sha256": self.counter.binding if role == "candidate" else COUNT_BINDING,
                     "tokenizer_sha256": tau.VOCABULARY_DIGEST if role == "candidate" else COUNT_BINDING}
-                    for role in ("candidate", "simulator")}}
+                    for role in config["contexts"]}}
             policy.transport_manifest(self.manifest, worker.digest(worker.encoded(self.manifest)))
         except BaseException:
             self.close()
@@ -232,6 +263,17 @@ class Session(local.CountedSession):
         self.endpoints = dict(runtime.endpoints)
 
     def accept_result(self, packet, deadline):
+        if policy.is_external_trial(self.manifest["input"]):
+            require(type(packet) is dict and "upstream_termination" in packet)
+            upstream = worker.validate_upstream_termination(packet["upstream_termination"],
+                                                            evaluated=packet.get("status") == "evaluated")
+            require(upstream is None or upstream["tool_errors"] <= worker.MAX_TOOL_CALLS * (
+                self.bridge.counts["agent"] + self.bridge.counts["simulator"]))
+            sequence, result = super().accept_result({key: value for key, value in packet.items()
+                                                     if key != "upstream_termination"}, deadline)
+            result.update(schema="nib.tau-external-retail-trial/v1", upstream_termination=upstream,
+                          selection=dict(policy.support.SELECTION))
+            return sequence, result
         require(type(packet) is dict and packet.get("upstream_termination", False) is None)
         resolution = policy.resolution_result(packet["customer_resolution"], completed=packet.get("status") == "evaluated")
         sequence, result = super().accept_result({key: value for key, value in packet.items()
@@ -241,6 +283,17 @@ class Session(local.CountedSession):
 
 
 def accepted(value):
+    if value.get("schema") == "nib.tau-external-full-task/v1":
+        row = value["trial"]
+        # Lifecycle success is independent of reward. Zero remains a scored
+        # failure of this task, not a transport failure or invented null reward.
+        return (value["scorer_protocol_completed"] is True and value["attach_cleanup"] == "reaped"
+                and value["scorer_exit_code"] == 0 and row["status"] == "evaluated"
+                and row["reward"] in ("0.0", "1.0") and row.get("usage") is not None
+                and row.get("upstream_termination", {}).get("reason") in ("user_stop", "agent_stop")
+                and set(value["endpoints"]) == {"candidate", "simulator", "evaluator"}
+                and all(item["generation_attempts"] > 0 and item["unknown_responses"] == 0
+                        for item in value["endpoints"].values()))
     return (value["scorer_protocol_completed"] is True and value["attach_cleanup"] == "reaped"
             and value["scorer_exit_code"] == 0 and value["trial"]["status"] == "evaluated"
             and value["trial"]["reward"] is None and value["trial"].get("customer_resolution", {}).get("outcome") == "resolved"
@@ -255,7 +308,9 @@ def run_process(command, environment, payload, plan, runtime, deadline):
     process = channel = session = None
     reader = writer = None
     completed, cleanup, code = False, "unconfirmed", None
-    trial = {"status": "protocol_error", "reward": None, "customer_resolution": None}
+    full_task = policy.is_external_trial(runtime.manifest["input"])
+    trial = {"status": "protocol_error", "reward": None,
+             **({"upstream_termination": None} if full_task else {"customer_resolution": None})}
     try:
         with worker.alarm(deadline - RESERVE):
             process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -323,9 +378,15 @@ def run_process(command, environment, payload, plan, runtime, deadline):
                     signal.pthread_sigmask(signal.SIG_SETMASK, mask)
             except KeyboardInterrupt:
                 completed = False
-    return {"schema": "nib.tau-external-lookup/v1", "scorer_protocol_completed": completed,
+    cost = runtime.manifest["input"]["limits"]["cost_usd"]
+    result = {"schema": "nib.tau-external-full-task/v1" if full_task else "nib.tau-external-lookup/v1",
+            "scorer_protocol_completed": completed,
             "attach_cleanup": cleanup, "scorer_exit_code": code, "trial": trial,
             "endpoints": {name: endpoint.observation() for name, endpoint in runtime.endpoints.items()},
-            "cost_ceiling_usd": format(COUNT_RESERVATION * 32 + 1, "f"), "generation_cost_ceiling_usd": "1.00",
+            "cost_ceiling_usd": format(COUNT_RESERVATION * 32 + Decimal(cost), "f"), "generation_cost_ceiling_usd": cost,
             "cost_basis": "standard-token-price-reservations-not-invoice",
             "quality_eligible": False, "confidential": False, "live_admission": False}
+    if full_task:
+        result.update(selection=dict(policy.support.SELECTION),
+                      evaluation=dict(runtime.manifest["input"]["evaluation"]), full_benchmark=False)
+    return result

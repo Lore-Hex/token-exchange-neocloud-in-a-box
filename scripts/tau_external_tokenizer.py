@@ -45,7 +45,9 @@ def verified(path, size, sha):
 
 
 class Counter:
-    def __init__(self, source_root, model_root, wheel):
+    def __init__(self, source_root, model_root, wheel, *, context_tokens=8192):
+        require(type(context_tokens) is int and context_tokens in (8192, 32768))
+        self.context_tokens = context_tokens
         self.temporary = None
         self.native = self.tokenizer = None
         size, sha = WHEELS[(platform.system(), platform.machine())]
@@ -117,7 +119,7 @@ class Counter:
         ids = self.tokenizer.apply_chat_template(body["messages"], tools=tools,
             tokenize=True, add_generation_prompt=True, continue_final_message=False,
             reasoning_effort="none", enable_thinking=False)
-        require(type(ids) is list and 0 < len(ids) <= 8192
+        require(type(ids) is list and 0 < len(ids) <= self.context_tokens
                 and all(type(value) is int and 0 <= value < 2**31 for value in ids))
         return ids
 
