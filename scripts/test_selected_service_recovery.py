@@ -218,6 +218,22 @@ class RecoveryTests(unittest.TestCase):
         self.assertTrue(self.removed_network())
         self.assertFalse(self.commands.deletes)
 
+    def test_journal_contract_or_resolved_id_drift_cannot_release_tables(self):
+        for name in ("contract.json", "network-resolved.json"):
+            path = self.journal.root / name
+            original = path.read_bytes()
+            def changed(_):
+                row = policy.decode(original)
+                row["hard_wall" if name == "contract.json" else "id"] = (
+                    2000000001 if name == "contract.json" else "c" * 64)
+                path.write_bytes(policy.encoded(row))
+            self.processes.side_effect = changed
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                self.run_recovery()
+            path.write_bytes(original)
+            self.assertFalse(self.removed_network())
+            self.assertFalse(self.commands.deletes)
+
     def test_unknown_listing_remove_or_post_remove_absence_retains_tables(self):
         for failure in ("list", "remove"):
             self.commands.failure = failure
@@ -357,6 +373,32 @@ class BoundaryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 recovery.execute(args, recovery.report(), time.monotonic() + 240)
             recorder.assert_not_called()
+
+    def test_concurrent_recovery_lock_blocks_before_read_or_commands(self):
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            root = Path(directory).resolve()
+            args = types.SimpleNamespace(state_dir=str(root), hard_stop_at="2026-10-25T06:15:00Z")
+            stack.enter_context(mock.patch.object(recovery.os, "getuid", return_value=0))
+            stack.enter_context(mock.patch.object(recovery.sys, "platform", "linux"))
+            read = stack.enter_context(mock.patch.object(recovery.host, "read_reservation"))
+            recorder = stack.enter_context(mock.patch.object(recovery.smoke, "host_recorder"))
+            with network_module.tau_runtime.directory(root) as locked:
+                recovery.fcntl.flock(locked, recovery.fcntl.LOCK_EX | recovery.fcntl.LOCK_NB)
+                with self.assertRaises(BlockingIOError):
+                    recovery.execute(args, recovery.report(), time.monotonic() + 240)
+            read.assert_not_called()
+            recorder.assert_not_called()
+
+    def test_real_closed_venue_source_admission_failure_precedes_mutations(self):
+        journal = network_module.Journal("/not-read", network(), 2000000000, 1000000)
+        commands = Commands(journal)
+        with mock.patch.object(network_module.os, "getuid", return_value=0), \
+                mock.patch.object(network_module.proof.sys, "platform", "linux"), \
+                mock.patch.object(network_module.proof, "check_venue", side_effect=ValueError("PRIVATE_CANARY")) as check, \
+                self.assertRaises(ValueError):
+            recovery.recover(Path("/not-read"), journal, commands, recovery.report())
+        check.assert_called_once_with(commands, network_module.proof.ORDINARY_VENUE)
+        self.assertEqual(commands.calls, [])
 
 
 if __name__ == "__main__":

@@ -127,10 +127,12 @@ def recover(root, journal, commands, result):
     events = journal.read()
     require(list(events) == list(network.EVENTS[:-1]))
     identifier = events["network-resolved"]["id"]
+    expected_events = events
 
     def absent():
         require(commands.remaining() > smoke.CLIENT_REAP)
         empty_state(root)
+        require(journal.read() == expected_events)
         no_owner_process(commands)
         require(owner.daemon_identity(commands, daemon[0]) == daemon)
         no_containers(commands)
@@ -146,6 +148,7 @@ def recover(root, journal, commands, result):
     absent()
     cleaned = reservation.cleanup()
     require(cleaned["network_cleanup_confirmed"] is True and cleaned["create_resolved"] is True)
+    expected_events = {**events, "network-removed": {"event": "network-removed"}}
     network_absent(reservation, identifier)
     result["network_absent"] = True
     result["reason"] = "policy"
