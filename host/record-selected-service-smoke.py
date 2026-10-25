@@ -139,6 +139,10 @@ def staged_inputs(args, lab):
 
 
 def container_command(name, token, build, base, weights, inputs, args, stop_at):
+    profile = getattr(args, "lifetime_profile", service.SMOKE_PROFILE)
+    service.lifetime_seconds(profile)
+    require(profile == service.SMOKE_PROFILE or not any(getattr(args, name, False) for name in
+        ("inference_smoke", "conformance_smoke", "protocol_smoke", "tool_smoke")), "contract")
     command = ["docker", "container", "create", "--name", name, "--label", LABEL + "=" + token,
         "--pull", "never", "--platform", "linux/amd64", "--runtime", "nvidia",
         "--gpus", '"device=0,1,2,3,4,5,6,7"', "--network", "none", "--read-only",
@@ -162,6 +166,7 @@ def container_command(name, token, build, base, weights, inputs, args, stop_at):
         "--api-key-file", "/run/nib-inputs/api-key", "--cert", "/run/nib-inputs/cert.pem",
         "--key", "/run/nib-inputs/key.pem", "--hostname", args.hostname,
         "--input-price", args.input_price, "--output-price", args.output_price, "--hard-stop-at", stop_at] \
+        + (["--lifetime-profile", profile] if profile != service.SMOKE_PROFILE else []) \
         + (["--tool-smoke"] if getattr(args, "tool_smoke", False) else
            ["--protocol-smoke"] if getattr(args, "protocol_smoke", False) else
            ["--conformance-smoke"] if getattr(args, "conformance_smoke", False) else
@@ -273,7 +278,8 @@ def watchdog(name, token, image, wall, monotonic, life_fd, docker_host):
     image_id(image)
     lab, recorder = host_recorder()
     docker = Docker(recorder, lab.controlled_env(docker_host), float(wall), float(monotonic))
-    require(0 < docker.remaining() <= 4800 and int(life_fd) >= 3, "lifetime")
+    require(0 < docker.remaining() <= service.lifetime_seconds(service.SMOKE_PROFILE)
+            and int(life_fd) >= 3, "lifetime")
     identifier = None
     try:
         while docker.remaining() > 60:
@@ -378,9 +384,27 @@ def tool_lifecycle(raw, prepared_sha256, *, failed):
     return row
 
 
+def ordinary_lifecycle(raw, lifetime, prepared_sha256, *, failed):
+    require(type(raw) is bytes and len(raw) <= 16384 and type(lifetime) is dict
+            and set(lifetime) == {"profile", "hard_stop_at", "admission_stop_at"}
+            and lifetime["profile"] == service.ORDINARY_PROFILE
+            and type(prepared_sha256) is str and re.fullmatch("[0-9a-f]{64}", prepared_sha256), "owner-failed")
+    row = service.correctness.strict_json(raw)
+    require(type(row) is dict and row.get("schema") == service.ORDINARY_SCHEMA
+            and row.get("lifetime") == lifetime and row.get("prepared_sha256") == prepared_sha256,
+            "owner-failed")
+    base = {key: value for key, value in row.items() if key not in ("lifetime", "prepared_sha256")}
+    base["schema"] = "nib.selected-service-lifecycle/v1"
+    (lifecycle_failure if failed else lifecycle)(inference.encoded(base))
+    return row
+
+
 def lifecycle(raw, *, inference_smoke=False, conformance_smoke=False, protocol_smoke=False,
-              tool_smoke=False, prepared_sha256=None):
+              tool_smoke=False, prepared_sha256=None, lifetime=None):
     require(sum((inference_smoke, conformance_smoke, protocol_smoke, tool_smoke)) <= 1, "owner-failed")
+    if lifetime is not None:
+        require(not any((inference_smoke, conformance_smoke, protocol_smoke, tool_smoke)), "owner-failed")
+        return ordinary_lifecycle(raw, lifetime, prepared_sha256, failed=False)
     if tool_smoke:
         return tool_lifecycle(raw, prepared_sha256, failed=False)
     if protocol_smoke:
@@ -404,9 +428,12 @@ def lifecycle(raw, *, inference_smoke=False, conformance_smoke=False, protocol_s
 
 
 def lifecycle_failure(raw, *, inference_smoke=False, conformance_smoke=False, protocol_smoke=False,
-                      tool_smoke=False, prepared_sha256=None):
+                      tool_smoke=False, prepared_sha256=None, lifetime=None):
     """Accept only the owner's fixed metadata on a nonzero container exit."""
     require(sum((inference_smoke, conformance_smoke, protocol_smoke, tool_smoke)) <= 1, "owner-failed")
+    if lifetime is not None:
+        require(not any((inference_smoke, conformance_smoke, protocol_smoke, tool_smoke)), "owner-failed")
+        return ordinary_lifecycle(raw, lifetime, prepared_sha256, failed=True)
     if tool_smoke:
         return tool_lifecycle(raw, prepared_sha256, failed=True)
     if protocol_smoke:
@@ -526,12 +553,16 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
 
 
 @contextmanager
-def admitted_runtime(args, result):
+def admitted_runtime(args, result, *, lifetime_profile=service.SMOKE_PROFILE):
     """Yield one original contract and verified inputs, alive until owner cleanup."""
     require(threading.current_thread() is threading.main_thread(), "contract")
+    service.lifetime_seconds(lifetime_profile)
+    require(getattr(args, "lifetime_profile", service.SMOKE_PROFILE) == lifetime_profile, "lifetime")
+    ordinary = lifetime_profile == service.ORDINARY_PROFILE
+    require(not ordinary or not any(getattr(args, name, False) for name in
+        ("inference_smoke", "conformance_smoke", "protocol_smoke", "tool_smoke")), "contract")
     contract = service.Contract.begin(args.hard_stop_at, input_price=args.input_price,
-                                      output_price=args.output_price)
-    require(contract.hard_monotonic - time.monotonic() <= 4800, "lifetime")
+        output_price=args.output_price, **({"lifetime_profile": lifetime_profile} if ordinary else {}))
     deadline = min(time.monotonic() + SECONDS, contract.hard_monotonic - service.CLEANUP_RESERVE)
     with ExitStack() as stack:
         with service.identity.worker.alarm(deadline):
@@ -541,7 +572,13 @@ def admitted_runtime(args, result):
             lab, recorder = host_recorder()
             env = lab.controlled_env(args.docker_host)
             result["reason"] = "build-identity"
-            preparation, _, lab_contract = image_builder.validated_files(Path(args.preparation), args.preparation_sha256)
+            preparation, files, lab_contract = image_builder.validated_files(Path(args.preparation), args.preparation_sha256)
+            if ordinary:
+                # An older approved image remains usable for smoke, not for a
+                # new lifetime protocol its embedded owner cannot enforce.
+                for name in ("scripts/selected_service.py", "scripts/selected_service_process.py"):
+                    require(files.get("context/service/" + name) == process.bootstrap.read_source(str(ROOT / name)),
+                            "identity")
             build = image_builder.validate_build_record(lab.read(args.build_report, 16384), args.build_sha256,
                                                         preparation, args.preparation_sha256, lab_contract)
             config = recorder.raw_metadata(Path(args.preparation) / "metadata", lab_contract)

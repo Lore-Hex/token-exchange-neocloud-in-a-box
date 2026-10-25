@@ -81,7 +81,9 @@ The whole probe, including slow headers/body chunks, uses the PR317 absolute
 alarm, not just per-receive socket timeouts. No public-network probe is made.
 
 `Contract.begin` runs before snapshots/preparation. The original absolute UTC
-lifetime (at most 24 hours) is also captured as a monotonic bound. Wall-clock
+lifetime is capped at 4,800 seconds by default; the explicit
+[ordinary day profile](p2-t4-selected-service-day-profile.md) permits at most
+24 hours. It is also captured as a monotonic bound. Wall-clock
 rollback cannot extend that bound; a forward jump shortens it permanently.
 An external restart controller must retain the original cutoff. This process
 is not a persistent trusted clock, and host-enforced expiry remains required.

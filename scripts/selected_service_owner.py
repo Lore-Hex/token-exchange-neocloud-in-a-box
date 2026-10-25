@@ -168,8 +168,13 @@ class State(network.Journal):
                 result[name] = policy.decode(network.tau_runtime.read_file(
                     self.root / name, self.file_limit(name), time.monotonic() + 1))
         contract, runtime = result["contract.json"], result["runtime.json"]
-        require(type(contract) is dict and set(contract) == {"schema", "network", "wall", "monotonic"}
-                and contract["schema"] == "nib.selected-service-owner-intent/v1")
+        require(type(contract) is dict)
+        profile = contract.get("lifetime_profile", smoke.service.SMOKE_PROFILE)
+        smoke.service.lifetime_seconds(profile)
+        ordinary = profile == smoke.service.ORDINARY_PROFILE
+        require(set(contract) == {"schema", "network", "wall", "monotonic"}
+                | ({"lifetime_profile"} if ordinary else set())
+                and contract["schema"] == "nib.selected-service-owner-intent/v" + ("2" if ordinary else "1"))
         selected = network.Network(policy.Policy(**contract["network"]["policy"]),
             contract["network"]["subnet"], contract["network"]["gateway"])
         require(policy.encoded(contract["network"]) == policy.encoded(asdict(selected)))
@@ -186,6 +191,15 @@ class State(network.Journal):
                     and all(type(item) is str and "\0" not in item for item in runtime[key]))
         for key in ("weights", "inputs"):
             smoke.private_path(runtime[key])
+        command = runtime["command"][runtime["command"].index(runtime["image_id"]) + 1:]
+        if ordinary:
+            for flag, value in (("--lifetime-profile", profile), ("--hard-stop-at",
+                    smoke.service.retirement_at(contract["wall"] - smoke.HOST_RESERVE))):
+                require(command.count(flag) == 1 and command[command.index(flag) + 1] == value)
+            require(not any(flag in command for flag in
+                ("--inference-smoke", "--conformance-smoke", "--protocol-smoke", "--tool-smoke")))
+        else:
+            require("--lifetime-profile" not in command)
         prior = True
         for event in EVENTS:
             row = result.get(event + ".json")
@@ -212,6 +226,16 @@ class State(network.Journal):
         with self._directory() as fd:
             self._check(fd)
             self._write(fd, event + ".json", value)
+
+
+def owner_intent(journal):
+    ordinary = journal.lifetime_profile == smoke.service.ORDINARY_PROFILE
+    result = {"schema": "nib.selected-service-owner-intent/v" + ("2" if ordinary else "1"),
+        "network": asdict(journal.network), "wall": journal.contract["hard_wall"],
+        "monotonic": journal.contract["hard_monotonic"]}
+    if ordinary:
+        result["lifetime_profile"] = journal.lifetime_profile
+    return result
 
 
 def container_command(selected, identifier, build, base, weights, inputs, args, stop_at):
@@ -282,9 +306,7 @@ class Owner:
         self.selected = reservation.network
         self.initial = state.read()
         self.contract, self.runtime = self.initial["contract.json"], self.initial["runtime.json"]
-        require(self.contract == {"schema": "nib.selected-service-owner-intent/v1",
-            "network": asdict(self.selected), "wall": reservation.journal.contract["hard_wall"],
-            "monotonic": reservation.journal.contract["hard_monotonic"]})
+        require(self.contract == owner_intent(reservation.journal))
 
     def rows(self):
         rows = self.state.read()

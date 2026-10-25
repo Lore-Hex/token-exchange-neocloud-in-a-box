@@ -374,10 +374,13 @@ class ProcessTests(unittest.TestCase):
         self.stack.enter_context(mock.patch.object(service.pilot.pilot, "controlled_env", return_value={"controlled": "yes"}))
         self.inputs = service.Inputs(Path("/private/fixture"), {})
         self.prepared = SimpleNamespace(interpreter="/usr/bin/python3.12", lab_sha=process.digest(b"lab"),
-            lab=lab_contract(), files={}, check=mock.Mock(return_value=True))
+            lab=lab_contract(), files={}, check=mock.Mock(return_value=True), receipt_sha256=process.digest(b"prepared"))
+        self.progress = io.StringIO()
+        self.stack.enter_context(mock.patch.object(sys, "stdout", self.progress))
         self.shutdown = threading.Event()
         self.owner = process.ProcessOwner(self.prepared, self.inputs, "service.invalid", self.shutdown)
-        self.contract = service.Contract.begin(self.clock.timestamp(7200), input_price="1", output_price="2")
+        self.contract = service.Contract.begin(self.clock.timestamp(7200), input_price="1", output_price="2",
+                                               lifetime_profile=service.ORDINARY_PROFILE)
 
     def child(self, pid=9000, code=None):
         child = mock.Mock(pid=pid, returncode=code)
@@ -409,6 +412,11 @@ class ProcessTests(unittest.TestCase):
             for name in ("stdin", "stdout", "stderr"):
                 self.assertEqual(call.kwargs[name], subprocess.DEVNULL)
         reap.assert_called_once_with("weights", validator, 125)
+        rows = [json.loads(line) for line in self.progress.getvalue().splitlines()]
+        self.assertEqual([row["phase"] for row in rows],
+                         ["weights", "engine-starting", "guard-starting", "tls-starting"])
+        self.assertTrue(all(row == service.progress_record(row["phase"], self.contract.lifetime,
+                           self.prepared.receipt_sha256) for row in rows))
 
     def test_weight_failure_cancel_and_expiry_never_start_engine(self):
         for mode in ("failure", "cancel", "expiry", "unreaped"):
@@ -692,7 +700,7 @@ class ProcessTests(unittest.TestCase):
         args = ["--prepared-sha256", process.digest(b"fixture"), "--provider-config", "/provider",
                 "--api-key-file", "/api-key", "--cert", "/cert", "--key", "/key",
                 "--hostname", "service.invalid", "--input-price", "1", "--output-price", "2",
-                "--hard-stop-at", self.clock.timestamp(7200)]
+                "--hard-stop-at", self.clock.timestamp(7200), "--lifetime-profile", service.ORDINARY_PROFILE]
         with mock.patch.object(process.subprocess, "Popen") as popen, \
                 mock.patch.object(process.sys, "stderr", io.StringIO()):
             with self.assertRaises(SystemExit):
@@ -705,7 +713,7 @@ class ProcessTests(unittest.TestCase):
             self.assertEqual(process.main(args), 1)
             popen.assert_not_called()
         self.assertNotIn("PRIVATE_CANARY", output.getvalue())
-        self.assertEqual(json.loads(output.getvalue())["status"], "failed")
+        self.assertEqual(json.loads(output.getvalue().splitlines()[-1])["status"], "failed")
 
 
 @unittest.skipUnless(sys.platform == "linux", "real Go/procfs listener proof requires Linux")
