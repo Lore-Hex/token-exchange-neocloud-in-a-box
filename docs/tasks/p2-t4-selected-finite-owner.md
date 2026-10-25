@@ -24,6 +24,12 @@ the public weight-view check and all existing nonroot/read-only container
 limits and mount checks. Private snapshots stay alive through watchdog join
 and resource cleanup; failure removing them prevents PASS.
 
+The shared smoke admission keeps its existing closed lab environment. Both run
+and inspect validate that exact yielded environment, then construct the separate
+closed network-proof environment for pinned network tools and the watchdog.
+Neither environment is widened, merged with the ambient shell or substituted
+for the other at admission.
+
 The operator must explicitly provide ingress interface, host IPv4 address and
 port, RFC1918 subnet, gateway, service IPv4 address and an empty root-owned
 `0700` state directory, in addition to the existing smoke inputs. There is no

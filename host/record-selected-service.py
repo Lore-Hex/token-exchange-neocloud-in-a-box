@@ -53,6 +53,13 @@ def environment():
         "DOCKER_CONFIG": "/nonexistent/nib-lab-docker-config", "DOCKER_HOST": "unix:///var/run/docker.sock"}
 
 
+def admitted_commands(admitted):
+    """Validate the smoke boundary before selecting the closed network tool env."""
+    contract, lab, recorder, env, *_ = admitted
+    require(env == lab.controlled_env(environment()["DOCKER_HOST"]))
+    return network.Commands(recorder, environment(), contract.hard_wall, contract.hard_monotonic)
+
+
 def state_directories(root):
     with network.tau_runtime.directory(root) as fd:
         info = os.fstat(fd)
@@ -166,9 +173,9 @@ def cleanup_record(raw):
 
 
 def run(args, admitted, selected, result):
-    contract, lab, recorder, env, build, base, image, inputs = admitted
-    require(env == environment())
-    commands = network.Commands(recorder, env, contract.hard_wall, contract.hard_monotonic)
+    contract, lab, recorder, _, build, base, image, inputs = admitted
+    commands = admitted_commands(admitted)
+    env = commands.env
     root = smoke.private_path(args.state_dir)
     state_directories(root)
     journal = network.Journal(root / "network", selected, contract.hard_wall, contract.hard_monotonic)
@@ -276,8 +283,8 @@ def preflight(args):
                 run(args, admitted, selected, result)
             else:
                 result.update(preflight_pass=False, reason="host-identity")
-                contract, _, recorder, env, *_ = admitted
-                commands = network.Commands(recorder, env, contract.hard_wall, contract.hard_monotonic)
+                contract = admitted[0]
+                commands = admitted_commands(admitted)
                 journal = network.Journal(Path(args.state_dir) / "network", selected,
                                           contract.hard_wall, contract.hard_monotonic)
                 network.Reservation(commands, journal).admit()

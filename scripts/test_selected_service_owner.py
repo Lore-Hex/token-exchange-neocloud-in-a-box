@@ -534,7 +534,8 @@ class CallerTests(Fixture, unittest.TestCase):
         args = copy.copy(self.fixture.args)
         args.state_dir = str(self.root)
         contract = types.SimpleNamespace(hard_wall=self.contract["wall"], hard_monotonic=self.contract["monotonic"])
-        admitted = (contract, None, recorder, host.environment(), self.fixture.build,
+        admitted = (contract, self.fixture.lab, recorder,
+                    self.fixture.lab.controlled_env(args.docker_host), self.fixture.build,
                     self.fixture.base, self.fixture.image, Path("/private/stage"))
         original_call = self.commands.call
         def call(command, **kwargs):
@@ -555,7 +556,7 @@ class CallerTests(Fixture, unittest.TestCase):
             stack.enter_context(mock.patch.object(host, "state_directories"))
             stack.enter_context(mock.patch.object(host.network, "Journal", return_value=self.journal))
             stack.enter_context(mock.patch.object(self.journal, "initialize"))
-            stack.enter_context(mock.patch.object(host.network, "Commands", return_value=self.commands))
+            command_factory = stack.enter_context(mock.patch.object(host.network, "Commands", return_value=self.commands))
             stack.enter_context(mock.patch.object(host.network, "Reservation", return_value=self.reservation))
             stack.enter_context(mock.patch.object(self.reservation, "admit"))
             stack.enter_context(mock.patch.object(host.owner, "daemon_identity", return_value=(123, 10)))
@@ -574,6 +575,8 @@ class CallerTests(Fixture, unittest.TestCase):
                 launch.assert_not_called()
             else:
                 host.run(args, admitted, self.selected, result)
+            command_factory.assert_called_once_with(recorder, host.environment(),
+                contract.hard_wall, contract.hard_monotonic)
         return result
 
     def test_oversized_private_intent_rejected_before_any_resource_create(self):
@@ -624,6 +627,54 @@ class CallerTests(Fixture, unittest.TestCase):
         self.assertEqual(row["result"], "fail")
         self.assertEqual(row["cleanup"], "unconfirmed")
         self.assertNotIn("fallback_cleanup", row)
+
+
+class AdmissionBoundaryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        smoke_tests.SmokeTests.setUpClass()
+
+    def setUp(self):
+        self.fixture = smoke_tests.SmokeTests("test_build_hash_source_join_and_closed_claims")
+        self.fixture.setUp()
+
+    def test_actual_admission_yield_has_explicit_closed_environment_transition(self):
+        smoke = smoke_tests.smoke
+        with self.fixture.admission(), smoke.admitted_runtime(self.fixture.args, smoke.report()) as admitted:
+            original = dict(admitted[3])
+            self.assertNotEqual(original, host.environment())
+            commands = host.admitted_commands(admitted)
+            self.assertEqual(commands.env, host.environment())
+            self.assertEqual(admitted[3], original)
+            self.assertIs(commands.recorder, admitted[2])
+            self.assertEqual((commands.wall, commands.deadline),
+                             (admitted[0].hard_wall, admitted[0].hard_monotonic))
+            for change in ({**original, "PATH": host.environment()["PATH"]},
+                           {**original, "PRIVATE_CANARY": "value"}, host.environment()):
+                with self.subTest(change=change), self.assertRaises(ValueError):
+                    host.admitted_commands((*admitted[:3], change, *admitted[4:]))
+
+    def test_inspect_uses_actual_admission_and_network_environment(self):
+        args = self.fixture.args
+        selected = network()
+        args.run = False
+        args.state_dir = "/private/unused-state"
+        args.ingress, args.address = selected.policy.ingress, selected.policy.address
+        args.published_address, args.published_port = selected.policy.published, selected.policy.port
+        args.subnet, args.gateway = selected.subnet, selected.gateway
+        seen = []
+        def admit(reservation):
+            seen.append(reservation.commands.env)
+        with self.fixture.admission(), ExitStack() as stack:
+            stack.enter_context(mock.patch.object(host, "smoke", smoke_tests.smoke))
+            stack.enter_context(mock.patch.object(host.network.Reservation, "admit", admit))
+            stack.enter_context(mock.patch.object(host.owner, "daemon_identity"))
+            stack.enter_context(mock.patch.object(host.owner, "host_target"))
+            result = host.preflight(args)
+        self.assertTrue(result["preflight_pass"], result)
+        self.assertTrue(result["private_inputs_removed"])
+        self.assertEqual(result["reason"], "not-run")
+        self.assertEqual(seen, [host.environment()])
 
 
 if __name__ == "__main__":
