@@ -28,7 +28,7 @@ def inputs(plan, manifest, assertions, *, fixture=None):
             and plan["selection"] == policy.SELECTION
             and type(assertions) is list and len(assertions) == 1 and type(assertions[0]) is str)
     policy.validate(manifest, plan["manifest_sha256"])
-    require((fixture is not None) == (manifest["schema"] == policy.IDENTITY_SCHEMA))
+    require((fixture is not None) == policy.is_identity(manifest))
     return prepared_input(transport.snapshot({"schema": "nib.tau-cpu-probe-input/v1",
         "plan_sha256": tau.digest(tau.encoded(plan)), "manifest": manifest,
         "selection": plan["selection"], "assertions": assertions,
@@ -36,7 +36,7 @@ def inputs(plan, manifest, assertions, *, fixture=None):
 
 
 def prepared_input(value):
-    followup = value.get("manifest", {}).get("schema") == policy.IDENTITY_SCHEMA
+    followup = policy.is_identity(value.get("manifest"))
     cpu.identity.keys(value, ("schema", "plan_sha256", "manifest", "selection", "assertions")
                       + (("identity_fixture",) if followup else ()))
     if followup:
@@ -69,13 +69,25 @@ class ProbeSession(driver.ScriptedSession):
         for role, model in zip(("simulator", "evaluator"), cpu.MODEL_IDS):
             row = runtimes[role]
             require(row["model"] == model and row["process"] == endpoints[role].expected)
+        bindings = manifest.get("owner_roles", {"simulator": "simulator", "evaluator": "evaluator"})
+        self.simulator_binding = None
+        if manifest["schema"] == policy.IDENTITY_17_SCHEMA:
+            runtime = runtimes[bindings["simulator"]]
+            pinned = cpu.identity.cpu.identity(runtime["model"], deadline)
+            require(all(runtime[key] == pinned[key] for key in ("revision", "gguf", "model_files_sha256"))
+                    and all(runtime["serving"][key] == pinned[key] for key in ("tokenizer_sha256", "framing_sha256")))
+            self.simulator_binding = policy.runtime_binding(runtime)
+            frozen["framing"]["evaluator"]["served_model"] = "disabled-evaluator"
+        for role, owner_role in bindings.items():
+            row, model = runtimes[owner_role], manifest["support"][role]["model"]
+            require(row["model"] == model)
             frozen["framing"][role].update(served_model=model, context_tokens=4096, parallel_tool_calls=False,
                 tokenizer_sha256=row["serving"]["tokenizer_sha256"], framing_sha256=row["serving"]["framing_sha256"])
         super().__init__(channel, frozen, tau.digest(tau.encoded(frozen)), "candidate", [],
                          assertions=prepared["assertions"], support_probe=True)
         self.bridge.budget.trial_deadline = min(self.bridge.budget.trial_deadline, deadline)
-        self.clients = {role: ProbeClient(endpoint.port, runtimes[role]["model"], endpoint)
-                        for role, endpoint in endpoints.items()}
+        self.clients = {role: ProbeClient(endpoints[owner_role].port, runtimes[owner_role]["model"], endpoints[owner_role])
+                        for role, owner_role in bindings.items()}
         self.observations = []
 
     def prepare_record(self, role, body, deadline):
@@ -133,15 +145,20 @@ def execute(prepared, endpoints, runtimes, processes, read_fd, write_fd, deadlin
     require(time.monotonic() < deadline <= time.monotonic() + SECONDS + 1)
     channel = transport.Channel(read_fd, write_fd, cancelled=lambda: any(p.poll() is not None for p in processes))
     session = None
-    followup = prepared.get("manifest", {}).get("schema") == policy.IDENTITY_SCHEMA
+    followup = policy.is_identity(prepared.get("manifest"))
+    selected_17b = prepared.get("manifest", {}).get("schema") == policy.IDENTITY_17_SCHEMA
     order = ("simulator",) * 3 if followup else ORDER
-    report = {"schema": identity.REPORT if followup else "nib.tau-cpu-probe/v1", "result": "fail", "status": "protocol_error",
+    report = {"schema": policy.report_schema(prepared.get("manifest", {})), "result": "fail", "status": "protocol_error",
               "plan_sha256": prepared["plan_sha256"], "selection": prepared["selection"],
               "upstream_revision": tau.REVISION, "observations": [], "roles": {},
               "target": "scripted", "pricing": "not-measured", "quality_eligible": False,
               "confidential": False, "live_admission": False}
+    if selected_17b:
+        report["simulator_binding"] = None
     try:
         session = ProbeSession(channel, prepared, endpoints, runtimes, deadline)
+        if selected_17b:
+            report["simulator_binding"] = session.simulator_binding
         while True:
             before = session.sequence
             finished = session.serve_once()

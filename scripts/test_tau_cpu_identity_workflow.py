@@ -44,12 +44,13 @@ class IdentityWorkflowTests(unittest.TestCase):
         self.workflow = yaml.load((ROOT / WORKFLOW).read_bytes(), Loader=yaml.BaseLoader)
         self.steps = self.workflow["jobs"]["lifecycle"]["steps"]
 
-    def run_step(self, script, support, identity, *, runner="github-hosted", machine="x86_64"):
+    def run_step(self, script, support, identity, *, identity_17b="false", runner="github-hosted", machine="x86_64"):
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary).resolve()
             result = subprocess.run(["/bin/bash", "--noprofile", "--norc", "-eo", "pipefail",
                                      "-c", STUBS + script], cwd=work, timeout=5,
                 env={"PATH": "/usr/bin:/bin", "SUPPORT_PROBE": support, "IDENTITY_FOLLOWUP": identity,
+                     "IDENTITY_FOLLOWUP_17B": identity_17b,
                      "RUNNER_ENVIRONMENT": runner, "TEST_MACHINE": machine, "TEST_SHA": SHA},
                 stdin=subprocess.DEVNULL, capture_output=True)
             output = result.stdout.replace(os.fsencode(work), b"WORK")
@@ -60,7 +61,8 @@ class IdentityWorkflowTests(unittest.TestCase):
         gate = self.steps[1]
         self.assertEqual(gate["name"], "Require native ephemeral runner")
         self.assertEqual(gate["env"], {"SUPPORT_PROBE": "${{ inputs.support_probe }}",
-                                      "IDENTITY_FOLLOWUP": "${{ inputs.identity_followup }}"})
+                                      "IDENTITY_FOLLOWUP": "${{ inputs.identity_followup }}",
+                                      "IDENTITY_FOLLOWUP_17B": "${{ inputs.identity_followup_17b }}"})
         for support, identity in (("false", "false"), ("true", "false"), ("false", "true")):
             code, output, calls = self.run_step(gate["run"], support, identity)
             self.assertEqual(code, 0)
@@ -99,7 +101,7 @@ class IdentityWorkflowTests(unittest.TestCase):
         old = yaml.load(git(ROOT, "show", BASE + ":" + WORKFLOW), Loader=yaml.BaseLoader)
         self.assertEqual(set(self.workflow["on"]), {"workflow_dispatch"})
         inputs = self.workflow["on"]["workflow_dispatch"]["inputs"]
-        self.assertEqual(set(inputs), {"support_probe", "identity_followup"})
+        self.assertEqual(set(inputs), {"support_probe", "identity_followup", "identity_followup_17b"})
         for row in inputs.values():
             self.assertEqual((row["type"], row["default"]), ("boolean", "false"))
         for key in ("permissions", "concurrency"):
@@ -117,7 +119,7 @@ class IdentityWorkflowTests(unittest.TestCase):
         self.assertEqual(self.steps[3]["timeout-minutes"], "40")
         self.assertEqual(self.steps[3]["continue-on-error"], "true")
         self.assertEqual(self.steps[5], {**old_steps[5],
-                         "if": "always() && (inputs.support_probe || inputs.identity_followup)"})
+                         "if": "always() && (inputs.support_probe || inputs.identity_followup || inputs.identity_followup_17b)"})
         self.assertNotIn("secrets.", (ROOT / WORKFLOW).read_text())
 
 
