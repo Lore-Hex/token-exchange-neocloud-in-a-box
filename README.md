@@ -133,6 +133,12 @@ literals, even after the direct question. No email-like literal was detected.
 This does not establish semantic refusal or explain the earlier failure;
 the simulator remains unqualified.
 
+The separate [1.7B CPU identity diagnostic](evidence/p2/2026-10-25-tau-cpu-identity-17b/README.md)
+also completed three simulator calls and cleanup (1,243 prompt / 53 completion
+tokens). Only the third, direct name/ZIP reply contained those expected literals;
+no email-like literal was detected. This is transport and literal evidence, not
+semantic correctness, simulator qualification or a full tau result.
+
 A later [selected tau controller attempt](evidence/p2/2026-10-24-selected-tau-readiness-failure-1736/README.md)
 failed during readiness: both owners exited 1, no READY hashes or scorer result
 were recorded, and cleanup remained **unconfirmed**. No inference or quality

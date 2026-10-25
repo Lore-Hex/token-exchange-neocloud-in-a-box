@@ -7,6 +7,41 @@ useDefault = true
 id = "generic-api-key"
 
 [[rules.allowlists]]
+description = "Exact public source, readiness and 1.7B binding hashes in original CPU identity metadata"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)evidence/p2/2026-10-25-tau-cpu-identity-17b/(pair/)?output\.log$''']
+regexes = ['''^\s*"scripts/engine_tokenizer_parity\.py": "6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f",\s*$''', '''^\s*"simulator-tokenizer\.json": "60f179bdd6dccdc4502cac6a7d7e244540077f3467d6659c747467518222ec76"\s*$''', '''^\s*"evaluator-tokenizer\.json": "1876eaef26f004664a5e0282c2f810d49cf232e3e2d788f0d17f8f80512cf797",\s*$''', '''^\s*"tokenizer_sha256": "604363ffa22647728e0dd56e84926ad3ca1422999e356af99628fe2535b010a8"\s*$''']
+
+[[rules.allowlists]]
+description = "Exact fixed parity token hashes in original 1.7B diagnostic owner report"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)evidence/p2/2026-10-25-tau-cpu-identity-17b/pair/output\.log$''']
+regexes = ['''^\s*"tokens_sha256": "(1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe)"\s*$''']
+
+[[rules.allowlists]]
+description = "Exact fixed parity token hashes in original compact 1.7B diagnostic receipts"
+condition = "AND"
+regexTarget = "match"
+paths = ['''(^|/)evidence/p2/2026-10-25-tau-cpu-identity-17b/pair/(simulator|evaluator)-tokenizer\.json$''']
+regexes = ['''^(endpoint|independent)_tokens_sha256":"(1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe)"$''']
+
+[[rules.allowlists]]
+description = "Exact public 0.6B owner tokenizer recipe in original 1.7B diagnostic receipts"
+condition = "AND"
+regexTarget = "match"
+paths = ['''(^|/)evidence/p2/2026-10-25-tau-cpu-identity-17b/pair/simulator-(runtime|tokenizer)\.json$''']
+regexes = ['''^tokenizer_sha256":"554324f21418252a59edb045493a143a783b499d67b8680883e310e0f2ee77d9"$''']
+
+[[rules.allowlists]]
+description = "Exact public 1.7B tokenizer recipe in original owner receipts and scorer binding"
+condition = "AND"
+regexTarget = "match"
+paths = ['''(^|/)evidence/p2/2026-10-25-tau-cpu-identity-17b/pair/(evaluator-(runtime|tokenizer)\.json|scorer/output\.log)$''']
+regexes = ['''^tokenizer_sha256":"604363ffa22647728e0dd56e84926ad3ca1422999e356af99628fe2535b010a8"$''']
+
+[[rules.allowlists]]
 description = "Exact public source and receipt hashes in original CPU identity metadata"
 condition = "AND"
 regexTarget = "line"

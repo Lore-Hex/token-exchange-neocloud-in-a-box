@@ -1,0 +1,14 @@
+{
+  "confidential": false,
+  "git_sha": "19ece8918ed4f89121bbe704bf5466559e3805a1",
+  "live_admission": false,
+  "plan_sha256": "48952e2805c3c5cbbb0ef4861ac4b1035b945d57502ee2a3b9096da591344a87",
+  "pricing": "not-measured",
+  "quality_eligible": false,
+  "runtime_lock_sha256": "6b15cca1ebb3d3766756d9f9aa9b4ec6fb892bb9c936fd73d4905abaef2b8787",
+  "schema": "nib.tau-cpu-identity-17b-probe-setup/v1",
+  "source_archive_sha256": "7a227036d07fdeb088dbd0c99fdb40ee9b9e0ebc06aadbc4dec1217b3383e57e",
+  "target": "scripted",
+  "upstream_executed": false,
+  "wheels": 74
+}
