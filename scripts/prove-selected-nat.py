@@ -19,6 +19,7 @@ import os
 import platform
 import re
 import signal
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -34,7 +35,8 @@ CONFIG = "sha256:64d91f7b885eed272bba87909446b12ff408d4aaa5f1a0e9ca787bbea1a020b
 MANIFEST = "sha256:6e13e65c55e33adf203d77ee371cf8bf5d81bd4902ef07565721f46bf44917af"
 LABEL = "nib.selected-nat-proof"
 SOURCES = ("scripts/prove-selected-nat.py", "scripts/selected_network_policy.py",
-           "scripts/fixtures/selected_nat_fixture.py", "scripts/e2e/snapshot.py")
+           "scripts/fixtures/selected_nat_fixture.py", "scripts/e2e/snapshot.py",
+           "scripts/fixtures/selected-nat-ubuntu26.json")
 ENV = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C", "LC_ALL": "C", "PYTHONDONTWRITEBYTECODE": "1"}
 ENV.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_NO_REPLACE_OBJECTS="1")
 SERVICE, INGRESS = "nib-service", "nib-ingress"
@@ -42,6 +44,85 @@ S4, P4, C4, H4 = "198.18.0.2", "198.18.0.3", "198.19.0.2", "198.19.0.1"
 S6, P6, C6, H6 = "fd00:4e49:1::2", "fd00:4e49:1::3", "fd00:4e49:2::2", "fd00:4e49:2::1"
 DNS = "127.0.0.2"
 OPERATIONS, CLEANUP, REAP = 480, 90, 25
+LEGACY_VENUE, ORDINARY_VENUE = "ubuntu24-cpu", "ubuntu26-ordinary"
+VENUES = (LEGACY_VENUE, ORDINARY_VENUE)
+VENUE_FILE = "scripts/fixtures/selected-nat-ubuntu26.json"
+RESOLVER = Path("/etc/resolv.conf")
+RESOLVER_TARGET = Path("/run/systemd/resolve/stub-resolv.conf")
+
+
+def venue_settings(name):
+    require(name in VENUES)
+    if name == LEGACY_VENUE:
+        return {"python": "3.12.13", "nftables": "1.0.9", "unshare": "2.39.3"}
+    return decode((ROOT / VENUE_FILE).read_bytes())
+
+
+def pinned_file(path, expected, end):
+    """Bind observed ordinary-host tools, not an attested execution closure."""
+    require(time.monotonic() < end)
+    info = path.lstat()
+    require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and not info.st_mode & 0o022
+            and 0 < info.st_size <= 128 << 20)
+    stamp = lambda row: (row.st_dev, row.st_ino, row.st_size, row.st_mtime_ns, row.st_ctime_ns)
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as source:
+        require(stamp(os.fstat(source.fileno())) == stamp(info))
+        digest = hashlib.sha256()
+        while chunk := source.read(1 << 20):
+            require(time.monotonic() < end)
+            digest.update(chunk)
+        require(stamp(os.fstat(source.fileno())) == stamp(info)
+                and digest.hexdigest() == expected)
+
+
+def resolver_target(name):
+    if name == LEGACY_VENUE:
+        require(not RESOLVER.is_symlink() and RESOLVER.is_file())
+        return RESOLVER
+    require(name == ORDINARY_VENUE)
+    row = RESOLVER.lstat()
+    require(stat.S_ISLNK(row.st_mode) and row.st_uid == 0
+            and str(RESOLVER.readlink()) == venue_settings(name)["resolver_link"]
+            and RESOLVER.resolve() == RESOLVER_TARGET)
+    return RESOLVER_TARGET
+
+
+def check_venue(commands, name):
+    settings = venue_settings(name)
+    require(sys.version_info[:3] == tuple(map(int, settings["python"].split("."))))
+    require(commands.run(["unshare", "--version"]).stdout.decode().strip()
+            == "unshare from util-linux " + settings["unshare"])
+    resolver_target(name)
+    if name == LEGACY_VENUE:
+        return
+    require(platform.release() == settings["kernel"]
+            and settings["schema"] == "nib.selected-nat-venue/v1"
+            and settings["profile"] == name)
+    for path, digest in settings["files"].items():
+        pinned_file(Path(path), digest, commands.end)
+    expected = {key: value for key, value in settings["packages"].items()}
+    result = commands.run(["dpkg-query", "--show", *sorted(expected)])
+    lines = result.stdout.decode().splitlines()
+    require(len(lines) == len(expected))
+    actual = dict(line.split("\t") for line in lines)
+    require(actual == expected)
+    for tool, target in (("python3", "/usr/bin/python3.14"), ("iptables", "/usr/sbin/xtables-nft-multi"),
+                         *((name, "/usr/bin/" + name) for name in ("docker", "dockerd", "containerd", "unshare", "mount", "ip", "openssl")),
+                         ("nft", "/usr/sbin/nft"), ("runc", "/usr/sbin/runc")):
+        found = shutil.which(tool, path=commands.env["PATH"])
+        require(found is not None and Path(found).resolve() == Path(target))
+
+
+def isolate_resolver(commands, work, name):
+    # Called only after check_namespace: these directories are on the private /run.
+    target = RESOLVER if name == LEGACY_VENUE else resolver_target(name)
+    commands.run(["mount", "-t", "tmpfs", "-o", "mode=0755,nosuid,nodev", "tmpfs", "/run"])
+    if name == ORDINARY_VENUE:
+        require(str(RESOLVER.readlink()) == venue_settings(name)["resolver_link"])
+        target.parent.mkdir(mode=0o755, parents=True, exist_ok=False)
+        target.touch(mode=0o600, exist_ok=False)
+        require(RESOLVER.resolve() == target)
+    commands.run(["mount", "--bind", str(work / "resolv.conf"), str(target)])
 
 
 @contextmanager
@@ -65,6 +146,7 @@ class Commands:
     def __init__(self, end, cancelled, work):
         self.end, self.cancelled, self.work = end, cancelled, work
         self.cleaning = False
+        self.readback_argv = ["nft", "--json", "list", "ruleset"]
         self.env = {**ENV, "HOME": str(work), "DOCKER_CONFIG": str(work / "client"),
                     "DOCKER_HOST": "unix://" + str(work / "docker.sock")}
 
@@ -98,14 +180,15 @@ class Commands:
         self.run(["nft", "--json", "--file", "-"], data=data)
 
     def rules(self):
-        return self.run(["nft", "--json", "list", "ruleset"]).stdout
+        return self.run(self.readback_argv).stdout
 
 
-def namespace_command(work, archive, host_net, host_mount, deadline):
+def namespace_command(work, archive, host_net, host_mount, deadline, venue=LEGACY_VENUE):
     return ["unshare", "--mount", "--net", "--pid", "--fork", "--mount-proc=/proc",
         "--propagation", "private", "--kill-child=KILL", "--", sys.executable, "-I", "-S", "-B",
         str(work / "scripts/prove-selected-nat.py"), "--inner", str(work), "--archive", str(archive),
-        "--host-net", str(host_net), "--host-mount", str(host_mount), "--deadline", str(deadline)]
+        "--host-net", str(host_net), "--host-mount", str(host_mount), "--deadline", str(deadline),
+        *([] if venue == LEGACY_VENUE else ["--venue-profile", venue])]
 
 
 def check_namespace(host_net, host_mount):
@@ -323,19 +406,25 @@ def inner(args):
     daemon = server = None
     installed, unknown = False, False
     token = uuid.uuid4().hex
-    net_policy = policy.Policy(token, SERVICE, INGRESS, S4, H4, 443)
+    venue = getattr(args, "venue_profile", LEGACY_VENUE)
+    settings = venue_settings(venue)
+    net_policy = policy.Policy(token, SERVICE, INGRESS, S4, H4, 443, nft_version=settings["nftables"])
+    if venue != LEGACY_VENUE:
+        report["venue_profile"] = venue
     with cancellation() as cancelled:
         commands = Commands(args.deadline, cancelled, work)
+        commands.readback_argv = net_policy.readback_args()
         try:
             require(0 < args.deadline - time.monotonic() <= OPERATIONS)
             links = decode(commands.run(["ip", "--json", "link", "show"]).stdout)
             require([row["ifname"] for row in links] == ["lo"])
-            require(commands.run(["nft", "--version"]).stdout.decode().strip() == "nftables v1.0.9 (Old Doc Yak #3)")
+            require(commands.run(["nft", "--version"]).stdout.decode().strip()
+                    == "nftables v" + settings["nftables"] + " (" + policy.NFT_RELEASES[settings["nftables"]] + ")")
             require(decode(commands.rules())["nftables"] in ([], [{"metainfo": {
-                "version": "1.0.9", "release_name": "Old Doc Yak #3", "json_schema_version": 1}}]))
+                "version": settings["nftables"], "release_name": policy.NFT_RELEASES[settings["nftables"]],
+                "json_schema_version": 1}}]))
             # All mounts are private; hide operator runtime sockets before dockerd.
-            commands.run(["mount", "-t", "tmpfs", "-o", "mode=0755,nosuid,nodev", "tmpfs", "/run"])
-            commands.run(["mount", "--bind", str(work / "resolv.conf"), "/etc/resolv.conf"])
+            isolate_resolver(commands, work, venue)
             commands.run(["ip", "link", "set", "lo", "up"])
             require(b"29.1.3" in commands.run(["dockerd", "--version"]).stdout)
             (work / "daemon.json").write_bytes(encoded({"features": {"containerd-snapshotter": False}}))
@@ -478,9 +567,10 @@ def check_report(report):
     required = {"schema", "result", "stage", "namespace_verified", "cleanup_confirmed", "policy_removed",
                 "gpu_used", "deployment_eligible", "confidential", "published"}
     optional = {"engine_version", "image_config", "reference_manifest", "positive_controls", "observations",
-                "dns_relay_unchanged", "tls_verified", "policy_sha256", "policy_step"}
+                "dns_relay_unchanged", "tls_verified", "policy_sha256", "policy_step", "venue_profile"}
     require(required <= set(report) <= required | optional)
     require(report["namespace_verified"] is True)
+    require("venue_profile" not in report or report["venue_profile"] == ORDINARY_VENUE)
     for key in ("cleanup_confirmed", "policy_removed", "dns_relay_unchanged", "tls_verified"):
         require(key not in report or type(report[key]) is bool)
     for key, expected in (("engine_version", "29.1.3"), ("image_config", CONFIG), ("reference_manifest", MANIFEST)):
@@ -512,6 +602,7 @@ def main():
     parser.add_argument("--archive-sha256")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--run", action="store_true")
+    parser.add_argument("--venue-profile", choices=VENUES, default=LEGACY_VENUE)
     parser.add_argument("--inner", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--host-net", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--host-mount", type=int, help=argparse.SUPPRESS)
@@ -520,12 +611,13 @@ def main():
     if args.inner is not None:
         return inner(args)
     require(args.run and sys.platform == "linux" and os.getuid() == 0 and platform.machine() == "x86_64"
-            and sys.version_info[:3] == (3, 12, 13) and args.output is not None
+            and sys.version_info[:3] == tuple(map(int, venue_settings(args.venue_profile)["python"].split(".")))
+            and args.output is not None
             and re.fullmatch("[0-9a-f]{64}", args.archive_sha256 or ""))
     require(args.archive.is_absolute() and args.output.is_absolute() and not args.output.exists())
     require(args.output.resolve() == args.output and not (Path("/sys/fs/cgroup") / cgroup_name(args.output)).exists())
     require(Path("/sys/fs/cgroup/cgroup.controllers").is_file())
-    require(not Path("/etc/resolv.conf").is_symlink() and Path("/etc/resolv.conf").is_file())
+    resolver_target(args.venue_profile)
     args.output.mkdir(mode=0o700)
     end = time.monotonic() + OPERATIONS
     child = None
@@ -537,17 +629,20 @@ def main():
                 pass
     with cancellation(notify) as cancelled:
         commands = Commands(end, cancelled, args.output)
-        require(commands.run(["unshare", "--version"]).stdout.decode().strip() == "unshare from util-linux 2.39.3")
+        check_venue(commands, args.venue_profile)
         copy_archive(args.archive, args.output / "image.tar", args.archive_sha256)
         revision, hashes = prepare_sources(args.output, commands)
         argv = namespace_command(args.output, args.output / "image.tar", os.stat("/proc/self/ns/net").st_ino,
-                                 os.stat("/proc/self/ns/mnt").st_ino, end)
+                                 os.stat("/proc/self/ns/mnt").st_ino, end, args.venue_profile)
         report = {"schema": "nib.selected-nat-proof-host/v1", "git_sha": revision, "source_sha256": hashes,
                   "archive_sha256": args.archive_sha256, "result": "fail", "namespace_reaped": False,
                   "gpu_used": False, "published": False, "deployment_eligible": False,
                   "stage": "namespace",
                   "started_at": datetime.now(timezone.utc).isoformat(), "host_python": platform.python_version(),
-                  "unshare_version": "2.39.3"}
+                  "unshare_version": venue_settings(args.venue_profile)["unshare"]}
+        if args.venue_profile != LEGACY_VENUE:
+            report["venue_profile"] = args.venue_profile
+            report["venue_manifest_sha256"] = hashes[VENUE_FILE]
         try:
             require(not cancelled["cancelled"])
             child = subprocess.Popen(argv, env=commands.env, stdin=subprocess.DEVNULL,
@@ -565,6 +660,7 @@ def main():
             report["stage"] = "report"
             observation = decode(stdout)
             check_report(observation)
+            require(observation.get("venue_profile", LEGACY_VENUE) == args.venue_profile)
             report["observation"] = observation
             if child.returncode == 0 and report["observation"].get("result") == "pass" and not cancelled["cancelled"]:
                 report["result"] = "pass"
