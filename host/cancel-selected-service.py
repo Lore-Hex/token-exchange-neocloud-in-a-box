@@ -35,6 +35,10 @@ PROC = Path("/proc")
 ROOT_UID = 0
 
 
+class Cancelled(BaseException):
+    """Operator cancellation is not a selector's recoverable InterruptedError."""
+
+
 def path(value):
     require(type(value) is str and value.startswith("/"))
     files.safe_name(value[1:])
@@ -334,7 +338,7 @@ def main(argv=None):
         if not cancelled:
             cancelled = True
             if not restoring:
-                raise InterruptedError("cancellation helper interrupted")
+                raise Cancelled("cancellation helper interrupted")
     try:
         end = time.monotonic() + SECONDS
         parser = QuietParser(description=__doc__, allow_abbrev=False)

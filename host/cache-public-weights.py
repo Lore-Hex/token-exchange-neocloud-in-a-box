@@ -312,6 +312,10 @@ def read_regular(path, limit=65536):
             return raw
 
 
+class Cancelled(BaseException):
+    """Stop the supervised worker instead of being swallowed by its selector."""
+
+
 def load_capture():
     path = Path(__file__).absolute().with_name("probe.py")
     raw = read_regular(path)
@@ -375,7 +379,7 @@ def restore_report(export, target, destination, manifest_path, output, producer,
             nonlocal cancelled
             if not cancelled:
                 cancelled = True
-                raise InterruptedError("restore-cancelled")
+                raise Cancelled("restore-cancelled")
         previous = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
         publish()
         try:
@@ -397,7 +401,7 @@ def restore_report(export, target, destination, manifest_path, output, producer,
                     and type(row["verified_bytes"]) is int and row["verified_bytes"] == TOTAL_BYTES)
             report.update(result="pass", stage="complete", files=row["files"], verified_bytes=row["verified_bytes"],
                           cleanup="worker-completed", worker_exit_confirmed=True)
-        except InterruptedError:
+        except (Cancelled, InterruptedError):
             report.update(result="fail", failure="cancelled")
         except Exception as error:
             kinds = {"probe-timeout": "timeout", "probe-output-limit": "output-limit",
@@ -742,7 +746,7 @@ def profile_report(operation, export, mount, local, manifest_path, seed_manifest
             nonlocal cancelled
             if not cancelled:
                 cancelled = True
-                raise InterruptedError("cache-cancelled")
+                raise Cancelled("cache-cancelled")
         previous = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
         publish()
         try:
@@ -780,7 +784,7 @@ def profile_report(operation, export, mount, local, manifest_path, seed_manifest
                           pack_complete=operation not in {"seed", "admit"}, files=count, verified_bytes=total,
                           remaining_files=None if admission else 79 - count,
                           remaining_bytes=None if admission else target["total_bytes"] - total)
-        except InterruptedError:
+        except (Cancelled, InterruptedError):
             report.update(result="fail", failure="cancelled", pack_complete=False, files=0, verified_bytes=0,
                           remaining_files=None, remaining_bytes=None)
         except Exception as error:

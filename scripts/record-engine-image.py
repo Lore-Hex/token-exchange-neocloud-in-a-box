@@ -42,11 +42,15 @@ DESCRIPTOR_SHA = "53c618cac49175854fa7e2c5d356ec545d6f788265273f5fac6b7076648246
 CANCELLED = False
 
 
+class Cancelled(BaseException):
+    """A requested stop is not a retryable InterruptedError from a selector."""
+
+
 def cancel(signum, frame):
     global CANCELLED
     if not CANCELLED:
         CANCELLED = True
-        raise InterruptedError("diagnostic cancelled")
+        raise Cancelled("diagnostic cancelled")
 
 
 def bootstrap_read(path):
@@ -303,7 +307,7 @@ def run_container(payload, contract, config, env, execute=snapshot.execute_proce
             report["stage"] = "metadata-census-complete" if result["collection"] == "pass" else "metadata-census-partial"
         elif contract.get("diagnostic_mode") == "python-descriptor":
             report["stage"] = "python-descriptor-complete" if result["collection"] == "pass" else "python-descriptor-partial"
-    except (OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError):
+    except (Cancelled, OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError):
         report["failure"] = "diagnostic-stage-failed"
     finally:
         if create_started:
@@ -315,12 +319,14 @@ def run_container(payload, contract, config, env, execute=snapshot.execute_proce
                     call(["docker", "container", "rm", "--force", name], env, execute=execute)
                 if not call(absent, env, execute=execute).strip():
                     report["cleanup"] = "confirmed"
-            except (OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError):
+            except (Cancelled, OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError):
                 pass
             if not create_complete or (report["stage"] == "read-only-diagnostic" and not runtime_complete):
                 report["cleanup"] = "completion-unknown"
             if report["cleanup"] != "confirmed":
                 report.update(result="fail", failure="cleanup-unresolved")
+        if CANCELLED:
+            report.update(result="fail", failure="diagnostic-stage-failed")
     return report
 
 
@@ -470,7 +476,7 @@ def main():
             payload.chmod(0o555)
             overlay.require({name: prep.read_source(payload / name) for name in files} == files)
             report = run_container(payload, contract, config, env)
-        except (OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError):
+        except (Cancelled, OSError, ValueError, TypeError, KeyError, AttributeError, subprocess.SubprocessError):
             report["failure"] = "preflight-failed"
         report["provenance"] = {"git_sha": revision, "source_bundle_sha256": contract["source_bundle_sha256"],
                                 "payload_sha256": overlay.bundle_digest(files), "validator_source_sha256": validator_sha,
@@ -485,5 +491,5 @@ def main():
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except Exception:
+    except (Exception, Cancelled):
         sys.exit("Image diagnostic recording failed; no successful evidence may be inferred.")

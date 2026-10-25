@@ -22,7 +22,7 @@ import uuid
 ROOT = Path(__file__).absolute().parent.parent
 SCRIPT = "scripts/record-engine-cpu-entry.py"
 BASE = "scripts/record-engine-import-smoke.py"
-BASE_SHA = "04cf7439809f4fc1e48819d893aa6399bf1889272ecc0a0dc69cfc5424a8e343"
+BASE_SHA = "f47a4449813c2623115d709d87eb56926d12264a228b454b02d33676024a050f"
 RUNTIME = "scripts/engine_cpu_entry.py"
 LAB = "scripts/engine_lab.py"
 LAB_BOOTSTRAP = "scripts/engine_lab_bootstrap.py"
@@ -290,7 +290,7 @@ def run_container(payload, contract, config, env, execute=recorder.snapshot.exec
                         and terminal["State"]["ExitCode"] == 0 and not terminal["State"].get("OOMKilled"))
         runtime_complete = True
         report.update(experiment=result, entry_pass=passed, stage="completed")
-    except Exception:
+    except (Exception, recorder.Cancelled):
         report["failure"] = "bounded-cpu-entry-stage-failed"
     finally:
         if create_started:
@@ -302,12 +302,15 @@ def run_container(payload, contract, config, env, execute=recorder.snapshot.exec
                     recorder.call(["docker", "container", "rm", "--force", name], env, execute=execute)
                 if not recorder.call(absent, env, execute=execute).strip():
                     report["cleanup"] = "confirmed"
-            except Exception:
+            except (Exception, recorder.Cancelled):
                 pass
             if not create_complete or (runtime_started and not runtime_complete):
                 report["cleanup"] = "completion-unknown"
             if report["cleanup"] != "confirmed":
                 report.update(entry_pass=False, failure="cleanup-unresolved")
+        if recorder.CANCELLED:
+            report["entry_pass"] = False
+            report.setdefault("failure", "bounded-cpu-entry-stage-failed")
     return report
 
 
@@ -448,7 +451,7 @@ def main():
             publish_container_payload(directory, payload)
             overlay.require({name: read_source(directory / name) for name in payload} == payload)
             report = run_container(directory, contract, config, env)
-        except Exception:
+        except (Exception, recorder.Cancelled):
             report["failure"] = "preflight-failed"
         report["provenance"] = {"git_sha": revision, "source_bundle_sha256": contract["source_bundle_sha256"],
             "payload_sha256": overlay.bundle_digest(payload), "validator_source_sha256": validator_sha,
@@ -467,5 +470,5 @@ def main():
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except Exception:
+    except (Exception, recorder.Cancelled):
         sys.exit("CPU entry operation rejected; no qualification may be inferred.")
