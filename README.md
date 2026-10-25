@@ -81,6 +81,11 @@ A subsequent [private native tool smoke](evidence/p2/2026-10-25-selected-tool-pa
 passed one fixed tool call and its continuation through owned TLS, with actual
 usage and confirmed cleanup. No retries were used; this is not general tool
 reliability, full tau evaluation, public serving or a capability/privacy claim.
+A later [finite externally reachable service run](evidence/p2/2026-10-25-selected-finite-owner-pass/README.md)
+reached readiness, retired naturally, drained all three roles, and confirmed
+watchdog resource cleanup and private-input removal. The separate external
+client passed health, authentication rejection and one stream. This is a bounded
+ordinary test, not continuous availability, marketplace or confidential service.
 An [external pinned-TLS smoke](evidence/p2/2026-10-25-selected-external-smoke/README.md)
 subsequently passed health, missing/wrong API-key rejection and one authenticated
 stream with 36 input and 13 output tokens. It proves a bounded external API path,
