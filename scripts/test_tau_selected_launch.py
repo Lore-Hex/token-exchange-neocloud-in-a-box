@@ -41,6 +41,13 @@ def inputs():
 
 
 class SelectedLaunchTests(unittest.TestCase):
+    def setUp(self):
+        # run() deliberately makes its CLI private; do not leak that process
+        # setting into historical producer replays later in this test process.
+        previous = os.umask(0o077)
+        os.umask(previous)
+        self.addCleanup(os.umask, previous)
+
     def test_launch_joins_cleanup_without_promoting_failed_trials(self):
         for failure in (None, "second-spawn", "readiness", "scorer", "join", "post-scorer-interrupt", "scorer-fail"):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
