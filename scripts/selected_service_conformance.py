@@ -57,10 +57,11 @@ def checker_modules(root, deadline):
         import tr_provider_check
         from tr_provider_check import contract as rules
         from tr_provider_check import http as client
-        from tr_provider_check.checks import catalog, streaming
+        from tr_provider_check.checks import callability, catalog, chat, streaming
         from tr_provider_check.snapshot import contract_version
         require(tr_provider_check.__version__ == "0.1.8" and contract_version == pinned.CONTRACT, "identity")
-        yield SimpleNamespace(httpx=httpx, rules=rules, client=client, catalog=catalog, streaming=streaming)
+        yield SimpleNamespace(httpx=httpx, rules=rules, client=client, catalog=catalog, streaming=streaming,
+                              callability=callability, chat=chat)
     finally:
         sys.path[:] = original
         for name in list(sys.modules):
@@ -93,26 +94,31 @@ def quiet_checker():
 
 @contextmanager
 def response(supervisor, identities, deadline, case, key, body, report):
-    require(case in CASES and report["attempts"][case] is False, "already-used")
+    require(case in (*CASES, "json", "drain") and report["attempts"][case] is False, "already-used")
+    authenticated = case in ("stream", "json", "drain")
     deadline = min(deadline, time.monotonic() +
-        (inference.REQUEST_SECONDS if case == "stream" else inference.NEGATIVE_SECONDS))
-    with inference.tls_connection(supervisor, identities, deadline) as connection:
+        (inference.REQUEST_SECONDS if authenticated else inference.NEGATIVE_SECONDS))
+    # The explicit drain phase outlives the main-thread hook alarm. Its reader
+    # uses the same absolute socket deadline; ordinary exchanges keep the alarm.
+    connect = inference.owned_tls if case == "drain" else inference.tls_connection
+    with connect(supervisor, identities, deadline) as connection:
         catalog = case == "catalog"
         method, path = ("GET", "/v1/models") if catalog else ("POST", "/v1/chat/completions")
         header = (method + " " + path + " HTTP/1.1\r\nHost: " + supervisor.owner.hostname
-            + "\r\nConnection: close\r\nAccept: " + ("application/json" if catalog else "text/event-stream")
+            + "\r\nConnection: close\r\nAccept: " + ("application/json" if catalog or case == "json" else "text/event-stream")
             + "\r\nAccept-Encoding: identity\r\nContent-Type: application/json\r\n"
             + "Content-Length: " + str(len(body)) + "\r\n").encode("ascii")
-        if case in ("wrong-key", "stream"):
-            header += b"Authorization: Bearer " + (key if case == "stream" else b"invalid-synthetic-key") + b"\r\n"
+        if case == "wrong-key" or authenticated:
+            header += b"Authorization: Bearer " + (key if authenticated else b"invalid-synthetic-key") + b"\r\n"
         report["attempts"][case] = True
-        if case == "stream":
+        if authenticated:
             report["usage_unknown"] = True
         connection.sendall(header + b"\r\n" + body)
         with transport.StreamResponse(connection) as observed:
             observed.begin()
             yield observed, connection, deadline
-        inference.checkpoint(supervisor, identities, deadline)
+        if case != "drain":
+            inference.checkpoint(supervisor, identities, deadline)
 
 
 def validate_catalog(checker, raw, supervisor, deadline):

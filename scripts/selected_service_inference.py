@@ -94,8 +94,15 @@ def checkpoint(supervisor, identities, deadline):
 @contextmanager
 def tls_connection(supervisor, identities, deadline):
     """Fixed owned TLS peer; credentials must only be sent after this yields."""
+    with service.identity.worker.alarm(deadline), owned_tls(supervisor, identities, deadline) as connection:
+        yield connection
+
+
+@contextmanager
+def owned_tls(supervisor, identities, deadline):
+    """Shared peer proof; the caller owns the enclosing work deadline."""
     owner = supervisor.owner
-    with service.identity.worker.alarm(deadline), ExitStack() as stack:
+    with ExitStack() as stack:
         bound = checkpoint(supervisor, identities, deadline)
         raw = stack.enter_context(socket.create_connection(("127.0.0.1", process.TLS_PORT),
             timeout=min(NEGATIVE_SECONDS, max(.001, deadline - time.monotonic()))))

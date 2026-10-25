@@ -30,6 +30,7 @@ import selected_service_process as process
 import selected_service_image as image_builder
 import selected_service_inference as inference
 import selected_service_conformance as conformance
+import selected_service_protocol as protocol
 
 service = process.service
 require, digest = service.require, process.digest
@@ -160,7 +161,8 @@ def container_command(name, token, build, base, weights, inputs, args, stop_at):
         "--api-key-file", "/run/nib-inputs/api-key", "--cert", "/run/nib-inputs/cert.pem",
         "--key", "/run/nib-inputs/key.pem", "--hostname", args.hostname,
         "--input-price", args.input_price, "--output-price", args.output_price, "--hard-stop-at", stop_at] \
-        + (["--conformance-smoke"] if getattr(args, "conformance_smoke", False) else
+        + (["--protocol-smoke"] if getattr(args, "protocol_smoke", False) else
+           ["--conformance-smoke"] if getattr(args, "conformance_smoke", False) else
            ["--inference-smoke"] if getattr(args, "inference_smoke", False) else [])
 
 
@@ -328,8 +330,29 @@ def conformance_lifecycle(raw, prepared_sha256, *, failed):
     return row
 
 
-def lifecycle(raw, *, inference_smoke=False, conformance_smoke=False, prepared_sha256=None):
-    require(not (inference_smoke and conformance_smoke), "owner-failed")
+def protocol_lifecycle(raw, prepared_sha256, *, failed):
+    require(type(raw) is bytes and len(raw) <= 16384, "owner-failed")
+    row = service.correctness.strict_json(raw)
+    require(type(row) is dict and row.get("schema") == service.PROTOCOL_SCHEMA
+        and row.get("mode") == service.PROTOCOL_MODE and "protocol" in row, "owner-failed")
+    base = {key: value for key, value in row.items() if key != "protocol"}
+    base.update(schema=service.INFERENCE_SCHEMA, mode=service.INFERENCE_MODE)
+    inference_lifecycle(inference.encoded(base), prepared_sha256, failed=failed)
+    if row["protocol"] is not None:
+        observed = protocol.validate_report(inference.encoded(row["protocol"]), prepared_sha256, row["inference"])
+        require(failed or observed["result"] == "pass", "owner-failed")
+        require(not row["cleanup_confirmed"] or
+            (not observed["drain"]["reader_started"] or observed["drain"]["reader_joined"])
+            and (not observed["attempts"]["drain"] or observed["drain"]["resources_closed"]), "owner-failed")
+    else:
+        require(failed, "owner-failed")
+    return row
+
+
+def lifecycle(raw, *, inference_smoke=False, conformance_smoke=False, protocol_smoke=False, prepared_sha256=None):
+    require(sum((inference_smoke, conformance_smoke, protocol_smoke)) <= 1, "owner-failed")
+    if protocol_smoke:
+        return protocol_lifecycle(raw, prepared_sha256, failed=False)
     if conformance_smoke:
         return conformance_lifecycle(raw, prepared_sha256, failed=False)
     if inference_smoke:
@@ -348,9 +371,11 @@ def lifecycle(raw, *, inference_smoke=False, conformance_smoke=False, prepared_s
     return row
 
 
-def lifecycle_failure(raw, *, inference_smoke=False, conformance_smoke=False, prepared_sha256=None):
+def lifecycle_failure(raw, *, inference_smoke=False, conformance_smoke=False, protocol_smoke=False, prepared_sha256=None):
     """Accept only the owner's fixed metadata on a nonzero container exit."""
-    require(not (inference_smoke and conformance_smoke), "owner-failed")
+    require(sum((inference_smoke, conformance_smoke, protocol_smoke)) <= 1, "owner-failed")
+    if protocol_smoke:
+        return protocol_lifecycle(raw, prepared_sha256, failed=True)
     if conformance_smoke:
         return conformance_lifecycle(raw, prepared_sha256, failed=True)
     if inference_smoke:
@@ -393,6 +418,7 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
     command = container_command(name, token, build, base, weights, inputs, args, stop_at)
     join = {"inference_smoke": getattr(args, "inference_smoke", False),
             "conformance_smoke": getattr(args, "conformance_smoke", False),
+            "protocol_smoke": getattr(args, "protocol_smoke", False),
             "prepared_sha256": build["prepared_sha256"]}
     monitor, identifier, attempted, finished, accepted = None, None, False, False, False
     reader, writer = os.pipe()
@@ -426,7 +452,7 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
                     result["owner_failure"] = lifecycle_failure(error.stdout, **join)
             raise
         owner_result = lifecycle(raw, **join)
-        if join["inference_smoke"] or join["conformance_smoke"]:
+        if join["inference_smoke"] or join["conformance_smoke"] or join["protocol_smoke"]:
             # Retain validated accounting even when the subsequent inspect or
             # host/watchdog cleanup fails; none of these facts imply PASS.
             result["lifecycle"] = owner_result
@@ -469,8 +495,11 @@ def preflight(args):
         result.update(schema="nib.selected-service-smoke/v2", mode=service.INFERENCE_MODE)
     if getattr(args, "conformance_smoke", False):
         result.update(schema="nib.selected-service-smoke/v3", mode=service.CONFORMANCE_MODE)
+    if getattr(args, "protocol_smoke", False):
+        result.update(schema="nib.selected-service-smoke/v4", mode=service.PROTOCOL_MODE)
     try:
-        require(not (getattr(args, "inference_smoke", False) and getattr(args, "conformance_smoke", False)), "contract")
+        require(sum(getattr(args, name, False) for name in ("inference_smoke", "conformance_smoke", "protocol_smoke")) <= 1,
+                "contract")
         require(threading.current_thread() is threading.main_thread(), "contract")
         contract = service.Contract.begin(args.hard_stop_at, input_price=args.input_price,
                                           output_price=args.output_price)
@@ -538,6 +567,7 @@ def main(argv=None):
         probe = parser.add_mutually_exclusive_group()
         probe.add_argument("--inference-smoke", action="store_true")
         probe.add_argument("--conformance-smoke", action="store_true")
+        probe.add_argument("--protocol-smoke", action="store_true")
         for name in ("build-report", "build-sha256", "preparation", "preparation-sha256",
                      "docker-host", "provider-config", "api-key-file", "cert", "key",
                      "hostname", "weights", "input-price", "output-price", "hard-stop-at"):

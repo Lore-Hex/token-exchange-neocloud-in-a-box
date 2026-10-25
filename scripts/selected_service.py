@@ -31,6 +31,8 @@ INFERENCE_MODE = "inference-smoke"
 INFERENCE_SCHEMA = "nib.selected-service-lifecycle/v2"
 CONFORMANCE_MODE = "conformance-smoke"
 CONFORMANCE_SCHEMA = "nib.selected-service-lifecycle/v3"
+PROTOCOL_MODE = "protocol-smoke"
+PROTOCOL_SCHEMA = "nib.selected-service-lifecycle/v4"
 # pilot.stop_serving: 140s graceful + pilot.stop's 10s forced wait.
 # snapshot.cleanup_process_group: 10s TERM + 10s KILL + 5s absence proof.
 DRAIN_SECONDS, REAP_SECONDS = 150, observer.CLEANUP_SECONDS
@@ -205,6 +207,7 @@ class Supervisor:
         self.children, self.engine_identity = {}, None
         self.hard_deadline = contract.hard_monotonic
         self.used = False
+        self.phase = "starting"
 
     def cutoff(self):
         # A forward wall jump shortens the bound permanently; rollback cannot
@@ -242,15 +245,30 @@ class Supervisor:
         self.checkpoint(deadline)
         return True
 
-    def run(self, *, inference_smoke=False, conformance_smoke=False):
+    def run(self, *, inference_smoke=False, conformance_smoke=False, protocol_smoke=False):
         require(type(inference_smoke) is bool and type(conformance_smoke) is bool
-                and not (inference_smoke and conformance_smoke), "contract")
-        smoke = inference_smoke or conformance_smoke
+                and type(protocol_smoke) is bool and sum((inference_smoke, conformance_smoke, protocol_smoke)) <= 1,
+                "contract")
+        smoke = inference_smoke or conformance_smoke or protocol_smoke
         require(not self.used, "already-used")
         self.used = True
         reason, admitted, cleanup = "owner-failed", False, []
         inference_result = None
         conformance_result = None
+        protocol_run = protocol_result = None
+        protocol_finished = False
+        reader_closed = True
+        def finish_protocol():
+            nonlocal protocol_result, protocol_finished, reader_closed
+            if protocol_run is None or protocol_finished:
+                return
+            protocol_finished = True
+            try:
+                protocol_result = protocol.validate_report(inference.encoded(protocol_run.finish(self)),
+                    self.owner.prepared.receipt_sha256, inference_result)
+            finally:
+                drain = protocol_run.drain
+                reader_closed = drain is None or drain.closed
         try:
             for role in ROLES:
                 deadline = min(self.contract.startup_deadline, self.cutoff() - CLEANUP_RESERVE)
@@ -269,6 +287,7 @@ class Supervisor:
                 # layer; startup of another child must not refresh its identity.
                 require(self.ready("engine", deadline), "readiness")
             admitted = True
+            self.phase = "ready"
             if smoke:
                 import selected_service_inference as inference
                 inference_result = inference.validate_report(inference.encoded(inference.run_once(self)),
@@ -282,6 +301,14 @@ class Supervisor:
                     self.owner.prepared.receipt_sha256, inference_result)
                 require(conformance_result["result"] == "pass", "owner-failed")
                 self.checkpoint(self.cutoff() - CLEANUP_RESERVE)
+            if protocol_smoke:
+                import selected_service_protocol as protocol
+                protocol_run = protocol.start(self, inference_result)
+                require(type(protocol_run) is protocol.Run and protocol_run.drain is not None
+                        and protocol_run.report["drain"]["retirement_requested"], "owner-failed")
+                # This deliberate whole-owner retirement is not external
+                # cancellation. Ordinary checkpoints remain unchanged.
+                self.phase = "draining"
             while not smoke and time.monotonic() < self.cutoff() - CLEANUP_RESERVE:
                 deadline = min(self.cutoff() - CLEANUP_RESERVE, time.monotonic() + observer.SECONDS)
                 self.checkpoint(deadline)
@@ -310,7 +337,22 @@ class Supervisor:
                 if role != "engine":
                     deadline = min(self.cutoff(), time.monotonic() + DRAIN_SECONDS)
                     try:
-                        drained = self.owner.drain(role, child, deadline) is True and child.poll() == 0 \
+                        if role == "tls" and protocol_run is not None and self.phase == "draining":
+                            deadline = min(deadline, protocol_run.drain.deadline)
+                            try:
+                                with identity.worker.alarm(deadline):
+                                    drained = self.owner.begin_drain(role, child, deadline)
+                                    if drained:
+                                        protocol_run.drain.retiring()
+                                        drained = self.owner.wait_drain(role, child, deadline)
+                                    if not drained:
+                                        protocol_run.drain.stop()
+                            except BaseException:
+                                protocol_run.drain.stop()
+                                raise
+                        else:
+                            drained = self.owner.drain(role, child, deadline)
+                        drained = drained is True and child.poll() == 0 \
                             and time.monotonic() <= deadline
                     except BaseException:
                         drained = False
@@ -328,12 +370,21 @@ class Supervisor:
                 except BaseException:
                     reaped = False
                 cleanup.append({"role": role, "drained": drained, "reaped": reaped})
+                if role == "tls":
+                    try:
+                        finish_protocol()
+                    except BaseException:
+                        reason = "owner-failed"
+            try:
+                finish_protocol()
+            except BaseException:
+                reason = "owner-failed"
             try:
                 deadline = min(self.cutoff(), time.monotonic() + REAP_SECONDS)
                 unregistered = self.owner.reap_unregistered(deadline) is True and time.monotonic() <= deadline
             except BaseException:
                 unregistered = False
-        confirmed = unregistered and all(row["reaped"] for row in cleanup)
+        confirmed = unregistered and reader_closed and all(row["reaped"] for row in cleanup)
         graceful = all(row["drained"] for row in cleanup)
         result = {"schema": "nib.selected-service-lifecycle/v1", "reason": reason,
                 "status": reason if reason in ("retired", "cancelled") and confirmed and graceful else "failed",
@@ -348,6 +399,10 @@ class Supervisor:
             if conformance_smoke:
                 result.update(schema=CONFORMANCE_SCHEMA, mode=CONFORMANCE_MODE, conformance=conformance_result)
                 if conformance_result is None or conformance_result["result"] != "pass":
+                    result["status"] = "failed"
+            if protocol_smoke:
+                result.update(schema=PROTOCOL_SCHEMA, mode=PROTOCOL_MODE, protocol=protocol_result)
+                if protocol_result is None or protocol_result["result"] != "pass":
                     result["status"] = "failed"
         return result
 

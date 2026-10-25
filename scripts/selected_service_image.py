@@ -84,12 +84,16 @@ def build_guard(recorder, files, work, env):
     return raw, recorder.overlay.bundle_digest(sources)
 
 
-def dockerfile(contract, prepared_sha):
+def dockerfile(contract, prepared_sha, *, checker=False):
     interpreter = contract["interpreter"]["resolved"]
     require(interpreter == "/usr/bin/python3.12", "identity")
+    require(type(checker) is bool, "contract")
     entry = [interpreter, "-I", "-S", "-B", "/opt/nib-service/scripts/selected_service_process.py",
              "--prepared-sha256", prepared_sha]
     application_sha = contract["sources"]["application/contract.json"]
+    imports = ("RUN --network=none " + interpreter
+        + " -I -S -B /opt/nib-service/scripts/selected_service_image.py checker-imports --prepared-sha256 "
+        + prepared_sha + "\n") if checker else ""
     return ("FROM " + contract["base_image"] + "\n"
         "USER 0:0\n"
         "COPY payload/ /opt/nib/\n"
@@ -98,8 +102,32 @@ def dockerfile(contract, prepared_sha):
         + application_sha + " --apply\n"
         "RUN --network=none " + interpreter + " -I -S -B /opt/nib-service/scripts/selected_service_image.py "
         "seal --prepared-sha256 " + prepared_sha + "\n"
-        "USER 65532:65532\nWORKDIR /\nHEALTHCHECK NONE\n"
+        "USER 65532:65532\n" + imports + "WORKDIR /\nHEALTHCHECK NONE\n"
         "ENTRYPOINT " + json.dumps(entry) + "\nCMD []\n").encode()
+
+
+def checker_imports(prepared_sha):
+    """GPU-free build check in the exact sealed image, never a serving proof."""
+    import selected_service_conformance as conformance
+    try:
+        with conformance.quiet_checker(), owner.service.identity.worker.alarm(time.monotonic() + 30):
+            require(sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode
+                    and os.getuid() == 65532 and os.getgid() == 65532, "contract")
+            raw = read(str(owner.ROOT / "prepared.json"))
+            require(digest(raw) == prepared_sha, "identity")
+            prepared = owner.service.correctness.strict_json(raw)
+            require(prepared == owner.preparation_receipt(owner.ROOT, prepared["lab_sha256"])
+                    and "checker/trial.json" in prepared["files"], "identity")
+            with conformance.checker_modules(owner.ROOT / "checker", time.monotonic() + 30) as checker:
+                import brotli
+                import rpds
+                require(brotli.decompress(brotli.compress(b"nib")) == b"nib"
+                        and len(rpds.HashTrieMap({"nib": 1})) == 1, "identity")
+                require(all(callable(value) for value in (checker.catalog.run_catalog_checks,
+                    checker.callability.run_callability_checks, checker.chat.run_chat_checks,
+                    checker.streaming.run_streaming_checks)), "identity")
+    except BaseException:
+        raise ValueError("selected checker imports rejected") from None
 
 
 def seal(prepared_sha):
@@ -176,7 +204,7 @@ def prepare(bundle, receipt_sha, trcs, output, *, checker_wheelhouse=None):
     context = {"context/service/" + name: raw for name, raw in service_files.items()}
     context.update({"context/payload/" + name: raw for name, raw in derived.items()})
     context["context/service/prepared.json"] = prepared
-    context["context/Dockerfile"] = dockerfile(contract, digest(prepared))
+    context["context/Dockerfile"] = dockerfile(contract, digest(prepared), checker=checker_wheelhouse is not None)
     # Metadata stays outside Docker's context and is revalidated before build.
     for name in ("manifest.json", "config.json"):
         context["metadata/" + name] = lab.read(Path(bundle) / "metadata" / name)
@@ -237,7 +265,8 @@ def validated_files(path, expected):
     require(digest(prepared) == receipt["prepared_sha256"], "identity")
     lab = owner.service.correctness.strict_json(files["context/payload/lab.json"])
     owner.engine_entry.canonical_arguments(lab)
-    require(files["context/Dockerfile"] == dockerfile(lab, receipt["prepared_sha256"]), "identity")
+    require(files["context/Dockerfile"] == dockerfile(lab, receipt["prepared_sha256"],
+            checker="context/service/checker/trial.json" in files), "identity")
     if any(row["bytes"] == 0 for row in receipt["files"].values()):
         # Empty wheel markers still require the pinned checker inventory and
         # the complete prepared source/hash join, not just an allowed pathname.
@@ -352,12 +381,16 @@ def main():
     preparation.add_argument("--checker-wheelhouse")
     sealing = modes.add_parser("seal", allow_abbrev=False)
     sealing.add_argument("--prepared-sha256", required=True)
+    importing = modes.add_parser("checker-imports", allow_abbrev=False)
+    importing.add_argument("--prepared-sha256", required=True)
     building = modes.add_parser("build", allow_abbrev=False)
     for name in ("preparation", "receipt-sha256", "output", "docker-host"):
         building.add_argument("--" + name, required=True)
     args = parser.parse_args()
     if args.mode == "seal":
         seal(args.prepared_sha256)
+    elif args.mode == "checker-imports":
+        checker_imports(args.prepared_sha256)
     elif args.mode == "build":
         report = build(args.preparation, args.receipt_sha256, args.output, args.docker_host)
         print(encoded(report).decode())
