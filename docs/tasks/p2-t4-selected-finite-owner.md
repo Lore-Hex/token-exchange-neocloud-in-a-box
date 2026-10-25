@@ -93,6 +93,16 @@ round-trip storage, exact limit, oversized reads/writes, and rejection before
 any firewall/network/container creation. This is a software regression test,
 not evidence of successful deployment.
 
+The runtime intent also records the exact labels of the admitted image.
+[Docker preserves labels inherited from base images](https://docs.docker.com/reference/dockerfile/#label).
+Container inspection therefore requires those exact labels plus the unique
+owner label, not only the owner label. Missing, altered or extra labels reject;
+an image that already declares the reserved owner label rejects before network
+mutation. Label keys/values/counts are bounded and the complete intent still
+must fit 8192 bytes. The public OCI fixture exercises the inherited labels as
+well as the long environment. No labels are removed from the image, no new
+image is required, and legacy intents lacking this binding fail closed.
+
 Weight-view and runtime-intent failures have separate fixed reason labels.
 An early failure remains failed even when private snapshot cleanup succeeds;
 the cleanup flag records that success independently. A cleanup exception still

@@ -20,6 +20,17 @@ FILES = {"contract.json", "runtime.json", *(event + ".json" for event in EVENTS)
 RUNTIME_LIMIT = 8192
 
 
+def image_labels(value):
+    """Copy only bounded labels from the already admitted image config."""
+    if value is None:
+        return {}
+    require(type(value) is dict and len(value) <= 64 and smoke.LABEL not in value)
+    require(all(type(key) is str and 0 < len(key) <= 256 and "\0" not in key
+                and type(item) is str and len(item) <= 1024 and "\0" not in item
+                for key, item in value.items()))
+    return dict(value)
+
+
 def daemon_identity(commands, pid=None):
     """Bind the trusted local daemon to our proc/network view, not a guessed PID."""
     deadline = time.monotonic() + min(10, commands.remaining() - smoke.CLIENT_REAP)
@@ -165,9 +176,11 @@ class State(network.Journal):
         require(all(type(contract[key]) in (int, float) and 0 < contract[key] < 1e12
                     for key in ("wall", "monotonic")))
         require(type(runtime) is dict and set(runtime) == {
-            "command", "network_id", "image_id", "entrypoint", "weights", "inputs"})
+            "command", "network_id", "image_id", "image_labels", "entrypoint", "weights", "inputs"})
         network.full_id(runtime["network_id"])
         smoke.image_id(runtime["image_id"])
+        require(type(runtime["image_labels"]) is dict)
+        image_labels(runtime["image_labels"])
         for key in ("command", "entrypoint"):
             require(type(runtime[key]) is list and 0 < len(runtime[key]) <= 256
                     and all(type(item) is str and "\0" not in item for item in runtime[key]))
@@ -219,7 +232,7 @@ def check_container(info, identifier, selected, runtime):
         {"image_id": runtime["image_id"]}, {"Config": {"Entrypoint": runtime["entrypoint"]}},
         runtime["command"], runtime["weights"], runtime["inputs"])
     host, settings, state = info["HostConfig"], info["NetworkSettings"], info["State"]
-    require(info["Config"]["Labels"] == {smoke.LABEL: token}
+    require(info["Config"]["Labels"] == {**runtime["image_labels"], smoke.LABEL: token}
             and info["Config"]["ExposedPorts"] == {"8443/tcp": {}}
             and host["NetworkMode"] == network_id and not host.get("PublishAllPorts")
             and not host.get("Links") and not host.get("AutoRemove"))
