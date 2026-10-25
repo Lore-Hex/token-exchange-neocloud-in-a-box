@@ -37,11 +37,13 @@ host firewall configuration or production reachability. If isolated ingress
 does not work, a new reviewed ingress design is still required.
 
 ```sh
-python3 -B scripts/probe-selected-network.py \
+python3 -I -S -B scripts/probe-selected-network.py \
   --docker-host "$APPROVED_LOCAL_DOCKER_SOCKET" --engine-version 29.4.0
 ```
 
 Version 29.4.0 is the inspected local Linux VM, not the GPU host's 29.1.3.
+The recorder requires its own and the listener's bytes to match the named Git
+commit and includes their hashes, without embedding any machine-local paths.
 Results must retain the actual engine version and may not qualify a different
 daemon. The cached image is never pulled. All owned containers and networks
 are identity-checked and removed, including after a partially successful

@@ -3,11 +3,13 @@
 """Bounded local TCP port-publication experiment, never a serving profile."""
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -141,6 +143,16 @@ def main():
               "cases": [], "gpu_used": False, "tls_verified": False, "egress_verified": False,
               "deployment_eligible": False, "confidential": False}
     try:
+        revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True,
+                                  check=True, timeout=5).stdout.decode().strip()
+        require(len(revision) == 40 and all(char in "0123456789abcdef" for char in revision))
+        source_hashes = {}
+        for name in ("scripts/probe-selected-network.py", "scripts/fixtures/selected_network_listener.py"):
+            committed = subprocess.run(["git", "show", revision + ":" + name], cwd=ROOT,
+                                       capture_output=True, check=True, timeout=5).stdout
+            require(committed == (ROOT / name).read_bytes())
+            source_hashes[name] = hashlib.sha256(committed).hexdigest()
+        report.update(git_sha=revision, source_sha256=source_hashes)
         with tempfile.TemporaryDirectory(prefix="nib-network-proof-") as directory:
             docker = Docker(args.docker_host, Path(directory))
             version = json.loads(docker.call("version", "--format", "{{json .Server}}").stdout)
@@ -164,4 +176,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if not (sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode):
+        raise SystemExit("Use python3 -I -S -B scripts/probe-selected-network.py")
     raise SystemExit(main())
