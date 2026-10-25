@@ -184,6 +184,10 @@ ingress reachability and packet-isolation evidence remain required.
 
 ## Validation
 
+The separate [current-identity cancellation helper](p2-t4-selected-owner-cancel.md)
+can request one pidfd-bound SIGTERM when no original launcher PID was retained.
+It does not change this lifecycle or claim cancellation proves cleanup or PASS.
+
 [Focused tests](../../scripts/test_selected_service_owner.py) exercise private
 intent and mutation boundaries, exact stopped/running/exited inspections,
 network/DNS/publication negatives, host overlap/listener rejection, daemon
