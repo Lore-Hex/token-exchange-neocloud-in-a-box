@@ -77,6 +77,10 @@ passed all 17 provider checks and completed an active streamed response through
 retirement, with all three roles reaped and host cleanup confirmed. This remains
 a bounded private test, not tool/quality qualification or public/confidential
 serving; the earlier failed drain observation is preserved.
+A subsequent [private native tool smoke](evidence/p2/2026-10-25-selected-tool-pass/README.md)
+passed one fixed tool call and its continuation through owned TLS, with actual
+usage and confirmed cleanup. No retries were used; this is not general tool
+reliability, full tau evaluation, public serving or a capability/privacy claim.
 A separate [closed-NAT CPU experiment](evidence/p2/2026-10-25-selected-nat-pass/README.md)
 passed all 15 baseline controls, allowed only the two TLS paths after protection,
 blocked 13 other paths including DNS relays, and confirmed cleanup. This does
