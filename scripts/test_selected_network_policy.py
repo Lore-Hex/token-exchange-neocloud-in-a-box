@@ -481,14 +481,15 @@ class ProofTests(unittest.TestCase):
                 self.assertEqual(reap.call_count, 0 if failure == "spawn" else 1)
                 self.assertEqual(report["namespace_reaped"], failure not in ("spawn", "reap"))
 
-    def inner_case(self, *, failure=None, cancel=False):
+    def inner_case(self, *, failure=None, cancel=False, venue=proof.LEGACY_VENUE):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             work = Path(directory)
             (work / "fixture").mkdir()
             (work / "fixture/key.pem").write_bytes(b"synthetic")
             (work / "fixture/cert.pem").write_bytes(b"synthetic")
             args = types.SimpleNamespace(inner=work, archive=work / "image.tar", host_net=1, host_mount=2,
-                                         deadline=proof.time.monotonic() + 400)
+                                         deadline=proof.time.monotonic() + 400, venue_profile=venue)
+            nft_version = proof.venue_settings(venue)["nftables"]
             commands = mock.Mock()
             commands.env = proof.ENV
             def result(raw=b""):
@@ -497,10 +498,11 @@ class ProofTests(unittest.TestCase):
                 if argv[:2] == ["ip", "--json"]:
                     return result(policy.encoded([{"ifname": "lo"}]))
                 if argv[:2] == ["nft", "--version"]:
-                    return result(b"nftables v1.0.9 (Old Doc Yak #3)\n")
+                    return result(("nftables v" + nft_version + " (" + policy.NFT_RELEASES[nft_version] + ")\n").encode())
                 return result(b"Docker version 29.1.3\n")
             commands.run.side_effect = run
-            commands.rules.return_value = readback([])
+            commands.rules.return_value = policy.encoded({"nftables": [{"metainfo": {
+                "version": nft_version, "release_name": policy.NFT_RELEASES[nft_version], "json_schema_version": 1}}]})
             def docker(*argv, **_kwargs):
                 if argv[0] == "version":
                     return result(policy.encoded({"Version": "29.1.3", "Os": "linux", "Arch": "amd64"}))
@@ -533,6 +535,7 @@ class ProofTests(unittest.TestCase):
                 return next(controls)
             for target, name, options in (
                 (proof, "check_namespace", {}), (proof, "Commands", {"return_value": commands}),
+                (proof, "isolate_resolver", {}),
                 (proof.uuid, "uuid4", {"return_value": types.SimpleNamespace(hex="a" * 32)}),
                 (proof.os, "chown", {}), (proof, "check_container", {}), (proof, "check_sinks", {}),
                 (proof, "query", {"return_value": True}), (proof, "observations", {"side_effect": observe}),

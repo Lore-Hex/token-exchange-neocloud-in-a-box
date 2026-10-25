@@ -182,7 +182,8 @@ def identity(deadline, parent_pipe=False, *, live_local=False, support_probe=Fal
     if selected_operational:
         names += ("scripts/deepseek_model_profile.py", "scripts/tau_support_probe.py",
                   "scripts/tau_cpu_support_models.json", "scripts/tau_selected_policy.py",
-                  "scripts/test_tau_selected_scorer.py", "scripts/test_tau_selected_termination.py")
+                  "scripts/test_tau_selected_scorer.py", "scripts/test_tau_selected_termination.py",
+                  "scripts/test_tau_tool_origin.py")
         names += tuple("scripts/" + name + ".py" for name in SELECTED_PARENT_MODULES)
         names += ("scripts/tau_selected_driver.py", "scripts/test_tau_selected_driver.py",
                   "scripts/test_tau_selected_run.py", "scripts/tau_cpu_parity.cpp")
