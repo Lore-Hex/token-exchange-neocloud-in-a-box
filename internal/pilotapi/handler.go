@@ -243,7 +243,12 @@ func (p serviceProfile) boundRequest(body []byte) ([]byte, error) {
 			return nil, errors.New("unsupported role")
 		}
 	}
-	if err := validateOptions(value, p.reasoningHints); err != nil {
+	if p.nativeReasoning {
+		if err := normalizeSelectedReasoning(value); err != nil {
+			return nil, err
+		}
+	}
+	if err := validateOptions(value, p.reasoningHints, p.nativeReasoning); err != nil {
 		return nil, err
 	}
 	if raw, ok := value["n"]; ok {
@@ -271,7 +276,7 @@ func (p serviceProfile) boundRequest(body []byte) ([]byte, error) {
 
 // The engine also accepts native sampling, grammar and template controls. Only
 // this small, bounded OpenAI subset may cross the public pilot boundary.
-func validateOptions(value map[string]json.RawMessage, reasoningHints bool) error {
+func validateOptions(value map[string]json.RawMessage, reasoningHints, nativeReasoning bool) error {
 	invalid := errors.New("unsupported pilot option")
 	for field, raw := range value {
 		if bytes.Equal(raw, []byte("null")) {
@@ -338,6 +343,13 @@ func validateOptions(value map[string]json.RawMessage, reasoningHints bool) erro
 				}
 			}
 		case "thinking", "reasoning", "reasoning_effort":
+			if nativeReasoning {
+				var effort string
+				if field != "reasoning_effort" || json.Unmarshal(raw, &effort) != nil || !selectedEffort(effort) {
+					return invalid
+				}
+				continue
+			}
 			if !reasoningHints {
 				return invalid
 			}

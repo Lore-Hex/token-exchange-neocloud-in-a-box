@@ -46,7 +46,9 @@ the existing lab validation. A newly composed, hash-bound launcher preserves
 all original definitions and sealed worker dispatch; only its new
 `selected-service-engine` entry supplies the canonical argument copy to
 `run_engine`. This is a new service payload, not the original lab receipt.
-The API profile rejects tools and reasoning controls. Nothing here claims tau
+The API profile rejects tools. The later
+[reasoning-control follow-up](p2-t4-selected-reasoning-controls.md) adds bounded
+native effort forwarding, not reasoning qualification. Nothing here claims tau
 quality, sustained throughput, ZDR, confidential computing or E2EE.
 
 ## Concrete lifecycle
