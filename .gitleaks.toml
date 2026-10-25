@@ -217,6 +217,48 @@ paths = ['''(^|/)evidence/p2/2026-10-24-selected-tau-protocol-failure-1854/(scor
 regexes = ['''^engine_tokenizer_parity\.py":"6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f"$''']
 
 [[rules.allowlists]]
+description = "Exact fixed GPU parity hashes in the original natural customer-resolution failure"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)evidence/p2/2026-10-25-selected-customer-resolution-1117/gpu/output\.log$''']
+regexes = ['''^\s*"tokens_sha256": "(9d6bde6f28006680e5d37e06d816356d782004f1e8dbabf46d42e81b088afc16|c7b86dad075d1d51e4bf9aec664d9ce392e5d04a63babe717ab9354ec0b56032|6ddfa5e6dbf2f45b8efc1e2ebda65f1f79c39b1a4ec8a7fce8e77fc5a0add7d5|4e5eb88296779609b1ef81a335894e3ef5c284a94a8ceb1607421414c43c9cbe)"\s*$''']
+
+[[rules.allowlists]]
+description = "Exact public CPU parity source and receipt hashes in the natural customer-resolution failure"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)evidence/p2/2026-10-25-selected-customer-resolution-1117/cpu/output\.log$''']
+regexes = ['''^\s*"tokens_sha256": "(1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe)"\s*$''', '''^\s*"scripts/engine_tokenizer_parity\.py": "6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f",\s*$''', '''^\s*"simulator-tokenizer\.json": "c712f03c74f4046360aaa5f36e74b15685e24329f9627ac3c3d679be896a765d"\s*$''', '''^\s*"evaluator-tokenizer\.json": "f16cd5c46c9cdb24fccba8be1c07222f8632f42a3c2eb541de5b8f6f38bef79b",\s*$''']
+
+[[rules.allowlists]]
+description = "Exact fixed CPU parity hashes in compact natural customer-resolution receipts"
+condition = "AND"
+regexTarget = "match"
+paths = ['''(^|/)evidence/p2/2026-10-25-selected-customer-resolution-1117/cpu/(simulator|evaluator)-tokenizer\.json$''']
+regexes = ['''^(endpoint|independent)_tokens_sha256":"(1b7419454da94e65624a0661ad74892eb52f65719dca41152acf9a6aa78b3cbd|fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe)"$''']
+
+[[rules.allowlists]]
+description = "Exact public Qwen 0.6B recipe in unused-pair natural customer-resolution receipts"
+condition = "AND"
+regexTarget = "match"
+paths = ['''(^|/)evidence/p2/2026-10-25-selected-customer-resolution-1117/cpu/simulator-(runtime|tokenizer)\.json$''']
+regexes = ['''^tokenizer_sha256":"554324f21418252a59edb045493a143a783b499d67b8680883e310e0f2ee77d9"$''']
+
+[[rules.allowlists]]
+description = "Exact public Qwen 1.7B recipe bound to the natural-dialogue simulator"
+condition = "AND"
+regexTarget = "match"
+paths = ['''(^|/)evidence/p2/2026-10-25-selected-customer-resolution-1117/cpu/evaluator-(runtime|tokenizer)\.json$''', '''(^|/)evidence/p2/2026-10-25-selected-customer-resolution-1117/(scorer|evidence)/output\.log$''']
+regexes = ['''^tokenizer_sha256":"604363ffa22647728e0dd56e84926ad3ca1422999e356af99628fe2535b010a8"$''']
+
+[[rules.allowlists]]
+description = "Exact public parity source hash in compact natural customer-resolution originals"
+condition = "AND"
+regexTarget = "match"
+paths = ['''(^|/)evidence/p2/2026-10-25-selected-customer-resolution-1117/(scorer|evidence)/output\.log$''']
+regexes = ['''^engine_tokenizer_parity\.py":"6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f"$''']
+
+[[rules.allowlists]]
 description = "Exact original selected 2009 CPU tokenizer receipt byte hashes"
 condition = "AND"
 regexTarget = "line"

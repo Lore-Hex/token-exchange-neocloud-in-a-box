@@ -117,7 +117,14 @@ Cleanup was confirmed. GPU CC was disabled; outer FAIL/BLOCKED records remain
 unchanged. These are not a capacity sweep, full tau result, quality acceptance
 or confidential qualification.
 
-The latest [selected tau diagnostic](evidence/p2/2026-10-25-selected-tau-email-relation-0429/README.md)
+The latest [natural customer-resolution diagnostic](evidence/p2/2026-10-25-selected-customer-resolution-1117/README.md)
+used the pinned, unqualified Qwen3-1.7B simulator and stopped at its first email
+lookup with `lookup_error` and unknown customer match. Ten measured requests
+completed; reward remains null and cleanup was confirmed. No exception-origin
+or conversation evidence identifies the underlying cause or assigns model blame.
+It is not a tau quality score or simulator qualification.
+
+The earlier [selected tau diagnostic](evidence/p2/2026-10-25-selected-tau-email-relation-0429/README.md)
 failed at the retail customer-email lookup. A bounded boolean records that the
 submitted argument occurred case-insensitively in earlier simulator-user text;
 it does not establish the correct email, full identity or model blame. No

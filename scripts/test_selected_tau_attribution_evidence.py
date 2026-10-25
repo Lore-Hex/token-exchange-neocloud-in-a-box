@@ -37,6 +37,7 @@ class AttributionAssertions:
     elapsed_ms = 24821
     prompt_tokens = 16093
     completion_tokens = 226
+    completed_requests = 3
     started = "2026-10-25T02:45:33Z"
     ended = "2026-10-25T03:04:53Z"
     origin = {}
@@ -50,7 +51,7 @@ class AttributionAssertions:
         self.gpu, self.cpu, self.scorer, self.controller = (
             self.rows[name + "/output.log"] for name in ("gpu", "cpu", "scorer", "evidence"))
 
-    def test_exact_inventory_sources_and_failed_trial(self):
+    def assert_original_inventory_and_sources(self):
         git(ROOT, "merge-base", "--is-ancestor", self.producer, "HEAD")
         self.assertEqual({str(p.relative_to(self.directory)) for p in self.directory.rglob("*") if p.is_file()},
                          set(self.hashes) | {"README.md"})
@@ -61,6 +62,9 @@ class AttributionAssertions:
         self.assertEqual(len(files), self.source_count)
         for path, digest in files.items():
             self.assertEqual(hashlib.sha256(git(ROOT, "show", self.producer + ":" + path)).hexdigest(), digest)
+
+    def test_exact_inventory_sources_and_failed_trial(self):
+        self.assert_original_inventory_and_sources()
         worker = types.ModuleType("original_attribution_worker")
         worker.__file__ = str(ROOT / "scripts/tau_trial_worker.py")
         exec(compile(git(ROOT, "show", self.producer + ":scripts/tau_trial_worker.py"), worker.__file__, "exec"), worker.__dict__)
@@ -90,7 +94,7 @@ class AttributionAssertions:
         self.assertEqual(self.controller["owner_reports"],
             {owner: {name: self.hashes[owner + "/" + name][1] for name in ("run.json", "output.log")}
              for owner in ("cpu", "gpu")})
-        finish = {"status": "protocol_error", "completed_requests": 3}
+        finish = {"status": "protocol_error", "completed_requests": self.completed_requests}
         self.assertEqual(self.scorer["diagnostic"]["owner_finish"], {"candidate": finish, "support": finish})
         self.assertEqual(self.cpu["runtime"]["owner"], finish)
         self.assertEqual(self.gpu["experiment"]["tau_owner"],
