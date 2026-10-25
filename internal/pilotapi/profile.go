@@ -6,6 +6,7 @@ import "errors"
 const ProfileQwen = "qwen"
 const ProfileSelectedDeepSeek = "selected-deepseek"
 const ProfileSelectedGraphs = "selected-deepseek-graphs"
+const ProfileSelectedQuality = "selected-deepseek-quality"
 
 // Profiles are closed startup choices, not caller-supplied model aliases or
 // backend settings. The same value binds catalog, admission and request bounds.
@@ -26,7 +27,7 @@ func profileFor(name string) (serviceProfile, error) {
 	switch name {
 	case ProfileQwen:
 		return qwenProfile(), nil
-	case ProfileSelectedDeepSeek, ProfileSelectedGraphs:
+	case ProfileSelectedDeepSeek, ProfileSelectedGraphs, ProfileSelectedQuality:
 		// The pack's tr_model_id, not its bare lab served_model_name. A future
 		// owned engine must serve this exact ID; this API never rewrites it.
 		profile := serviceProfile{model: "dealignai/deepseek-v4.1-flash-1017-uncensored-fp8",
@@ -35,6 +36,9 @@ func profileFor(name string) (serviceProfile, error) {
 		if name == ProfileSelectedGraphs {
 			// Eight total admissions, not eight for each of the two DP ranks.
 			profile.context, profile.concurrent = 4096, 8
+		}
+		if name == ProfileSelectedQuality {
+			profile.context, profile.maxOutput = 32768, 2048
 		}
 		return profile, nil
 	default:

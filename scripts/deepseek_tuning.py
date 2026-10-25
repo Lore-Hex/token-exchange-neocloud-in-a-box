@@ -5,7 +5,8 @@ import hashlib
 import json
 
 BATCH_NAMES = ("batch8-eager", "batch8-graphs", "batch8-dspark")
-NAMES = (*BATCH_NAMES, "tau8k-eager")
+EAGER_CONTEXTS = {"tau8k-eager": 8192, "quality32k-eager": 32768}
+NAMES = (*BATCH_NAMES, *EAGER_CONTEXTS)
 REVISION = "5df63a7203cdb9328d824a27b682e77c7b9928be"
 # https://github.com/vllm-project/vllm/tree/5df63a7203cdb9328d824a27b682e77c7b9928be
 # Configuration and graph-candidate implementation used by these profiles.
@@ -43,7 +44,7 @@ def enabled(contract):
             and "tuning.py" in contract.get("sources", {})
             and "provider_conformance" not in contract)
     measurement_keys = ("tokenizer_parity", "tokenizer_materialization", "runtime_observation", "stream_cohort")
-    if name == "tau8k-eager":
+    if name in EAGER_CONTEXTS:
         require(contract.get("tokenizer_parity") is True and contract.get("runtime_observation") is True
                 and type(contract.get("tokenizer_materialization")) is dict
                 and "stream_cohort" not in contract)
@@ -55,7 +56,7 @@ def enabled(contract):
 
 
 def context_limit(contract):
-    return 8192 if enabled(contract) == "tau8k-eager" else 4096
+    return EAGER_CONTEXTS.get(enabled(contract), 4096)
 
 
 def arguments(baseline, name):
@@ -70,12 +71,12 @@ def arguments(baseline, name):
         result[index] = value
 
     require("--speculative-config" not in result and result.count("--enforce-eager") == 1)
-    if name == "tau8k-eager":
+    if name in EAGER_CONTEXTS:
         # Pinned SchedulerConfig.verify_max_model_len requires a batch token
         # budget >= context when chunked prefill is disabled. Keep one sequence.
         replace("--max-num-seqs", "1", "1")
-        replace("--max-model-len", "4096", "8192")
-        replace("--max-num-batched-tokens", "4096", "8192")
+        replace("--max-model-len", "4096", str(EAGER_CONTEXTS[name]))
+        replace("--max-num-batched-tokens", "4096", str(EAGER_CONTEXTS[name]))
         return result
     replace("--max-num-seqs", "1", "8")
     if name != "batch8-eager":

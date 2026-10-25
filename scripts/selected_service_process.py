@@ -473,7 +473,7 @@ def main(argv=None):
                 for number in (signal.SIGINT, signal.SIGTERM)}
     result, stage, contract = None, "contract", None
     def publish(row):
-        if args.execution_profile == engine_entry.GRAPHS_PROFILE and row["schema"] != service.EXECUTION_SCHEMA:
+        if args.execution_profile in engine_entry.BOUND_PROFILES and row["schema"] != service.EXECUTION_SCHEMA:
             row = service.execution_result(row, args.execution_profile, args.prepared_sha256
                 if re.fullmatch("[0-9a-f]{64}", args.prepared_sha256) else None)
         print(json.dumps(row, sort_keys=True))
@@ -511,7 +511,7 @@ def main(argv=None):
                     "prepared_sha256": args.prepared_sha256
                         if re.fullmatch("[0-9a-f]{64}", args.prepared_sha256) else None})
                 return 1
-            if args.execution_profile == engine_entry.GRAPHS_PROFILE:
+            if args.execution_profile in engine_entry.BOUND_PROFILES:
                 publish({"schema": "nib.selected-service-lifecycle/v1", "status": "failed", "reason": "preparation",
                          "deployable": False, "hardware_validated": False})
                 return 1

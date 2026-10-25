@@ -408,7 +408,7 @@ def ordinary_lifecycle(raw, lifetime, prepared_sha256, *, failed):
 
 def execution_lifecycle(raw, execution_profile, prepared_sha256, *, failed, **join):
     limits = service.engine_entry.execution_limits(execution_profile)
-    require(execution_profile == service.engine_entry.GRAPHS_PROFILE and type(raw) is bytes
+    require(execution_profile in service.engine_entry.BOUND_PROFILES and type(raw) is bytes
             and len(raw) <= 16384 and type(prepared_sha256) is str
             and re.fullmatch("[0-9a-f]{64}", prepared_sha256), "owner-failed")
     row = service.correctness.strict_json(raw)
@@ -616,12 +616,12 @@ def admitted_runtime(args, result, *, lifetime_profile=service.SMOKE_PROFILE):
             result["reason"] = "build-identity"
             preparation, files, lab_contract = image_builder.validated_files(Path(args.preparation), args.preparation_sha256)
             require(lab_contract["execution_profile"] == execution, "identity")
-            graphs = execution == service.engine_entry.GRAPHS_PROFILE
-            if ordinary or graphs:
+            bound = execution in service.engine_entry.BOUND_PROFILES
+            if ordinary or bound:
                 # Old eager smoke images cannot opt into a new lifetime or
                 # execution protocol their embedded owner cannot enforce.
                 for name in ("scripts/selected_service.py", "scripts/selected_service_process.py") \
-                        + (("scripts/selected_service_engine.py",) if graphs else ()):
+                        + (("scripts/selected_service_engine.py",) if bound else ()):
                     require(files.get("context/service/" + name) == process.bootstrap.read_source(str(ROOT / name)),
                             "identity")
             build = image_builder.validate_build_record(lab.read(args.build_report, 16384), args.build_sha256,
@@ -647,7 +647,7 @@ def admitted_runtime(args, result, *, lifetime_profile=service.SMOKE_PROFILE):
             result.update(preflight_pass=True, reason="not-run", build_sha256=args.build_sha256,
                 preparation_sha256=args.preparation_sha256, prepared_sha256=build["prepared_sha256"],
                 image_id=build["image_id"])
-            if graphs:
+            if bound:
                 result["execution"] = contract.execution
         yield contract, lab, recorder, env, build, base, image, inputs
 
