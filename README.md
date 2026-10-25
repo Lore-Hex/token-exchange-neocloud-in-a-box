@@ -77,6 +77,10 @@ passed all 17 provider checks and completed an active streamed response through
 retirement, with all three roles reaped and host cleanup confirmed. This remains
 a bounded private test, not tool/quality qualification or public/confidential
 serving; the earlier failed drain observation is preserved.
+A subsequent [private native tool smoke](evidence/p2/2026-10-25-selected-tool-pass/README.md)
+passed one fixed tool call and its continuation through owned TLS, with actual
+usage and confirmed cleanup. No retries were used; this is not general tool
+reliability, full tau evaluation, public serving or a capability/privacy claim.
 A separate [closed-NAT CPU experiment](evidence/p2/2026-10-25-selected-nat-pass/README.md)
 passed all 15 baseline controls, allowed only the two TLS paths after protection,
 blocked 13 other paths including DNS relays, and confirmed cleanup. This does
@@ -90,6 +94,12 @@ accelerator exception during cleanup; the precise root cause remains unknown.
 Cleanup was confirmed. GPU CC was disabled; outer FAIL/BLOCKED records remain
 unchanged. These are not a capacity sweep, full tau result, quality acceptance
 or confidential qualification.
+
+The latest [selected tau diagnostic](evidence/p2/2026-10-25-selected-tau-tool-rejection-0245/README.md)
+reached a known assistant tool, which raised one `ValueError`; the strict smoke
+stopped with no quality score and confirmed cleanup. The exact rejection site
+is not recorded in that run. A [content-free source-line diagnostic](docs/tasks/p2-t4-selected-tau-tool-origin.md)
+is now implemented for a future run without changing scoring or retry limits.
 
 A later [selected tau controller attempt](evidence/p2/2026-10-24-selected-tau-readiness-failure-1736/README.md)
 failed during readiness: both owners exited 1, no READY hashes or scorer result

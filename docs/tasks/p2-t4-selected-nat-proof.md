@@ -5,7 +5,9 @@ all 15 baseline controls, only two protected TLS paths allowed, 13 negative
 paths blocked, unchanged DNS relay counters and confirmed cleanup. The
 [two earlier failures](../../evidence/p2/2026-10-25-selected-nat-policy-failure/README.md)
 remain failures. This qualifies only the exact CPU experiment, **not GPU-host
-networking or a public service**. This is a
+networking or a public service**. The separate
+[ordinary-host venue profile](p2-t4-selected-nat-venue.md) is implemented but has
+not run on hardware. This is a
 GPU-free network experiment, not a public service owner or permission to change
 a host firewall. The earlier [isolated-bridge observation](p2-t4-selected-network-probe.md)
 does not qualify this alternative. No inference, credentials, model weights,
@@ -121,8 +123,9 @@ cover both versions, exact argv/metadata, unchanged installation bytes,
 cross-version rejection, every object/predicate/verdict removal, unexpected
 fields/expressions, family/tuple changes and rule/predicate ordering. These are
 source-derived software checks, not a new kernel, daemon or host result.
-`prove-selected-nat.py` is unchanged, still using the default 1.0.9 contract and
-its existing host gates. This change does **not** authorize execution on an
+The policy-only change left `prove-selected-nat.py` unchanged. Its subsequent
+[venue integration](p2-t4-selected-nat-venue.md) retains the default 1.0.9
+contract and adds one exact opt-in profile. Neither change authorizes execution on an
 existing GPU host or choose a host-profile schema. Actual host/tool identity
 pins, separately reviewed proof-runner integration and an approved isolated
 synthetic-network observation remain prerequisites for that compatibility claim.
@@ -234,7 +237,7 @@ Docker-local names may still resolve; no upstream DNS forwarding is authorized.
 ## Concrete experiment
 
 [prove-selected-nat.py](../../scripts/prove-selected-nat.py) stages its committed
-four-file source closure and a hash-verified, private read-only copy of a supplied
+source closure (including its venue manifest) and a hash-verified, private read-only copy of a supplied
 offline Python image archive. It launches util-linux `unshare` with new mount,
 network and PID namespaces, private mount propagation, a new procfs and
 `--kill-child=KILL`. The inner process must be PID 1, have different network and
