@@ -172,6 +172,26 @@ def cleanup_record(raw):
     return row
 
 
+def runtime_plan(args, admitted, selected, commands, result):
+    contract, lab, recorder, _, build, base, image, inputs = admitted
+    result["reason"] = "weights"
+    weights = smoke.private_path(args.weights)
+    smoke.weights_view(lab, weights, min(commands.end - smoke.service.CLEANUP_RESERVE,
+                                      time.monotonic() + smoke.SECONDS))
+    stop_at = datetime.datetime.fromtimestamp(contract.hard_wall - smoke.HOST_RESERVE,
+        datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    result["reason"] = "runtime-intent"
+    require(commands.remaining() > smoke.HOST_RESERVE + smoke.service.CLEANUP_RESERVE)
+    def runtime(identifier):
+        return {"command": owner.container_command(selected, identifier, build, base, weights, inputs, args, stop_at),
+            "network_id": identifier, "image_id": build["image_id"], "entrypoint": image["Config"]["Entrypoint"],
+            "weights": str(weights), "inputs": str(inputs)}
+    # Exact IDs have fixed width. Reject an oversized private intent before
+    # any firewall/network mutation, not after resource creation.
+    require(len(policy.encoded(runtime("0" * 64))) + 1 <= owner.State.file_limit("runtime.json"))
+    return runtime
+
+
 def run(args, admitted, selected, result):
     contract, lab, recorder, _, build, base, image, inputs = admitted
     commands = admitted_commands(admitted)
@@ -186,20 +206,7 @@ def run(args, admitted, selected, result):
     owner.daemon_identity(commands)
     result["reason"] = "host-network"
     owner.host_target(commands, selected, initial=True)
-    result["reason"] = "weights"
-    weights = smoke.private_path(args.weights)
-    smoke.weights_view(lab, weights, min(commands.end - smoke.service.CLEANUP_RESERVE,
-                                      time.monotonic() + smoke.SECONDS))
-    stop_at = datetime.datetime.fromtimestamp(contract.hard_wall - smoke.HOST_RESERVE,
-        datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    require(commands.remaining() > smoke.HOST_RESERVE + smoke.service.CLEANUP_RESERVE)
-    def runtime(identifier):
-        return {"command": owner.container_command(selected, identifier, build, base, weights, inputs, args, stop_at),
-            "network_id": identifier, "image_id": build["image_id"], "entrypoint": image["Config"]["Entrypoint"],
-            "weights": str(weights), "inputs": str(inputs)}
-    # Exact IDs have fixed width. Reject an oversized private intent before
-    # any firewall/network mutation, not after resource creation.
-    require(len(policy.encoded(runtime("0" * 64))) + 1 <= 4096)
+    runtime = runtime_plan(args, admitted, selected, commands, result)
     result["preflight_pass"] = True
     reader, writer = os.pipe()
     monitor, selected_owner, accepted, monitor_reaped = None, None, False, False
@@ -279,19 +286,23 @@ def preflight(args):
         selected = network.Network(policy.Policy(token, "nib" + token[:12], args.ingress,
             args.address, args.published_address, args.published_port, "1.1.6"), args.subnet, args.gateway)
         with smoke.admitted_runtime(args, result) as admitted:
-            if args.run:
-                run(args, admitted, selected, result)
-            else:
-                result.update(preflight_pass=False, reason="host-identity")
-                contract = admitted[0]
-                commands = admitted_commands(admitted)
-                journal = network.Journal(Path(args.state_dir) / "network", selected,
-                                          contract.hard_wall, contract.hard_monotonic)
-                network.Reservation(commands, journal).admit()
-                owner.daemon_identity(commands)
-                result["reason"] = "host-network"
-                owner.host_target(commands, selected, initial=True)
-                result.update(preflight_pass=True, reason="not-run")
+            try:
+                if args.run:
+                    run(args, admitted, selected, result)
+                else:
+                    result.update(preflight_pass=False, reason="host-identity")
+                    contract = admitted[0]
+                    commands = admitted_commands(admitted)
+                    journal = network.Journal(Path(args.state_dir) / "network", selected,
+                                              contract.hard_wall, contract.hard_monotonic)
+                    network.Reservation(commands, journal).admit()
+                    owner.daemon_identity(commands)
+                    result["reason"] = "host-network"
+                    owner.host_target(commands, selected, initial=True)
+                    runtime_plan(args, admitted, selected, commands, result)
+                    result.update(preflight_pass=True, reason="not-run")
+            except BaseException:
+                result.update(result="fail", status="BLOCKED")
         result["private_inputs_removed"] = True
     except BaseException:
         result.update(result="fail", status="BLOCKED")

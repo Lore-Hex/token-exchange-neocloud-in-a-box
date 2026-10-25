@@ -15,6 +15,9 @@ policy, smoke = network.policy, network.smoke
 require = network.require
 EVENTS = ("container-intent", "container-resolved", "start-intent")
 FILES = {"contract.json", "runtime.json", *(event + ".json" for event in EVENTS)}
+# The pinned CUDA image's required driver constraints alone exceed 2 KiB.
+# Only the full runtime intent needs more than the network/event record bound.
+RUNTIME_LIMIT = 8192
 
 
 def daemon_identity(commands, pid=None):
@@ -124,6 +127,10 @@ class State(network.Journal):
     def __init__(self, root):
         self.root = Path(root)
 
+    @staticmethod
+    def file_limit(name):
+        return RUNTIME_LIMIT if name == "runtime.json" else network.JOURNAL_LIMIT
+
     def initialize(self, contract, runtime):
         with self._directory() as fd:
             self._check(fd)
@@ -148,7 +155,7 @@ class State(network.Journal):
                 require(stat.S_ISREG(info.st_mode) and info.st_uid == os.getuid()
                         and stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1)
                 result[name] = policy.decode(network.tau_runtime.read_file(
-                    self.root / name, 4096, time.monotonic() + 1))
+                    self.root / name, self.file_limit(name), time.monotonic() + 1))
         contract, runtime = result["contract.json"], result["runtime.json"]
         require(type(contract) is dict and set(contract) == {"schema", "network", "wall", "monotonic"}
                 and contract["schema"] == "nib.selected-service-owner-intent/v1")
