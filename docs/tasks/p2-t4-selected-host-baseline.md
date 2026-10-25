@@ -1,12 +1,14 @@
 # Private baseline for the isolated quarantine proof
 
-Status: software and mocked/local-file tests only. No wrapper, nft command,
-namespace, Docker daemon or quarantine experiment has been executed by this
-increment. Independent final-head review, hosted CI and separate operator
-authorization are required before one real observation. This is P2.T4 proof
-preparation, not a persistent service owner or permission to change a host
-firewall. The earlier ordinary-host observation did not retain a full pre-run
-ruleset and cannot be retroactively given an equality claim.
+Status: the first wrapper attempt at `e890860` failed during pre-snapshot;
+its [original content-free summary](../../evidence/p2/2026-10-25-selected-quarantine-presnapshot-failure/README.md)
+does not establish a proof, complete baseline or cleanup. The resolver admission
+correction below is software and mocked/local-file tested only, not a successful
+rerun. Independent final-head review, hosted CI and separate operator authorization
+remain required before another observation. This is P2.T4 proof preparation, not
+a persistent service owner or permission to change a host firewall. The earlier
+ordinary-host observation did not retain a full pre-run ruleset and cannot be
+retroactively given an equality claim.
 
 ## Closed handoff
 
@@ -56,6 +58,46 @@ version **3.14.4**, and every tool/package/kernel/resolver pin in the
 [committed venue](p2-t4-selected-nat-venue.md) must match. Do not replace the host
 resolver or install/change tools to make admission pass. Do not use this
 experimental namespace daemon as a production daemon.
+
+## Closed resolver ownership
+
+The ordinary venue's literal root-owned `/etc/resolv.conf` symlink still must
+resolve to exactly `/run/systemd/resolve/stub-resolv.conf`. Its service-owned
+target is not a root-owned general input file. Only this fixed target may use
+the venue-observed UID/GID **989/989**, additionally verified against the unique
+local `systemd-resolve` user and group entries and that user's primary group.
+989 is **not** a portable systemd allocation. A different mapping fails admission;
+there is no arbitrary UID, target, account selector or NSS/network lookup.
+
+This boundary is backed by upstream systemd v259, exact source revision
+`9ca433482f2281d71718718705ca8cd3bf562ad6`:
+
+- The [service unit](https://github.com/systemd/systemd/blob/9ca433482f2281d71718718705ca8cd3bf562ad6/units/systemd-resolved.service.in)
+  selects `User=systemd-resolve` and `RuntimeDirectory=systemd/resolve`.
+- [User/Group and RuntimeDirectory contracts](https://github.com/systemd/systemd/blob/9ca433482f2281d71718718705ca8cd3bf562ad6/man/systemd.exec.xml)
+  use the user's primary group by default, assign the innermost runtime directory
+  to the service, and leave intermediate directories root-owned.
+- The [stub writer](https://github.com/systemd/systemd/blob/9ca433482f2281d71718718705ca8cd3bf562ad6/src/resolve/resolved-resolv-conf.c#L357-L368)
+  sets mode 0644 on its temporary output before replacing the stub.
+
+These are pinned source contracts, not a claim that the venue's installed systemd
+binary was hash-verified against that revision. Admission also checks the local
+identity and filesystem; the proof's existing tool/package pins are unchanged.
+The wrapper opens `/`, `/etc`, `/run`, `/run/systemd` as root-owned directories
+and `/run/systemd/resolve` as service-owned, each without symlink traversal or
+group/world write access. It pins those directory descriptors and rechecks their
+names, identity and modes after reading. The target must be a single-link regular
+file, not group/world writable, at most 64 KiB, with unchanged descriptor/path
+device, inode, owner, mode, size, mtime and ctime. Account files remain bounded,
+root-owned, non-group/world-writable inputs. The metadata validator enforces the
+same target and symlink ownership. Nothing is chowned, remounted or written on the
+host; host-root tampering is not within this read-only observation's guarantees.
+
+The general `read_file` policy and the legacy `ubuntu24-cpu` regular resolver
+policy remain unchanged. [Resolver regressions](../../scripts/test_selected_resolver_snapshot.py)
+use real temporary descriptors with synthetic UID/GID 989 stat fixtures,
+including incorrect identities, writable/replaced parents, symlinks, hardlinks,
+oversized files and inode drift. No real host resolver contents are test inputs.
 
 ## Private records and equality
 
