@@ -132,6 +132,28 @@ class PinnedProtocolTests(unittest.TestCase):
             self.assertTrue(all("max_tokens" not in row for row in requests[1:-1]))
             self.assertEqual(requests[2]["temperature"], 0)
             self.assertTrue(all(row["stream"] is False for row in requests))
+            drain = json.loads(state.connections[-1].sendall.call_args.args[0].split(b"\r\n\r\n", 1)[1])
+            self.assertEqual(drain, {"model": protocol.service.MODEL, "stream": True,
+                "stream_options": {"include_usage": True}, "max_tokens": 256,
+                "temperature": 0, "reasoning_effort": "none",
+                "messages": [{"role": "user", "content": protocol.DRAIN_PROMPT}]})
+            self.assertEqual(protocol.contract()["drain_reasoning_effort"], "none")
+            self.assertEqual(protocol.contract()["schema"], "nib.selected-service-protocol-contract/v2")
+
+    def test_reasoning_only_stream_cannot_trigger_retirement(self):
+        chunks = subset_tests.stream()
+        chunks[0] = chunks[0].replace(b'"content":', b'"reasoning_content":')
+        with self.fixture(chunks=chunks) as state:
+            row = self.finish(state, protocol.start(state.supervisor, state.prior))
+            self.assertEqual(row["result"], "fail")
+            self.assertTrue(row["all_17_pass"])
+            self.assertFalse(row["drain"]["first_content"])
+            self.assertFalse(row["drain"]["retirement_requested"])
+            self.assertFalse(row["drain"]["reader_started"])
+            self.assertFalse(row["drain"]["signal_sent"])
+            self.assertTrue(row["drain"]["resources_closed"])
+            self.assertEqual(row["usage"]["drain"], {"prompt_tokens": 12, "completion_tokens": 2})
+            self.assertFalse(row["usage_unknown"]["drain"])
 
     def test_expected_forwarded_field_warn_is_retained_and_drain_still_completes(self):
         with self.fixture(warning=True) as state:
