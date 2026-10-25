@@ -89,8 +89,12 @@ class Commands:
         require(type(row) is list and len(row) == 1 and type(row[0]) is dict)
         return row[0]
 
-    def nft(self, data):
+    def nft(self, data, report=None):
+        if report is not None:
+            report["policy_step"] = "check"
         self.run(["nft", "--check", "--json", "--file", "-"], data=data)
+        if report is not None:
+            report["policy_step"] = "apply"
         self.run(["nft", "--json", "--file", "-"], data=data)
 
     def rules(self):
@@ -412,10 +416,13 @@ def inner(args):
             commands.docker("container", "rm", "--force", candidate)
             report["stage"] = "policy"
             installed = True  # Uncertain nft commit must never be treated as absent.
-            commands.nft(net_policy.batch())
+            commands.nft(net_policy.batch(), report=report)
+            report["policy_step"] = "readback"
             net_policy.verify(commands.rules())
+            report["policy_step"] = "dns-baseline"
             dns_before = host_query(work, DNS, 8450, "stats")
             require(type(dns_before) is dict and dns_before["dns_udp"] > 0 and dns_before["dns_tcp"] > 0)
+            report["policy_step"] = "protected-create"
             create("candidate", protected=True)
             report["stage"] = "negative-controls"
             observed = observations(commands, work)
@@ -471,7 +478,7 @@ def check_report(report):
     required = {"schema", "result", "stage", "namespace_verified", "cleanup_confirmed", "policy_removed",
                 "gpu_used", "deployment_eligible", "confidential", "published"}
     optional = {"engine_version", "image_config", "reference_manifest", "positive_controls", "observations",
-                "dns_relay_unchanged", "tls_verified", "policy_sha256"}
+                "dns_relay_unchanged", "tls_verified", "policy_sha256", "policy_step"}
     require(required <= set(report) <= required | optional)
     require(report["namespace_verified"] is True)
     for key in ("cleanup_confirmed", "policy_removed", "dns_relay_unchanged", "tls_verified"):
@@ -480,6 +487,8 @@ def check_report(report):
         require(key not in report or report[key] == expected)
     if "policy_sha256" in report:
         require(type(report["policy_sha256"]) is str and re.fullmatch("[0-9a-f]{64}", report["policy_sha256"]))
+    if "policy_step" in report:
+        require(report["policy_step"] in ("check", "apply", "readback", "dns-baseline", "protected-create"))
     if "positive_controls" in report:
         check_observations(report["positive_controls"], False)
     if "observations" in report:

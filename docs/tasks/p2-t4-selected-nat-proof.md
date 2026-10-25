@@ -1,6 +1,8 @@
 # Selected closed-NAT proof candidate
 
-Status: implemented and tested against mocks only. **Not executed.** This is a
+Status: implemented; the [first real observation](../../evidence/p2/2026-10-25-selected-nat-policy-failure/README.md)
+failed at the policy stage after all 15 baseline controls passed. The negative
+controls were not reached and this policy is **not qualified**. This is a
 GPU-free network experiment, not a public service owner or permission to change
 a host firewall. The earlier [isolated-bridge observation](p2-t4-selected-network-probe.md)
 does not qualify this alternative. No inference, credentials, model weights,
@@ -131,6 +133,14 @@ the report. The private scratch tree retains daemon data and the ephemeral key;
 do not publish that tree. Publish only the reviewed original receipt in a
 separate evidence task. Early CLI/source/input preflight errors occur before any
 namespace and must be retained as failed command results, not synthesized PASS.
+
+After the first failed run, policy setup records the optional closed
+`policy_step` enum: `check`, `apply`, `readback`, `dns-baseline`, or
+`protected-create`. It names the attempted step, not successful completion.
+It does not retain stderr, exceptions, rule contents or response data. Cleanup
+does not overwrite it. Historical receipts without the field remain valid;
+their missing detail is not reconstructed. This diagnostic change has not
+been executed on hardware and does not change policy, deadlines or pass gates.
 
 ## Execution gate and next step
 
