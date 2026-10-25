@@ -35,8 +35,15 @@ port, RFC1918 subnet, gateway, service IPv4 address and an empty root-owned
 `0700` state directory, in addition to the existing smoke inputs. There is no
 default address, discovery of public identity, arbitrary endpoint or subnet
 fallback. `--inspect` performs read-only admission, host-target, weight-view and
-exact bounded runtime-intent checks,
-never starts a container and never returns a runtime PASS. `--run` is the
+exact bounded runtime-intent checks. It also opens the existing state root with
+the same no-follow directory walk used by `--run`, checking root ownership,
+exact mode `0700` and emptiness without creating any entries. Missing roots,
+files, symlinks (including intermediate components), unsafe modes/owners and
+nonempty directories reject with `preflight_pass: false` and the fixed reason
+`state-directory` before journal or resource creation. Neither mode creates the
+state root; the operator must prepare it explicitly. `--run` rechecks it and
+creates/fsyncs its two private subdirectories through that same checked descriptor.
+Inspection never starts a container and never returns a runtime PASS. `--run` is the
 explicit mutating mode. Neither invocation is authorized by this document.
 
 Before installing any published-tuple drop, the ingress must be administratively

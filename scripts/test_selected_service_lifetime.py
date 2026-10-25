@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Closed lifetime profiles with fake clocks/owners, never Docker or sockets."""
 
-from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
+from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, redirect_stdout
 import copy
 from dataclasses import FrozenInstanceError
 import io
@@ -225,6 +225,7 @@ class AdmissionTests(unittest.TestCase):
             seen.append(reservation.journal.lifetime_profile)
         with self.admission(), ExitStack() as stack:
             stack.enter_context(mock.patch.object(host, "smoke", smoke))
+            stack.enter_context(mock.patch.object(host, "empty_state_directory", return_value=nullcontext()))
             stack.enter_context(mock.patch.object(network.Reservation, "admit", admit))
             stack.enter_context(mock.patch.object(owner, "daemon_identity"))
             stack.enter_context(mock.patch.object(owner, "host_target"))

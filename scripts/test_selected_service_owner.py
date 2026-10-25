@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Synthetic daemon, kernel and process observations. No sockets or Docker."""
 
-from contextlib import ExitStack, contextmanager, redirect_stdout
+from contextlib import ExitStack, contextmanager, nullcontext, redirect_stdout
 import copy
 from dataclasses import asdict
 import hashlib
@@ -722,6 +722,139 @@ class CallerTests(Fixture, unittest.TestCase):
         self.assertNotIn("fallback_cleanup", row)
 
 
+class StateDirectoryTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.parent = Path(temporary.name).resolve()
+        self.root = self.parent / "state"
+        self.root.mkdir(mode=0o700)
+
+    @contextmanager
+    def observed_uid(self, uid=0):
+        # Keep the real descriptor, mode and no-follow walk; only root UID
+        # observation is synthetic so these tests need no privileged chown.
+        actual = os.fstat
+        def observe(fd):
+            fields = list(actual(fd))
+            fields[4] = uid
+            return os.stat_result(fields)
+        with mock.patch.object(host.os, "fstat", side_effect=observe):
+            yield
+
+    def inspect_or_run(self, path, *, run=False, accepted=False, uid=0):
+        selected = network()
+        args = types.SimpleNamespace(run=run, state_dir=str(path),
+            docker_host=host.environment()["DOCKER_HOST"], ingress=selected.policy.ingress,
+            address=selected.policy.address, published_address=selected.policy.published,
+            published_port=selected.policy.port, subnet=selected.subnet, gateway=selected.gateway)
+        contract = types.SimpleNamespace(hard_wall=2000000000, hard_monotonic=1000000,
+                                         lifetime_profile=owner.smoke.service.SMOKE_PROFILE)
+        @contextmanager
+        def admitted(_args, result):
+            result.update(preflight_pass=True, reason="not-run")
+            yield (contract, None, None, None, None, None, None, None)
+        with self.observed_uid(uid), ExitStack() as stack:
+            stack.enter_context(mock.patch.object(host.smoke, "admitted_runtime", admitted))
+            stack.enter_context(mock.patch.object(host, "admitted_commands"))
+            journal = stack.enter_context(mock.patch.object(host.network, "Journal"))
+            reservation = stack.enter_context(mock.patch.object(host.network, "Reservation"))
+            daemon = stack.enter_context(mock.patch.object(host.owner, "daemon_identity"))
+            target = stack.enter_context(mock.patch.object(host.owner, "host_target"))
+            runtime = stack.enter_context(mock.patch.object(host, "runtime_plan"))
+            spawn = stack.enter_context(mock.patch.object(host.subprocess, "Popen"))
+            result = host.preflight(args)
+            spawn.assert_not_called()
+            if accepted:
+                journal.assert_called_once()
+                journal.return_value.initialize.assert_not_called()
+                reservation.return_value.admit.assert_called_once()
+                reservation.return_value.reserve.assert_not_called()
+                daemon.assert_called_once()
+                target.assert_called_once()
+                runtime.assert_called_once()
+            else:
+                for boundary in (journal, reservation, daemon, target, runtime):
+                    boundary.assert_not_called()
+        self.assertTrue(result["private_inputs_removed"])
+        self.assertEqual(result["preflight_pass"], accepted)
+        self.assertEqual(result["reason"], "not-run" if accepted else "state-directory")
+        self.assertEqual(result["result"], "fail")
+        if not accepted:
+            self.assertEqual(result["status"], "BLOCKED")
+        self.assertEqual(result["cleanup"], "not-started")
+        self.assertFalse(result["container_created"] or result["runtime_started"]
+                         or result["tls_publication_requested"] or result["watchdog_confirmed"])
+        self.assertNotIn(str(path), json.dumps(result))
+        return result
+
+    def test_empty_descriptor_is_read_only_and_closed(self):
+        before = self.root.stat()
+        with self.observed_uid(), host.empty_state_directory(self.root) as fd:
+            actual = os.fstat(fd)
+            self.assertEqual((actual.st_dev, actual.st_ino), (before.st_dev, before.st_ino))
+        with self.assertRaises(OSError):
+            os.fstat(fd)
+        after = self.root.stat()
+        self.assertEqual((before.st_ino, before.st_mode, before.st_mtime_ns, before.st_ctime_ns),
+                         (after.st_ino, after.st_mode, after.st_mtime_ns, after.st_ctime_ns))
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_run_creates_and_fsyncs_through_the_checked_descriptor(self):
+        with self.observed_uid(), mock.patch.object(host.os, "mkdir", wraps=os.mkdir) as mkdir, \
+                mock.patch.object(host.os, "fsync", wraps=os.fsync) as fsync:
+            host.state_directories(self.root)
+        fd = mkdir.call_args_list[0].kwargs["dir_fd"]
+        self.assertEqual(mkdir.call_args_list, [mock.call(name, mode=0o700, dir_fd=fd)
+                                                for name in ("network", "container")])
+        fsync.assert_called_once_with(fd)
+        with self.assertRaises(OSError):
+            os.fstat(fd)
+        self.assertEqual({path.name for path in self.root.iterdir()}, {"network", "container"})
+        for path in self.root.iterdir():
+            self.assertTrue(path.is_dir())
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o700)
+
+    def test_inspect_preserves_empty_root_and_creates_no_journal(self):
+        before = self.root.stat()
+        self.inspect_or_run(self.root, accepted=True)
+        after = self.root.stat()
+        self.assertEqual((before.st_ino, before.st_mode, before.st_mtime_ns, before.st_ctime_ns),
+                         (after.st_ino, after.st_mode, after.st_mtime_ns, after.st_ctime_ns))
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_invalid_roots_block_inspect_and_run_before_journal_or_resources(self):
+        regular = self.parent / "regular"
+        regular.write_bytes(b"unchanged")
+        link = self.parent / "link"
+        link.symlink_to(self.root, target_is_directory=True)
+        intermediate = self.parent / "intermediate"
+        intermediate.symlink_to(self.parent, target_is_directory=True)
+        occupied = self.parent / "occupied"
+        occupied.mkdir(mode=0o700)
+        (occupied / "original").write_bytes(b"unchanged")
+        missing = self.parent / "missing"
+        before = set(self.parent.iterdir())
+        for path in (missing, regular, link, intermediate / "state", occupied, "relative"):
+            for run in (False, True):
+                with self.subTest(path=Path(path).name, run=run):
+                    self.inspect_or_run(path, run=run)
+        self.assertEqual(set(self.parent.iterdir()), before)
+        self.assertFalse(missing.exists())
+        self.assertEqual(list(self.root.iterdir()), [])
+        self.assertEqual(regular.read_bytes(), b"unchanged")
+        self.assertEqual((occupied / "original").read_bytes(), b"unchanged")
+
+    def test_wrong_mode_or_uid_blocks_both_modes_without_changing_root(self):
+        for mode, uid in ((0o750, 0), (0o770, 0), (0o755, 0), (0o1700, 0), (0o700, 1001)):
+            self.root.chmod(mode)
+            for run in (False, True):
+                with self.subTest(mode=mode, uid=uid, run=run):
+                    self.inspect_or_run(self.root, run=run, uid=uid)
+            self.assertEqual(stat.S_IMODE(self.root.stat().st_mode), mode)
+            self.assertEqual(list(self.root.iterdir()), [])
+
+
 class AdmissionBoundaryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -760,6 +893,7 @@ class AdmissionBoundaryTests(unittest.TestCase):
             seen.append(reservation.commands.env)
         with self.fixture.admission(), ExitStack() as stack:
             stack.enter_context(mock.patch.object(host, "smoke", smoke_tests.smoke))
+            stack.enter_context(mock.patch.object(host, "empty_state_directory", return_value=nullcontext()))
             stack.enter_context(mock.patch.object(host.network.Reservation, "admit", admit))
             stack.enter_context(mock.patch.object(host.owner, "daemon_identity"))
             stack.enter_context(mock.patch.object(host.owner, "host_target"))
@@ -781,6 +915,7 @@ class AdmissionBoundaryTests(unittest.TestCase):
         args.subnet, args.gateway = selected.subnet, selected.gateway
         with self.fixture.admission(), ExitStack() as stack:
             stack.enter_context(mock.patch.object(host, "smoke", smoke_tests.smoke))
+            stack.enter_context(mock.patch.object(host, "empty_state_directory", return_value=nullcontext()))
             stack.enter_context(mock.patch.object(host.network.Reservation, "admit"))
             stack.enter_context(mock.patch.object(host.owner, "daemon_identity"))
             stack.enter_context(mock.patch.object(host.owner, "host_target"))
