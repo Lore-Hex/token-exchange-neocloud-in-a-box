@@ -27,7 +27,7 @@ def inspection(selected, identifier="b" * 64):
         "Internal": False, "Attachable": False, "Ingress": False, "ConfigOnly": False,
         "ConfigFrom": {"Network": ""}, "Options": selected.options,
         "IPAM": {"Driver": "default", "Options": {},
-                 "Config": [{"Subnet": selected.subnet, "Gateway": selected.gateway}]}, "Containers": {}}
+                 "Config": [{"Subnet": selected.subnet, "IPRange": "", "Gateway": selected.gateway}]}, "Containers": {}}
 
 
 class FakeCommands(owner.Commands):
@@ -138,6 +138,36 @@ class NetworkTests(unittest.TestCase):
         before = copy.deepcopy(row)
         network().check(row, row["Id"])
         self.assertEqual(row, before)
+
+    def test_unset_ip_range_may_be_omitted_or_empty(self):
+        for omitted in (False, True):
+            with self.subTest(omitted=omitted):
+                row = inspection(network())
+                if omitted:
+                    del row["IPAM"]["Config"][0]["IPRange"]
+                before = copy.deepcopy(row)
+                network().check(row, row["Id"])
+                self.assertEqual(row, before)
+
+    def test_ipam_remains_exact_except_unset_range_representation(self):
+        selected = network()
+        for value in (None, False, 0, [], {}, "0.0.0.0/0", selected.subnet,
+                      "172.29.1.0/25", "PRIVATE_CANARY"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                row = inspection(selected)
+                row["IPAM"]["Config"][0]["IPRange"] = value
+                selected.check(row, row["Id"])
+        for field, value in (("Subnet", "172.29.2.0/24"), ("Gateway", "172.29.1.2"),
+                             ("AuxiliaryAddresses", {}), ("extra", "PRIVATE_CANARY")):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                row = inspection(selected)
+                row["IPAM"]["Config"][0][field] = value
+                selected.check(row, row["Id"])
+        for config in (None, {}, [], [None], [inspection(selected)["IPAM"]["Config"][0]] * 2):
+            with self.subTest(config=config), self.assertRaises(ValueError):
+                row = inspection(selected)
+                row["IPAM"]["Config"] = config
+                selected.check(row, row["Id"])
 
     def test_every_network_admission_field_is_required(self):
         for field in inspection(network()):
