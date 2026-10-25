@@ -94,6 +94,9 @@ class Network:
                 and row["Containers"] == {} and not row.get("Peers") and not row.get("Services"))
 
 
+JOURNAL_LIMIT = 4096
+
+
 class Journal:
     """Private append-only, fsynced intent. Missing completion never means failure."""
 
@@ -111,9 +114,13 @@ class Journal:
         info = os.fstat(fd)
         require(info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700)
 
+    @staticmethod
+    def file_limit(name):
+        return JOURNAL_LIMIT
+
     def _write(self, fd, name, value):
         raw = policy.encoded(value) + b"\n"
-        require(len(raw) <= 4096)
+        require(len(raw) <= self.file_limit(name))
         target = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
         with os.fdopen(target, "wb") as stream:
             os.fchmod(stream.fileno(), 0o600)

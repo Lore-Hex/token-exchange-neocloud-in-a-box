@@ -4,7 +4,9 @@
 from contextlib import ExitStack, contextmanager, redirect_stdout
 import copy
 from dataclasses import asdict
+import hashlib
 import io
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -162,6 +164,56 @@ class Fixture:
 
 
 class ContractTests(Fixture, unittest.TestCase):
+    def pinned_runtime(self):
+        raw = (Path(__file__).parent / "fixtures/selected-base-image-config.json").read_bytes()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(),
+            "bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d")
+        base = {"Config": json.loads(raw)["config"]}
+        self.assertEqual(len(base["Config"]["Env"]), 25)
+        return {**self.runtime, "command": owner.container_command(self.selected,
+            self.runtime["network_id"], self.fixture.build, base,
+            self.runtime["weights"], self.runtime["inputs"], self.fixture.args,
+            self.fixture.args.hard_stop_at)}
+
+    def test_pinned_image_runtime_round_trips_above_old_limit(self):
+        runtime = self.pinned_runtime()
+        size = len(owner.policy.encoded(runtime)) + 1
+        self.assertGreater(size, 4096)
+        self.assertLess(size, owner.RUNTIME_LIMIT)
+        root = self.root / "actual-runtime"
+        root.mkdir(mode=0o700)
+        state = owner.State(root)
+        state.initialize(self.contract, runtime)
+        self.assertEqual(state.read()["runtime.json"], runtime)
+        self.assertEqual((root / "runtime.json").stat().st_size, size)
+
+    def test_runtime_exact_bound_and_oversize_reads_and_writes(self):
+        for extra in (0, 1):
+            runtime = self.pinned_runtime()
+            runtime["command"][-1] += "x" * (owner.RUNTIME_LIMIT - len(owner.policy.encoded(runtime)) - 1 + extra)
+            root = self.root / ("bound-" + str(extra))
+            root.mkdir(mode=0o700)
+            state = owner.State(root)
+            if extra:
+                with self.assertRaises(ValueError):
+                    state.initialize(self.contract, runtime)
+                self.assertFalse((root / "runtime.json").exists())
+            else:
+                state.initialize(self.contract, runtime)
+                self.assertEqual(state.read()["runtime.json"], runtime)
+                with (root / "runtime.json").open("ab") as stream:
+                    stream.write(b" ")
+                with self.assertRaises(ValueError):
+                    state.read()
+
+    def test_other_journals_retain_four_kib_bound(self):
+        value = {"data": "x" * 4096}
+        for journal, name in ((self.journal, "runtime.json"),
+                              (self.state, "contract.json"), (self.state, "container-intent.json")):
+            self.assertEqual(journal.file_limit(name), 4096)
+            with journal._directory() as fd, self.assertRaises(ValueError):
+                journal._write(fd, name, value)
+
     def test_only_explicit_network_delta_to_shared_smoke_command(self):
         previous = owner.smoke.container_command("nib-selected-" + self.selected.policy.token,
             self.selected.policy.token, self.fixture.build, self.fixture.base, self.fixture.args.weights,
@@ -568,7 +620,7 @@ class CallerTests(Fixture, unittest.TestCase):
             stack.enter_context(mock.patch.object(host, "wait_ack", side_effect=ack))
             stack.enter_context(mock.patch.object(self.commands, "call", side_effect=call))
             if oversized:
-                stack.enter_context(mock.patch.object(owner, "container_command", return_value=["x" * 4096]))
+                stack.enter_context(mock.patch.object(owner, "container_command", return_value=["x" * owner.RUNTIME_LIMIT]))
                 with self.assertRaises(ValueError):
                     host.run(args, admitted, self.selected, result)
                 reserve.assert_not_called()
@@ -580,7 +632,9 @@ class CallerTests(Fixture, unittest.TestCase):
         return result
 
     def test_oversized_private_intent_rejected_before_any_resource_create(self):
-        self.assertFalse(self.run_caller(oversized=True)["preflight_pass"])
+        row = self.run_caller(oversized=True)
+        self.assertFalse(row["preflight_pass"])
+        self.assertEqual(row["reason"], "runtime-intent")
 
     def test_private_input_cleanup_failure_cannot_preserve_runtime_pass(self):
         @contextmanager
@@ -670,11 +724,36 @@ class AdmissionBoundaryTests(unittest.TestCase):
             stack.enter_context(mock.patch.object(host.network.Reservation, "admit", admit))
             stack.enter_context(mock.patch.object(host.owner, "daemon_identity"))
             stack.enter_context(mock.patch.object(host.owner, "host_target"))
+            weights = stack.enter_context(mock.patch.object(host.smoke, "weights_view"))
             result = host.preflight(args)
         self.assertTrue(result["preflight_pass"], result)
         self.assertTrue(result["private_inputs_removed"])
         self.assertEqual(result["reason"], "not-run")
         self.assertEqual(seen, [host.environment()])
+        weights.assert_called_once()
+
+    def test_inspect_rejects_oversize_and_confirms_private_cleanup(self):
+        args = self.fixture.args
+        selected = network()
+        args.run = False
+        args.state_dir = "/private/unused-state"
+        args.ingress, args.address = selected.policy.ingress, selected.policy.address
+        args.published_address, args.published_port = selected.policy.published, selected.policy.port
+        args.subnet, args.gateway = selected.subnet, selected.gateway
+        with self.fixture.admission(), ExitStack() as stack:
+            stack.enter_context(mock.patch.object(host, "smoke", smoke_tests.smoke))
+            stack.enter_context(mock.patch.object(host.network.Reservation, "admit"))
+            stack.enter_context(mock.patch.object(host.owner, "daemon_identity"))
+            stack.enter_context(mock.patch.object(host.owner, "host_target"))
+            stack.enter_context(mock.patch.object(host.smoke, "weights_view"))
+            stack.enter_context(mock.patch.object(host.owner, "container_command",
+                return_value=["x" * owner.RUNTIME_LIMIT]))
+            create = stack.enter_context(mock.patch.object(host.subprocess, "Popen"))
+            result = host.preflight(args)
+            create.assert_not_called()
+        self.assertFalse(result["preflight_pass"])
+        self.assertTrue(result["private_inputs_removed"])
+        self.assertEqual((result["reason"], result["result"]), ("runtime-intent", "fail"))
 
 
 if __name__ == "__main__":

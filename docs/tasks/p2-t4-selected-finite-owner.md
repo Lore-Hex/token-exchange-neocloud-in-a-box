@@ -34,7 +34,8 @@ The operator must explicitly provide ingress interface, host IPv4 address and
 port, RFC1918 subnet, gateway, service IPv4 address and an empty root-owned
 `0700` state directory, in addition to the existing smoke inputs. There is no
 default address, discovery of public identity, arbitrary endpoint or subnet
-fallback. `--inspect` performs read-only admission and host-target checks,
+fallback. `--inspect` performs read-only admission, host-target, weight-view and
+exact bounded runtime-intent checks,
 never starts a container and never returns a runtime PASS. `--run` is the
 explicit mutating mode. Neither invocation is authorized by this document.
 
@@ -79,7 +80,23 @@ before daemon calls; returned full IDs are recorded before inspection. The
 container journal rejects unknown files/fields, duplicate JSON keys, unsafe
 modes/owners, symlinks, hard links, partial records and reordered events. Its
 private command/path data are never copied into public receipts. A journal
-size failure is checked before firewall mutation.
+size failure is checked before firewall mutation. Network contracts and event
+records retain their 4096-byte limit. Only `runtime.json` has an 8192-byte limit,
+used identically by preflight, exclusive writes and bounded reads. The pinned
+base image includes 25 environment entries and a long mandatory CUDA driver
+constraint; a complete normal runtime intent does not fit the original 4096
+bytes. No constraint is dropped or abbreviated to fit. The regression fixture
+is the unchanged public OCI config, SHA-256
+`bd8a5d7a8774800c92d714c0c226b32c1863f929150f36efd610aebcd12a335d`,
+from the already pinned base manifest. Tests exercise its actual command,
+round-trip storage, exact limit, oversized reads/writes, and rejection before
+any firewall/network/container creation. This is a software regression test,
+not evidence of successful deployment.
+
+Weight-view and runtime-intent failures have separate fixed reason labels.
+An early failure remains failed even when private snapshot cleanup succeeds;
+the cleanup flag records that success independently. A cleanup exception still
+prevents PASS and leaves the flag false.
 
 Only the watchdog performs the one serving transition. It first rechecks the
 created container, complete network identity, host target, serving policy and
