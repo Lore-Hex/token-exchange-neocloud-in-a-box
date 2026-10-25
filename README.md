@@ -102,13 +102,14 @@ Cleanup was confirmed. GPU CC was disabled; outer FAIL/BLOCKED records remain
 unchanged. These are not a capacity sweep, full tau result, quality acceptance
 or confidential qualification.
 
-The latest [selected tau diagnostic](evidence/p2/2026-10-25-selected-tau-email-rejection-0333/README.md)
-reached the retail customer-email lookup, which rejected an unknown email. Its
-hash-pinned source line identifies the operation without logging conversation
-content or arguments; it does not establish whether the assistant or the small
-simulator supplied the wrong email. The strict smoke failed with no quality
-score and confirmed cleanup. Startup and four tokenizer-parity cases passed;
-scoring and retry limits were unchanged. The earlier
+The latest [selected tau diagnostic](evidence/p2/2026-10-25-selected-tau-email-relation-0429/README.md)
+failed at the retail customer-email lookup. A bounded boolean records that the
+submitted argument occurred case-insensitively in earlier simulator-user text;
+it does not establish the correct email, full identity or model blame. No
+conversation or arguments were retained. The strict smoke failed with no quality
+score and confirmed cleanup; startup and four tokenizer-parity cases passed.
+Scoring and retry limits were unchanged. The [preceding email-lookup failure](evidence/p2/2026-10-25-selected-tau-email-rejection-0333/README.md)
+did not record that relation. The earlier
 [known-tool diagnostic](evidence/p2/2026-10-25-selected-tau-tool-rejection-0245/README.md)
 did not record an exact rejection site and remains uninterpreted at that level.
 

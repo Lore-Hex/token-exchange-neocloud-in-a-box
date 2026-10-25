@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S -B scripts/record-tau-cpu-parity.py --archive PRIVATE --model-06 PRIVATE --model-17 PRIVATE --cmake-wheel PRIVATE --output PRIVATE --selected-owner",
+  "ended_utc": "2026-10-25T04:48:28Z",
+  "execution": "software",
+  "git_sha": "32771fb4ca03cc25ab3177b70c431813cd1a2bf0",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "owned-linux-amd64-container",
+    "provider": "local"
+  },
+  "notes": "Measured CPU owner and explicit finish acknowledgement only. No target quality, live admission or confidential claim.",
+  "phase": "P2",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-25T04:29:40Z",
+  "task": "T3"
+}
