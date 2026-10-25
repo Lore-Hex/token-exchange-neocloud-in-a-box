@@ -16,9 +16,11 @@ CPU_PROBE_REPORT = b"NIB-TAU-CPU-PROBE "
 
 
 def validate_support_probe(row):
+    followup = type(row) is dict and row.get("schema") == "nib.tau-cpu-identity-probe/v1"
     require(type(row) is dict and set(row) == {"schema", "result", "status", "plan_sha256", "selection", "upstream_revision",
             "observations", "roles", "target", "pricing", "quality_eligible", "confidential", "live_admission"}
-            and row["schema"] == "nib.tau-cpu-probe/v1" and row["result"] in ("pass", "fail")
+            and row["schema"] == ("nib.tau-cpu-identity-probe/v1" if followup else "nib.tau-cpu-probe/v1")
+            and row["result"] in ("pass", "fail")
             and row["status"] in worker.STATUSES and row["target"] == "scripted"
             and row["pricing"] == "not-measured"
             and row["upstream_revision"] == tau.REVISION
@@ -29,14 +31,23 @@ def validate_support_probe(row):
             and row["selection"] == {"domain": "retail", "task_id": "2", "trial": 0,
                                      "seed": row["selection"]["seed"], "role": "candidate"})
     tau.integer(row["selection"]["seed"], 0, 2**32 - 1)
+    require(not followup or row["selection"]["seed"] == 42)
     require(type(row["roles"]) is dict and set(row["roles"]) in (set(), {"agent", "simulator", "evaluator"}))
-    for count in row["roles"].values():
-        tau.integer(count, 0, 1)
-    require(type(row["observations"]) is list and len(row["observations"]) <= 2)
-    for role, observation in zip(("simulator", "evaluator"), row["observations"]):
+    for role, count in row["roles"].items():
+        tau.integer(count, 0, (3 if role == "simulator" else 0) if followup else 1)
+    require(type(row["observations"]) is list and len(row["observations"]) <= (3 if followup else 2))
+    order = ("simulator",) * 3 if followup else ("simulator", "evaluator")
+    for index, (role, observation) in enumerate(zip(order, row["observations"])):
         require(type(observation) is dict and set(observation) == {
-            "role", "request_sha256", "prompt_tokens", "completion_tokens", "status"}
+            "role", "request_sha256", "prompt_tokens", "completion_tokens", "status"} | ({"step", "identity"} if followup else set())
             and observation["role"] == role and observation["status"] in ("pass", "not-completed", "context-exceeded"))
+        if followup:
+            require(observation["step"] == ("initial", "email", "name_zip")[index])
+            facts = observation["identity"]
+            require(facts is None or type(facts) is dict and set(facts) == {
+                "email_like_literal", "first_name_literal", "last_name_literal", "zip_literal"}
+                and all(type(value) is bool for value in facts.values()))
+            require(observation["status"] != "pass" or facts is not None)
         tau.sha(observation["request_sha256"])
         if observation["prompt_tokens"] is not None:
             tau.integer(observation["prompt_tokens"], 1, 4096)
@@ -46,8 +57,9 @@ def validate_support_probe(row):
             require(observation["prompt_tokens"] is not None and observation["completion_tokens"] is not None
                     and observation["prompt_tokens"] + observation["completion_tokens"] <= 4096)
     if row["result"] == "pass":
-        require(row["status"] == "evaluated" and row["roles"] == {"agent": 1, "simulator": 1, "evaluator": 1}
-                and len(row["observations"]) == 2 and all(item["status"] == "pass" for item in row["observations"]))
+        expected = {"agent": 0, "simulator": 3, "evaluator": 0} if followup else {"agent": 1, "simulator": 1, "evaluator": 1}
+        require(row["status"] == "evaluated" and row["roles"] == expected
+                and len(row["observations"]) == len(order) and all(item["status"] == "pass" for item in row["observations"]))
     return row
 
 

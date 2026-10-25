@@ -353,6 +353,7 @@ class ParentSession:
         self.bridge = worker.Bridge(tau, self.manifest["input"] if resource_only else self.manifest["settings"],
                                     role, self.dispatch, clock=clock, support_probe=support_probe,
                                     selected_operational=selected_operational)
+        self.identity_followup = support_probe and self.manifest["input"]["schema"] == policy.IDENTITY_SCHEMA
         self.started, self.result = clock(), None
         require(type(assertions) in (list, tuple) and all(type(item) is str for item in assertions))
         self.bridge.assertions = snapshot(list(assertions), worker.MAX_RESPONSE)
@@ -423,9 +424,13 @@ class ParentSession:
         terminal(packet["status"], packet["reward"])
         if packet["status"] == "evaluated":
             require(packet["assertions_sha256"] == tau.digest(worker.bounded_json(
-                        self.bridge.assertions, worker.MAX_RESPONSE))
-                    and self.bridge.counts["agent"] > 0 and self.bridge.counts["simulator"] > 0
-                    and (not self.bridge.assertions or self.bridge.counts["evaluator"] > 0))
+                        self.bridge.assertions, worker.MAX_RESPONSE)))
+            if self.identity_followup:
+                require(self.bridge.counts == {"agent": 0, "simulator": 3, "evaluator": 0}
+                        and packet["reward"] == 0.0)
+            else:
+                require(self.bridge.counts["agent"] > 0 and self.bridge.counts["simulator"] > 0
+                        and (not self.bridge.assertions or self.bridge.counts["evaluator"] > 0))
         else:
             tau.sha(packet["assertions_sha256"])
         self.bridge.budget.end_trial()

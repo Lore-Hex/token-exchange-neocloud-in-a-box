@@ -5,6 +5,7 @@ import time
 import tau_preflight as tau
 
 SCHEMA = "nib.tau-cpu-support-probe-input/v1"
+IDENTITY_SCHEMA = "nib.tau-cpu-identity-probe-input/v1"
 PINS = "scripts/tau_cpu_support_models.json"
 MODELS = ("qwen/qwen3-0.6b", "qwen/qwen3-1.7b")
 SELECTION = {"domain": "retail", "task_id": "2", "trial": 0, "seed": 42, "role": "candidate"}
@@ -14,10 +15,11 @@ LIMITS = {"concurrency": 1, "retries": 0, "turns": 3, "requests": 3,
           "input_tokens_per_request": 4096, "output_tokens_per_request": 256, "total_tokens": 13056}
 
 
-def configuration():
+def configuration(*, identity_followup=False):
+    tau.require(type(identity_followup) is bool)
     pins = tau.json_value(tau.regular(tau.ROOT / PINS, 16384, time.monotonic() + 5))
     tau.require(set(pins["models"]) == set(MODELS))
-    return {"schema": SCHEMA, "upstream_revision": tau.REVISION, "selection": dict(SELECTION),
+    return {"schema": IDENTITY_SCHEMA if identity_followup else SCHEMA, "upstream_revision": tau.REVISION, "selection": dict(SELECTION),
             "support": {role: {"model": model, "revision": pins["models"][model]["revision"]}
                         for role, model in zip(("simulator", "evaluator"), MODELS)},
             "generation": dict(GENERATION), "limits": dict(LIMITS), "target": "scripted",
@@ -25,7 +27,8 @@ def configuration():
 
 
 def validate(value, sha=None):
-    tau.require(tau.encoded(value) == tau.encoded(configuration()))
+    tau.require(type(value) is dict and tau.encoded(value) == tau.encoded(
+        configuration(identity_followup=value.get("schema") == IDENTITY_SCHEMA)))
     if sha is not None:
         tau.sha(sha)
         tau.require(tau.digest(tau.encoded(value)) == sha)
