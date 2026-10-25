@@ -44,6 +44,46 @@ def checker_result(checks):
     return next((status for status in ("fail", "warn", "skip") if status in checks.values()), "pass")
 
 
+def json_request(checker, client, index, *, model, prompt, temperature, max_tokens, max_tokens_key, extra):
+    require(client.provider is None and type(index) is int and 0 <= index < len(JSON_CASES), "already-used")
+    maximum = 4 if index == 0 else 16 if index == 7 else None
+    expected_key = checker.client.max_token_parameter(checker.client.provider_for_model(model), model) \
+        if index == 7 else None
+    require(model == service.MODEL and prompt == checker.rules.PONG_PROMPT
+        and temperature == (0 if index == 2 else None) and max_tokens == maximum
+        and max_tokens_key == expected_key and extra == EXTRAS[index], "contract")
+    body = encoded(checker.client.GatewayClient.chat_body(client, model=model, prompt=prompt, stream=False,
+        temperature=temperature, max_tokens=max_tokens, max_tokens_key=max_tokens_key, extra=extra))
+    return JSON_CASES[index], body, maximum or service.OUTPUT
+
+
+async def json_checks(checker, client):
+    evidence = checker.catalog.CatalogEvidence()
+    catalog_rows, models = await checker.catalog.run_catalog_checks(client, catalog_url=None, evidence=evidence)
+    require(models == [service.MODEL], "identity")
+    call_rows, _ = await checker.callability.run_callability_checks(client, models, max_models=1,
+        declared_chat_models=[service.MODEL])
+    chat_rows = await checker.chat.run_chat_checks(client, service.MODEL)
+    require(client.index == len(JSON_CASES), "protocol")
+    return [*catalog_rows, *call_rows, *chat_rows]
+
+
+def project_checks(rows, stream_checks, report):
+    checks = dict(stream_checks)
+    for row in rows:
+        if row.id == "catalog.declared-v2":
+            require(row.status == "skip", "protocol")
+            continue  # Catalog v2 is validated separately, without another HTTP client.
+        require(type(row.id) is str and row.id in subset.pinned.MANDATORY and row.id not in checks
+            and type(row.tier) is int and row.tier == subset.pinned.MANDATORY[row.id]
+            and type(row.status) is str and row.status in ("pass", "fail", "warn", "skip"), "protocol")
+        checks[row.id] = row.status
+    require(set(checks) == set(subset.pinned.MANDATORY), "protocol")
+    report["checks"] = checks
+    report["all_17_pass"] = all(value == "pass" for value in checks.values())
+    report["checker_result"] = checker_result(checks)
+
+
 async def collect(checker, supervisor, identities, deadline, key, report):
     class Client:
         provider = None
@@ -65,18 +105,9 @@ async def collect(checker, supervisor, identities, deadline, key, report):
                 report["attempts"]["catalog"] = attempt["attempts"]["catalog"]
 
         async def chat(self, *, model, prompt, temperature=0, max_tokens=None, max_tokens_key=None, extra=None):
-            index = self.index
-            require(index < len(JSON_CASES), "already-used")
-            maximum = 4 if index == 0 else 16 if index == 7 else None
-            expected_key = checker.client.max_token_parameter(checker.client.provider_for_model(model), model) \
-                if index == 7 else None
-            require(model == service.MODEL and prompt == checker.rules.PONG_PROMPT
-                and temperature == (0 if index == 2 else None) and max_tokens == maximum
-                and max_tokens_key == expected_key and extra == EXTRAS[index], "contract")
-            case = JSON_CASES[index]
+            case, body, maximum = json_request(checker, self, self.index, model=model, prompt=prompt,
+                temperature=temperature, max_tokens=max_tokens, max_tokens_key=max_tokens_key, extra=extra)
             self.index += 1
-            body = encoded(self.chat_body(model=model, prompt=prompt, stream=False, temperature=temperature,
-                max_tokens=max_tokens, max_tokens_key=max_tokens_key, extra=extra))
             attempt = {"attempts": {"json": False}}
             try:
                 with subset.response(supervisor, identities, deadline, "json", key, body, attempt) as state:
@@ -84,33 +115,13 @@ async def collect(checker, supervisor, identities, deadline, key, report):
                     raw = observed.read(subset.LIMIT + 1)
                     require(len(raw) <= subset.LIMIT, "protocol")
                     if observed.status == 200:
-                        report["usage"][case] = usage(raw, maximum or service.OUTPUT)
+                        report["usage"][case] = usage(raw, maximum)
                     return checker.httpx.Response(observed.status, content=raw,
                         request=checker.httpx.Request("POST", "https://127.0.0.1:8443/v1/chat/completions"))
             finally:
                 report["attempts"][case] = attempt["attempts"]["json"]
 
-    client = Client()
-    evidence = checker.catalog.CatalogEvidence()
-    catalog_rows, models = await checker.catalog.run_catalog_checks(client, catalog_url=None, evidence=evidence)
-    require(models == [service.MODEL], "identity")
-    call_rows, _ = await checker.callability.run_callability_checks(client, models, max_models=1,
-        declared_chat_models=[service.MODEL])
-    chat_rows = await checker.chat.run_chat_checks(client, service.MODEL)
-    require(client.index == len(JSON_CASES), "protocol")
-    checks = dict(report["subset"]["stream_checks"])
-    for row in [*catalog_rows, *call_rows, *chat_rows]:
-        if row.id == "catalog.declared-v2":
-            require(row.status == "skip", "protocol")
-            continue  # The separate subset already validated the owned catalog offline.
-        require(type(row.id) is str and row.id in subset.pinned.MANDATORY and row.id not in checks
-            and type(row.tier) is int and row.tier == subset.pinned.MANDATORY[row.id]
-            and type(row.status) is str and row.status in ("pass", "fail", "warn", "skip"), "protocol")
-        checks[row.id] = row.status
-    require(set(checks) == set(subset.pinned.MANDATORY), "protocol")
-    report["checks"] = checks
-    report["all_17_pass"] = all(value == "pass" for value in checks.values())
-    report["checker_result"] = checker_result(checks)
+    project_checks(await json_checks(checker, Client()), report["subset"]["stream_checks"], report)
 
 
 class Drain:
