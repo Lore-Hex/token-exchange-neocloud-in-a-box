@@ -111,7 +111,7 @@ def read_ready(processes, prefixes, deadline):
     return ready
 
 
-def admit(ready, toolkit, cpu, gpu, contract, contract_sha, deadline):
+def admit(ready, toolkit, cpu, gpu, contract, contract_sha, deadline, *, customer_resolution=False):
     """Join source-authenticated original packets, never reconstruct a READY."""
     require(set(ready) == {"candidate", "support"})
     candidate = gpu.binding(ready["candidate"], contract, contract_sha)
@@ -121,6 +121,7 @@ def admit(ready, toolkit, cpu, gpu, contract, contract_sha, deadline):
     originals, held = cpu.accept(ready["support"], producer, packet["image_sha256"], deadline)
     support = sys.modules["tau_cpu_owner"].binding(ready["support"])
     policy = runner.selected_policy(toolkit)
+    config = policy.configuration(customer_resolution=customer_resolution)
     framed = {}
     for role in ("simulator", "evaluator"):
         runtime = cpu.llama.worker.decode(originals[role + "-runtime.json"])
@@ -133,9 +134,15 @@ def admit(ready, toolkit, cpu, gpu, contract, contract_sha, deadline):
     framed["candidate"] = {"served_model": policy.configuration()["model_profile"]["served_model_name"],
         "context_tokens": 8192, "reasoning_effort": "none", "parallel_tool_calls": False,
         "tokenizer_sha256": tau.VOCABULARY_DIGEST, "framing_sha256": tau.digest(tau.encoded(parity))}
-    frozen = {"schema": policy.TRANSPORT, "input": policy.configuration(),
-              "settings": policy.settings(policy.configuration()), "framing": framed,
+    frozen = {"schema": policy.TRANSPORT, "input": config,
+              "settings": policy.settings(config), "framing": framed,
               "owners": {"candidate": candidate, "support": support}}
+    if customer_resolution:
+        runtime = cpu.llama.worker.decode(originals["evaluator-runtime.json"])
+        frozen["simulator_binding"] = policy.support.runtime_binding(runtime)
+        require(frozen["simulator_binding"]["runtime_sha256"] == held["receipts"]["evaluator-runtime.json"])
+        framed["simulator"] = dict(framed["evaluator"])
+        framed["evaluator"] = {**framed["evaluator"], "served_model": "disabled-evaluator"}
     policy.transport_manifest(frozen, tau.digest(tau.encoded(frozen)))
     expiry = {name: min(deadline, time.monotonic() + gpu.worker.decode(raw)["expires_unix"] - time.time(),
                        time.monotonic() + policy.LIMITS["run_seconds"])
@@ -265,7 +272,8 @@ def run(args):
     contract_sha = tau.digest(gpu_rec.read(args.gpu_bundle / "payload/lab.json"))
     preflight_images(min(work_deadline, time.monotonic() + 60))
     files, plan = runner.prepare(args.source_archive, args.wheelhouse, None, None, None,
-        min(work_deadline, time.monotonic() + 300), parent_pipe=True, selected_operational=True)
+        min(work_deadline, time.monotonic() + 300), parent_pipe=True, selected_operational=True,
+        **({"customer_resolution": True} if getattr(args, "customer_resolution_17b", False) else {}))
     require(plan["producer"]["git_sha"] == toolkit["git_sha"])
     os.umask(0o077)
     with runner.runtime.directory(args.output.parent) as parent:
@@ -299,7 +307,8 @@ def run(args):
                     stderr=subprocess.DEVNULL, env=environment(), bufsize=0, close_fds=True, start_new_session=True)
             report["stage"] = "readiness"
             ready = read_ready(processes, {"candidate": gpu.READY, "support": cpu.READY}, work_deadline)
-            frozen, expiry, held, cpu_image = admit(ready, toolkit, cpu, gpu, contract, contract_sha, work_deadline)
+            frozen, expiry, held, cpu_image = admit(ready, toolkit, cpu, gpu, contract, contract_sha, work_deadline,
+                **({"customer_resolution": True} if getattr(args, "customer_resolution_17b", False) else {}))
             report["ready_sha256"] = {name: tau.digest(raw) for name, raw in ready.items()}
             report["stage"] = "trial"
             handles = {name: {"read_fd": process.stdout.fileno(), "write_fd": process.stdin.fileno(),
@@ -350,6 +359,7 @@ def main():
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--gpu-receipt-sha256", required=True)
     parser.add_argument("--deadline", required=True)
+    parser.add_argument("--customer-resolution-17b", action="store_true")
     args = parser.parse_args()
     for name in ("gpu_bundle", "weights", "cpu_inputs", "source_archive", "wheelhouse", "output"):
         path = getattr(args, name)

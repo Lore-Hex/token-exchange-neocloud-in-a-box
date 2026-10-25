@@ -20,9 +20,14 @@ def execute(root, manifest, selection, proxy, *, run=worker.run_upstream, clock=
     try:
         with worker.alarm(proxy.deadline, clock):
             value = run(root, manifest, selection, proxy)
-            require(type(value) is float and math.isfinite(value) and -1000 <= value <= 1000)
+            if proxy.customer_resolution_mode:
+                import tau_selected_policy as policy
+                require(policy.is_resolution(manifest))
+                proxy.customer_resolution = policy.resolution_result(value, completed=True)
+            else:
+                require(type(value) is float and math.isfinite(value) and -1000 <= value <= 1000)
             require(not proxy.failed and not proxy.finished)
-            reward, outcome = value, "evaluated"
+            reward, outcome = (None if proxy.customer_resolution_mode else value), "evaluated"
     except worker.Abort as exc:
         outcome = exc.status
     except KeyboardInterrupt:

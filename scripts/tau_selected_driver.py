@@ -68,7 +68,11 @@ def run_owned(command, environment, payload, plan, manifest, deadline, handles):
 def accepted(value):
     """Scorer/pipe completion only; enclosing containers must also be clean."""
     row = value["trial"]
-    worker.validate_upstream_termination(row["upstream_termination"], evaluated=row["status"] == "evaluated")
+    resolution = "customer_resolution" in row
+    worker.validate_upstream_termination(row["upstream_termination"], evaluated=row["status"] == "evaluated" and not resolution)
+    if resolution:
+        policy.resolution_result(row["customer_resolution"], completed=row["status"] == "evaluated")
+        require(row["reward"] is None and row["role_requests"]["evaluator"] == 0)
     return (value["scorer_protocol_completed"] is True and value["attach_cleanup"] == "reaped"
             and value["scorer_exit_code"] == 0 and value["owners_finished"] is True
             and value["usage_known"] is True and row["status"] == "evaluated"
@@ -83,18 +87,25 @@ def failure(session, exc):
         exc = worker.Abort("infrastructure_error")
     result = common.failure_result(session, exc)
     result["upstream_termination"] = (session.result["upstream_termination"] if session.result is not None else None)
+    if policy.is_resolution(session.manifest["input"]):
+        result["customer_resolution"] = session.result.get("customer_resolution") if session.result is not None else None
+        result["simulator_binding"] = session.manifest["simulator_binding"]
     return result
 
 
 def diagnostic(session, *, protocol_completed, attach_cleanup, exit_code, owner_finish):
     result = dict(session.result)
+    resolution = policy.is_resolution(session.manifest["input"])
     result["upstream_termination"] = worker.validate_upstream_termination(
-        result["upstream_termination"], evaluated=result["status"] == "evaluated")
+        result["upstream_termination"], evaluated=result["status"] == "evaluated" and not resolution)
     if result["usage"] is not None:
         result["usage"] = {**result["usage"], "cost_usd": None}
     result.update(schema="nib.tau-selected-operational-trial/v1", manifest_sha256=session.manifest_sha,
                   selection=dict(policy.support.SELECTION), role="candidate", role_requests=dict(session.bridge.counts),
                   pricing="not-measured", quality_eligible=False, confidential=False, live_admission=False)
+    if resolution:
+        result["schema"] = "nib.tau-selected-customer-resolution-trial/v1"
+        policy.resolution_result(result["customer_resolution"], completed=result["status"] == "evaluated")
     return {"schema": "nib.tau-selected-driver/v1", "trial": result,
             "scorer_protocol_completed": protocol_completed, "attach_cleanup": attach_cleanup,
             "scorer_exit_code": exit_code, "reserved_tokens": session.bridge.budget.tokens,

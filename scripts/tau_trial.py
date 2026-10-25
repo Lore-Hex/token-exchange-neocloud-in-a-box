@@ -188,7 +188,8 @@ def identity(deadline, parent_pipe=False, *, live_local=False, support_probe=Fal
                   "scripts/test_tau_tool_origin.py")
         names += tuple("scripts/" + name + ".py" for name in SELECTED_PARENT_MODULES)
         names += ("scripts/tau_selected_driver.py", "scripts/test_tau_selected_driver.py",
-                  "scripts/test_tau_selected_run.py", "scripts/tau_cpu_parity.cpp")
+                  "scripts/test_tau_selected_run.py", "scripts/tau_cpu_parity.cpp",
+                  "scripts/tau_cpu_identity.py", "scripts/tau_customer_resolution.py")
     if live_local:
         names += ("scripts/tau_live_trial.py", "scripts/tau_live_identity.py", "scripts/tau_local_vllm.py",
                   "scripts/test_tau_live_trial.py", "scripts/test_tau_local_vllm.py",
@@ -239,7 +240,8 @@ def add_wheel(files, owners, raw, package, expected, deadline):
 
 def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, deadline, *, parent_pipe=False,
             live_binding=None, support_probe=False, agent_prefix=False, selected_operational=False, identity_followup=False,
-            identity_followup_17b=False):
+            identity_followup_17b=False, customer_resolution=False):
+    require(type(customer_resolution) is bool and (not customer_resolution or selected_operational))
     require(type(identity_followup) is bool and type(identity_followup_17b) is bool
             and not (identity_followup and identity_followup_17b)
             and (not (identity_followup or identity_followup_17b) or support_probe and not agent_prefix))
@@ -258,7 +260,8 @@ def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, de
         policy = (selected_policy(toolkit) if selected_operational else
                   load("scripts/tau_support_probe.py", modules={"tau_preflight": tau}))
         manifest = policy.configuration(**({"identity_followup": True} if identity_followup else {}),
-                                        **({"identity_followup_17b": True} if identity_followup_17b else {}))
+                                        **({"identity_followup_17b": True} if identity_followup_17b else {}),
+                                        **({"customer_resolution": True} if customer_resolution else {}))
         manifest_sha = tau.digest(tau.encoded(manifest))
         source_policy = policy.support if selected_operational else policy
         chosen = dict(source_policy.SELECTION)
@@ -275,7 +278,7 @@ def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, de
     require(runtime.make_catalog(source_rows, sources) == catalog)
     if support_probe or selected_operational:
         require(source_policy.source_selection(sources) == chosen)
-        if identity_followup or identity_followup_17b:
+        if identity_followup or identity_followup_17b or customer_resolution:
             load("scripts/tau_cpu_identity.py").fixture(sources, pins)
     else:
         rebuilt = tau.preflight(Path("/verified"), manifest["settings"], pins, manifest["toolkit"],
