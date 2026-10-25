@@ -13,6 +13,7 @@ type serviceProfile struct {
 	context, maxOutput, concurrent int
 	reasoningHints                 bool
 	nativeReasoning                bool
+	nativeTools                    bool
 }
 
 func qwenProfile() serviceProfile {
@@ -29,7 +30,7 @@ func profileFor(name string) (serviceProfile, error) {
 		// owned engine must serve this exact ID; this API never rewrites it.
 		return serviceProfile{model: "dealignai/deepseek-v4.1-flash-1017-uncensored-fp8",
 			name:    "DeepSeek V4.1 Flash 1017 UNCENSORED FP8 (selected)",
-			context: 8192, maxOutput: 256, concurrent: 1, nativeReasoning: true}, nil
+			context: 8192, maxOutput: 256, concurrent: 1, nativeReasoning: true, nativeTools: true}, nil
 	default:
 		return serviceProfile{}, errors.New("unsupported API profile")
 	}

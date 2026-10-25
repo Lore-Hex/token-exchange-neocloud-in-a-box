@@ -49,6 +49,13 @@ def lab_contract():
 
 
 class EngineEntryTests(unittest.TestCase):
+    def test_existing_selected_launch_has_pinned_native_tool_and_reasoning_parsers(self):
+        arguments = process.engine_entry.canonical_arguments(lab_contract())
+        for flag in ("--tool-call-parser", "--reasoning-parser", "--tokenizer-mode"):
+            self.assertEqual(arguments.count(flag), 1)
+            self.assertEqual(arguments[arguments.index(flag) + 1], "deepseek_v41")
+        self.assertEqual(arguments.count("--enable-auto-tool-choice"), 1)
+
     def test_only_canonical_argument_changes_original_unchanged(self):
         lab = lab_contract()
         before = json.dumps(lab, sort_keys=True)
