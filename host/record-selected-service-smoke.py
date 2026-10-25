@@ -140,6 +140,8 @@ def staged_inputs(args, lab):
 
 def container_command(name, token, build, base, weights, inputs, args, stop_at):
     profile = getattr(args, "lifetime_profile", service.SMOKE_PROFILE)
+    execution = getattr(args, "execution_profile", service.engine_entry.EAGER_PROFILE)
+    service.engine_entry.execution_limits(execution)
     service.lifetime_seconds(profile)
     require(profile == service.SMOKE_PROFILE or not any(getattr(args, name, False) for name in
         ("inference_smoke", "conformance_smoke", "protocol_smoke", "tool_smoke")), "contract")
@@ -167,6 +169,7 @@ def container_command(name, token, build, base, weights, inputs, args, stop_at):
         "--key", "/run/nib-inputs/key.pem", "--hostname", args.hostname,
         "--input-price", args.input_price, "--output-price", args.output_price, "--hard-stop-at", stop_at] \
         + (["--lifetime-profile", profile] if profile != service.SMOKE_PROFILE else []) \
+        + (["--execution-profile", execution] if execution != service.engine_entry.EAGER_PROFILE else []) \
         + (["--tool-smoke"] if getattr(args, "tool_smoke", False) else
            ["--protocol-smoke"] if getattr(args, "protocol_smoke", False) else
            ["--conformance-smoke"] if getattr(args, "conformance_smoke", False) else
@@ -399,8 +402,32 @@ def ordinary_lifecycle(raw, lifetime, prepared_sha256, *, failed):
     return row
 
 
+def execution_lifecycle(raw, execution_profile, prepared_sha256, *, failed, **join):
+    limits = service.engine_entry.execution_limits(execution_profile)
+    require(execution_profile == service.engine_entry.GRAPHS_PROFILE and type(raw) is bytes
+            and len(raw) <= 16384 and type(prepared_sha256) is str
+            and re.fullmatch("[0-9a-f]{64}", prepared_sha256), "owner-failed")
+    row = service.correctness.strict_json(raw)
+    require(type(row) is dict and row.get("schema") == service.EXECUTION_SCHEMA
+            and row.get("execution") == limits
+            and row.get("execution_prepared_sha256") == prepared_sha256
+            and type(row.get("lifecycle_schema")) is str, "owner-failed")
+    base = {key: value for key, value in row.items()
+            if key not in ("execution", "execution_prepared_sha256", "lifecycle_schema")}
+    base["schema"] = row["lifecycle_schema"]
+    (lifecycle_failure if failed else lifecycle)(inference.encoded(base),
+        prepared_sha256=prepared_sha256, **join)
+    return row
+
+
 def lifecycle(raw, *, inference_smoke=False, conformance_smoke=False, protocol_smoke=False,
-              tool_smoke=False, prepared_sha256=None, lifetime=None):
+              tool_smoke=False, prepared_sha256=None, lifetime=None,
+              execution_profile=service.engine_entry.EAGER_PROFILE):
+    service.engine_entry.execution_limits(execution_profile)
+    if execution_profile != service.engine_entry.EAGER_PROFILE:
+        return execution_lifecycle(raw, execution_profile, prepared_sha256, failed=False,
+            inference_smoke=inference_smoke, conformance_smoke=conformance_smoke,
+            protocol_smoke=protocol_smoke, tool_smoke=tool_smoke, lifetime=lifetime)
     require(sum((inference_smoke, conformance_smoke, protocol_smoke, tool_smoke)) <= 1, "owner-failed")
     if lifetime is not None:
         require(not any((inference_smoke, conformance_smoke, protocol_smoke, tool_smoke)), "owner-failed")
@@ -428,8 +455,14 @@ def lifecycle(raw, *, inference_smoke=False, conformance_smoke=False, protocol_s
 
 
 def lifecycle_failure(raw, *, inference_smoke=False, conformance_smoke=False, protocol_smoke=False,
-                      tool_smoke=False, prepared_sha256=None, lifetime=None):
+                      tool_smoke=False, prepared_sha256=None, lifetime=None,
+                      execution_profile=service.engine_entry.EAGER_PROFILE):
     """Accept only the owner's fixed metadata on a nonzero container exit."""
+    service.engine_entry.execution_limits(execution_profile)
+    if execution_profile != service.engine_entry.EAGER_PROFILE:
+        return execution_lifecycle(raw, execution_profile, prepared_sha256, failed=True,
+            inference_smoke=inference_smoke, conformance_smoke=conformance_smoke,
+            protocol_smoke=protocol_smoke, tool_smoke=tool_smoke, lifetime=lifetime)
     require(sum((inference_smoke, conformance_smoke, protocol_smoke, tool_smoke)) <= 1, "owner-failed")
     if lifetime is not None:
         require(not any((inference_smoke, conformance_smoke, protocol_smoke, tool_smoke)), "owner-failed")
@@ -483,6 +516,8 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
             "protocol_smoke": getattr(args, "protocol_smoke", False),
             "tool_smoke": getattr(args, "tool_smoke", False),
             "prepared_sha256": build["prepared_sha256"]}
+    if contract.execution_profile != service.engine_entry.EAGER_PROFILE:
+        join["execution_profile"] = contract.execution_profile
     monitor, identifier, attempted, finished, accepted = None, None, False, False, False
     reader, writer = os.pipe()
     try:
@@ -559,10 +594,13 @@ def admitted_runtime(args, result, *, lifetime_profile=service.SMOKE_PROFILE):
     service.lifetime_seconds(lifetime_profile)
     require(getattr(args, "lifetime_profile", service.SMOKE_PROFILE) == lifetime_profile, "lifetime")
     ordinary = lifetime_profile == service.ORDINARY_PROFILE
+    execution = getattr(args, "execution_profile", service.engine_entry.EAGER_PROFILE)
+    service.engine_entry.execution_limits(execution)
     require(not ordinary or not any(getattr(args, name, False) for name in
         ("inference_smoke", "conformance_smoke", "protocol_smoke", "tool_smoke")), "contract")
     contract = service.Contract.begin(args.hard_stop_at, input_price=args.input_price,
-        output_price=args.output_price, **({"lifetime_profile": lifetime_profile} if ordinary else {}))
+        output_price=args.output_price, **({"lifetime_profile": lifetime_profile} if ordinary else {}),
+        **({"execution_profile": execution} if execution != service.engine_entry.EAGER_PROFILE else {}))
     deadline = min(time.monotonic() + SECONDS, contract.hard_monotonic - service.CLEANUP_RESERVE)
     with ExitStack() as stack:
         with service.identity.worker.alarm(deadline):
@@ -573,10 +611,13 @@ def admitted_runtime(args, result, *, lifetime_profile=service.SMOKE_PROFILE):
             env = lab.controlled_env(args.docker_host)
             result["reason"] = "build-identity"
             preparation, files, lab_contract = image_builder.validated_files(Path(args.preparation), args.preparation_sha256)
-            if ordinary:
-                # An older approved image remains usable for smoke, not for a
-                # new lifetime protocol its embedded owner cannot enforce.
-                for name in ("scripts/selected_service.py", "scripts/selected_service_process.py"):
+            require(lab_contract["execution_profile"] == execution, "identity")
+            graphs = execution == service.engine_entry.GRAPHS_PROFILE
+            if ordinary or graphs:
+                # Old eager smoke images cannot opt into a new lifetime or
+                # execution protocol their embedded owner cannot enforce.
+                for name in ("scripts/selected_service.py", "scripts/selected_service_process.py") \
+                        + (("scripts/selected_service_engine.py",) if graphs else ()):
                     require(files.get("context/service/" + name) == process.bootstrap.read_source(str(ROOT / name)),
                             "identity")
             build = image_builder.validate_build_record(lab.read(args.build_report, 16384), args.build_sha256,
@@ -602,6 +643,8 @@ def admitted_runtime(args, result, *, lifetime_profile=service.SMOKE_PROFILE):
             result.update(preflight_pass=True, reason="not-run", build_sha256=args.build_sha256,
                 preparation_sha256=args.preparation_sha256, prepared_sha256=build["prepared_sha256"],
                 image_id=build["image_id"])
+            if graphs:
+                result["execution"] = contract.execution
         yield contract, lab, recorder, env, build, base, image, inputs
 
 
@@ -652,6 +695,7 @@ def main(argv=None):
         probe.add_argument("--conformance-smoke", action="store_true")
         probe.add_argument("--protocol-smoke", action="store_true")
         probe.add_argument("--tool-smoke", action="store_true")
+        parser.add_argument("--execution-profile", default=service.engine_entry.EAGER_PROFILE)
         for name in ("build-report", "build-sha256", "preparation", "preparation-sha256",
                      "docker-host", "provider-config", "api-key-file", "cert", "key",
                      "hostname", "weights", "input-price", "output-price", "hard-stop-at"):

@@ -21,6 +21,7 @@ import deepseek_model_profile as models
 import engine_lab
 import engine_local_correctness as correctness
 import engine_runtime_observation as observer
+import selected_service_engine as engine_entry
 from pilot import serve as pilot
 import tau_live_identity as identity
 
@@ -39,6 +40,7 @@ TOOL_SCHEMA = "nib.selected-service-lifecycle/v5"
 SMOKE_PROFILE, ORDINARY_PROFILE = "smoke", "ordinary-24h"
 ORDINARY_SCHEMA = "nib.selected-service-lifecycle/v6"
 PROGRESS_SCHEMA = "nib.selected-service-progress/v1"
+EXECUTION_SCHEMA = "nib.selected-service-lifecycle/v7"
 PROGRESS_PHASES = ("preparation", "inputs", "weights", "engine-starting",
                    "guard-starting", "tls-starting", "ready", "draining")
 # pilot.stop_serving: 140s graceful + pilot.stop's 10s forced wait.
@@ -76,16 +78,28 @@ def lifetime_record(profile, wall):
             "admission_stop_at": retirement_at(wall - CLEANUP_RESERVE)}
 
 
-def progress_record(phase, lifetime, prepared_sha256):
+def execution_result(row, profile, prepared_sha256):
+    limits = engine_entry.execution_limits(profile)
+    if profile == engine_entry.EAGER_PROFILE:
+        return row
+    return {**row, "schema": EXECUTION_SCHEMA, "lifecycle_schema": row["schema"],
+            "execution": limits, "execution_prepared_sha256": prepared_sha256}
+
+
+def progress_record(phase, lifetime, prepared_sha256, execution_profile=engine_entry.EAGER_PROFILE):
     require(type(phase) is str and phase in PROGRESS_PHASES and type(prepared_sha256) is str
             and re.fullmatch("[0-9a-f]{64}", prepared_sha256), "contract")
-    return {"schema": PROGRESS_SCHEMA, "phase": phase, "lifetime": lifetime,
-            "prepared_sha256": prepared_sha256}
+    limits = engine_entry.execution_limits(execution_profile)
+    row = {"schema": PROGRESS_SCHEMA, "phase": phase, "lifetime": lifetime,
+           "prepared_sha256": prepared_sha256}
+    if execution_profile != engine_entry.EAGER_PROFILE:
+        row.update(schema="nib.selected-service-progress/v2", execution=limits)
+    return row
 
 
 def progress(phase, contract, prepared_sha256):
     if contract.lifetime_profile == ORDINARY_PROFILE:
-        print(json.dumps(progress_record(phase, contract.lifetime, prepared_sha256),
+        print(json.dumps(progress_record(phase, contract.lifetime, prepared_sha256, contract.execution_profile),
                          sort_keys=True, allow_nan=False), flush=True)
 
 
@@ -98,6 +112,7 @@ class Contract:
     input_price: str
     output_price: str
     lifetime_profile: str = SMOKE_PROFILE
+    execution_profile: str = engine_entry.EAGER_PROFILE
     model: str = field(default=MODEL, init=False)
     revision: str = field(default=models.select("uncensored")["hf_revision"], init=False)
     manifest_sha256: str = field(default=models.select("uncensored")["manifest_sha256"], init=False)
@@ -107,11 +122,22 @@ class Contract:
     memory_bytes: int = field(default=MEMORY_BYTES, init=False)
     swap_bytes: int = field(default=SWAP_BYTES, init=False)
 
+    def __post_init__(self):
+        for name, value in self.execution.items():
+            if name in ("context_tokens", "max_output_tokens", "max_inflight"):
+                object.__setattr__(self, name, value)
+
+    @property
+    def execution(self):
+        return engine_entry.execution_limits(self.execution_profile)
+
     @classmethod
-    def begin(cls, hard_stop_at, *, input_price, output_price, lifetime_profile=SMOKE_PROFILE):
+    def begin(cls, hard_stop_at, *, input_price, output_price, lifetime_profile=SMOKE_PROFILE,
+              execution_profile=engine_entry.EAGER_PROFILE):
         # Capture before snapshots/preparation. Neither startup nor restart may
         # replace the original absolute cutoff with a new duration.
         limit = lifetime_seconds(lifetime_profile)
+        engine_entry.execution_limits(execution_profile)
         try:
             wall, monotonic = pilot.retirement_deadline(hard_stop_at, public=True)
         except (pilot.pilot.PilotError, TypeError, ValueError):
@@ -121,7 +147,7 @@ class Contract:
             require(type(price) is str and re.fullmatch(r"(0|[1-9][0-9]{0,5})(\.[0-9]{1,6})?", price), "price")
         return cls(hard_stop_at, wall, monotonic,
                    min(time.monotonic() + engine_lab.STARTUP_SECONDS, monotonic - CLEANUP_RESERVE),
-                   input_price, output_price, lifetime_profile)
+                   input_price, output_price, lifetime_profile, execution_profile)
 
     @property
     def admission_stop_at(self):
@@ -134,7 +160,7 @@ class Contract:
     def guard_arguments(self, inputs):
         # Paths are private snapshots. The existing Go CLI owns provider/schema
         # validation; no duplicate Python provider validator or model rewriting.
-        return ("--profile", "selected-deepseek", "--api-key-file", str(inputs.root / "api-key"),
+        return ("--profile", self.execution["guard_profile"], "--api-key-file", str(inputs.root / "api-key"),
                 "--provider-config", str(inputs.root / "provider.json"),
                 "--input-price", self.input_price, "--output-price", self.output_price,
                 "--retirement-at", self.admission_stop_at, "--public")
@@ -211,8 +237,10 @@ class EngineReady:
     context_tokens: int
     memory_bytes: int
     swap_bytes: int
+    execution_profile: str = engine_entry.EAGER_PROFILE
 
     def check(self, process, deadline):
+        context = engine_entry.execution_limits(self.execution_profile)["context_tokens"]
         require(type(self.endpoint) is identity.Endpoint and self.endpoint.port == 8000
                 and self.endpoint.expected["pid"] == process.pid, "identity")
         self.endpoint.check(deadline)
@@ -223,10 +251,10 @@ class EngineReady:
         # Pinned vLLM's ModelCard exposes the configured maximum, not a
         # caller-declared catalog limit. See the task note's primary source.
         require(type(row["data"][0].get("max_model_len")) is int
-                and row["data"][0]["max_model_len"] == CONTEXT, "runtime-limits")
+                and row["data"][0]["max_model_len"] == context, "runtime-limits")
         require(all(type(value) is int for value in (self.context_tokens, self.memory_bytes, self.swap_bytes))
                 and (self.context_tokens, self.memory_bytes, self.swap_bytes) ==
-                (CONTEXT, MEMORY_BYTES, SWAP_BYTES), "runtime-limits")
+                (context, MEMORY_BYTES, SWAP_BYTES), "runtime-limits")
 
 
 class Supervisor:
@@ -277,6 +305,7 @@ class Supervisor:
             return False
         if role == "engine":
             require(type(observed) is EngineReady, "identity")
+            require(observed.execution_profile == self.contract.execution_profile, "runtime-limits")
             observed.check(self.children[role], deadline)
             current = dict(observed.endpoint.expected)
             require(self.engine_identity is None or current == self.engine_identity, "identity")
@@ -472,7 +501,9 @@ class Supervisor:
                 result.update(schema=PROTOCOL_SCHEMA, mode=PROTOCOL_MODE, protocol=protocol_result)
                 if protocol_result is None or protocol_result["result"] != "pass":
                     result["status"] = "failed"
-        return result
+        return execution_result(result, self.contract.execution_profile,
+                                self.owner.prepared.receipt_sha256) \
+            if self.contract.execution_profile != engine_entry.EAGER_PROFILE else result
 
 
 if __name__ == "__main__":

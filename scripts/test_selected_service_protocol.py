@@ -514,8 +514,10 @@ class JoinTests(unittest.TestCase):
 
     def test_missing_checker_is_rejected_before_private_inputs_and_owner(self):
         with ExitStack() as stack:
-            stack.enter_context(mock.patch.object(service.Contract, "begin"))
-            stack.enter_context(mock.patch.object(process, "Prepared", return_value=SimpleNamespace(files={})))
+            begin = stack.enter_context(mock.patch.object(service.Contract, "begin"))
+            begin.return_value.execution_profile = "tau8k-eager"
+            stack.enter_context(mock.patch.object(process, "Prepared", return_value=SimpleNamespace(
+                files={}, lab={"execution_profile": "tau8k-eager"})))
             inputs = stack.enter_context(mock.patch.object(service, "snapshot_inputs"))
             owner = stack.enter_context(mock.patch.object(process, "ProcessOwner"))
             output = io.StringIO()

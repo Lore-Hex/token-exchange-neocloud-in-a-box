@@ -135,7 +135,7 @@ def validate_catalog(checker, raw, supervisor, deadline):
     provider = service.correctness.strict_json(service.identity.private_read(
         supervisor.inputs.root / "provider.json", deadline))
     require(all(payload["provider"].get(name) == value for name, value in provider.items())
-        and row["id"] == service.MODEL and row["context_length"] == service.CONTEXT
+        and row["id"] == service.MODEL and row["context_length"] == supervisor.contract.context_tokens
         and row["max_output_tokens"] == service.OUTPUT
         and row["capabilities"] == {"streaming": True, "tools": False, "structured_output": False,
                                     "reasoning": False, "prompt_caching": False}

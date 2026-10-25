@@ -175,8 +175,10 @@ def cleanup_record(raw):
 
 class AttachedProgress:
     """Bounded stdout sink for the day protocol; only closed phases reach stderr."""
-    def __init__(self, lifetime, prepared_sha256):
+    def __init__(self, lifetime, prepared_sha256, execution_profile=smoke.service.engine_entry.EAGER_PROFILE):
         self.lifetime, self.prepared = lifetime, prepared_sha256
+        self.execution_profile = execution_profile
+        smoke.service.engine_entry.execution_limits(execution_profile)
         self.buffer, self.total, self.phases, self.terminal = bytearray(), 0, [], None
 
     def write(self, chunk):
@@ -189,20 +191,21 @@ class AttachedProgress:
             self.buffer = bytearray(tail)
             row = policy.decode(bytes(raw))
             require(type(row) is dict and self.terminal is None)
-            if row.get("schema") == smoke.service.PROGRESS_SCHEMA:
+            if row.get("schema") in (smoke.service.PROGRESS_SCHEMA, "nib.selected-service-progress/v2"):
                 phase = row.get("phase")
-                require(row == smoke.service.progress_record(phase, self.lifetime, self.prepared))
+                require(row == smoke.service.progress_record(phase, self.lifetime, self.prepared, self.execution_profile))
                 index = len(self.phases)
                 require(phase not in self.phases and (phase == "draining" or
                     index < len(smoke.service.PROGRESS_PHASES) and phase == smoke.service.PROGRESS_PHASES[index]))
                 require(not self.phases or self.phases[-1] != "draining")
                 self.phases.append(phase)
                 # Reconstruct, never relay arbitrary container/Docker output.
-                print(json.dumps({**smoke.service.progress_record(phase, self.lifetime, self.prepared),
+                print(json.dumps({**smoke.service.progress_record(phase, self.lifetime, self.prepared, self.execution_profile),
                     "observed_at": smoke.service.retirement_at(time.time())}, sort_keys=True),
                     file=sys.stderr, flush=True)
             else:
-                require(row.get("schema") == smoke.service.ORDINARY_SCHEMA)
+                require(row.get("schema") == (smoke.service.ORDINARY_SCHEMA
+                    if self.execution_profile == smoke.service.engine_entry.EAGER_PROFILE else smoke.service.EXECUTION_SCHEMA))
                 self.terminal = bytes(raw)
                 require(not self.buffer)
         return len(chunk)
@@ -213,8 +216,8 @@ class AttachedProgress:
         return self.terminal
 
 
-def start_day(commands, command, lifetime, prepared_sha256):
-    output = AttachedProgress(lifetime, prepared_sha256)
+def start_day(commands, command, lifetime, prepared_sha256, execution_profile=smoke.service.engine_entry.EAGER_PROFILE):
+    output = AttachedProgress(lifetime, prepared_sha256, execution_profile)
     remaining = commands.remaining() - 120
     require(remaining > 0)
     result = commands.recorder.snapshot.execute_process_group(command, env=commands.env,
@@ -229,6 +232,7 @@ def start_day(commands, command, lifetime, prepared_sha256):
 def runtime_plan(args, admitted, selected, commands, result):
     contract, lab, recorder, _, build, base, image, inputs = admitted
     require(getattr(args, "lifetime_profile", smoke.service.SMOKE_PROFILE) == contract.lifetime_profile)
+    require(getattr(args, "execution_profile", smoke.service.engine_entry.EAGER_PROFILE) == contract.execution_profile)
     result["reason"] = "weights"
     weights = smoke.private_path(args.weights)
     smoke.weights_view(lab, weights, min(commands.end - smoke.service.CLEANUP_RESERVE,
@@ -292,13 +296,17 @@ def run(args, admitted, selected, result):
         join = {name: getattr(args, name, False) for name in (
             "inference_smoke", "conformance_smoke", "protocol_smoke", "tool_smoke")}
         join["prepared_sha256"] = build["prepared_sha256"]
+        if contract.execution_profile != smoke.service.engine_entry.EAGER_PROFILE:
+            join["execution_profile"] = contract.execution_profile
         if contract.lifetime_profile == smoke.service.ORDINARY_PROFILE:
             join["lifetime"] = smoke.service.lifetime_record(contract.lifetime_profile,
                                                             contract.hard_wall - smoke.HOST_RESERVE)
         start = ["docker", "container", "start", "--attach", container]
         try:
             if contract.lifetime_profile == smoke.service.ORDINARY_PROFILE:
-                raw = start_day(commands, start, join["lifetime"], build["prepared_sha256"])
+                raw = start_day(commands, start, join["lifetime"], build["prepared_sha256"],
+                                **({"execution_profile": contract.execution_profile}
+                                   if contract.execution_profile != smoke.service.engine_entry.EAGER_PROFILE else {}))
             else:
                 raw = commands.call(start, seconds=commands.remaining() - 120, limit=16384)
         except subprocess.CalledProcessError as error:
@@ -397,6 +405,7 @@ def main(argv=None):
             parser.add_argument("--" + name, required=True)
         parser.add_argument("--published-port", type=int, required=True)
         parser.add_argument("--lifetime-profile", default=smoke.service.SMOKE_PROFILE)
+        parser.add_argument("--execution-profile", default=smoke.service.engine_entry.EAGER_PROFILE)
         cancelled = False
         def cancel(*_):
             nonlocal cancelled

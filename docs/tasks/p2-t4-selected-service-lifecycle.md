@@ -13,12 +13,15 @@ permission preparation and real read-only/nonroot cache behavior remain gates.
 
 The [selected checkpoint profile](../../scripts/deepseek_model_profile.py)
 supplies its exact revision, manifest hash and total bytes. The canonical API
-ID is `dealignai/deepseek-v4.1-flash-1017-uncensored-fp8`: 8192 context tokens,
+ID is `dealignai/deepseek-v4.1-flash-1017-uncensored-fp8`: by default 8192 context tokens,
 256 maximum output tokens, one admitted request, 512 GiB and no swap. Provider
 metadata, API key, approved prices, TLS material and absolute retirement are
 operator inputs. There is no model, plugin, upstream URL, port, capacity or
 engine-argument override. The [Go API](../../cmd/nib-pilot-api/main.go) retains
 provider validation and request enforcement; Python does not duplicate them.
+The explicit [graph profile](p2-t4-selected-service-graphs.md) instead binds
+4096 context and eight total admissions; output, memory and privacy limits stay
+unchanged. Execution and lifetime are separate closed choices.
 
 `pilot/serve.py` supplies private input snapshots, key validation, TLS keypair
 and client trust setup, and the original UTC retirement rules. The process
@@ -64,7 +67,8 @@ the owner does not reload it for separate proofs.
 Engine readiness checks the exact owned PID/start time/executable/arguments,
 namespace and loopback listener. Each HTTP connection is peer-checked before
 sending its fixed request, with post-response identity verification. Engine
-`/v1/models` must report exactly one canonical ID and integer context 8192.
+`/v1/models` must report exactly one canonical ID and the selected integer
+context (8192 eager, 4096 graphs).
 Guard and TLS readiness verify owned listeners/binaries; TLS additionally
 checks certificate/name trust and the accepted server-side socket owner.
 TLS alone accepts either one IPv4 wildcard listener or one IPv6 wildcard

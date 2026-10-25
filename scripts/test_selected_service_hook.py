@@ -179,7 +179,11 @@ class HookTests(unittest.TestCase):
                         failure.__cause__ = ValueError("PRIVATE_CHAIN_CANARY")
                         for name, (target, attribute) in targets.items():
                             kwargs = {"side_effect": failure} if name == stage else {}
-                            stack.enter_context(mock.patch.object(target, attribute, **kwargs))
+                            if name == "prepared" and name != stage:
+                                kwargs = {"return_value": SimpleNamespace(lab={"execution_profile": "tau8k-eager"})}
+                            patched = stack.enter_context(mock.patch.object(target, attribute, **kwargs))
+                            if name == "contract" and name != stage:
+                                patched.return_value.execution_profile = "tau8k-eager"
                         launch = stack.enter_context(mock.patch.object(service.Supervisor, "run"))
                         output = io.StringIO()
                         stack.enter_context(redirect_stdout(output))
@@ -209,6 +213,7 @@ class HookTests(unittest.TestCase):
             def prepared_init(target, expected, deadline):
                 self.assertEqual(expected, state.sha)
                 target.__dict__.update(state.owner.prepared.__dict__)
+                target.lab = {"execution_profile": "tau8k-eager"}
             def owner_init(target, prepared, inputs, hostname, shutdown):
                 target.__dict__.update(state.owner.__dict__)
                 target.prepared = prepared

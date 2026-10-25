@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 from types import SimpleNamespace
+from dataclasses import replace
 import unittest
 from unittest import mock
 
@@ -136,8 +137,10 @@ os.write(2, b'restored-err')
 
     def test_missing_checker_fails_prepared_stage_before_owner_or_inputs(self):
         with ExitStack() as stack:
-            stack.enter_context(mock.patch.object(service.Contract, "begin"))
-            stack.enter_context(mock.patch.object(process, "Prepared", return_value=SimpleNamespace(files={})))
+            begin = stack.enter_context(mock.patch.object(service.Contract, "begin"))
+            begin.return_value.execution_profile = "tau8k-eager"
+            stack.enter_context(mock.patch.object(process, "Prepared", return_value=SimpleNamespace(
+                files={}, lab={"execution_profile": "tau8k-eager"})))
             inputs = stack.enter_context(mock.patch.object(service, "snapshot_inputs"))
             owner = stack.enter_context(mock.patch.object(process, "ProcessOwner"))
             output = io.StringIO()
@@ -346,6 +349,14 @@ def stream(*, usage=True, done=True):
 
 @unittest.skipUnless(importlib.util.find_spec("tr_provider_check"), "run with hash-locked checker test environment")
 class PinnedCheckerTests(unittest.TestCase):
+    def test_graph_catalog_uses_selected_contract_not_eager_global(self):
+        for context, accepted in ((4096, True), (8192, False)):
+            with self.subTest(context=context), self.fixture(
+                    catalog_change=lambda row: row["data"][0].update(context_length=context)) as state:
+                state.supervisor.contract = replace(state.supervisor.contract, execution_profile="batch8-graphs")
+                row = self.run_helper(state, failure=None if accepted else "protocol")
+                self.assertEqual(row["result"], "pass" if accepted else "fail")
+
     @contextmanager
     def fixture(self, *, chunks=None, catalog_change=None):
         from tr_provider_check import contract as rules, http as client

@@ -49,7 +49,7 @@ class SmokeTests(unittest.TestCase):
             "RootFS": {"Type": "layers", "Layers": [identity("base layer")]},
             "Config": {"Env": ["PATH=/bin", "NVIDIA_REQUIRE_CUDA=synthetic constraint"]}}
         self.metadata = {"rootfs": {"diff_ids": self.base["RootFS"]["Layers"]}, "config": self.base["Config"]}
-        self.lab_contract = {"base_image": self.recorder.overlay.BASE_IMAGE, "official_config":
+        self.lab_contract = {"execution_profile": "tau8k-eager", "base_image": self.recorder.overlay.BASE_IMAGE, "official_config":
              {"sha256": self.recorder.overlay.DIAGNOSTIC_INVENTORY_POLICY["config_sha256"]}}
         binding = self.recorder.image_binding(self.base, self.metadata, self.lab_contract)
         self.build = {"schema": smoke.image_builder.BUILD_SCHEMA, "result": "pass", "preparation_sha256": smoke.digest(b"preparation"),
