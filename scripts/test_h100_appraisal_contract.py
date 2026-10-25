@@ -33,6 +33,8 @@ class GuestAppraisalContractTests(unittest.TestCase):
             self.assertIn('"' + digest + '"', runtime)
             self.assertIn(str(size), runtime)
         self.assertIn('const libraryAlias = "/' + probe["ALIAS"] + '"', runtime)
+        modes = re.findall(r"case (executable|library):\s+return (0o[0-7]+)", runtime)
+        self.assertEqual(dict(modes), {"executable": "0o755", "library": "0o644"})
         for lock in ("guest-runtime-ubuntu2404.json", "r595-ubuntu2404.json"):
             value = json.loads((ROOT / "image/inputs" / lock).read_text())
             packages = {row["Package"]: row for row in value["packages"]}

@@ -16,6 +16,14 @@ Runtime admission checks the exact CLI/library sizes and SHA-256 values from
 paths. A mandatory parity test also compares the existing lab appraiser's
 security predicates and its four serialization defaults.
 
+The authenticated Debian members are root-owned: `nvattest` is mode `0755`,
+`libnvat.so.2.0.0` is `0644`, and `libnvat.so.2` is the exact relative symlink.
+These modes were read from the locked Ubuntu 24.04 archives, not inferred from
+the filename. The archive SHA-256 values are respectively
+`77eaec7644b6a221147245a1c0643bac7317265815e3483ef12f283fc91badb0`
+and `d6ae20d7f0d90c62c5e99bcac29cb66f3d9e18c7ee2c4de3aee40134edd70353`.
+Unexpected executable bits on the library also reject.
+
 Primary source is NVIDIA SDK commit
 [`11b2bfeb42a1158aa08744603ecb239ccb3d2265`](https://github.com/NVIDIA/attestation-sdk/tree/11b2bfeb42a1158aa08744603ecb239ccb3d2265):
 

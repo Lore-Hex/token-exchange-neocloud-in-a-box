@@ -31,6 +31,9 @@ func TestPrivilegeBoundary(t *testing.T) {
 }
 
 func TestNoAmbientHostOrArgumentBypass(t *testing.T) {
+	if pinnedMode(executable) != 0o755 || pinnedMode(library) != 0o644 || pinnedMode("/bin/sh") != 0 || pinnedMode(libraryAlias) != 0 {
+		t.Fatal("authenticated package file modes changed")
+	}
 	if attr := processAttributes(); !attr.Setpgid || attr.Pdeathsig != syscall.SIGKILL || attr.Credential != nil {
 		t.Fatal("process ownership/parent death boundary")
 	}

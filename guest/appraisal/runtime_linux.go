@@ -23,9 +23,23 @@ const librarySHA = "e757a59f8241830553da3f99f717ddd44d47973ca756a4fa3feac78012dc
 const library = "/usr/lib/x86_64-linux-gnu/libnvat.so.2.0.0"
 const libraryAlias = "/usr/lib/x86_64-linux-gnu/libnvat.so.2"
 
+// Authenticated package metadata: the CLI is executable, the shared library
+// is 0644. Neither may acquire write, set-id or unexpected executable bits.
+func pinnedMode(path string) uint32 {
+	switch path {
+	case executable:
+		return 0o755
+	case library:
+		return 0o644
+	default:
+		return 0
+	}
+}
+
 // Read-only EROFS is an accidental-host guard, not authentication of its image.
 func readPinned(path string, size int64, expected string) error {
-	if path != executable && path != library {
+	mode := pinnedMode(path)
+	if mode == 0 {
 		return errRejected
 	}
 	fd, err := syscall.Open("/", syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
@@ -53,7 +67,7 @@ func readPinned(path string, size int64, expected string) error {
 	}
 	var before, after syscall.Stat_t
 	var fs syscall.Statfs_t
-	if syscall.Fstat(fd, &before) != nil || syscall.Fstatfs(fd, &fs) != nil || before.Mode != syscall.S_IFREG|0o755 || before.Uid != 0 || before.Gid != 0 || before.Nlink != 1 || before.Size != size || fs.Type != 0xe0f5e1e2 || fs.Flags&1 == 0 {
+	if syscall.Fstat(fd, &before) != nil || syscall.Fstatfs(fd, &fs) != nil || before.Mode != syscall.S_IFREG|mode || before.Uid != 0 || before.Gid != 0 || before.Nlink != 1 || before.Size != size || fs.Type != 0xe0f5e1e2 || fs.Flags&1 == 0 {
 		return errRejected
 	}
 	dup, err := syscall.Dup(fd)
