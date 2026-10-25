@@ -9,6 +9,10 @@ import tau_support_probe as support
 tau = support.tau
 SCHEMA = "nib.tau-selected-operational-input/v1"
 RESOLUTION_SCHEMA = "nib.tau-selected-customer-resolution-input/v1"
+EXTERNAL_SCHEMA = "nib.tau-external-customer-resolution-input/v1"
+EXTERNAL_TRANSPORT = "nib.tau-external-customer-resolution-transport/v1"
+EXTERNAL_MODEL = "gpt-4.1-2025-04-14"
+PUBLIC_MODEL = "dealignai/deepseek-v4.1-flash-1017-uncensored-fp8"
 RESOLUTION_REPORT = "nib.tau-selected-customer-resolution/v1"
 TRANSPORT = "nib.tau-selected-operational-transport/v1"
 CONTEXTS = {"candidate": 8192, "simulator": 4096, "evaluator": 4096}
@@ -19,11 +23,16 @@ LIMITS = {"concurrency": 1, "retries": 0, "turns": 32, "requests": 32,
 
 
 def is_resolution(value):
-    return type(value) is dict and value.get("schema") == RESOLUTION_SCHEMA
+    return type(value) is dict and value.get("schema") in (RESOLUTION_SCHEMA, EXTERNAL_SCHEMA)
 
 
-def configuration(*, customer_resolution=False):
+def is_external(value):
+    return type(value) is dict and value.get("schema") == EXTERNAL_SCHEMA
+
+
+def configuration(*, customer_resolution=False, external_simulator=False):
     tau.require(type(customer_resolution) is bool)
+    tau.require(type(external_simulator) is bool and (not external_simulator or customer_resolution))
     value = {"schema": SCHEMA, "upstream_revision": tau.REVISION,
             "selection": dict(support.SELECTION), "model_profile": models.select("uncensored"),
             "support": support.configuration()["support"], "generation": dict(support.GENERATION),
@@ -32,11 +41,22 @@ def configuration(*, customer_resolution=False):
     if customer_resolution:
         value.update(schema=RESOLUTION_SCHEMA, support={"simulator": value["support"]["evaluator"]},
                      owner_roles={"simulator": "evaluator"})
+    if external_simulator:
+        value.pop("owner_roles")
+        value.update(schema=EXTERNAL_SCHEMA, support={"simulator": {"model": EXTERNAL_MODEL}},
+                     contexts={"candidate": 8192, "simulator": 8192}, pricing="published-ceiling-not-invoice")
+        # Pinned tau config.py DEFAULT_LLM_USER; official API/model/pricing and
+        # 2027-01-14 shutdown checked 2026-10-25. Candidate rates are
+        # this closed diagnostic's required operator-declared ceilings.
+        # https://developers.openai.com/api/docs/pricing#standard-pricing-data
+        value["prices"] = {"candidate": ["0.65", "1.45"], "simulator": ["2.00", "8.00"]}
+        value["limits"] = {**LIMITS, "cost_usd": "1.00"}
     return value
 
 
 def validate(value, sha=None):
-    tau.require(tau.encoded(value) == tau.encoded(configuration(customer_resolution=is_resolution(value))))
+    tau.require(tau.encoded(value) == tau.encoded(configuration(customer_resolution=is_resolution(value),
+                                                              external_simulator=is_external(value))))
     if sha is not None:
         tau.sha(sha)
         tau.require(tau.digest(tau.encoded(value)) == sha)
@@ -46,11 +66,32 @@ def validate(value, sha=None):
 def settings(value):
     validate(value)
     roles = ("candidate", "simulator") if is_resolution(value) else CONTEXTS
-    return {"roles": {role: {"generation": dict(support.GENERATION)} for role in roles},
-            "limits": dict(LIMITS)}
+    result = {"roles": {role: {"generation": dict(support.GENERATION)} for role in roles},
+              "limits": dict(value["limits"])}
+    if is_external(value):
+        for role, prices in value["prices"].items():
+            result["roles"][role].update(input_usd_per_million=prices[0], output_usd_per_million=prices[1])
+    return result
 
 
 def transport_manifest(value, sha):
+    if type(value) is dict and is_external(value.get("input")):
+        validate(value["input"])
+        tau.require(set(value) == {"schema", "input", "settings", "framing", "binding_sha256"}
+                    and value["schema"] == EXTERNAL_TRANSPORT and tau.digest(tau.encoded(value)) == sha
+                    and value["settings"] == settings(value["input"])
+                    and set(value["framing"]) == {"candidate", "simulator"})
+        tau.sha(value["binding_sha256"])
+        for role, row in value["framing"].items():
+            tau.require(set(row) == {"reasoning_effort", "parallel_tool_calls", "served_model",
+                        "framing_sha256", "tokenizer_sha256", "context_tokens"}
+                        and row["reasoning_effort"] == "none" and row["parallel_tool_calls"] is False
+                        and type(row["context_tokens"]) is int and row["context_tokens"] == 8192
+                        and row["served_model"] == (PUBLIC_MODEL if role == "candidate" else EXTERNAL_MODEL))
+            tau.sha(row["framing_sha256"])
+            tau.sha(row["tokenizer_sha256"])
+        tau.require(value["framing"]["candidate"]["tokenizer_sha256"] == tau.VOCABULARY_DIGEST)
+        return value
     resolution = type(value) is dict and is_resolution(value.get("input"))
     tau.require(type(value) is dict and set(value) == {"schema", "input", "settings", "framing", "owners"}
                 | ({"simulator_binding"} if resolution else set())
@@ -107,4 +148,12 @@ def resolution_result(value, *, completed=False):
 class ResourceBudget(support.ResourceBudget):
     """Reuse sticky resource accounting; zero internal dollars are not free GPUs."""
     def __init__(self, value, *, clock=time.monotonic):
+        self.external = is_external(value)
         self._initialize(settings(value), clock)
+
+    def _price(self, role, incoming, outgoing):
+        return (tau.Budget._price(self, role, incoming, outgoing) if self.external else
+                super()._price(role, incoming, outgoing))
+
+    def _within_cost(self, price):
+        return tau.Budget._within_cost(self, price) if self.external else super()._within_cost(price)
