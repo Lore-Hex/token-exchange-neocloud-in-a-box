@@ -115,7 +115,8 @@ class VenueTests(unittest.TestCase):
     def test_host_admission_checks_kernel_packages_all_files_and_tool_paths(self):
         settings = proof.venue_settings(proof.ORDINARY_VENUE)
         output = "".join(name + "\t" + version + "\n" for name, version in sorted(settings["packages"].items()))
-        for failure in (None, "kernel", "python", "package", "duplicate", "file", "path"):
+        for failure in (None, "kernel", "python", "interpreter", "relative-interpreter",
+                        "package", "duplicate", "file", "path"):
             with self.subTest(failure=failure), ExitStack() as stack:
                 commands = mock.Mock(end=time.monotonic() + 60, env=proof.ENV)
                 package_output = output + output.splitlines(True)[0] if failure == "duplicate" else output
@@ -126,6 +127,9 @@ class VenueTests(unittest.TestCase):
                     subprocess.CompletedProcess([], 0, package_output.encode(), b"")]
                 stack.enter_context(mock.patch.object(proof.sys, "version_info",
                     (3, 12, 13) if failure == "python" else (3, 14, 4)))
+                stack.enter_context(mock.patch.object(proof.sys, "executable",
+                    {"interpreter": "/opt/alternate/python3.14", "relative-interpreter": "python3.14"}
+                    .get(failure, "/usr/bin/python3.14")))
                 stack.enter_context(mock.patch.object(proof.platform, "release",
                     return_value="changed" if failure == "kernel" else settings["kernel"]))
                 stack.enter_context(mock.patch.object(proof, "resolver_target", return_value=proof.RESOLVER_TARGET))

@@ -97,7 +97,9 @@ def check_venue(commands, name):
         return
     require(platform.release() == settings["kernel"]
             and settings["schema"] == "nib.selected-nat-venue/v1"
-            and settings["profile"] == name)
+            and settings["profile"] == name
+            and Path(sys.executable).is_absolute()
+            and Path(sys.executable).resolve() == Path("/usr/bin/python3.14"))
     for path, digest in settings["files"].items():
         pinned_file(Path(path), digest, commands.end)
     expected = {key: value for key, value in settings["packages"].items()}
