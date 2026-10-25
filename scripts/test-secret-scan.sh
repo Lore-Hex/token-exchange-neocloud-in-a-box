@@ -286,8 +286,11 @@ done <<'CASES'
 CASES
 
 # Selected trial originals retain exact public hashes, not whole-line exemptions.
-for trial_set in protocol-failure-1854 tool-error-2009 tool-rejection-0245 email-relation-0429; do
+for trial_set in protocol-failure-1854 tool-error-2009 tool-rejection-0245 email-relation-0429 customer-resolution-1117; do
 while IFS='|' read -r relative format field known suffix; do
+  if [[ "$field" == tokenizer_sha256 && "$relative" != cpu/* && "$trial_set" != customer-resolution-1117 ]]; then
+    continue
+  fi
   target="$tmp/selected-trial/evidence/p2/2026-10-24-selected-tau-$trial_set/$relative"
   if [[ "$trial_set" == tool-error-2009 ]]; then
     case "$field" in
@@ -307,6 +310,13 @@ while IFS='|' read -r relative format field known suffix; do
     case "$field" in
       evaluator-tokenizer.json) known=5399ca695c17ed4a152ae834f258daab23b5fc92a58b67124f86ffc7cb0f0393 ;;
       simulator-tokenizer.json) known=477d1e86f6fbd5083acaf2560e78abf4b014371c71cc750d68fd1edbaf0ca09a ;;
+    esac
+  fi
+  if [[ "$trial_set" == customer-resolution-1117 ]]; then
+    target="$tmp/selected-trial/evidence/p2/2026-10-25-selected-$trial_set/$relative"
+    case "$field" in
+      evaluator-tokenizer.json) known=f16cd5c46c9cdb24fccba8be1c07222f8632f42a3c2eb541de5b8f6f38bef79b ;;
+      simulator-tokenizer.json) known=c712f03c74f4046360aaa5f36e74b15685e24329f9627ac3c3d679be896a765d ;;
     esac
   fi
   mkdir -p "$(dirname "$target")"
@@ -362,6 +372,8 @@ cpu/evaluator-tokenizer.json|compact|independent_tokens_sha256|1b7419454da94e656
 cpu/evaluator-tokenizer.json|compact|independent_tokens_sha256|fbaf9b9465ebf03803f0a8b5a24ca6b38dede64a287439371f87958033074fd4|
 cpu/evaluator-tokenizer.json|compact|independent_tokens_sha256|c7450fed1a18f2dc5a4de67c84383999a8e240336ce4bd132c32e1cbf9b4ee9b|
 cpu/evaluator-tokenizer.json|compact|independent_tokens_sha256|8da30159fe7f3f8c8d893edc5c34df0cfd719620133706bcf6e2c254c3a432fe|
+scorer/output.log|compact|tokenizer_sha256|604363ffa22647728e0dd56e84926ad3ca1422999e356af99628fe2535b010a8|
+evidence/output.log|compact|tokenizer_sha256|604363ffa22647728e0dd56e84926ad3ca1422999e356af99628fe2535b010a8|
 CASES
 done
 
