@@ -353,7 +353,7 @@ class ParentSession:
         self.bridge = worker.Bridge(tau, self.manifest["input"] if resource_only else self.manifest["settings"],
                                     role, self.dispatch, clock=clock, support_probe=support_probe,
                                     selected_operational=selected_operational)
-        self.identity_followup = support_probe and self.manifest["input"]["schema"] == policy.IDENTITY_SCHEMA
+        self.identity_followup = support_probe and policy.is_identity(self.manifest["input"])
         self.started, self.result = clock(), None
         require(type(assertions) in (list, tuple) and all(type(item) is str for item in assertions))
         self.bridge.assertions = snapshot(list(assertions), worker.MAX_RESPONSE)
