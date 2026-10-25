@@ -28,7 +28,7 @@ service = process.service
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def lab_contract():
+def lab_contract(profile="tau8k-eager"):
     # Read the actual committed literal, without importing the overlay builder's
     # repository tooling or starting its build/preparation path.
     tree = ast.parse((ROOT / "scripts/prepare-engine-overlay.py").read_bytes())
@@ -37,12 +37,12 @@ def lab_contract():
     plan = ast.literal_eval(next(node.value for node in function.body if isinstance(node, ast.Return)))
     model = service.models.select("uncensored")
     return {"operation": "local-correctness", "gpu_family": "B300",
-            "gpu_security": "nonconfidential", "execution_profile": "tau8k-eager",
+            "gpu_security": "nonconfidential", "execution_profile": profile,
             "data_parallel_size": 2, "model_profile": model,
             "pack_revision": model["hf_revision"], "pack_bytes": model["total_bytes"],
             "manifest_sha256": model["manifest_sha256"],
             "arguments": deepseek_tuning.arguments(service.engine_lab.lab_args(plan, 2,
-                model=model["served_model_name"]), "tau8k-eager"),
+                model=model["served_model_name"]), profile),
             "environment": service.engine_lab.lab_environment(plan),
             "interpreter": {"resolved": "/usr/bin/python3.12", "bytes": 1,
                             "sha256": process.digest(b"synthetic interpreter")}}

@@ -223,6 +223,7 @@ class ProcessOwner:
         return child
 
     def start(self, role, contract, inputs, register, deadline):
+        require(self.prepared.lab["execution_profile"] == contract.execution_profile, "runtime-limits")
         if contract.lifetime_profile == service.ORDINARY_PROFILE:
             service.progress("weights" if role == "engine" else role + "-starting", contract,
                              self.prepared.receipt_sha256)
@@ -256,7 +257,7 @@ class ProcessOwner:
         elif role == "tls":
             command = service.pilot.pilot.shim_command(ROOT / "bin/trcs", TLS_PORT, 8001,
                 inputs.root / "cert.pem", inputs.root / "key.pem", host="0.0.0.0")
-            command[command.index("--max-inflight") + 1] = str(service.ADMISSION)
+            command[command.index("--max-inflight") + 1] = str(contract.max_inflight)
             env = self.env
         else:
             raise service.Rejected("contract")
@@ -373,7 +374,9 @@ class ProcessOwner:
             return None
         if role == "engine":
             self.check_mounts(deadline)
-            return service.EngineReady(bound, body, service.CONTEXT, service.MEMORY_BYTES, 0)
+            profile = self.prepared.lab["execution_profile"]
+            return service.EngineReady(bound, body, engine_entry.execution_limits(profile)["context_tokens"],
+                                       service.MEMORY_BYTES, 0, profile)
         return True
 
     def drain(self, role, child, deadline):
@@ -458,6 +461,7 @@ def main(argv=None):
     parser.add_argument("--output-price", required=True)
     parser.add_argument("--hard-stop-at", required=True)
     parser.add_argument("--lifetime-profile", default=service.SMOKE_PROFILE)
+    parser.add_argument("--execution-profile", default=engine_entry.EAGER_PROFILE)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--inference-smoke", action="store_true")
     mode.add_argument("--conformance-smoke", action="store_true")
@@ -468,14 +472,21 @@ def main(argv=None):
     handlers = {number: signal.signal(number, lambda *_: shutdown.set())
                 for number in (signal.SIGINT, signal.SIGTERM)}
     result, stage, contract = None, "contract", None
+    def publish(row):
+        if args.execution_profile == engine_entry.GRAPHS_PROFILE and row["schema"] != service.EXECUTION_SCHEMA:
+            row = service.execution_result(row, args.execution_profile, args.prepared_sha256
+                if re.fullmatch("[0-9a-f]{64}", args.prepared_sha256) else None)
+        print(json.dumps(row, sort_keys=True))
     try:
         contract = service.Contract.begin(args.hard_stop_at, input_price=args.input_price,
-            output_price=args.output_price, lifetime_profile=args.lifetime_profile)
+            output_price=args.output_price, lifetime_profile=args.lifetime_profile,
+            execution_profile=args.execution_profile)
         require(args.lifetime_profile == service.SMOKE_PROFILE or not any((args.inference_smoke,
             args.conformance_smoke, args.protocol_smoke, args.tool_smoke)), "contract")
         service.progress("preparation", contract, args.prepared_sha256)
         stage = "prepared"
         prepared = Prepared(args.prepared_sha256, contract.startup_deadline)
+        require(prepared.lab["execution_profile"] == contract.execution_profile, "runtime-limits")
         if args.conformance_smoke or args.protocol_smoke:
             require("checker/trial.json" in prepared.files, "contract")
         stage = "inputs"
@@ -489,16 +500,20 @@ def main(argv=None):
                 protocol_smoke=args.protocol_smoke, tool_smoke=args.tool_smoke)
         if (args.inference_smoke or args.conformance_smoke or args.protocol_smoke or args.tool_smoke) and shutdown.is_set() and result["status"] != "failed":
             result.update(status="failed", reason="cancelled")
-        print(json.dumps(result, sort_keys=True))
+        publish(result)
         return 0 if result["status"] in ("retired", "cancelled") else 1
     except BaseException as error:
         if not (args.inference_smoke or args.conformance_smoke or args.protocol_smoke or args.tool_smoke):
             if args.lifetime_profile == service.ORDINARY_PROFILE:
-                print(json.dumps({"schema": service.ORDINARY_SCHEMA, "status": "failed",
+                publish({"schema": service.ORDINARY_SCHEMA, "status": "failed",
                     "reason": "preparation", "deployable": False, "hardware_validated": False,
                     "lifetime": contract.lifetime if contract is not None else None,
                     "prepared_sha256": args.prepared_sha256
-                        if re.fullmatch("[0-9a-f]{64}", args.prepared_sha256) else None}, sort_keys=True))
+                        if re.fullmatch("[0-9a-f]{64}", args.prepared_sha256) else None})
+                return 1
+            if args.execution_profile == engine_entry.GRAPHS_PROFILE:
+                publish({"schema": "nib.selected-service-lifecycle/v1", "status": "failed", "reason": "preparation",
+                         "deployable": False, "hardware_validated": False})
                 return 1
             print('{"schema":"nib.selected-service-lifecycle/v1","status":"failed","reason":"preparation",'
                   '"deployable":false,"hardware_validated":false}')
@@ -518,7 +533,7 @@ def main(argv=None):
                 result.update(schema=service.PROTOCOL_SCHEMA, mode=service.PROTOCOL_MODE, protocol=None)
             if args.tool_smoke:
                 result.update(schema=service.TOOL_SCHEMA, mode=service.TOOL_MODE, tool_roundtrip=None)
-        print(json.dumps(result, sort_keys=True))
+        publish(result)
         return 1
     finally:
         for number, handler in handlers.items():

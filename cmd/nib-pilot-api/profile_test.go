@@ -27,6 +27,7 @@ func TestCLIClosedProfileSelection(t *testing.T) {
 		{nil, "qwen/qwen3-0.6b"},
 		{[]string{"--profile", "qwen"}, "qwen/qwen3-0.6b"},
 		{[]string{"--profile", "selected-deepseek"}, "dealignai/deepseek-v4.1-flash-1017-uncensored-fp8"},
+		{[]string{"--profile", "selected-deepseek-graphs"}, "dealignai/deepseek-v4.1-flash-1017-uncensored-fp8"},
 	} {
 		handler, err := configuredHandler(append(append([]string{}, base...), tc.args...))
 		if err != nil {
