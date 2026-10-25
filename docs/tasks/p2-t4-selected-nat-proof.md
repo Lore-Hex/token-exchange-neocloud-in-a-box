@@ -222,6 +222,71 @@ watchdog integration, continuous drift supervision and an authorized isolated
 kernel experiment remain separate work; no public service or hardware gate is
 satisfied by this increment.
 
+### Opt-in isolated quarantine experiment
+
+The runner now implements `--quarantine`, with mocked orchestration tests only.
+**It has not executed against either pinned kernel venue.** It does not change
+the serving policy, the default experiment, any existing receipt, or the
+`--network none` selected-service owner. It is available for both closed venue
+profiles without changing their tool, resolver or source-identity admission.
+
+After the original 15 baseline controls and protected two-allow/13-deny stage
+pass, the opt-in path:
+
+1. Re-establishes both certificate-verified host and forwarded TLS positives.
+2. Checks/applies the exact `Quarantine` create-only batch and verifies fresh
+   readback with the actual integer apply and readback exit statuses.
+3. Rechecks the private namespace boundary, exact serving tables and independent
+   quarantine, then deliberately deletes **only the two owned serving tables**.
+   Fresh readback must prove their absence and unchanged quarantine. This is a
+   proof-only destructive control, not a production removal API. It does not
+   falsely supply resource-absence assertions to `Policy.remove_batch` or relax
+   that helper's guards. The JSON `DELETE`/`TABLE` sections of the two pinned
+   source archives above define these exact family/name deletion commands.
+4. Requires all 15 paths to fail, including both formerly working TLS paths.
+   Rechecks all six candidate IPv4/IPv6 loopback listeners, both peer/client
+   sinks, exact protected container/DNS admission, unchanged host DNS counters,
+   quarantine readback and serving-table absence. A dead listener or changed
+   DNS configuration cannot establish success.
+
+The two TLS controls each exchange two frames on a single connection before
+closing it. Post-quarantine probes open new connections. This does **not** prove
+interruption of a connection held open across installation, arbitrary kernel
+traffic, host-root drift resistance or production isolation. Embedded DNS still
+depends on the independently checked exact `127.0.0.1` override; drop rules
+alone do not constrain a host-originated Docker relay.
+
+Cleanup shares the original resource inventory/removal path. Only after resolved
+creation and confirmed container plus network absence may it freshly verify and
+remove quarantine, followed by strict readback proving both table sets absent.
+Failed/unknown apply, drift, uncertain serving withdrawal, inventory failure or
+deadline/cancellation failure cannot become protection or PASS. If cleanup cannot
+prove those facts, tables remain until namespace destruction and cleanup stays
+unconfirmed. The outer namespace/group/cgroup gates remain mandatory. No retries
+or additional operation time are added: the same absolute 480/90/25-second
+budgets apply, including the additional probes.
+
+Opt-in inner and outer receipts use `nib.selected-nat-proof/v2` and
+`nib.selected-nat-proof-host/v2`. The inner `quarantine` object contains only
+closed steps, booleans, the exact batch hash and fixed control names. A step is
+an attempted operation, not proof of its completion. `installed_verified` means
+the first exact readback succeeded; `serving_withdrawn` means deletion and absence
+readback succeeded; `verified` additionally requires all denials, live controls,
+DNS and final readbacks; `removed` records confirmed cleanup deletion. None
+claims an enduring protected service. Schema/mode mismatch, unknown fields,
+integer-for-boolean substitution or missing PASS gates fail validation. Common
+serving fields reuse the existing strict validator. Default argv, v1 receipt
+shape, source-file set and source-byte/Git-head checks are unchanged; the actual
+modified runner bytes must of course be newly source-bound.
+
+After independent review, CI and separate execution authorization, append
+`--quarantine` to the existing closed command below (and use
+`--venue-profile ubuntu26-ordinary` only for that exact reviewed profile).
+Always choose a new output directory and preserve prior observations.
+[Focused tests](../../scripts/test_selected_quarantine_proof.py) use no sockets,
+Docker, nft, mounts or namespaces. Real quarantine observations, existing-stream
+revocation, continuous drift supervision and a service owner remain future gates.
+
 ### DNS is a separate boundary
 
 Bridge filtering alone does not block inherited Docker DNS. At Docker tag

@@ -46,6 +46,32 @@ TOOL_ERROR_SOURCES = {
     "tau2.environment.environment": (18486, "b5357f11e2914c11ce0372af919cc1d726191b91cd97f776b8fb388ae0615350", 490),
     "tau2.environment.toolkit": (11313, "3e897891e8878c3399aec72e42eb0eb5546642420c0c902b225421fc936b924a", 323),
 }
+EMAIL_LOOKUP_ORIGIN = (TOOL_ERROR_SOURCES["tau2.domains.retail.tools"][1], 330)
+
+
+def prior_user_text_contains_argument(value, messages, user_type):
+    """Transient comparison only; neither argument nor message content escapes."""
+    try:
+        require(type(value) is str and 3 <= len(value) <= 320 and value.count("@") == 1
+                and not any(char.isspace() for char in value)
+                and type(messages) is list and len(messages) <= 256)
+        texts, total = [], 0
+        for message in messages:
+            if type(message) is not user_type:
+                continue
+            text = vars(message).get("content")
+            if text is None:
+                continue
+            require(type(text) is str)
+            total += len(text)
+            require(total <= MAX_REQUEST)
+            texts.append(text)
+        require(texts)
+        # Match upstream's lower(), not a guessed email normalization. This is
+        # literal containment, not a claim of correct identity or user intent.
+        return any(value.lower() in text.lower() for text in texts)
+    except Exception:
+        return None
 
 
 def tool_error_sources():
@@ -124,7 +150,8 @@ def validate_tool_error_attribution(value, errors):
     for row in value["counts"]:
         require(type(row) is dict and set(row) in (
                     {"requestor", "known_tool", "category", "count"},
-                    {"requestor", "known_tool", "category", "count", "origin"})
+                    {"requestor", "known_tool", "category", "count", "origin"},
+                    {"requestor", "known_tool", "category", "count", "origin", "prior_user_text_contains_argument"})
                 and type(row["requestor"]) is str and row["requestor"] in TOOL_ERROR_REQUESTORS
                 and type(row["known_tool"]) is bool and type(row["category"]) is str
                 and row["category"] in (*TOOL_ERROR_CATEGORIES.values(), "other_exception")
@@ -137,8 +164,13 @@ def validate_tool_error_attribution(value, errors):
                     and type(origin["line"]) is int and 1 <= origin["line"] <=
                     next(value[2] for value in TOOL_ERROR_SOURCES.values()
                          if value[1] == origin["source_sha256"]))
+        prior = row.get("prior_user_text_contains_argument")
+        if "prior_user_text_contains_argument" in row:
+            require(type(prior) is bool and row["requestor"] == "assistant"
+                    and row["known_tool"] is True and row["category"] == "value_error"
+                    and (origin["source_sha256"], origin["line"]) == EMAIL_LOOKUP_ORIGIN)
         key = (row["requestor"], row["known_tool"], row["category"],
-               (origin["source_sha256"], origin["line"]) if origin is not None else None)
+               (origin["source_sha256"], origin["line"]) if origin is not None else None, prior)
         require(key not in seen)
         seen.add(key)
         total += row["count"]
@@ -153,7 +185,7 @@ class ToolErrors:
         self.counts, self.total, self.overflow = {}, 0, False
         self.sources = None
 
-    def record(self, requestor, known, error):
+    def record(self, requestor, known, error, *, prior_user_match=None):
         if self.total == MAX_TOOL_CALLS:
             self.overflow = True
             return
@@ -165,7 +197,11 @@ class ToolErrors:
             origin = tool_error_origin(error, self.sources)
         except Exception:
             origin = None
-        key = (requestor, known, category, origin or ("", 0))
+        relation = "unknown"
+        if (origin == EMAIL_LOOKUP_ORIGIN and requestor == "assistant" and known is True
+                and category == "value_error" and type(prior_user_match) is bool):
+            relation = "present" if prior_user_match else "absent"
+        key = (requestor, known, category, origin or ("", 0), relation)
         self.counts[key] = self.counts.get(key, 0) + 1
         self.total += 1
 
@@ -174,8 +210,10 @@ class ToolErrors:
         # simulation. Argument binding and sync_tools errors are not observed.
         counts = {} if self.overflow or self.total > errors else self.counts
         rows = [{"requestor": requestor, "known_tool": known, "category": category, "count": count,
-                 **({"origin": {"source_sha256": origin[0], "line": origin[1]}} if origin[0] else {})}
-                for (requestor, known, category, origin), count in sorted(counts.items())]
+                 **({"origin": {"source_sha256": origin[0], "line": origin[1]}} if origin[0] else {}),
+                 **({"prior_user_text_contains_argument": relation == "present"}
+                    if relation != "unknown" else {})}
+                for (requestor, known, category, origin, relation), count in sorted(counts.items())]
         return validate_tool_error_attribution({"path": "live_make_tool_call", "counts": rows,
             "unattributed": errors - sum(counts.values())}, errors)
 
@@ -186,6 +224,7 @@ def observe_selected_tools():
     # sync_tools; set_state also replays get_response during evaluation. Observe
     # only the synchronous live batch, not initialization or evaluation replay.
     from tau2.environment.environment import Environment
+    from tau2.data_model.message import UserMessage
     from tau2.orchestrator.orchestrator import BaseOrchestrator
     observer = ToolErrors()
     execute = BaseOrchestrator._execute_tool_calls
@@ -213,7 +252,15 @@ def observe_selected_tools():
                 return original(*args, **kwargs)
             except Exception as error:
                 if type(known) is bool:
-                    observer.record(requestor, known, error)
+                    prior = None
+                    if (type(requestor) is str and requestor == "assistant" and known
+                            and type(tool_name) is str and tool_name == "find_user_id_by_email"):
+                        try:
+                            prior = prior_user_text_contains_argument(kwargs.get("email"),
+                                orchestrator.get_messages(), UserMessage)
+                        except Exception:
+                            pass
+                    observer.record(requestor, known, error, prior_user_match=prior)
                 raise
 
         try:

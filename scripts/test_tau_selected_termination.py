@@ -25,6 +25,10 @@ class ToolMessage(types.SimpleNamespace):
     pass
 
 
+class UserMessage(types.SimpleNamespace):
+    pass
+
+
 def simulation(reason="too_many_errors", errors=1):
     return types.SimpleNamespace(termination_reason=types.SimpleNamespace(value=reason),
         reward_info=types.SimpleNamespace(reward=0.0),
@@ -41,6 +45,7 @@ def upstream(value, *, failure=None, cleanup=None, environment=None, orchestrato
              "tau2.orchestrator", "tau2.orchestrator.orchestrator")
     modules = {name: types.ModuleType(name) for name in names}
     modules["tau2.data_model.message"].ToolMessage = ToolMessage
+    modules["tau2.data_model.message"].UserMessage = UserMessage
     modules["tau2.data_model.simulation"].TextRunConfig = lambda **kw: types.SimpleNamespace(**kw)
     task = types.SimpleNamespace(evaluation_criteria=types.SimpleNamespace(nl_assertions=[CANARY]))
     modules["tau2.runner.helpers"].get_tasks = lambda *a, **kw: [task]
