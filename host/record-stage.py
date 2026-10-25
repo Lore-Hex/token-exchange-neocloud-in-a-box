@@ -37,6 +37,7 @@ BUILDER_FILES = {
     "scripts/engine_image_diagnostic.py": "e97285260e589d4d7cb6405529275a49a88be72778977fb34f03394dea2b2a48",
 }
 PACK = "models/deepseek-v4.1-flash-1017/1"
+MODEL_PACKS = {"deepseek": PACK, "glm-5.3": "models/glm-5.3/1"}
 MODEL_PROFILES = ("original", "uncensored")
 PROFILE_SOURCE = "scripts/deepseek_model_profile.py"
 PROFILE_SHA256 = "11475b07991fb510704d64143fcd9a0084327e586699604f14f88436960b754a"
@@ -207,13 +208,15 @@ def load_profiles(builder, revision):
     return module
 
 
-def prepare(destination, model_profile="original"):
-    require(not CANCELLED and type(model_profile) is str and model_profile in MODEL_PROFILES)
+def prepare(destination, model_profile="original", model_pack="deepseek"):
+    require(not CANCELLED and type(model_profile) is str and model_profile in MODEL_PROFILES
+            and type(model_pack) is str and model_pack in MODEL_PACKS
+            and (model_pack == "deepseek" or model_profile == "original"))
     builder = load_builder()
     revision = builder.checker.git(ROOT, "rev-parse", "--verify", "HEAD^{commit}").decode().strip()
     require(re.fullmatch(r"[0-9a-f]{40}", revision))
     require(committed(builder, revision, SCRIPT) == BOOTSTRAP)
-    profile, pack = None, PACK
+    profile, pack = None, MODEL_PACKS[model_pack]
     if model_profile != "original":
         profiles = load_profiles(builder, revision)
         profile = profiles.select(model_profile)
@@ -553,6 +556,7 @@ def main():
     prepare_parser = sub.add_parser("prepare")
     prepare_parser.add_argument("--output", type=Path, required=True)
     prepare_parser.add_argument("--model-profile", choices=MODEL_PROFILES, default="original")
+    prepare_parser.add_argument("--model-pack", choices=tuple(MODEL_PACKS), default="deepseek")
     launch = sub.add_parser("run")
     launch.add_argument("--receipt-sha256", required=True)
     launch.add_argument("--destination", type=Path, required=True)
@@ -563,7 +567,7 @@ def main():
     launch.add_argument("--workers", type=int, default=1)
     args = parser.parse_args()
     if args.command == "prepare":
-        prepare(args.output, args.model_profile)
+        prepare(args.output, args.model_profile, args.model_pack)
         return 0
     return run(Path(__file__).absolute().parent, args.receipt_sha256, args.destination, args.evidence,
                args.seconds, args.max_bytes, args.download, args.workers)
