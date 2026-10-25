@@ -6,6 +6,11 @@ when its original launcher did not retain a PID/start record. No live cancellati
 has been validated by this increment. It does not change the owner, watchdog,
 service image, network policy, runtime limits, or original absolute retirement.
 
+The legacy owner can swallow its `InterruptedError` cancellation inside a
+Python selector. A signal receipt alone never proves exit. See the
+[cancellation boundary fix and narrowly scoped recovery](p2-t4-selected-owner-interruption.md)
+before operating that revision; do not resend the owner signal.
+
 ## Closed Operation
 
 The operator supplies a private, root-owned mode-0600 JSON expectation. These are
