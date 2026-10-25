@@ -4,10 +4,12 @@ Status: the [corrected CPU experiment passed](../../evidence/p2/2026-10-25-selec
 all 15 baseline controls, only two protected TLS paths allowed, 13 negative
 paths blocked, unchanged DNS relay counters and confirmed cleanup. The
 [two earlier failures](../../evidence/p2/2026-10-25-selected-nat-policy-failure/README.md)
-remain failures. This qualifies only the exact CPU experiment, **not GPU-host
-networking or a public service**. The separate
-[ordinary-host venue profile](p2-t4-selected-nat-venue.md) is implemented but has
-not run on hardware. This is a
+remain failures. The separate
+[ordinary-host venue profile](p2-t4-selected-nat-venue.md) subsequently passed
+the same isolated experiment with its own
+[original evidence](../../evidence/p2/2026-10-25-selected-nat-ubuntu26-pass/README.md).
+Neither result qualifies a persistent public service or confidential inference.
+This is a
 GPU-free network experiment, not a public service owner or permission to change
 a host firewall. The earlier [isolated-bridge observation](p2-t4-selected-network-probe.md)
 does not qualify this alternative. No inference, credentials, model weights,
