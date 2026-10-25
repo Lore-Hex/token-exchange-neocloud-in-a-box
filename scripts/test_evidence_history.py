@@ -17,11 +17,15 @@ GIT_ENV = {
     "GIT_CONFIG_GLOBAL": os.devnull, "GIT_NO_REPLACE_OBJECTS": "1",
     "GIT_NO_LAZY_FETCH": "1", "GIT_ALLOW_PROTOCOL": "", "GIT_TERMINAL_PROMPT": "0",
 }
+# Newer Git detaches automatic maintenance before the calling command returns.
+# Fixtures own their entire repository lifetime, including maintenance children.
+GIT_OPTIONS = ["-c", "core.hooksPath=" + os.devnull,
+               "-c", "maintenance.autoDetach=false", "-c", "gc.autoDetach=false"]
 
 
 def git(root, *args):
     result = subprocess.run(
-        ["git", "-c", "core.hooksPath=" + os.devnull, "-C", str(root), *args],
+        ["git", *GIT_OPTIONS, "-C", str(root), *args],
         env=GIT_ENV, stdin=subprocess.DEVNULL, capture_output=True, timeout=10)
     if result.returncode or len(result.stdout) > 1 << 20 or len(result.stderr) > 1 << 20:
         raise ValueError("offline Git operation failed")
@@ -103,6 +107,9 @@ class ProducerHistoryTests(unittest.TestCase):
         self.assertEqual(options["env"]["HOME"], "/nonexistent")
         self.assertNotIn("SSH_AUTH_SOCK", options["env"])
         self.assertEqual(options["timeout"], 10)
+        command = run.call_args.args[0]
+        self.assertIn("maintenance.autoDetach=false", command)
+        self.assertIn("gc.autoDetach=false", command)
 
 
 class CloneHistoryTests(unittest.TestCase):
@@ -147,7 +154,7 @@ class CloneHistoryTests(unittest.TestCase):
         clone = self.parent / "clone"
         # The fixture alone permits local file transport; audit() itself never fetches.
         result = subprocess.run(
-            ["git", "-c", "core.hooksPath=" + os.devnull, "clone", "--no-local",
+            ["git", *GIT_OPTIONS, "clone", "--no-local",
              "--single-branch", "--no-tags", "--branch", "main", str(self.root), str(clone)],
             env={**GIT_ENV, "GIT_ALLOW_PROTOCOL": "file"}, stdin=subprocess.DEVNULL,
             capture_output=True, timeout=10)
@@ -177,3 +184,22 @@ class CloneHistoryTests(unittest.TestCase):
         self.commit()
         with self.assertRaisesRegex(ValueError, "size bound"):
             audit(self.root)
+
+    def test_repository_settings_cannot_detach_fixture_maintenance(self):
+        for key in ("maintenance.autoDetach", "gc.autoDetach"):
+            git(self.root, "config", "--local", key, "true")
+            self.assertEqual(git(self.root, "config", "--bool", key), b"false\n")
+        trace = self.parent / "maintenance-trace.jsonl"
+        git(self.root, "config", "maintenance.loose-objects.enabled", "true")
+        git(self.root, "config", "maintenance.loose-objects.auto", "1")
+        self.source.write_bytes(b"force a real maintenance-capable commit\n")
+        with mock.patch.dict(GIT_ENV, {"GIT_TRACE2_EVENT": str(trace)}):
+            self.commit()
+        events = [json.loads(line) for line in trace.read_text().splitlines()]
+        maintenance = [event["argv"] for event in events
+                       if event.get("event") == "child_start"
+                       and event.get("argv", [])[:3] == ["git", "maintenance", "run"]]
+        self.assertTrue(maintenance)
+        for command in maintenance:
+            self.assertIn("--no-detach", command)
+            self.assertNotIn("--detach", command)

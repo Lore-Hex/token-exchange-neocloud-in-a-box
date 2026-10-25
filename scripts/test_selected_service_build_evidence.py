@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Pin original build artifacts without upgrading build success to serving."""
+"""Pin original builds and a separately recorded, narrowly scoped private smoke."""
 
 import copy
 import unittest
 from pathlib import Path
 
 import selected_service_image as image
+from test_selected_service_smoke import smoke
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +43,8 @@ CASES = (
         },
     },
 )
+INFERENCE = EVIDENCE / "2026-10-24-selected-service-inference/smoke.json"
+INFERENCE_SHA = "a3381c17a08e0c6edf91063a65e60fc514ed10b5cd9176d2010e0f04bbf2c7b9"
 
 
 class BuildEvidenceTests(unittest.TestCase):
@@ -110,6 +113,93 @@ class BuildEvidenceTests(unittest.TestCase):
                         self.assertRaises(ValueError):
                     self.validate(raw["build.json"], case["hashes"]["build.json"],
                                   rows["preparation.json"], other["hashes"]["preparation.json"])
+
+    def assert_runtime_handoff(self, row, record):
+        case, raw, rows = record
+        preparation = rows["preparation.json"]
+        build = self.validate(raw["build.json"], case["hashes"]["build.json"],
+                              preparation, case["hashes"]["preparation.json"])
+        self.assertEqual(preparation["git_sha"], "ab759d43b82e5e235ddb99eb5e5d5ebcfb360e63")
+        self.assertEqual(preparation["files"]["context/service/prepared.json"]["sha256"],
+                         build["prepared_sha256"])
+        self.assertEqual(row, {
+            "schema": "nib.selected-service-smoke/v2", "mode": "inference-smoke",
+            "result": "pass", "status": "PASS", "reason": "completed",
+            "preflight_pass": True, "container_created": True, "runtime_started": True,
+            "cleanup": "confirmed", "image_id": build["image_id"],
+            "build_sha256": case["hashes"]["build.json"],
+            "preparation_sha256": case["hashes"]["preparation.json"],
+            "prepared_sha256": build["prepared_sha256"], "lifecycle": row["lifecycle"],
+            **dict.fromkeys(("hardware_validated", "deployable", "published", "tools",
+                             "reasoning", "zdr", "confidential", "e2ee"), False),
+        })
+        observed = smoke.lifecycle(image.encoded(row["lifecycle"]), inference_smoke=True,
+                                   prepared_sha256=build["prepared_sha256"])
+        self.assertEqual(observed, row["lifecycle"])
+        return observed["inference"]
+
+    def test_original_private_inference_and_build_source_joins(self):
+        raw = INFERENCE.read_bytes()
+        self.assertEqual(len(raw), 1973)
+        self.assertEqual(image.digest(raw), INFERENCE_SHA)
+        row = image.owner.service.correctness.strict_json(raw)
+        observed = self.assert_runtime_handoff(row, self.records[-1])
+        self.assertEqual(observed["usage"], {"prompt_tokens": 36, "completion_tokens": 13})
+        self.assertIs(observed["usage_unknown"], False)
+        self.assertIs(observed["auth_upstream_calls_measured"], False)
+        self.assertEqual(observed["checks"], dict.fromkeys(smoke.inference.CASES, True))
+        self.assertEqual(observed["attempts"], observed["checks"])
+
+    def test_private_inference_rejects_cross_build_and_wrong_handoff(self):
+        row = image.owner.service.correctness.strict_json(INFERENCE.read_bytes())
+        for record in self.records[:-1]:
+            with self.subTest(source=record[0]["git_sha"]), self.assertRaises(AssertionError):
+                self.assert_runtime_handoff(row, record)
+        for name in ("image_id", "build_sha256", "preparation_sha256", "prepared_sha256"):
+            changed = copy.deepcopy(row)
+            changed[name] = "0" * 64
+            with self.subTest(field=name), self.assertRaises(AssertionError):
+                self.assert_runtime_handoff(changed, self.records[-1])
+
+    def test_private_inference_cannot_promote_claims_or_retain_content(self):
+        row = image.owner.service.correctness.strict_json(INFERENCE.read_bytes())
+        for scope, claims in (((), ("hardware_validated", "deployable", "published", "tools",
+                                    "reasoning", "zdr", "confidential", "e2ee")),
+                              (("lifecycle",), ("hardware_validated", "deployable", "tools",
+                                                "reasoning", "zdr", "confidential", "e2ee")),
+                              (("lifecycle", "inference"), smoke.inference.CLAIMS
+                               + ("auth_upstream_calls_measured",))):
+            for name, value in [(key, True) for key in claims] + [("body", "PRIVATE_CANARY")]:
+                changed = copy.deepcopy(row)
+                target = changed
+                for key in scope:
+                    target = target[key]
+                target[name] = value
+                with self.subTest(scope=scope, field=name), self.assertRaises((AssertionError, ValueError)):
+                    self.assert_runtime_handoff(changed, self.records[-1])
+
+    def test_private_inference_rejects_cleanup_and_accounting_tampering(self):
+        row = image.owner.service.correctness.strict_json(INFERENCE.read_bytes())
+        changes = []
+        for name in ("ready", "cleanup_confirmed"):
+            changed = copy.deepcopy(row)
+            changed["lifecycle"][name] = False
+            changes.append(changed)
+        for index in range(3):
+            for name in ("drained", "reaped"):
+                changed = copy.deepcopy(row)
+                changed["lifecycle"]["cleanup"][index][name] = False
+                changes.append(changed)
+        for name, value in (("prepared_sha256", "0" * 64), ("contract_sha256", "0" * 64),
+                            ("usage", {"prompt_tokens": 36, "completion_tokens": True}),
+                            ("usage", {"prompt_tokens": 36, "completion_tokens": 257}),
+                            ("usage_unknown", True), ("checks", dict.fromkeys(smoke.inference.CASES, False))):
+            changed = copy.deepcopy(row)
+            changed["lifecycle"]["inference"][name] = value
+            changes.append(changed)
+        for index, changed in enumerate(changes):
+            with self.subTest(case=index), self.assertRaises(ValueError):
+                self.assert_runtime_handoff(changed, self.records[-1])
 
 
 if __name__ == "__main__":
