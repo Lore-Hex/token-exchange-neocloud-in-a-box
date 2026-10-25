@@ -81,7 +81,12 @@ A subsequent [private native tool smoke](evidence/p2/2026-10-25-selected-tool-pa
 passed one fixed tool call and its continuation through owned TLS, with actual
 usage and confirmed cleanup. No retries were used; this is not general tool
 reliability, full tau evaluation, public serving or a capability/privacy claim.
-A later [finite externally reachable service run](evidence/p2/2026-10-25-selected-finite-owner-pass/README.md)
+A separate [ordinary day-profile startup](evidence/p2/2026-10-25-selected-day-startup/README.md)
+passed external pinned-TLS health and one authenticated stream after a preserved
+pre-container failure. The long-run owner has not yet completed; this is not a
+24-hour soak, public deployment or confidential result.
+
+A completed [finite externally reachable service run](evidence/p2/2026-10-25-selected-finite-owner-pass/README.md)
 reached readiness, retired naturally, drained all three roles, and confirmed
 watchdog resource cleanup and private-input removal. The separate external
 client passed health, authentication rejection and one stream. This is a bounded
