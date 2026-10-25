@@ -149,6 +149,37 @@ class ExternalTests(unittest.TestCase):
             self.assertEqual(len(sock.sent), 1)
             self.assertIsNone(report["measurement"])
 
+    def test_malformed_401_framing_stops_before_real_key_read(self):
+        denied = probe.encoded({"error": {"message": "invalid_api_key", "type": "invalid_api_key"}})
+        good = response(401, denied)
+        length = b"Content-Length: " + str(len(denied)).encode()
+        malformed = (
+            good.replace(length, b"Content-Length: " + str(len(denied) + 10).encode()),
+            good.replace(length, b"Content-Length: " + str(len(denied) - 1).encode()),
+            good.replace(length, length + b"\r\n" + length),
+            good.replace(length, length + b"\r\nContent-Length: 2"),
+            good.replace(length + b"\r\n", b""),
+            good.replace(length, b"Content-Length: 4097"),
+            good.replace(length, b"Content-Length: +" + str(len(denied)).encode()),
+            good.replace(length, b"Content-Length: 0" + str(len(denied)).encode()),
+            good.replace(length, length + b"\r\nTransfer-Encoding: chunked"),
+            good.replace(length, length + b"\r\nContent-Encoding: gzip"),
+            good.replace(b"application/json", b"text/html"),
+            good.replace(length, length + b"\r\nContent-Type: application/json"),
+            good + b"PRIVATE_TRAILING_CANARY", good[:-1])
+        for raw in malformed:
+            for position in (1, 2):
+                with self.subTest(position=position, response=raw), self.fixture() as (sockets, read):
+                    sockets[position].raw = raw
+                    report = probe.run(args())
+                    self.assertEqual(report["result"], "fail", report)
+                    self.assertFalse(report["checks"][probe.CASES[position]])
+                    self.assertFalse(report["attempts"]["stream"])
+                    self.assertIsNone(report["usage"])
+                    read.assert_not_called()
+                    self.assertEqual(sum(len(sock.sent) for sock in sockets), position + 1)
+                    self.assertNotIn("PRIVATE_TRAILING_CANARY", probe.encoded(report).decode())
+
     @contextmanager
     def fixture(self, *, fail_at=None):
         events = []
