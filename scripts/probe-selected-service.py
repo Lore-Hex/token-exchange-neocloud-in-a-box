@@ -113,6 +113,26 @@ def pinned_tls(args, trust, peer_digest, deadline):
         yield connection
 
 
+def fixed_body(response, *, status, limit, category, media=None):
+    headers = response.getheaders()
+    lengths = response.headers.get_all("Content-Length")
+    require(not response.headers.defects and len(headers) <= 32
+            and sum(len(key) + len(value) for key, value in headers) <= 65536
+            and all("\r" not in value and "\n" not in value for _, value in headers)
+            and response.version in (10, 11) and response.status == status
+            and lengths is not None and len(lengths) == 1
+            and re.fullmatch(r"0|[1-9][0-9]{0,3}", lengths[0]) is not None
+            and int(lengths[0]) <= limit
+            and response.getheader("Transfer-Encoding") is None
+            and response.getheader("Content-Encoding") is None, category)
+    if media is not None:
+        require(response.headers.get_all("Content-Type") == [media], category)
+    raw = response.read(limit + 1)
+    require(len(raw) == int(lengths[0]) and response.tail is not None
+            and response.tail.read1(1) == b"", category)
+    return raw
+
+
 def health(connection, args, deadline, result):
     result["attempts"]["health"] = True
     connection.settimeout(remaining(deadline))
@@ -120,16 +140,7 @@ def health(connection, args, deadline, result):
         + "\r\nConnection: close\r\nAccept-Encoding: identity\r\n\r\n").encode("ascii"))
     with transport.StreamResponse(connection) as response:
         response.begin()
-        headers = response.getheaders()
-        require(not response.headers.defects and len(headers) <= 32
-                and sum(len(key) + len(value) for key, value in headers) <= 65536
-                and all("\r" not in value and "\n" not in value for _, value in headers)
-                and response.version in (10, 11) and response.status == 200
-                and response.headers.get_all("Content-Length") == ["0"]
-                and response.getheader("Transfer-Encoding") is None
-                and response.getheader("Content-Encoding") is None, "not-ready")
-        require(response.read(1) == b"" and response.tail is not None
-                and response.tail.read1(1) == b"", "not-ready")
+        fixed_body(response, status=200, limit=0, category="not-ready")
 
 
 def request(connection, args, case, key, deadline, result):
@@ -150,9 +161,8 @@ def request(connection, args, case, key, deadline, result):
     with transport.StreamResponse(connection) as response:
         response.begin()
         if case != "stream":
-            raw = response.read(4097)
-            require(len(raw) <= 4096 and response.status == 401
-                and service.correctness.strict_json(raw) == {"error": {
+            raw = fixed_body(response, status=401, limit=4096, category="authentication", media="application/json")
+            require(service.correctness.strict_json(raw) == {"error": {
                     "message": "invalid_api_key", "type": "invalid_api_key"}}, "authentication")
             return
         length = transport.response_length(response)

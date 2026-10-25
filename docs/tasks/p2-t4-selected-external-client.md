@@ -27,7 +27,11 @@ define those checks. No verification is disabled for self-signed test certificat
 One invocation makes one fixed `GET /healthz`, two negative-auth requests and **at most one
 authenticated streaming request**, with the existing selected model identity,
 short synthetic greeting, temperature zero and 256-token output cap. Missing
-and wrong keys must receive the exact reviewed 401 body. Actual upstream
+and wrong keys must receive the exact reviewed 401 body. Each 401 also requires
+a single bounded canonical Content-Length, application/json, no transfer or
+content encoding, exactly the declared bytes and trailing EOF. Truncation,
+duplicate/conflicting lengths and extra bytes reject before reading the real
+key. Health and authentication share this bounded fixed-body reader. Actual upstream
 non-forwarding is not measured by this external client. It remains a separately
 reviewed server property, not an inference from HTTP status alone.
 
