@@ -164,7 +164,7 @@ def execute(source, work, env, snapshot, inputs, report, home, *, session_fd=Non
                      for name in ("tasks.json", "db.json")},
                     cpu.identity.tau.json_value(runner.runtime.read_file(
                         source / cpu.identity.tau.PINS, 1 << 20, deadline)))}
-                   if manifest["schema"] == sys.modules["tau_support_probe"].IDENTITY_SCHEMA else {}))
+                   if sys.modules["tau_support_probe"].is_identity(manifest) else {}))
             require(env["DOCKER_HOST"].startswith("unix://"))
             probe["socket"] = Path(env["DOCKER_HOST"].removeprefix("unix://"))
             probe["record"] = None

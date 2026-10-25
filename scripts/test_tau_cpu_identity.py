@@ -3,6 +3,7 @@
 import ast
 import copy
 import hashlib
+import itertools
 import json
 import os
 from pathlib import Path
@@ -42,9 +43,9 @@ def encode_sources(rows):
     return raw, pins
 
 
-def prepared():
+def prepared(*, model_17b=False):
     _, docs = legacy.prepared()
-    manifest = probe.policy.configuration(identity_followup=True)
+    manifest = probe.policy.configuration(**({"identity_followup_17b": True} if model_17b else {"identity_followup": True}))
     plan = {"support_probe": True, "transport": "scripted-parent-pipe",
             "manifest_sha256": probe.tau.digest(probe.tau.encoded(manifest)), "selection": probe.policy.SELECTION}
     return probe.inputs(plan, manifest, ["Synthetic assertion"], fixture=FACTS), docs
@@ -71,16 +72,17 @@ class IdentityTests(unittest.TestCase):
         builder = modules["tau2.runner.build"].build_text_orchestrator = mock.Mock(return_value=owner)
         evaluator = modules["tau2.evaluator.evaluator_nl_assertions"].NLAssertionsEvaluator = mock.Mock()
         logging = modules["tau2.utils"].llm_utils = types.SimpleNamespace(set_llm_log_dir=mock.Mock())
-        for error in (None, ValueError(CANARY), KeyboardInterrupt()):
+        for error, model_17b in itertools.product((None, ValueError(CANARY), KeyboardInterrupt()), (False, True)):
             logging.set_llm_log_dir.reset_mock()
+            manifest = probe.policy.configuration(**({"identity_followup_17b": True} if model_17b else {"identity_followup": True}))
             with mock.patch.dict(sys.modules, modules), mock.patch.object(probe.worker, "configure_upstream"), \
                     mock.patch.object(identity, "run", return_value=0.0, side_effect=error) as execute:
                 if error is None:
-                    self.assertEqual(probe.worker.run_support_probe(None, probe.policy.configuration(identity_followup=True),
+                    self.assertEqual(probe.worker.run_support_probe(None, manifest,
                                      probe.policy.SELECTION, mock.Mock()), 0.0)
                 else:
                     with self.assertRaises(type(error)) as caught:
-                        probe.worker.run_support_probe(None, probe.policy.configuration(identity_followup=True),
+                        probe.worker.run_support_probe(None, manifest,
                                                        probe.policy.SELECTION, mock.Mock())
                     self.assertIs(caught.exception, error)
             execute.assert_called_once_with(owner)
@@ -225,9 +227,9 @@ class IdentityTests(unittest.TestCase):
 
     def test_private_pipes_three_real_accounted_replies_and_failure_controls(self):
         child_code = legacy.CHILD.replace("('simulator','agent','evaluator')", "('simulator','simulator','simulator')")
-        for mode in ("pass", "email", "truncated", "bad-usage", "extra-request", "cancelled", "timeout",
-                     "legacy-profile", "wrong-role", "early-success"):
-            selected, docs = prepared()
+        for mode, model_17b in itertools.product(("pass", "email", "truncated", "bad-usage", "extra-request", "cancelled", "timeout",
+                     "legacy-profile", "wrong-role", "early-success"), (False, True)):
+            selected, docs = prepared(model_17b=model_17b)
             if mode == "legacy-profile":
                 selected, docs = legacy.prepared()
             runtimes = {role: docs[role + "-runtime.json"] for role in ("simulator", "evaluator")}
@@ -253,12 +255,17 @@ class IdentityTests(unittest.TestCase):
             child = subprocess.Popen([sys.executable, "-I", "-S", "-B", "-c", code, str(ROOT / "scripts")],
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             try:
-                with self.subTest(mode=mode), mock.patch.object(probe, "ProbeClient", return_value=client):
+                with self.subTest(mode=mode, model_17b=model_17b), mock.patch.object(probe, "ProbeClient", return_value=client) as factory:
                     row = probe.execute(selected, endpoints, runtimes, [], os.dup(child.stdout.fileno()),
                                         os.dup(child.stdin.fileno()), time.monotonic() + 3)
                 self.assertEqual(row["result"], "pass" if mode in ("pass", "email") else "fail", row)
                 self.assertNotIn(CANARY, json.dumps(row))
                 self.assertNotIn("example.test", json.dumps(row))
+                if model_17b and mode != "legacy-profile":
+                    runtime, endpoint = runtimes["evaluator"], endpoints["evaluator"]
+                    factory.assert_called_once_with(endpoint.port, probe.policy.MODELS[1], endpoint)
+                    self.assertEqual(row["schema"], probe.policy.IDENTITY_17_REPORT)
+                    self.assertEqual(row["simulator_binding"], probe.policy.runtime_binding(runtime))
                 self.assertEqual(row["roles"]["agent"], 0)
                 self.assertEqual(row["roles"]["evaluator"], 0)
                 if mode in ("pass", "email", "extra-request"):
@@ -271,7 +278,7 @@ class IdentityTests(unittest.TestCase):
                     self.assertEqual(row["status"], "truncated")
                     self.assertEqual(row["observations"][0]["completion_tokens"], 10)
                 for call in client.complete.call_args_list:
-                    self.assertEqual(call.args[0]["model"], probe.cpu.MODEL_IDS[0])
+                    self.assertEqual(call.args[0]["model"], selected["manifest"]["support"]["simulator"]["model"])
                     self.assertEqual(call.args[0]["max_completion_tokens"], 256)
             finally:
                 child.stdin.close()

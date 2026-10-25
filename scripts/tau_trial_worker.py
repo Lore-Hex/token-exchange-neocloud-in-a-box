@@ -639,7 +639,7 @@ def run_support_probe(root, manifest, selection, bridge):
         verbose_logs=False, seed=selection["seed"], save_to=None)
     try:
         orchestrator = build_text_orchestrator(config, task, seed=selection["seed"])
-        if manifest["schema"] == tau_support_probe.IDENTITY_SCHEMA:
+        if tau_support_probe.is_identity(manifest):
             import tau_cpu_identity
             return tau_cpu_identity.run(orchestrator)
         orchestrator.initialize()

@@ -16,15 +16,23 @@ CPU_PROBE_REPORT = b"NIB-TAU-CPU-PROBE "
 
 
 def validate_support_probe(row):
-    followup = type(row) is dict and row.get("schema") == "nib.tau-cpu-identity-probe/v1"
+    selected_17b = type(row) is dict and row.get("schema") == "nib.tau-cpu-identity-17b-probe/v1"
+    followup = selected_17b or type(row) is dict and row.get("schema") == "nib.tau-cpu-identity-probe/v1"
     require(type(row) is dict and set(row) == {"schema", "result", "status", "plan_sha256", "selection", "upstream_revision",
             "observations", "roles", "target", "pricing", "quality_eligible", "confidential", "live_admission"}
-            and row["schema"] == ("nib.tau-cpu-identity-probe/v1" if followup else "nib.tau-cpu-probe/v1")
+                | ({"simulator_binding"} if selected_17b else set())
+            and row["schema"] == ("nib.tau-cpu-identity-17b-probe/v1" if selected_17b else
+                                   "nib.tau-cpu-identity-probe/v1" if followup else "nib.tau-cpu-probe/v1")
             and row["result"] in ("pass", "fail")
             and row["status"] in worker.STATUSES and row["target"] == "scripted"
             and row["pricing"] == "not-measured"
             and row["upstream_revision"] == tau.REVISION
             and all(row[name] is False for name in ("quality_eligible", "confidential", "live_admission")))
+    if selected_17b:
+        import tau_support_probe as policy
+        if row["simulator_binding"] is not None:
+            policy.validate_binding(row["simulator_binding"])
+        require(row["simulator_binding"] is not None or row["result"] == "fail" and not row["observations"] and not row["roles"])
     tau.sha(row["plan_sha256"])
     require(type(row["selection"]) is dict and set(row["selection"]) == {"domain", "task_id", "trial", "seed", "role"}
             and type(row["selection"]["trial"]) is int

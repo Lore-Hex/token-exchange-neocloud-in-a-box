@@ -110,8 +110,13 @@ def probe_receipts(session, directory, notice, held, probe, deadline):
         sys.modules["tau_cpu_probe"].validate(row["diagnostic"])
         require(row["diagnostic"]["plan_sha256"] == probe["sha"]
                 and row["diagnostic"]["selection"] == probe["plan"]["selection"])
-        require(row["diagnostic"]["schema"] == ("nib.tau-cpu-identity-probe/v1"
+        require(row["diagnostic"]["schema"] == probe.get("report_schema", "nib.tau-cpu-identity-probe/v1"
                 if probe.get("identity_followup", False) else "nib.tau-cpu-probe/v1"))
+        if "simulator_binding" in row["diagnostic"] and row["diagnostic"]["simulator_binding"] is not None:
+            raw = session.identity.private_read(directory / "evaluator-runtime.json", deadline)
+            require(rec.digest(raw) == held["receipts"]["evaluator-runtime.json"])
+            policy = sys.modules["tau_support_probe"]
+            require(row["diagnostic"]["simulator_binding"] == policy.runtime_binding(session.llama.worker.decode(raw)))
     require(row["result"] != "pass" or row["stage"] == "completed" and row["cleanup"] == "confirmed"
             and row["diagnostic"] is not None and row["diagnostic"]["result"] == "pass")
     require(notice["scorer_sha256"] == rec.digest(session.tau.encoded(row))
@@ -269,9 +274,10 @@ def execute(source, env, snapshot, inputs, directory, report, deadline, *, probe
         toolkit = runner.identity(min(deadline, time.monotonic() + 60), parent_pipe=True, support_probe=True)
         plan, manifest = runner.validate_plan(probe["payload"], probe["sha"], toolkit,
             min(deadline, time.monotonic() + 60), parent_pipe=True, support_probe=True)
-        require(not local_identity or manifest["schema"] == "nib.tau-cpu-identity-probe-input/v1")
+        policy = sys.modules["tau_support_probe"]
+        require(not local_identity or policy.is_identity(manifest))
         probe.update(runner=runner, toolkit=toolkit, plan=plan,
-                     identity_followup=manifest["schema"] == "nib.tau-cpu-identity-probe-input/v1")
+                     identity_followup=policy.is_identity(manifest), report_schema=policy.report_schema(manifest))
         command += ["--probe-payload", str(probe["payload"]), "--probe-plan-sha256", probe["sha"]]
     require(cpu.TOTAL_SECONDS == 1800 and time.monotonic() < deadline)
     report["stage"] = "producer"

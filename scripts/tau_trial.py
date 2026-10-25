@@ -90,6 +90,8 @@ def parent_driver(toolkit, *, live_local=False, selected_operational=False):
                   "tau_llama_identity", "tau_live_identity")
     if selected_operational:
         names += SELECTED_PARENT_MODULES
+    elif "scripts/tau_support_probe.py" in toolkit["files"]:
+        names += ("tau_support_probe",)
     names += ("tau_pipe_driver",)
     if selected_operational:
         names += ("tau_selected_driver",)
@@ -236,8 +238,11 @@ def add_wheel(files, owners, raw, package, expected, deadline):
 
 
 def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, deadline, *, parent_pipe=False,
-            live_binding=None, support_probe=False, agent_prefix=False, selected_operational=False, identity_followup=False):
-    require(type(identity_followup) is bool and (not identity_followup or support_probe and not agent_prefix))
+            live_binding=None, support_probe=False, agent_prefix=False, selected_operational=False, identity_followup=False,
+            identity_followup_17b=False):
+    require(type(identity_followup) is bool and type(identity_followup_17b) is bool
+            and not (identity_followup and identity_followup_17b)
+            and (not (identity_followup or identity_followup_17b) or support_probe and not agent_prefix))
     selected_mode(selected_operational, parent_pipe, live_binding is not None, support_probe, agent_prefix)
     require(not support_probe or parent_pipe and live_binding is None)
     require(type(agent_prefix) is bool and (not agent_prefix or support_probe))
@@ -252,7 +257,8 @@ def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, de
         require(manifest_path is None and manifest_sha is None and selection is None)
         policy = (selected_policy(toolkit) if selected_operational else
                   load("scripts/tau_support_probe.py", modules={"tau_preflight": tau}))
-        manifest = policy.configuration(**({"identity_followup": True} if identity_followup else {}))
+        manifest = policy.configuration(**({"identity_followup": True} if identity_followup else {}),
+                                        **({"identity_followup_17b": True} if identity_followup_17b else {}))
         manifest_sha = tau.digest(tau.encoded(manifest))
         source_policy = policy.support if selected_operational else policy
         chosen = dict(source_policy.SELECTION)
@@ -269,7 +275,7 @@ def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, de
     require(runtime.make_catalog(source_rows, sources) == catalog)
     if support_probe or selected_operational:
         require(source_policy.source_selection(sources) == chosen)
-        if identity_followup:
+        if identity_followup or identity_followup_17b:
             load("scripts/tau_cpu_identity.py").fixture(sources, pins)
     else:
         rebuilt = tau.preflight(Path("/verified"), manifest["settings"], pins, manifest["toolkit"],
@@ -611,8 +617,9 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
                     load("scripts/e2e/snapshot.py", toolkit["files"]["scripts/e2e/snapshot.py"]))
                 probe_driver.validate_support_probe(observed)
                 require(observed["plan_sha256"] == sha and observed["selection"] == plan["selection"])
-                require(observed["schema"] == ("nib.tau-cpu-identity-probe/v1"
-                    if manifest["schema"] == "nib.tau-cpu-identity-probe-input/v1" else "nib.tau-cpu-probe/v1"))
+                probe_policy = load("scripts/tau_support_probe.py", toolkit["files"]["scripts/tau_support_probe.py"],
+                                    modules={"tau_preflight": tau})
+                require(observed["schema"] == probe_policy.report_schema(manifest))
             elif parent_pipe:
                 observed = (driver or parent_driver(toolkit)).run_process(
                     [docker, "--host", "unix://" + str(socket), "--config", private,
@@ -772,7 +779,9 @@ def main():
     support = sub.add_parser("prepare-probe")
     for name in ("source-archive", "wheelhouse", "output"):
         support.add_argument("--" + name, required=True)
-    support.add_argument("--identity-followup", action="store_true")
+    profiles = support.add_mutually_exclusive_group()
+    profiles.add_argument("--identity-followup", action="store_true")
+    profiles.add_argument("--identity-followup-17b", action="store_true")
     execution = sub.add_parser("run")
     for name in ("payload", "plan-sha256", "docker-socket", "output"):
         execution.add_argument("--" + name, required=True)
@@ -781,7 +790,8 @@ def main():
     if args.operation == "prepare-probe":
         files, plan = prepare(Path(args.source_archive), Path(args.wheelhouse), None, None, None,
                               time.monotonic() + runtime.SECONDS, parent_pipe=True, support_probe=True,
-                              **({"identity_followup": True} if args.identity_followup else {}))
+                              **({"identity_followup": True} if args.identity_followup else {}),
+                              **({"identity_followup_17b": True} if args.identity_followup_17b else {}))
         publish(Path(args.output), files)
         print(tau.encoded({"plan_sha256": tau.digest(files["trial.json"]), "upstream_executed": False,
                           "live_transport": False}).decode(), end="")
