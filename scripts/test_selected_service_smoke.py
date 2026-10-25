@@ -161,6 +161,73 @@ class SmokeTests(unittest.TestCase):
             with self.subTest(mount=field), self.assertRaises(ValueError):
                 validate(row)
 
+    def test_shared_runtime_is_not_network_admission_and_none_wrapper_stays_closed(self):
+        command = smoke.container_command("nib-selected-" + "1" * 32, "2" * 32, self.build, self.base,
+            self.args.weights, "/private/stage", self.args, self.args.hard_stop_at)
+        info = self.container(command)
+        arguments = (info["Id"], self.name, self.token, self.build, self.image, command,
+                     self.args.weights, "/private/stage")
+        for scope, field, value in (("Config", "ExposedPorts", {"8443/tcp": {}}),
+                ("HostConfig", "NetworkMode", "bridge"),
+                ("HostConfig", "PortBindings", {"8443/tcp": [{"HostPort": "443"}]}),
+                ("HostConfig", "PublishAllPorts", True),
+                ("NetworkSettings", "Networks", {"none": {}, "additional": {}}),
+                ("NetworkSettings", "Ports", {"8443/tcp": [{"HostPort": "443"}]})):
+            row = copy.deepcopy(info)
+            row[scope][field] = value
+            before = copy.deepcopy(row)
+            with self.subTest(scope=scope, field=field):
+                smoke.check_container_runtime(row, *arguments)
+                self.assertEqual(row, before)
+                with self.assertRaises(ValueError):
+                    smoke.check_container(row, *arguments)
+        with mock.patch.object(smoke, "check_container_runtime", wraps=smoke.check_container_runtime) as shared:
+            smoke.check_container(info, *arguments)
+        shared.assert_called_once_with(info, *arguments)
+
+    def test_shared_runtime_retains_identity_resources_devices_and_mount_guards(self):
+        command = smoke.container_command("nib-selected-" + "1" * 32, "2" * 32, self.build, self.base,
+            self.args.weights, "/private/stage", self.args, self.args.hard_stop_at)
+        info = self.container(command)
+        arguments = (info["Id"], self.name, self.token, self.build, self.image, command,
+                     self.args.weights, "/private/stage")
+        mutations = ((None, "Id", "wrong"), (None, "Name", "/wrong"), (None, "Image", identity("wrong")),
+            ("Config", "Image", identity("wrong")), ("Config", "Labels", {}),
+            ("Config", "Entrypoint", ["sh"]), ("Config", "Cmd", []), ("Config", "User", "0:0"),
+            ("Config", "WorkingDir", "/tmp"), ("Config", "Tty", True), ("Config", "OpenStdin", True),
+            ("Config", "Healthcheck", {"Test": ["CMD", "true"]}), ("Config", "Env", []),
+            ("HostConfig", "Privileged", True), ("HostConfig", "ReadonlyRootfs", False),
+            ("HostConfig", "Runtime", "runc"), ("HostConfig", "CapDrop", []),
+            ("HostConfig", "CapAdd", ["NET_ADMIN"]), ("HostConfig", "Devices", [{}]),
+            ("HostConfig", "DeviceCgroupRules", ["a"]), ("HostConfig", "PidMode", "host"),
+            ("HostConfig", "UTSMode", "host"), ("HostConfig", "VolumesFrom", ["other"]),
+            ("HostConfig", "Binds", ["/host:/host"]), ("HostConfig", "GroupAdd", ["0"]),
+            ("HostConfig", "Init", True), ("HostConfig", "IpcMode", "host"),
+            ("HostConfig", "ShmSize", 1 << 30), ("HostConfig", "CgroupnsMode", "host"),
+            ("HostConfig", "Memory", 1 << 40), ("HostConfig", "MemorySwap", -1),
+            ("HostConfig", "NanoCpus", 128000000000), ("HostConfig", "PidsLimit", 2048),
+            ("HostConfig", "RestartPolicy", {"Name": "always"}),
+            ("HostConfig", "LogConfig", {"Type": "json-file"}), ("HostConfig", "SecurityOpt", []),
+            ("HostConfig", "Tmpfs", {}), ("HostConfig", "DeviceRequests", []),
+            (None, "Mounts", []))
+        for scope, field, value in mutations:
+            row = copy.deepcopy(info)
+            (row if scope is None else row[scope])[field] = value
+            for validate in (smoke.check_container_runtime, smoke.check_container):
+                with self.subTest(scope=scope, field=field, validator=validate.__name__), self.assertRaises(ValueError):
+                    validate(row, *arguments)
+        for field, value in (("DeviceIDs", ["0"]), ("Capabilities", [["compute"]]),
+                ("Count", -1), ("Driver", "other"), ("Options", {"override": "true"})):
+            row = copy.deepcopy(info)
+            row["HostConfig"]["DeviceRequests"][0][field] = value
+            with self.subTest(device=field), self.assertRaises(ValueError):
+                smoke.check_container_runtime(row, *arguments)
+        for field, value in (("Type", "volume"), ("Source", "/wrong"), ("Destination", "/host"), ("RW", True)):
+            row = copy.deepcopy(info)
+            row["Mounts"][0][field] = value
+            with self.subTest(mount=field), self.assertRaises(ValueError):
+                smoke.check_container_runtime(row, *arguments)
+
     @contextmanager
     def running(self, *, failure=None, output=None, monitor_code=0):
         self.commands, self.info = [], None
@@ -411,6 +478,149 @@ class SmokeTests(unittest.TestCase):
             self.assertEqual(inspect.call_count, 2)
             run.assert_not_called()
         self.assertNotIn("private", encoded({key: value for key, value in row.items() if key != "reason"}).decode())
+
+    def test_shared_admission_yields_once_outside_setup_alarm_with_inputs_alive(self):
+        events = []
+        @contextmanager
+        def staged(*_):
+            events.append("stage-enter")
+            try:
+                yield Path("/private/stage")
+            finally:
+                events.append("stage-exit")
+        @contextmanager
+        def alarm(deadline):
+            self.assertEqual(deadline, self.clock.mono + smoke.SECONDS)
+            events.append("alarm-enter")
+            try:
+                yield
+            finally:
+                events.append("alarm-exit")
+        with self.admission() as (inspect, run), mock.patch.object(smoke, "staged_inputs", staged), \
+                mock.patch.object(smoke.service.identity.worker, "alarm", alarm), \
+                mock.patch.object(smoke.service.Contract, "begin", wraps=smoke.service.Contract.begin) as begin:
+            result = smoke.report()
+            with smoke.admitted_runtime(self.args, result) as admitted:
+                self.assertEqual(events, ["alarm-enter", "stage-enter", "alarm-exit"])
+                contract, lab, recorder, env, build, base, image, inputs = admitted
+                self.assertIs(lab, self.lab)
+                self.assertIs(recorder, self.recorder)
+                self.assertEqual(env, self.lab.controlled_env(self.args.docker_host))
+                self.assertEqual((build, base, image, inputs),
+                                 (self.build, self.base, self.image, Path("/private/stage")))
+                self.assertEqual(inspect.call_count, 2)
+                run.assert_not_called()
+                bounds = contract.hard_wall, contract.hard_monotonic, contract.startup_deadline
+                self.clock.advance(200)
+                self.clock.wall -= 400
+                self.assertEqual(bounds, (contract.hard_wall, contract.hard_monotonic, contract.startup_deadline))
+                self.assertTrue(result["preflight_pass"])
+                self.assertEqual((result["result"], result["reason"]), ("fail", "not-run"))
+                events.append("consumer")
+            begin.assert_called_once_with(self.args.hard_stop_at, input_price="1", output_price="2")
+        self.assertEqual(events, ["alarm-enter", "stage-enter", "alarm-exit", "consumer", "stage-exit"])
+
+    def test_shared_admission_consumer_cancellation_closes_inputs_and_preserves_error(self):
+        for failure in (KeyboardInterrupt("PRIVATE_CANARY"), SystemExit("PRIVATE_CANARY"),
+                        ValueError("PRIVATE_CANARY")):
+            events = []
+            @contextmanager
+            def staged(*_):
+                events.append("enter")
+                try:
+                    yield Path("/private/stage")
+                finally:
+                    events.append("exit")
+            with self.admission(), mock.patch.object(smoke, "staged_inputs", staged):
+                result = smoke.report()
+                with self.assertRaises(type(failure)) as caught:
+                    with smoke.admitted_runtime(self.args, result):
+                        raise failure
+                self.assertIs(caught.exception, failure)
+            self.assertEqual(events, ["enter", "exit"])
+            self.assertNotIn("PRIVATE_CANARY", encoded(result).decode())
+
+    def test_shared_admission_expired_staging_never_yields_and_still_cleans(self):
+        events = []
+        @contextmanager
+        def staged(*_):
+            try:
+                self.clock.advance(smoke.SECONDS + 1)
+                yield Path("/private/stage")
+            finally:
+                events.append("cleaned")
+        with self.admission() as (_, run), mock.patch.object(smoke, "staged_inputs", staged):
+            result = smoke.report()
+            with self.assertRaises(ValueError):
+                with smoke.admitted_runtime(self.args, result):
+                    self.fail("expired inputs must not be handed off")
+            run.assert_not_called()
+        self.assertEqual(events, ["cleaned"])
+        self.assertFalse(result["preflight_pass"])
+
+    def test_shared_admission_preserves_host_thread_lifetime_and_name_guards(self):
+        for target, attribute, value in ((smoke.sys, "platform", "darwin"), (smoke.os, "getuid", lambda: 1),
+                                        (smoke.threading, "current_thread", lambda: object())):
+            with self.subTest(attribute=attribute), self.admission(), \
+                    mock.patch.object(target, attribute, value), \
+                    mock.patch.object(smoke, "host_recorder") as load:
+                with self.assertRaises(ValueError):
+                    with smoke.admitted_runtime(self.args, smoke.report()):
+                        self.fail("invalid host must not yield")
+                load.assert_not_called()
+        for key, value in (("hostname", "private.invalid/extra"), ("hard_stop_at", self.clock.timestamp(4801))):
+            args = copy.copy(self.args)
+            setattr(args, key, value)
+            with self.subTest(key=key), self.admission(), mock.patch.object(smoke, "host_recorder") as load:
+                with self.assertRaises(ValueError):
+                    with smoke.admitted_runtime(args, smoke.report()):
+                        self.fail("invalid contract must not yield")
+                load.assert_not_called()
+
+    def test_shared_admission_rejects_source_failure_before_image_or_inputs(self):
+        failure = ValueError("PRIVATE_CANARY")
+        with self.admission() as (inspect, run), \
+                mock.patch.object(smoke.image_builder, "validated_files", side_effect=failure) as validate, \
+                mock.patch.object(smoke, "staged_inputs") as staged:
+            result = smoke.report()
+            with self.assertRaises(ValueError) as caught:
+                with smoke.admitted_runtime(self.args, result):
+                    self.fail("invalid preparation must not yield")
+            self.assertIs(caught.exception, failure)
+            validate.assert_called_once_with(Path(self.args.preparation), self.args.preparation_sha256)
+            inspect.assert_not_called()
+            staged.assert_not_called()
+            run.assert_not_called()
+        self.assertEqual(result["reason"], "build-identity")
+        self.assertFalse(result["preflight_pass"])
+        self.assertNotIn("PRIVATE_CANARY", encoded(result).decode())
+
+    def test_shared_admission_inspection_callback_is_closed_and_absolute_bounded(self):
+        callbacks = []
+        def inspected(kind, name, env, execute):
+            callbacks.append(execute)
+            return self.base if name == self.recorder.overlay.BASE_IMAGE else self.image
+        with self.admission() as (inspect, _), \
+                mock.patch.object(self.recorder.snapshot, "execute_process_group") as execute:
+            inspect.side_effect = inspected
+            with smoke.admitted_runtime(self.args, smoke.report()):
+                self.assertIs(callbacks[0], callbacks[1])
+                callback = callbacks[0]
+                command = ["docker", "image", "inspect", "--format", "{{json .}}", self.build["image_id"]]
+                callback(command, env={}, timeout=100)
+                self.assertEqual(execute.call_args.kwargs["timeout"], smoke.SECONDS - smoke.CLIENT_REAP)
+                self.clock.advance(20)
+                self.clock.wall -= 100
+                callback(command, env={}, timeout=100)
+                self.assertEqual(execute.call_args.kwargs["timeout"], smoke.SECONDS - smoke.CLIENT_REAP - 20)
+                for bad in (["docker", "run", "unapproved"], command[:-1] + [identity("unapproved")],
+                            command + ["extra"]):
+                    with self.assertRaises(ValueError):
+                        callback(bad, env={}, timeout=100)
+                self.clock.advance(smoke.SECONDS - smoke.CLIENT_REAP - 20)
+                with self.assertRaises(ValueError):
+                    callback(command, env={}, timeout=100)
+                self.assertEqual(execute.call_count, 2)
 
     def test_bad_build_hash_and_remote_daemon_never_inspect_or_start(self):
         for key, value in (("build_sha256", smoke.digest(b"wrong")), ("docker_host", "tcp://private.invalid:2375")):
