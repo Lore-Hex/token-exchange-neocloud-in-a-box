@@ -2,6 +2,12 @@
 
 ## Status
 
+The [2026-10-25 corrected CPU-only boot](../../evidence/p3/2026-10-25-debug-network-pass/README.md)
+now passes native export, strict firewall installation/readback, initrd, root
+and completion proofs, with independent cleanup verified. It used TCG and no
+NIC/GPU; connectivity and confidential inference remain unproven. Earlier
+failures below remain original evidence, not the current boot result.
+
 The first real network backend is implemented and covered by offline unit and
 synthetic subprocess tests. The optional native image built in the first
 [CPU-only run](../../evidence/p3/2026-10-22-debug-network-boot-failure/README.md),
@@ -22,14 +28,14 @@ failed during native export before QEMU started. Its original cleanup receipt
 does not identify the failing build stage; no new guest observation or corrected
 native result is claimed.
 
-The latest [original run 39897633422](../../evidence/p3/2026-10-23-debug-network-readback/README.md)
+The earlier [original run 39897633422](../../evidence/p3/2026-10-23-debug-network-readback/README.md)
 passed native export and debug UKI assembly, then failed in the guest's strict
 ruleset readback verification (fixed status 76). INITRD passed; root proof did
 not. Cleanup passed. The exact rejected comparison is not retained, and no
 unique lower-level cause or accepted firewall is claimed.
 
 This implementation applies and reads back the existing firewall candidate;
-that path has not yet succeeded in a native guest. It is not
+the corrected path has now passed in the CPU-only native guest. It is not
 interface/address configuration, connectivity qualification or a deployable
 dual-stack network profile. In particular, the existing policy has no ICMP or
 IPv6 neighbor-discovery allowance. Do not infer that IPv6 routing works merely
@@ -367,6 +373,7 @@ It never flushes, replaces, deletes, retries or accepts partial state.
 
 Unit and service regression tests assert the exact transaction, unchanged
 rendered policy, identical check/apply input, and rejection of a table with no
-children. These tests use synthetic executor results. A real successful boot
-of the correction remains unproven until a separate reviewed, bounded native
-run passes. Confidential hardware verification remains a different gate.
+children. These tests use synthetic executor results. The separate reviewed,
+bounded [native debug run](../../evidence/p3/2026-10-25-debug-network-pass/README.md)
+subsequently passed on producer `a1427d7e7e6d7fdd337badcc6c77987ff61e9ed5`.
+Confidential hardware verification remains a different gate.
