@@ -63,9 +63,9 @@ share one eight-second deadline, with two seconds per child and bounded
 process-group cleanup:
 
 1. `--json list ruleset`: require the full ruleset to be empty.
-2. `--check --file -`: check the existing rendered policy, with only its table
-   declaration changed to `create table inet nib`.
-3. `--file -`: commit the exact same create-only policy bytes in one batch.
+2. `--check --file -`: check a standalone `create table inet nib` followed by
+   the unchanged rendered policy's ordinary table block.
+3. `--file -`: commit those exact bytes in one batch, rejecting an existing table.
 4. `--json list ruleset`: compare the entire result to the intended table,
    two sets, three drop-policy chains and nine ordered rules.
 
