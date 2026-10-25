@@ -1,0 +1,1 @@
+{"baseline_complete":true,"cleanup_confirmed":true,"deployment_eligible":false,"dns_equal":true,"firewall_equal":true,"gpu_used":false,"namespace_reaped":true,"proof_pass":true,"proof_receipt_sha256":"f28c90ecfde5a1cb471e260299aa09f3f5d1f21402862e5afd62e9d2cfd12df0","published":false,"result":"pass","schema":"nib.selected-host-baseline-proof/v1","stage":"complete"}

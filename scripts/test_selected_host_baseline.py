@@ -39,7 +39,7 @@ def resolver(venue):
         "link": proof.venue_settings(venue)["resolver_link"] if ordinary else None,
         "target": str(proof.RESOLVER_TARGET if ordinary else proof.RESOLVER),
         "link_stat": {**STAMP, "mode": stat.S_IFLNK | 0o777} if ordinary else STAMP,
-        "target_stat": STAMP})
+        "target_stat": {**STAMP, "uid": 989, "gid": 989} if ordinary else STAMP})
 
 
 def fixture_capture(path, venue, cancelled=None):
