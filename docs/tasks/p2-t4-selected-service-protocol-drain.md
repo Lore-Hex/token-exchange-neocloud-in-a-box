@@ -32,6 +32,19 @@ The sequence is closed, with no retries or configurable URL:
 4. Start one fixed synthetic long stream; after first visible content, request
    whole-owner retirement and read that same connection to completion.
 
+The drain-only request explicitly uses `reasoning_effort: "none"`, bound in
+protocol contract v2. The selected guard forwards this native chat-mode setting
+as described in the [source-backed reasoning controls](p2-t4-selected-reasoning-controls.md).
+The eight upstream JSON probes and seven subset requests are unchanged. The
+original 676c2a7 run passed all 17 checker assertions but reached 256 completion
+tokens before an eligible first-content retirement point. Its receipt does not
+record reasoning-token counts or transport chunk boundaries, so default reasoning
+is a possible cause, not a proven diagnosis. Requesting chat mode makes this
+shutdown probe target visible content without increasing its cap or accepting a
+completed/buffered response as an active stream. A reasoning-only or already
+finished stream still fails and preserves known usage. This change has no new
+hardware result; the original failed receipt remains unchanged.
+
 This is at most 17 HTTP requests total, 11 authenticated, counting the existing
 three inference requests. The projected checks are the existing 17-ID mandatory
 set. The optional remote declared-catalog request is not made: the owned catalog

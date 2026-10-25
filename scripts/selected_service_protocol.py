@@ -22,10 +22,11 @@ DRAIN_PROMPT = "Write a long numbered list of 100 useful facts about mathematics
 
 
 def contract():
-    return {"schema": "nib.selected-service-protocol-contract/v1", "subset": subset.contract(),
+    return {"schema": "nib.selected-service-protocol-contract/v2", "subset": subset.contract(),
         "cases": list(CASES), "checks": subset.pinned.MANDATORY, "seconds": SECONDS,
         "request_seconds": inference.REQUEST_SECONDS, "retries": 0,
         "drain_prompt_sha256": process.digest(DRAIN_PROMPT.encode()),
+        "drain_reasoning_effort": "none",
         "max_output_tokens": service.OUTPUT, "checker_statuses_unchanged": True}
 
 
@@ -134,7 +135,7 @@ class Drain:
         supervisor, report = self.supervisor, self.report
         try:
             body = encoded({"model": service.MODEL, "stream": True, "stream_options": {"include_usage": True},
-                "max_tokens": service.OUTPUT, "temperature": 0,
+                "max_tokens": service.OUTPUT, "temperature": 0, "reasoning_effort": "none",
                 "messages": [{"role": "user", "content": DRAIN_PROMPT}]})
             self.observed, self.connection, self.deadline = self.stack.enter_context(subset.response(
                 supervisor, identities, self.deadline, "drain", key, body, self.attempt))
