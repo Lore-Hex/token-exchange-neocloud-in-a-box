@@ -29,6 +29,7 @@ import uuid
 import selected_service_process as process
 import selected_service_image as image_builder
 import selected_service_inference as inference
+import selected_service_conformance as conformance
 
 service = process.service
 require, digest = service.require, process.digest
@@ -159,7 +160,8 @@ def container_command(name, token, build, base, weights, inputs, args, stop_at):
         "--api-key-file", "/run/nib-inputs/api-key", "--cert", "/run/nib-inputs/cert.pem",
         "--key", "/run/nib-inputs/key.pem", "--hostname", args.hostname,
         "--input-price", args.input_price, "--output-price", args.output_price, "--hard-stop-at", stop_at] \
-        + (["--inference-smoke"] if getattr(args, "inference_smoke", False) else [])
+        + (["--conformance-smoke"] if getattr(args, "conformance_smoke", False) else
+           ["--inference-smoke"] if getattr(args, "inference_smoke", False) else [])
 
 
 def check_container(info, identifier, name, token, build, image, command, weights, inputs):
@@ -309,7 +311,27 @@ def inference_lifecycle(raw, prepared_sha256, *, failed):
     return row
 
 
-def lifecycle(raw, *, inference_smoke=False, prepared_sha256=None):
+def conformance_lifecycle(raw, prepared_sha256, *, failed):
+    require(type(raw) is bytes and len(raw) <= 16384, "owner-failed")
+    row = service.correctness.strict_json(raw)
+    require(type(row) is dict and row.get("schema") == service.CONFORMANCE_SCHEMA
+        and row.get("mode") == service.CONFORMANCE_MODE and "conformance" in row, "owner-failed")
+    base = {key: value for key, value in row.items() if key != "conformance"}
+    base.update(schema=service.INFERENCE_SCHEMA, mode=service.INFERENCE_MODE)
+    inference_lifecycle(inference.encoded(base), prepared_sha256, failed=failed)
+    if row["conformance"] is not None:
+        observed = conformance.validate_report(inference.encoded(row["conformance"]),
+                                               prepared_sha256, row["inference"])
+        require(failed or observed["result"] == "pass", "owner-failed")
+    else:
+        require(failed, "owner-failed")
+    return row
+
+
+def lifecycle(raw, *, inference_smoke=False, conformance_smoke=False, prepared_sha256=None):
+    require(not (inference_smoke and conformance_smoke), "owner-failed")
+    if conformance_smoke:
+        return conformance_lifecycle(raw, prepared_sha256, failed=False)
     if inference_smoke:
         return inference_lifecycle(raw, prepared_sha256, failed=False)
     row = service.correctness.strict_json(raw)
@@ -326,8 +348,11 @@ def lifecycle(raw, *, inference_smoke=False, prepared_sha256=None):
     return row
 
 
-def lifecycle_failure(raw, *, inference_smoke=False, prepared_sha256=None):
+def lifecycle_failure(raw, *, inference_smoke=False, conformance_smoke=False, prepared_sha256=None):
     """Accept only the owner's fixed metadata on a nonzero container exit."""
+    require(not (inference_smoke and conformance_smoke), "owner-failed")
+    if conformance_smoke:
+        return conformance_lifecycle(raw, prepared_sha256, failed=True)
     if inference_smoke:
         return inference_lifecycle(raw, prepared_sha256, failed=True)
     require(type(raw) is bytes and len(raw) <= 16384, "owner-failed")
@@ -367,6 +392,7 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
     require(docker.remaining() > HOST_RESERVE + service.CLEANUP_RESERVE, "deadline")
     command = container_command(name, token, build, base, weights, inputs, args, stop_at)
     join = {"inference_smoke": getattr(args, "inference_smoke", False),
+            "conformance_smoke": getattr(args, "conformance_smoke", False),
             "prepared_sha256": build["prepared_sha256"]}
     monitor, identifier, attempted, finished, accepted = None, None, False, False, False
     reader, writer = os.pipe()
@@ -400,7 +426,7 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
                     result["owner_failure"] = lifecycle_failure(error.stdout, **join)
             raise
         owner_result = lifecycle(raw, **join)
-        if join["inference_smoke"]:
+        if join["inference_smoke"] or join["conformance_smoke"]:
             # Retain validated accounting even when the subsequent inspect or
             # host/watchdog cleanup fails; none of these facts imply PASS.
             result["lifecycle"] = owner_result
@@ -441,7 +467,10 @@ def preflight(args):
     result = report()
     if getattr(args, "inference_smoke", False):
         result.update(schema="nib.selected-service-smoke/v2", mode=service.INFERENCE_MODE)
+    if getattr(args, "conformance_smoke", False):
+        result.update(schema="nib.selected-service-smoke/v3", mode=service.CONFORMANCE_MODE)
     try:
+        require(not (getattr(args, "inference_smoke", False) and getattr(args, "conformance_smoke", False)), "contract")
         require(threading.current_thread() is threading.main_thread(), "contract")
         contract = service.Contract.begin(args.hard_stop_at, input_price=args.input_price,
                                           output_price=args.output_price)
@@ -506,7 +535,9 @@ def main(argv=None):
         modes = parser.add_mutually_exclusive_group(required=True)
         modes.add_argument("--inspect", action="store_true")
         modes.add_argument("--run", action="store_true")
-        parser.add_argument("--inference-smoke", action="store_true")
+        probe = parser.add_mutually_exclusive_group()
+        probe.add_argument("--inference-smoke", action="store_true")
+        probe.add_argument("--conformance-smoke", action="store_true")
         for name in ("build-report", "build-sha256", "preparation", "preparation-sha256",
                      "docker-host", "provider-config", "api-key-file", "cert", "key",
                      "hostname", "weights", "input-price", "output-price", "hard-stop-at"):

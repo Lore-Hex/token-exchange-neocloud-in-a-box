@@ -29,6 +29,8 @@ MEMORY_BYTES, SWAP_BYTES = 512 << 30, 0
 ROLES = ("engine", "guard", "tls")
 INFERENCE_MODE = "inference-smoke"
 INFERENCE_SCHEMA = "nib.selected-service-lifecycle/v2"
+CONFORMANCE_MODE = "conformance-smoke"
+CONFORMANCE_SCHEMA = "nib.selected-service-lifecycle/v3"
 # pilot.stop_serving: 140s graceful + pilot.stop's 10s forced wait.
 # snapshot.cleanup_process_group: 10s TERM + 10s KILL + 5s absence proof.
 DRAIN_SECONDS, REAP_SECONDS = 150, observer.CLEANUP_SECONDS
@@ -240,12 +242,15 @@ class Supervisor:
         self.checkpoint(deadline)
         return True
 
-    def run(self, *, inference_smoke=False):
-        require(type(inference_smoke) is bool, "contract")
+    def run(self, *, inference_smoke=False, conformance_smoke=False):
+        require(type(inference_smoke) is bool and type(conformance_smoke) is bool
+                and not (inference_smoke and conformance_smoke), "contract")
+        smoke = inference_smoke or conformance_smoke
         require(not self.used, "already-used")
         self.used = True
         reason, admitted, cleanup = "owner-failed", False, []
         inference_result = None
+        conformance_result = None
         try:
             for role in ROLES:
                 deadline = min(self.contract.startup_deadline, self.cutoff() - CLEANUP_RESERVE)
@@ -264,13 +269,20 @@ class Supervisor:
                 # layer; startup of another child must not refresh its identity.
                 require(self.ready("engine", deadline), "readiness")
             admitted = True
-            if inference_smoke:
+            if smoke:
                 import selected_service_inference as inference
                 inference_result = inference.validate_report(inference.encoded(inference.run_once(self)),
                     self.owner.prepared.receipt_sha256)
                 require(inference_result["result"] == "pass", "owner-failed")
                 self.checkpoint(self.cutoff() - CLEANUP_RESERVE)
-            while not inference_smoke and time.monotonic() < self.cutoff() - CLEANUP_RESERVE:
+            if conformance_smoke:
+                import selected_service_conformance as conformance
+                conformance_result = conformance.validate_report(
+                    inference.encoded(conformance.run_once(self, inference_result)),
+                    self.owner.prepared.receipt_sha256, inference_result)
+                require(conformance_result["result"] == "pass", "owner-failed")
+                self.checkpoint(self.cutoff() - CLEANUP_RESERVE)
+            while not smoke and time.monotonic() < self.cutoff() - CLEANUP_RESERVE:
                 deadline = min(self.cutoff() - CLEANUP_RESERVE, time.monotonic() + observer.SECONDS)
                 self.checkpoint(deadline)
                 for role in ROLES:
@@ -328,11 +340,15 @@ class Supervisor:
                 "ready": admitted, "cleanup_confirmed": confirmed, "cleanup": cleanup,
                 "deployable": False, "hardware_validated": False,
                 "tools": False, "reasoning": False, "zdr": False, "confidential": False, "e2ee": False}
-        if inference_smoke:
+        if smoke:
             result.update(schema=INFERENCE_SCHEMA, mode=INFERENCE_MODE, inference=inference_result)
             if reason != "retired" or self.shutdown.is_set() or inference_result is None \
                     or inference_result["result"] != "pass":
                 result["status"] = "failed"
+            if conformance_smoke:
+                result.update(schema=CONFORMANCE_SCHEMA, mode=CONFORMANCE_MODE, conformance=conformance_result)
+                if conformance_result is None or conformance_result["result"] != "pass":
+                    result["status"] = "failed"
         return result
 
 

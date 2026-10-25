@@ -91,18 +91,26 @@ def checkpoint(supervisor, identities, deadline):
     return owner.identities["tls"]
 
 
-def exchange(supervisor, identities, case, key, deadline, report):
+@contextmanager
+def tls_connection(supervisor, identities, deadline):
+    """Fixed owned TLS peer; credentials must only be sent after this yields."""
     owner = supervisor.owner
-    deadline = min(deadline, supervisor.cutoff() - service.CLEANUP_RESERVE,
-                   time.monotonic() + (REQUEST_SECONDS if case == "authenticated" else NEGATIVE_SECONDS))
     with service.identity.worker.alarm(deadline), ExitStack() as stack:
         bound = checkpoint(supervisor, identities, deadline)
         raw = stack.enter_context(socket.create_connection(("127.0.0.1", process.TLS_PORT),
             timeout=min(NEGATIVE_SECONDS, max(.001, deadline - time.monotonic()))))
-        owner.peer("tls", bound, raw, deadline)  # Prove the owned peer before any credential is sent.
+        owner.peer("tls", bound, raw, deadline)
         connection = stack.enter_context(owner.trust.wrap_socket(raw, server_hostname=owner.hostname))
         connection.settimeout(max(.001, deadline - time.monotonic()))
         checkpoint(supervisor, identities, deadline)
+        yield connection
+
+
+def exchange(supervisor, identities, case, key, deadline, report):
+    owner = supervisor.owner
+    deadline = min(deadline, supervisor.cutoff() - service.CLEANUP_RESERVE,
+                   time.monotonic() + (REQUEST_SECONDS if case == "authenticated" else NEGATIVE_SECONDS))
+    with tls_connection(supervisor, identities, deadline) as connection, ExitStack() as stack:
         body = request_bytes()
         header = ("POST /v1/chat/completions HTTP/1.1\r\nHost: " + owner.hostname
                   + "\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "

@@ -144,3 +144,7 @@ python3 scripts/check-doc-links.py
 ```
 
 No full suite or hardware execution is claimed here.
+
+The separate [catalog/stream conformance subset](p2-t4-selected-service-conformance.md)
+runs only under its own explicit mode, after this inference smoke passes. It
+does not change this mode or silently upgrade its evidence.

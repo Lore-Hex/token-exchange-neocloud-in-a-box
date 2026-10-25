@@ -147,7 +147,7 @@ def seal(prepared_sha):
         path.chmod(0o555)
 
 
-def prepare(bundle, receipt_sha, trcs, output):
+def prepare(bundle, receipt_sha, trcs, output, *, checker_wheelhouse=None):
     lab = host_recorder()
     receipt, contract, _, recorder = lab.bundle_inputs(bundle, receipt_sha)
     revision, files = committed_sources(recorder)
@@ -165,6 +165,11 @@ def prepare(bundle, receipt_sha, trcs, output):
         guard, guard_source_sha = build_guard(recorder, files, work, env)
         service_files = {name: raw for name, raw in files.items() if name.startswith("scripts/")}
         service_files.update({"bin/nib-pilot-api": guard, "bin/trcs": tls})
+        if checker_wheelhouse is not None:
+            import provider_conformance
+            checker = provider_conformance.prepare(Path(checker_wheelhouse), time.monotonic() + 60,
+                                                    model_profile="uncensored")
+            service_files.update({"checker/" + name: raw for name, raw in checker.items()})
         source = work / "service"
         recorder.prep.publish(source, service_files)
         prepared = encoded(owner.preparation_receipt(source, digest(derived["lab.json"])))
@@ -200,9 +205,11 @@ def validated_files(path, expected):
             and all(type(receipt[key]) is str and re.fullmatch("[0-9a-f]{64}", receipt[key])
                     for key in ("lab_receipt_sha256", "prepared_sha256", "guard_source_sha256"))
             and all(type(row) is dict and set(row) == {"bytes", "sha256"}
-                    and type(row["bytes"]) is int and 0 < row["bytes"] <= LIMIT
+                    and type(row["bytes"]) is int and 0 <= row["bytes"] <= LIMIT
                     and type(row["sha256"]) is str and re.fullmatch("[0-9a-f]{64}", row["sha256"])
-                    for row in receipt["files"].values()), "contract")
+                    and (row["bytes"] > 0 or name.startswith("context/service/checker/packages/")
+                         and row["sha256"] == digest(b""))
+                    for name, row in receipt["files"].items()), "contract")
     files, pending, seen, total = {}, [(path, 0)], 0, 0
     while pending:
         directory, depth = pending.pop()
@@ -231,6 +238,11 @@ def validated_files(path, expected):
     lab = owner.service.correctness.strict_json(files["context/payload/lab.json"])
     owner.engine_entry.canonical_arguments(lab)
     require(files["context/Dockerfile"] == dockerfile(lab, receipt["prepared_sha256"]), "identity")
+    if any(row["bytes"] == 0 for row in receipt["files"].values()):
+        # Empty wheel markers still require the pinned checker inventory and
+        # the complete prepared source/hash join, not just an allowed pathname.
+        require(owner.service.correctness.strict_json(prepared) == owner.preparation_receipt(
+            path / "context/service", digest(files["context/payload/lab.json"])), "identity")
     return receipt, files, lab
 
 
@@ -337,6 +349,7 @@ def main():
     preparation = modes.add_parser("prepare", allow_abbrev=False)
     for name in ("lab-bundle", "lab-receipt-sha256", "trcs", "output"):
         preparation.add_argument("--" + name, required=True)
+    preparation.add_argument("--checker-wheelhouse")
     sealing = modes.add_parser("seal", allow_abbrev=False)
     sealing.add_argument("--prepared-sha256", required=True)
     building = modes.add_parser("build", allow_abbrev=False)
@@ -351,7 +364,8 @@ def main():
         if report["result"] != "pass":
             raise SystemExit(1)
     else:
-        print(encoded(prepare(args.lab_bundle, args.lab_receipt_sha256, args.trcs, args.output)).decode())
+        print(encoded(prepare(args.lab_bundle, args.lab_receipt_sha256, args.trcs, args.output,
+                             checker_wheelhouse=args.checker_wheelhouse)).decode())
 
 
 if __name__ == "__main__":
