@@ -77,6 +77,10 @@ passed all 17 provider checks and completed an active streamed response through
 retirement, with all three roles reaped and host cleanup confirmed. This remains
 a bounded private test, not tool/quality qualification or public/confidential
 serving; the earlier failed drain observation is preserved.
+A separate [closed-NAT CPU experiment](evidence/p2/2026-10-25-selected-nat-pass/README.md)
+passed all 15 baseline controls, allowed only the two TLS paths after protection,
+blocked 13 other paths including DNS relays, and confirmed cleanup. This does
+not yet qualify networking on the GPU host or public serving.
 The [8K-profile parity prerequisite](evidence/p2/2026-10-24-selected-tau8k-parity/README.md)
 also passed four fixed cases and eight requests; this does not establish full
 8K request fit. Both [DSpark attempts](evidence/p2/2026-10-24-selected-dspark-startup-failure/README.md)
