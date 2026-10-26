@@ -308,6 +308,8 @@ def run(args, admitted, selected, result):
         result.update(reason="lifecycle", runtime_started=None)
         join = {name: getattr(args, name, False) for name in (
             "inference_smoke", "conformance_smoke", "protocol_smoke", "tool_smoke")}
+        if getattr(args, "long_qualification", False):
+            join["long_qualification"] = True
         join["prepared_sha256"] = build["prepared_sha256"]
         if contract.execution_profile != smoke.service.engine_entry.EAGER_PROFILE:
             join["execution_profile"] = contract.execution_profile
@@ -414,6 +416,7 @@ def main(argv=None):
         probes = parser.add_mutually_exclusive_group()
         for name in ("inference", "conformance", "protocol", "tool"):
             probes.add_argument("--" + name + "-smoke", action="store_true")
+        probes.add_argument("--long-qualification", action="store_true")
         for name in ("build-report", "build-sha256", "preparation", "preparation-sha256", "docker-host",
                      "provider-config", "api-key-file", "cert", "key", "hostname", "weights",
                      "input-price", "output-price", "hard-stop-at", "state-dir", "ingress",

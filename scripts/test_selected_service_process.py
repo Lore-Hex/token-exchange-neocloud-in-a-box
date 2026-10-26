@@ -252,7 +252,10 @@ sys.path.insert(0, sys.argv[1])
 with mock.patch('subprocess.Popen', side_effect=AssertionError('unexpected process')), \\
      mock.patch('socket.socket', side_effect=AssertionError('unexpected socket')):
     import selected_service_process as owner
+    import selected_long_qualification as qualification
+    import selected_long_tokenizer as tokenizer
     assert owner.service.MODEL == owner.engine_entry.SERVICE_MODEL
+    assert qualification.process is tokenizer.process is owner
 print('isolated-import-ok')
 """
             result = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", code, str(root / "scripts")],
@@ -265,6 +268,7 @@ print('isolated-import-ok')
                 cwd=image, env={"PATH": os.defpath}, capture_output=True, timeout=20, check=False)
             self.assertEqual(help_result.returncode, 0, help_result.stderr.decode())
             self.assertIn(b"--prepared-sha256", help_result.stdout)
+            self.assertIn(b"--long-qualification", help_result.stdout)
             self.assertNotIn(b"--upstream", help_result.stdout)
             self.assertFalse(list(image.rglob("*.pyc")))
 

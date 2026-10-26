@@ -22,6 +22,7 @@ SOURCES = {
     "vllm/v1/core/kv_cache_utils.py": "af4164bca819f1cdc416077522a7019936fd38a523a482283eb91b08dae0e57a",
     "vllm/entrypoints/openai/chat_completion/serving.py": "5e619c0a6866758a247c76e7b8c472f6e008ddbc720f7efe47cc6776cb986d4f",
     "vllm/entrypoints/openai/chat_completion/protocol.py": "8744d5e2004b2d376e34cf17de51c919bca6d81b0cc8392da138db1ef05a7c61",
+    "vllm/entrypoints/generate/base/serving.py": "74948d88c9e5edfed6993f749644f3da41719b8a670bb675fd837753b40b89fe",
 }
 
 

@@ -37,6 +37,8 @@ PROTOCOL_MODE = "protocol-smoke"
 PROTOCOL_SCHEMA = "nib.selected-service-lifecycle/v4"
 TOOL_MODE = "tool-smoke"
 TOOL_SCHEMA = "nib.selected-service-lifecycle/v5"
+LONG_MODE = "long-qualification"
+LONG_SCHEMA = "nib.selected-service-lifecycle/v8"
 SMOKE_PROFILE, ORDINARY_PROFILE = "smoke", "ordinary-24h"
 ORDINARY_SCHEMA = "nib.selected-service-lifecycle/v6"
 PROGRESS_SCHEMA = "nib.selected-service-progress/v1"
@@ -84,6 +86,11 @@ def cleanup_reserve(execution_profile):
     if execution_profile == engine_entry.LONG_PROFILE:
         return 2 * drain + 4 * REAP_SECONDS
     return CLEANUP_RESERVE
+
+
+def qualification_options(enabled, lifetime_profile, execution_profile, *, smoke=False):
+    require(type(enabled) is bool and (not enabled or lifetime_profile == ORDINARY_PROFILE
+            and execution_profile == engine_entry.LONG_PROFILE and not smoke), "contract")
 
 
 def retirement_at(wall):
@@ -346,12 +353,15 @@ class Supervisor:
         self.checkpoint(deadline)
         return True
 
-    def run(self, *, inference_smoke=False, conformance_smoke=False, protocol_smoke=False, tool_smoke=False):
+    def run(self, *, inference_smoke=False, conformance_smoke=False, protocol_smoke=False, tool_smoke=False,
+            long_qualification=False):
         require(type(inference_smoke) is bool and type(conformance_smoke) is bool
                 and type(protocol_smoke) is bool and type(tool_smoke) is bool
                 and sum((inference_smoke, conformance_smoke, protocol_smoke, tool_smoke)) <= 1,
                 "contract")
         smoke = inference_smoke or conformance_smoke or protocol_smoke or tool_smoke
+        qualification_options(long_qualification, self.contract.lifetime_profile,
+                              self.contract.execution_profile, smoke=smoke)
         lifetime_seconds(self.contract.lifetime_profile)
         require(not smoke or self.contract.lifetime_profile == SMOKE_PROFILE, "contract")
         require(not self.used, "already-used")
@@ -360,6 +370,7 @@ class Supervisor:
         inference_result = None
         conformance_result = None
         tool_result = None
+        qualification_result = None
         protocol_run = protocol_result = None
         protocol_finished = False
         reader_closed = True
@@ -395,6 +406,15 @@ class Supervisor:
             self.phase = "ready"
             if self.contract.lifetime_profile == ORDINARY_PROFILE:
                 progress("ready", self.contract, self.owner.prepared.receipt_sha256)
+            if long_qualification:
+                import selected_long_qualification as qualification
+                reader_closed = False
+                qualification_result = qualification.run_owned(self)
+                qualification.validate_report(qualification.encoded(qualification_result),
+                                              self.owner.prepared.receipt_sha256)
+                reader_closed = all(item["resources_closed"] for item in qualification_result["samples"])
+                require(qualification_result["checks_pass"], "owner-failed")
+                self.checkpoint(self.cutoff() - self.contract.cleanup_reserve)
             if smoke:
                 import selected_service_inference as inference
                 inference_result = inference.validate_report(inference.encoded(inference.run_once(self)),
@@ -424,7 +444,7 @@ class Supervisor:
                 # This deliberate whole-owner retirement is not external
                 # cancellation. Ordinary checkpoints remain unchanged.
                 self.phase = "draining"
-            while not smoke and time.monotonic() < self.cutoff() - self.contract.cleanup_reserve:
+            while not smoke and not long_qualification and time.monotonic() < self.cutoff() - self.contract.cleanup_reserve:
                 deadline = min(self.cutoff() - self.contract.cleanup_reserve, time.monotonic() + observer.SECONDS)
                 self.checkpoint(deadline)
                 for role in ROLES:
@@ -515,6 +535,11 @@ class Supervisor:
         if self.contract.lifetime_profile == ORDINARY_PROFILE:
             result.update(schema=ORDINARY_SCHEMA, lifetime=self.contract.lifetime,
                           prepared_sha256=self.owner.prepared.receipt_sha256)
+        if long_qualification:
+            result.update(schema=LONG_SCHEMA, mode=LONG_MODE, qualification=qualification_result)
+            if reason != "retired" or self.shutdown.is_set() or qualification_result is None \
+                    or qualification_result.get("checks_pass") is not True:
+                result["status"] = "failed"
         if smoke:
             result.update(schema=INFERENCE_SCHEMA, mode=INFERENCE_MODE, inference=inference_result)
             if reason != "retired" or self.shutdown.is_set() or inference_result is None \

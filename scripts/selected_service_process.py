@@ -473,6 +473,7 @@ def main(argv=None):
     mode.add_argument("--conformance-smoke", action="store_true")
     mode.add_argument("--protocol-smoke", action="store_true")
     mode.add_argument("--tool-smoke", action="store_true")
+    mode.add_argument("--long-qualification", action="store_true")
     args = parser.parse_args(argv)
     shutdown = threading.Event()
     handlers = {number: signal.signal(number, lambda *_: shutdown.set())
@@ -487,6 +488,13 @@ def main(argv=None):
         contract = service.Contract.begin(args.hard_stop_at, input_price=args.input_price,
             output_price=args.output_price, lifetime_profile=args.lifetime_profile,
             execution_profile=args.execution_profile)
+        service.qualification_options(args.long_qualification, contract.lifetime_profile,
+            contract.execution_profile, smoke=any((args.inference_smoke, args.conformance_smoke,
+                                                   args.protocol_smoke, args.tool_smoke)))
+        if args.long_qualification:
+            import selected_long_qualification as qualification
+            require(contract.hard_monotonic - time.monotonic() > service.engine_lab.STARTUP_SECONDS
+                    + qualification.RUN_SECONDS + contract.cleanup_reserve, "deadline")
         require(args.lifetime_profile == service.SMOKE_PROFILE or not any((args.inference_smoke,
             args.conformance_smoke, args.protocol_smoke, args.tool_smoke)), "contract")
         service.progress("preparation", contract, args.prepared_sha256)
@@ -503,12 +511,25 @@ def main(argv=None):
             owner = ProcessOwner(prepared, inputs, args.hostname, shutdown)
             result = service.Supervisor(contract, inputs, owner, shutdown).run(
                 inference_smoke=args.inference_smoke, conformance_smoke=args.conformance_smoke,
-                protocol_smoke=args.protocol_smoke, tool_smoke=args.tool_smoke)
-        if (args.inference_smoke or args.conformance_smoke or args.protocol_smoke or args.tool_smoke) and shutdown.is_set() and result["status"] != "failed":
+                protocol_smoke=args.protocol_smoke, tool_smoke=args.tool_smoke,
+                **({"long_qualification": True} if args.long_qualification else {}))
+        if (args.inference_smoke or args.conformance_smoke or args.protocol_smoke or args.tool_smoke
+                or args.long_qualification) and shutdown.is_set() and result["status"] != "failed":
             result.update(status="failed", reason="cancelled")
         publish(result)
         return 0 if result["status"] in ("retired", "cancelled") else 1
     except BaseException as error:
+        if args.long_qualification:
+            if result is not None:
+                result.update(status="failed", reason="inputs-changed")
+            else:
+                result = {"schema": service.LONG_SCHEMA, "status": "failed", "reason": "preparation",
+                    "deployable": False, "hardware_validated": False, "mode": service.LONG_MODE,
+                    "qualification": None, "lifetime": contract.lifetime if contract is not None else None,
+                    "prepared_sha256": args.prepared_sha256
+                        if re.fullmatch("[0-9a-f]{64}", args.prepared_sha256) else None}
+            publish(result)
+            return 1
         if not (args.inference_smoke or args.conformance_smoke or args.protocol_smoke or args.tool_smoke):
             if args.lifetime_profile == service.ORDINARY_PROFILE:
                 publish({"schema": service.ORDINARY_SCHEMA, "status": "failed",
