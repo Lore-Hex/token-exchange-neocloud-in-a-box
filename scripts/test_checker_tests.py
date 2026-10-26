@@ -42,8 +42,9 @@ class CheckerGateTests(unittest.TestCase):
                 gate.main()
             suite.assert_not_called()
 
-    def test_exact_three_classes_include_every_current_test(self):
+    def test_exact_four_classes_include_every_current_test(self):
         self.assertEqual(gate.CASES, (
+            "test_pilot_catalog.GeneratedCatalogTests",
             "test_selected_service_conformance.PinnedCheckerTests",
             "test_selected_service_protocol.PinnedProtocolTests",
             "test_selected_external_conformance.ExternalCheckerTests",
@@ -53,7 +54,7 @@ class CheckerGateTests(unittest.TestCase):
         loader = unittest.TestLoader()
         expected = {test.id() for name in gate.CASES for test in loader.loadTestsFromName(name)}
         self.assertEqual(ids, expected)
-        self.assertGreaterEqual(len(ids), 32)
+        self.assertGreaterEqual(len(ids), 36)
 
     def test_missing_and_empty_classes_fail_before_runner(self):
         with mock.patch.object(gate, "check_dependencies"), \
