@@ -1,0 +1,14 @@
+{
+  "manifest": {
+    "schema": "nib.h100-static-ipv4/v1",
+    "interface": "enp1s0",
+    "mac": "02:00:00:00:00:01",
+    "address": "192.0.2.10/24",
+    "gateway": "192.0.2.1",
+    "gateway_on_link": false,
+    "nras_ipv4": "198.51.100.10"
+  },
+  "network_config": "{\n  \"egress\": [\n    \"198.51.100.10\"\n  ],\n  \"schema\": \"nib.guest-network/v1\"\n}\n",
+  "networkd": "[Match]\nName=enp1s0\nMACAddress=02:00:00:00:00:01\n\n[Network]\nAddress=192.0.2.10/24\nDHCP=no\nLinkLocalAddressing=no\nIPv6AcceptRA=no\nLLMNR=no\nMulticastDNS=no\nDNSDefaultRoute=no\nKeepConfiguration=no\n\n[Route]\nDestination=198.51.100.10/32\nGateway=192.0.2.1\nGatewayOnLink=no\n",
+  "hosts": "198.51.100.10 nras.attestation.nvidia.com\n"
+}
