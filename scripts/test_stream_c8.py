@@ -376,7 +376,12 @@ class BindingTests(unittest.TestCase):
     def test_legacy_collector_transport_and_measurement_bytes_unchanged(self):
         for name in ("stream_cohort", "stream_transport", "stream_measurement", "tau_live_identity"):
             path = "scripts/" + name + ".py"
-            self.assertEqual((ROOT / path).read_bytes(), git(ROOT, "show", BASE + ":" + path))
+            original = git(ROOT, "show", BASE + ":" + path)
+            self.assertEqual(git(ROOT, "show", "40dca5590ca1354946852c4ebbef131efeaf05f4:" + path), original)
+            # The new explicit salt argument is checked structurally and with
+            # unchanged legacy wire bytes in test_stream_scaling.
+            if name != "stream_transport":
+                self.assertEqual((ROOT / path).read_bytes(), original)
 
     def test_profile_is_explicit_and_restricted_to_reviewed_engine(self):
         binding.enabled(selected())

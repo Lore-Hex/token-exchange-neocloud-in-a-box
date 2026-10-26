@@ -1115,7 +1115,7 @@ def main():
     parser.add_argument("--tau-owner", action="store_true",
                         help="Prepare selected 8K owner; run requires private controller pipes, not a terminal.")
     parser.add_argument("--stream-profile", metavar="PROFILE",
-                        help="Prepared profile: chat-2k-512-c1-600s, chat-2k-512-c8-600s, or chat-2k-512-c8-32waves-600s (C8 requires batch8-graphs).")
+                        help="Closed C1/C8 profiles, or chat-2k-512-c16-32-64-isolated-900s (requires batch32-graphs).")
     parser.add_argument("--model-profile", choices=("original", "uncensored"),
                         help="Fixed checkpoint selection during preparation only; absence selects original.")
     parser.add_argument("--execution-profile", metavar="PROFILE",

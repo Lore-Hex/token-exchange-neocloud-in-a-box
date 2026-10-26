@@ -83,7 +83,7 @@ def response_length(response):
     return None
 
 
-def request_body(messages, prompt_tokens, max_output_tokens, *, model=MODEL):
+def request_body(messages, prompt_tokens, max_output_tokens, *, model=MODEL, cache_salt=None):
     require(type(model) is str and re.fullmatch(r"[a-z0-9_.-]{1,128}", model))
     require(type(max_output_tokens) is int and 0 < max_output_tokens <= MAX_OUTPUT
             and type(prompt_tokens) is int and 0 < prompt_tokens <= CONTEXT - max_output_tokens
@@ -92,11 +92,15 @@ def request_body(messages, prompt_tokens, max_output_tokens, *, model=MODEL):
                     and type(row["content"]) is str and 0 < len(row["content"]) <= worker.MAX_REQUEST
                     for row in messages)
             and [row["role"] for row in messages] in (["user"], ["system", "user"]))
-    return worker.bounded_json({"model": model, "messages": messages,
+    require(cache_salt is None or type(cache_salt) is str and re.fullmatch("[0-9a-f]{64}", cache_salt))
+    body = {"model": model, "messages": messages,
         "stream": True, "stream_options": {"include_usage": True}, "n": 1, "temperature": 0,
         "max_completion_tokens": max_output_tokens, "reasoning_effort": "none",
         "add_generation_prompt": True, "continue_final_message": False, "add_special_tokens": False,
-        "chat_template_kwargs": {"reasoning_effort": "none", "enable_thinking": False}}, worker.MAX_REQUEST)
+        "chat_template_kwargs": {"reasoning_effort": "none", "enable_thinking": False}}
+    if cache_salt is not None:
+        body["cache_salt"] = cache_salt
+    return worker.bounded_json(body, worker.MAX_REQUEST)
 
 
 class OwnedStreamHTTP(local.LocalChatHTTP):
@@ -119,10 +123,10 @@ class OwnedStreamHTTP(local.LocalChatHTTP):
         super().connect(sock, deadline)
         self.endpoint.check(deadline, sock)
 
-    def collect(self, messages, *, prompt_tokens, max_output_tokens, deadline):
+    def collect(self, messages, *, prompt_tokens, max_output_tokens, deadline, cache_salt=None):
         require(threading.current_thread() is threading.main_thread()
                 and measurement.number(deadline))
-        raw = request_body(messages, prompt_tokens, max_output_tokens, model=self.model)
+        raw = request_body(messages, prompt_tokens, max_output_tokens, model=self.model, cache_salt=cache_salt)
         require(self.busy.acquire(blocking=False))
         started = time.monotonic()
         deadline = min(deadline, started + REQUEST_SECONDS)

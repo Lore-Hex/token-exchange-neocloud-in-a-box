@@ -19,6 +19,7 @@ EXTENDED_PROFILE = "chat-2k-512-c1-600s"
 C8_PROFILE = "chat-2k-512-c8-600s"
 C8_NAMES = ("stream_lab", "stream_c8")
 SUSTAINED_PROFILE = "chat-2k-512-c8-32waves-600s"
+SCALING_PROFILES = {"chat-2k-512-c16-32-64-isolated-900s": "isolated"}
 MAX_SECONDS = 4800
 
 
@@ -39,7 +40,8 @@ def sha(value):
 def enabled(contract):
     require(contract.get("stream_cohort") in ({"schema": SCHEMA},
             {"schema": SCHEMA, "profile": EXTENDED_PROFILE}, {"schema": SCHEMA, "profile": C8_PROFILE},
-            {"schema": SCHEMA, "profile": SUSTAINED_PROFILE})
+            {"schema": SCHEMA, "profile": SUSTAINED_PROFILE},
+            *({"schema": SCHEMA, "profile": p} for p in SCALING_PROFILES))
             and contract.get("operation") == "local-correctness"
             and (contract.get("gpu_family") == "B300" or
                  (contract.get("gpu_family") == "B200" and contract.get("data_parallel_size") == 2
@@ -54,7 +56,8 @@ def enabled(contract):
             and contract.get("runtime_observation") is True and "provider_conformance" not in contract)
     if concurrent(contract):
         require(contract.get("gpu_family") == "B300" and contract.get("gpu_security") == "nonconfidential"
-                and contract.get("data_parallel_size") == 2 and contract.get("execution_profile") == "batch8-graphs"
+                and contract.get("data_parallel_size") == 2
+                and contract.get("execution_profile") == ("batch32-graphs" if scaling(contract) else "batch8-graphs")
                 and contract.get("model_profile", {}).get("name") == "uncensored" and "tau_owner" not in contract)
         pins = contract.get("sources")
         names = source_names(contract["stream_cohort"]["profile"])
@@ -65,7 +68,11 @@ def enabled(contract):
 
 
 def concurrent(contract):
-    return contract.get("stream_cohort", {}).get("profile") in (C8_PROFILE, SUSTAINED_PROFILE)
+    return contract.get("stream_cohort", {}).get("profile") in (C8_PROFILE, SUSTAINED_PROFILE, *SCALING_PROFILES)
+
+
+def scaling(contract):
+    return contract.get("stream_cohort", {}).get("profile") in SCALING_PROFILES
 
 
 def sustained(contract):
@@ -74,19 +81,26 @@ def sustained(contract):
 
 def result_limits(contract):
     enabled(contract)
+    if scaling(contract):
+        # At most 12,289 bounded samples plus intervals. This profile alone
+        # reserves 30 MiB for the result and 2 MiB for the owner envelope.
+        return 32 << 20, 30 << 20
     # Only the fixed 32-wave report carries 256 sample/interval pairs. All
     # previous profiles retain their original capture and validation ceilings.
     return (512 << 10, 500000) if sustained(contract) else (65536, 60000)
 
 
 def source_names(profile):
-    require(profile in (None, EXTENDED_PROFILE, C8_PROFILE, SUSTAINED_PROFILE))
-    return NAMES + (C8_NAMES if profile in (C8_PROFILE, SUSTAINED_PROFILE) else ()) \
-        + (("stream_sustained",) if profile == SUSTAINED_PROFILE else ())
+    require(profile in (None, EXTENDED_PROFILE, C8_PROFILE, SUSTAINED_PROFILE, *SCALING_PROFILES))
+    return NAMES + (C8_NAMES if profile in (C8_PROFILE, SUSTAINED_PROFILE, *SCALING_PROFILES) else ()) \
+        + (("stream_sustained",) if profile == SUSTAINED_PROFILE else ()) \
+        + (("stream_capacity", "stream_scaling") if profile in SCALING_PROFILES else ())
 
 
 def cohort_seconds(contract, cohort):
     enabled(contract)
+    if scaling(contract):
+        return cohort.scaling.SECONDS
     return (cohort.EXTENDED_COHORT_SECONDS if "profile" in contract["stream_cohort"]
             else cohort.COHORT_SECONDS)
 
@@ -95,7 +109,8 @@ def load(sources, pins):
     """Compile only the fixed, authenticated source closure, not ambient modules."""
     modules = {}
     names = NAMES + (C8_NAMES if "stream/stream_c8.py" in pins else ()) \
-        + (("stream_sustained",) if "stream/stream_sustained.py" in pins else ())
+        + (("stream_sustained",) if "stream/stream_sustained.py" in pins else ()) \
+        + (("stream_capacity", "stream_scaling") if "stream/stream_scaling.py" in pins else ())
     def source_import(name, globals=None, locals=None, fromlist=(), level=0):
         if name in names:
             require(level == 0 and name in modules)
@@ -116,6 +131,8 @@ def load(sources, pins):
         modules["stream_cohort"].c8 = modules["stream_c8"]
     if "stream_sustained" in modules:
         modules["stream_cohort"].sustained = modules["stream_sustained"]
+    if "stream_scaling" in modules:
+        modules["stream_cohort"].scaling = modules["stream_scaling"]
     return modules["stream_cohort"]
 
 
@@ -165,11 +182,15 @@ def run(engine, contract, contract_sha, prepared, cohort, observer, deadline, *,
     collect = cohort.c8.run if concurrent(contract) else cohort.run
     if sustained(contract):
         collect = cohort.sustained.run
+    options = {}
+    if scaling(contract):
+        collect = cohort.scaling.run
+        options["condition"] = SCALING_PROFILES[contract["stream_cohort"]["profile"]]
     result = {"schema": RESULT_SCHEMA, "contract_sha256": sha(contract_sha),
               "engine_identity_sha256": digest(process), "terminal_identity_verified": False,
               "cohort": collect(endpoint, prepared, deadline=deadline,
                                    gpu_count=4 * contract.get("data_parallel_size", 1),
-                                   cohort_seconds=cohort_seconds(contract, cohort), model=model)}
+                                   cohort_seconds=cohort_seconds(contract, cohort), model=model, **options)}
     try:
         endpoint.check(deadline)
         require(engine.poll() is None and observer.process(engine.pid, deadline) == before
@@ -227,6 +248,10 @@ def validate(value, contract, contract_sha, cohort, *, model=None):
         "terminal_identity_verified", "cohort"} and value["schema"] == RESULT_SCHEMA
         and value["contract_sha256"] == sha(contract_sha) and type(value["terminal_identity_verified"]) is bool)
     sha(value["engine_identity_sha256"])
+    if scaling(contract):
+        accepted = cohort.scaling.validate(value["cohort"], contract, cohort, model,
+                                          SCALING_PROFILES[contract["stream_cohort"]["profile"]])
+        return accepted and value["terminal_identity_verified"]
     if sustained(contract):
         accepted = cohort.sustained.validate(value["cohort"], contract, cohort, model)
         return accepted and value["terminal_identity_verified"]
