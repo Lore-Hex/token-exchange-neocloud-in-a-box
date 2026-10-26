@@ -43,7 +43,7 @@
     "/usr/lib/x86_64-linux-gnu/libssl.so.3": "63b47f444efa588e291e9b650a5ba2ab02f856356f2d50f13a2e477db9119e09",
     "/usr/lib/x86_64-linux-gnu/libtinfo.so.6.6": "085dbbe5dc38619276bdd0af37ae588969b1308baded09a2990ce8824a602912",
     "/usr/lib/x86_64-linux-gnu/libxtables.so.12.7.0": "ec7a3b03501b76fafa19b3688c966597e579d9a464688f1f56de0db024705a28",
-    "/usr/lib/x86_64-linux-gnu/libz.so.1.3.1": "47b61967895b30e8c0c6818dd633ffeb87711cf637c688f981896f0dd84ce23b",
+    "/usr/lib/x86_64-linux-gnu/libz.so.1.3.1": "27fa6c6cb94fb5b099ead61758a300dbc392d1dbf307fff6c16a9b8e57fdc9de",
     "/usr/lib/x86_64-linux-gnu/libzstd.so.1.5.7": "060eeb79531d435306665fd78329d8a9dd579f95876c5960bb67937825362a80"
   },
   "packages": {
@@ -56,6 +56,7 @@
     "iproute2": "6.19.0-1ubuntu1.1",
     "iptables": "1.8.11-2ubuntu3",
     "openssl": "3.5.5-1ubuntu3.7",
-    "python3.14-minimal": "3.14.4-1ubuntu0.2"
+    "python3.14-minimal": "3.14.4-1ubuntu0.2",
+    "zlib1g:amd64": "1:1.3.dfsg+really1.3.1-1ubuntu3.2"
   }
 }

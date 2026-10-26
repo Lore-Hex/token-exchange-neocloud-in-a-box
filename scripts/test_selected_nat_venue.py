@@ -40,6 +40,10 @@ class VenueTests(unittest.TestCase):
         self.assertEqual(settings["python"], "3.14.4")
         self.assertEqual(settings["nftables"], "1.1.6")
         self.assertEqual(len(settings["files"]), 38)
+        self.assertEqual(settings["packages"]["zlib1g:amd64"],
+                         "1:1.3.dfsg+really1.3.1-1ubuntu3.2")
+        self.assertEqual(settings["files"]["/usr/lib/x86_64-linux-gnu/libz.so.1.3.1"],
+                         "27fa6c6cb94fb5b099ead61758a300dbc392d1dbf307fff6c16a9b8e57fdc9de")
         self.assertIn(proof.VENUE_FILE, proof.SOURCES)
         for unknown in (None, "auto", "ubuntu26", "ubuntu26-ordinary\n", True, 1):
             with self.subTest(unknown=unknown), self.assertRaises(ValueError):
@@ -116,12 +120,18 @@ class VenueTests(unittest.TestCase):
         settings = proof.venue_settings(proof.ORDINARY_VENUE)
         output = "".join(name + "\t" + version + "\n" for name, version in sorted(settings["packages"].items()))
         for failure in (None, "kernel", "python", "interpreter", "relative-interpreter",
-                        "package", "duplicate", "file", "path"):
+                        "package", "zlib-package", "zlib-missing", "duplicate", "file", "zlib-file", "path"):
             with self.subTest(failure=failure), ExitStack() as stack:
                 commands = mock.Mock(end=time.monotonic() + 60, env=proof.ENV)
                 package_output = output + output.splitlines(True)[0] if failure == "duplicate" else output
                 if failure == "package":
                     package_output = output.replace("29.1.3-0ubuntu4.1", "29.1.4")
+                if failure == "zlib-package":
+                    package_output = output.replace("1:1.3.dfsg+really1.3.1-1ubuntu3.2",
+                                                    "1:1.3.dfsg+really1.3.1-1ubuntu3.1")
+                if failure == "zlib-missing":
+                    package_output = "".join(line for line in output.splitlines(True)
+                                             if not line.startswith("zlib1g:amd64\t"))
                 commands.run.side_effect = [
                     subprocess.CompletedProcess([], 0, b"unshare from util-linux 2.41.3\n", b""),
                     subprocess.CompletedProcess([], 0, package_output.encode(), b"")]
@@ -136,6 +146,11 @@ class VenueTests(unittest.TestCase):
                 check = stack.enter_context(mock.patch.object(proof, "pinned_file"))
                 if failure == "file":
                     check.side_effect = ValueError("changed file")
+                if failure == "zlib-file":
+                    def changed_zlib(path, digest, end):
+                        if path.name == "libz.so.1.3.1":
+                            raise ValueError("old or unknown zlib content")
+                    check.side_effect = changed_zlib
                 targets = {"python3": "/usr/bin/python3.14", "iptables": "/usr/sbin/xtables-nft-multi",
                            "nft": "/usr/sbin/nft", "runc": "/usr/sbin/runc"}
                 stack.enter_context(mock.patch.object(proof.shutil, "which", side_effect=lambda name, **kw:
@@ -145,6 +160,7 @@ class VenueTests(unittest.TestCase):
                     proof.check_venue(commands, proof.ORDINARY_VENUE)
                     self.assertEqual(check.call_count, 38)
                     self.assertEqual({str(c.args[0]): c.args[1] for c in check.call_args_list}, settings["files"])
+                    self.assertIn("zlib1g:amd64", commands.run.call_args.args[0])
                 else:
                     with self.assertRaises(ValueError):
                         proof.check_venue(commands, proof.ORDINARY_VENUE)
