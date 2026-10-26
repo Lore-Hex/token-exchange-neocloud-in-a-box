@@ -48,6 +48,12 @@ catalog: its 59-minute deadline exceeds the pinned marketplace contract's
 15-minute ceiling. Listing also requires coordinated contract, checker and
 router support. Existing profiles remain unchanged.
 
+The [October 26 preparation checkpoint](evidence/p2/2026-10-26-million-prerequisites/README.md)
+records verified staging of all 510.3 GB, a separate verified read-only copy,
+passing host isolation controls, and the exact image/build preflight for the
+1M candidate. It preserves the earlier rejected host-library pin as well.
+These prerequisites are not a completed inference or capacity result.
+
 The opt-in [128K-context / 16K-output profiles](docs/tasks/p2-t3-long-context-cache.md)
 provide bounded chunked prefill, cache namespaces and actual cached-token usage
 reporting. The [October 26 graph-profile trial](evidence/p2/2026-10-26-selected-long-graphs/README.md)
