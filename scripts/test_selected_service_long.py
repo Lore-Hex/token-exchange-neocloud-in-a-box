@@ -4,6 +4,7 @@
 import copy
 from dataclasses import replace
 import json
+import types
 import unittest
 from unittest import mock
 
@@ -23,19 +24,54 @@ def long_lab():
 
 
 class LongProfileTests(unittest.TestCase):
+    def test_full_long_lifecycle_reserves_both_drains_and_every_reap(self):
+        with lifecycle_tests.LifecycleTests().setup_service(lifetime=4800) as (supervisor, owner, clock, shutdown):
+            contract = service.Contract.begin(clock.timestamp(4800), input_price="1", output_price="2",
+                execution_profile=engine.LONG_PROFILE)
+            supervisor.contract = contract
+            owner.prepared = types.SimpleNamespace(receipt_sha256="a" * 64)
+            owner.observation = service.EngineReady(lifecycle_tests.endpoint(1000),
+                json.dumps({"data": [{"id": service.MODEL, "max_model_len": 131072}]}).encode(),
+                131072, service.MEMORY_BYTES, 0, engine.LONG_PROFILE)
+            probe = owner.probe
+            def ready(role, *args):
+                result = probe(role, *args)
+                if role == "tls":
+                    shutdown.retire = contract.hard_monotonic - contract.cleanup_reserve
+                return result
+            def drain(role, child, deadline):
+                self.assertEqual(deadline - clock.mono, 930)
+                clock.advance(930)
+                child.returncode = 0
+                return True
+            def reap(role, child, deadline):
+                self.assertEqual(deadline - clock.mono, 25)
+                clock.advance(25)
+                child.returncode = 0
+                return True
+            def sweep(deadline):
+                self.assertEqual(deadline - clock.mono, 25)
+                clock.advance(25)
+                return True
+            owner.probe, owner.drain, owner.reap, owner.reap_unregistered = ready, drain, reap, sweep
+            result = supervisor.run()
+            self.assertEqual(result["status"], "retired")
+            self.assertTrue(result["cleanup_confirmed"])
+            self.assertEqual(clock.mono, contract.hard_monotonic)
+
     def test_long_budget_is_reserved_before_admission_and_never_renews(self):
         clock = lifecycle_tests.Clock()
         with mock.patch.object(service, "time", clock), mock.patch.object(service.pilot, "time", clock):
-            for seconds in (0, 375, 1935):
+            for seconds in (0, 375, 1960):
                 with self.assertRaises(ValueError):
                     service.Contract.begin(clock.timestamp(seconds), input_price="1", output_price="2",
                         execution_profile=engine.LONG_PROFILE)
             contract = service.Contract.begin(clock.timestamp(4800), input_price="1", output_price="2",
                 execution_profile=engine.LONG_PROFILE)
             self.assertEqual((contract.request_seconds, contract.drain_seconds, contract.cleanup_reserve),
-                             (900, 930, 1935))
-            self.assertEqual(contract.lifetime["admission_stop_at"], clock.timestamp(4800 - 1935))
-            self.assertLessEqual(contract.startup_deadline, contract.hard_monotonic - 1935)
+                             (900, 930, 1960))
+            self.assertEqual(contract.lifetime["admission_stop_at"], clock.timestamp(4800 - 1960))
+            self.assertLessEqual(contract.startup_deadline, contract.hard_monotonic - 1960)
             clock.advance(4800)
             with self.assertRaises(ValueError):
                 service.Contract.begin(contract.hard_stop_at, input_price="1", output_price="2",
@@ -59,7 +95,7 @@ class LongProfileTests(unittest.TestCase):
 
     def test_watchdog_derives_long_cleanup_from_owned_container_profile(self):
         budget = smoke_tests.smoke.cleanup_budget
-        self.assertEqual(budget({"Config": {"Cmd": ["--execution-profile", engine.LONG_PROFILE]}}), 1935)
+        self.assertEqual(budget({"Config": {"Cmd": ["--execution-profile", engine.LONG_PROFILE]}}), 1960)
         for command in (None, [], ["--execution-profile"],
                         ["--execution-profile", engine.LONG_PROFILE, "--execution-profile", engine.EAGER_PROFILE],
                         ["--execution-profile", engine.EAGER_PROFILE], ["--execution-profile", "invalid"]):
@@ -80,9 +116,9 @@ class LongProfileTests(unittest.TestCase):
                 self.assertEqual(args[args.index("--max-inflight") + 1], str(contract.max_inflight))
                 if profile == engine.LONG_PROFILE:
                     self.assertEqual(args[args.index("--shutdown-grace") + 1], "910s")
-                    self.assertEqual(contract.cleanup_reserve, 1935)
+                    self.assertEqual(contract.cleanup_reserve, 1960)
                     self.assertEqual(contract.admission_stop_at,
-                        service.retirement_at(contract.hard_wall - 1935))
+                        service.retirement_at(contract.hard_wall - 1960))
                 else:
                     self.assertNotIn("--shutdown-grace", args)
                     self.assertEqual(contract.admission_stop_at, fixture.contract.admission_stop_at)

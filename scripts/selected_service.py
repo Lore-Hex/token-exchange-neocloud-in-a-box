@@ -78,7 +78,12 @@ def drain_seconds(execution_profile):
 
 
 def cleanup_reserve(execution_profile):
-    return 2 * (drain_seconds(execution_profile) + REAP_SECONDS) + REAP_SECONDS
+    drain = drain_seconds(execution_profile)
+    # Long requests reserve both frontend drains and all four cleanup steps:
+    # TLS, guard, engine, then the unregistered-child sweep.
+    if execution_profile == engine_entry.LONG_PROFILE:
+        return 2 * drain + 4 * REAP_SECONDS
+    return CLEANUP_RESERVE
 
 
 def retirement_at(wall):
