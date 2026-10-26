@@ -25,13 +25,37 @@ nftables 1.0.9, util-linux 2.39.3 and regular resolver-file contract. The opt-in
   during the bounded hash read. The command search path must resolve the named
   tools to the selected paths.
 
-These identities came from read-only inspection on 2026-10-25. They are admission
+These identities came from read-only inspection on 2026-10-25, with the exact
+zlib security-update pin revised on 2026-10-26 as described below. They are admission
 pins for an **ordinary trusted-host experiment**, not proof of kernel boot
 identity, package provenance, a complete dynamically loaded execution closure,
 or defense against a malicious host administrator. Library aliases, Python's
 entire standard library, firmware and arbitrary loader configuration are not
 attested. Unknown venues or drift fail; there is no automatic host detection,
 package installation, upgrade or fallback to looser checks.
+
+### Ubuntu zlib security update, 2026-10-26
+
+A replacement ordinary host failed admission before the baseline snapshot or
+network experiment: 37 of the 38 file pins matched, but the resolved zlib library
+had changed. Its package is `zlib1g:amd64`, version
+`1:1.3.dfsg+really1.3.1-1ubuntu3.2`. The current manifest replaces only that
+library hash and adds an explicit package-version check; it does not accept both
+old and new hashes or change the machine's installed library.
+
+Primary source: [Ubuntu's exact amd64 security-update package](https://security.ubuntu.com/ubuntu/pool/main/z/zlib/zlib1g_1.3.dfsg+really1.3.1-1ubuntu3.2_amd64.deb),
+downloaded and inspected on 2026-10-26. Its packaged changelog dates the update
+2026-10-21 and identifies a `gz_vacate()` heap-buffer-overflow fix. The package's
+SHA-256 is `10084666f747247550c3e82f9a12cbfd9184c19241a42eb34d8893ecb8e03b35`.
+The extracted `usr/lib/x86_64-linux-gnu/libz.so.1.3.1` hash is
+`27fa6c6cb94fb5b099ead61758a300dbc392d1dbf307fff6c16a9b8e57fdc9de`,
+matching the replacement host. The previous pin was
+`47b61967895b30e8c0c6818dd633ffeb87711cf637c688f981896f0dd84ce23b`.
+
+Historical evidence retains its original git and manifest hashes and is not
+upgraded into proof for this revision. A new exact-source baseline and network
+experiment must pass before inference. Package and hash matching are ordinary
+host admission checks, not attestation or a confidential-computing claim.
 
 ## Private resolver handling
 
