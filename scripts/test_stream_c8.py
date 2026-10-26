@@ -64,7 +64,7 @@ class ProcessTests(unittest.TestCase):
             command = [sys.executable, "-I", "-S", "-B", str(ROOT / "scripts/fixtures/stream_c8_child.py"),
                        mode, MODEL, json.dumps(inherited), json.dumps(endpoint().expected)]
             if usage_dir is not None:
-                self.assertEqual(mode, "http-usage")
+                self.assertIn(mode, ("http-usage", "lost-synchronized"))
                 command.append(str(usage_dir))
             process = REAL_POPEN(command, **kwargs)
             created.append(process)

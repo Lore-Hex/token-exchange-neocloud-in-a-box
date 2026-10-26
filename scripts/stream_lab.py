@@ -18,6 +18,7 @@ RESULT_SCHEMA = "nib.owned-stream-result/v1"
 EXTENDED_PROFILE = "chat-2k-512-c1-600s"
 C8_PROFILE = "chat-2k-512-c8-600s"
 C8_NAMES = ("stream_lab", "stream_c8")
+SUSTAINED_PROFILE = "chat-2k-512-c8-32waves-600s"
 MAX_SECONDS = 4800
 
 
@@ -37,7 +38,8 @@ def sha(value):
 
 def enabled(contract):
     require(contract.get("stream_cohort") in ({"schema": SCHEMA},
-            {"schema": SCHEMA, "profile": EXTENDED_PROFILE}, {"schema": SCHEMA, "profile": C8_PROFILE})
+            {"schema": SCHEMA, "profile": EXTENDED_PROFILE}, {"schema": SCHEMA, "profile": C8_PROFILE},
+            {"schema": SCHEMA, "profile": SUSTAINED_PROFILE})
             and contract.get("operation") == "local-correctness"
             and (contract.get("gpu_family") == "B300" or
                  (contract.get("gpu_family") == "B200" and contract.get("data_parallel_size") == 2
@@ -55,19 +57,32 @@ def enabled(contract):
                 and contract.get("data_parallel_size") == 2 and contract.get("execution_profile") == "batch8-graphs"
                 and contract.get("model_profile", {}).get("name") == "uncensored" and "tau_owner" not in contract)
         pins = contract.get("sources")
-        require(type(pins) is dict and all("stream/" + name + ".py" in pins for name in source_names(C8_PROFILE))
+        names = source_names(contract["stream_cohort"]["profile"])
+        require(type(pins) is dict and all("stream/" + name + ".py" in pins for name in names)
                 and "stream-lab.py" in pins and pins["stream/stream_lab.py"] == pins["stream-lab.py"])
-        for name in source_names(C8_PROFILE):
+        for name in names:
             sha(pins["stream/" + name + ".py"])
 
 
 def concurrent(contract):
-    return contract.get("stream_cohort", {}).get("profile") == C8_PROFILE
+    return contract.get("stream_cohort", {}).get("profile") in (C8_PROFILE, SUSTAINED_PROFILE)
+
+
+def sustained(contract):
+    return contract.get("stream_cohort", {}).get("profile") == SUSTAINED_PROFILE
+
+
+def result_limits(contract):
+    enabled(contract)
+    # Only the fixed 32-wave report carries 256 sample/interval pairs. All
+    # previous profiles retain their original capture and validation ceilings.
+    return (512 << 10, 500000) if sustained(contract) else (65536, 60000)
 
 
 def source_names(profile):
-    require(profile in (None, EXTENDED_PROFILE, C8_PROFILE))
-    return NAMES + (C8_NAMES if profile == C8_PROFILE else ())
+    require(profile in (None, EXTENDED_PROFILE, C8_PROFILE, SUSTAINED_PROFILE))
+    return NAMES + (C8_NAMES if profile in (C8_PROFILE, SUSTAINED_PROFILE) else ()) \
+        + (("stream_sustained",) if profile == SUSTAINED_PROFILE else ())
 
 
 def cohort_seconds(contract, cohort):
@@ -79,7 +94,8 @@ def cohort_seconds(contract, cohort):
 def load(sources, pins):
     """Compile only the fixed, authenticated source closure, not ambient modules."""
     modules = {}
-    names = NAMES + (C8_NAMES if "stream/stream_c8.py" in pins else ())
+    names = NAMES + (C8_NAMES if "stream/stream_c8.py" in pins else ()) \
+        + (("stream_sustained",) if "stream/stream_sustained.py" in pins else ())
     def source_import(name, globals=None, locals=None, fromlist=(), level=0):
         if name in names:
             require(level == 0 and name in modules)
@@ -98,6 +114,8 @@ def load(sources, pins):
     if "stream_c8" in modules:
         require(pins["stream/stream_lab.py"] == pins["stream-lab.py"])
         modules["stream_cohort"].c8 = modules["stream_c8"]
+    if "stream_sustained" in modules:
+        modules["stream_cohort"].sustained = modules["stream_sustained"]
     return modules["stream_cohort"]
 
 
@@ -145,6 +163,8 @@ def run(engine, contract, contract_sha, prepared, cohort, observer, deadline, *,
     endpoint.check(deadline)
     require(observer.process(engine.pid, deadline) == before and engine.poll() is None)
     collect = cohort.c8.run if concurrent(contract) else cohort.run
+    if sustained(contract):
+        collect = cohort.sustained.run
     result = {"schema": RESULT_SCHEMA, "contract_sha256": sha(contract_sha),
               "engine_identity_sha256": digest(process), "terminal_identity_verified": False,
               "cohort": collect(endpoint, prepared, deadline=deadline,
@@ -207,7 +227,16 @@ def validate(value, contract, contract_sha, cohort, *, model=None):
         "terminal_identity_verified", "cohort"} and value["schema"] == RESULT_SCHEMA
         and value["contract_sha256"] == sha(contract_sha) and type(value["terminal_identity_verified"]) is bool)
     sha(value["engine_identity_sha256"])
-    row, meter = value["cohort"], cohort.meter
+    if sustained(contract):
+        accepted = cohort.sustained.validate(value["cohort"], contract, cohort, model)
+        return accepted and value["terminal_identity_verified"]
+    return validate_cohort(value["cohort"], contract, cohort, model) and value["terminal_identity_verified"]
+
+
+def validate_cohort(row, contract, cohort, model, *, wave=False):
+    """Shared sample, usage, timing and cleanup checks; no synthetic warmup."""
+    require(type(wave) is bool and (not wave or sustained(contract)))
+    meter = cohort.meter
     fixed = {"schema": "nib.chat-stream-cohort/v1", "model": model, "concurrency": 1,
         "prompt_tokens_per_request": cohort.PROMPT_TOKENS, "max_output_tokens_per_request": cohort.OUTPUT_TOKENS,
         "reserved_requests": cohort.TOTAL_REQUESTS, "reserved_total_tokens": cohort.RESERVED_TOKENS,
@@ -215,11 +244,16 @@ def validate(value, contract, contract_sha, cohort, *, model=None):
     c8 = concurrent(contract)
     if c8:
         fixed.update(schema="nib.chat-stream-cohort/v2", concurrency=8)
+    reserved = cohort.MEASURED_REQUESTS if wave else cohort.TOTAL_REQUESTS
+    if wave:
+        fixed.update(schema=cohort.c8.WAVE_SCHEMA, reserved_requests=reserved,
+                     reserved_total_tokens=reserved * (cohort.PROMPT_TOKENS + cohort.OUTPUT_TOKENS))
     require(type(row) is dict and set(row) == set(fixed) | {"workload", "started_requests", "not_run_requests",
         "known_prompt_tokens", "known_output_tokens", "requests_with_unknown_usage", "warmup", "samples", "measured",
         "elapsed_seconds", "stop_reason", "completed"} | ({"intervals", "peak_in_flight", "collectors_reaped"} if c8 else set()))
     require(all(type(row[key]) is type(expected) and row[key] == expected for key, expected in fixed.items()))
     workload(row["workload"], cohort)
+    require(not wave or row["warmup"] is None)
     require(type(row["samples"]) is list and len(row["samples"]) <= cohort.MEASURED_REQUESTS
             and type(row["completed"]) is bool and meter.number(row["elapsed_seconds"])
             and row["elapsed_seconds"] <= MAX_SECONDS)
@@ -228,19 +262,19 @@ def validate(value, contract, contract_sha, cohort, *, model=None):
         validate_sample(sample, cohort)
     if not c8:
         require(sum(sample["elapsed_seconds"] for sample in samples) <= row["elapsed_seconds"] + 1e-6)
-    expected = {"started_requests": len(samples), "not_run_requests": cohort.TOTAL_REQUESTS - len(samples),
+    expected = {"started_requests": len(samples), "not_run_requests": reserved - len(samples),
         "known_prompt_tokens": sum(sample["prompt_tokens"] or 0 for sample in samples),
         "known_output_tokens": sum(sample["completion_tokens"] or 0 for sample in samples),
         "requests_with_unknown_usage": sum(sample["completion_tokens"] is None for sample in samples)}
     require(all(type(row[key]) is int and row[key] == count for key, count in expected.items()))
     measured = row["samples"]
     if measured:
-        require(row["warmup"] is not None and row["warmup"]["status"] == "completed"
+        require((wave or row["warmup"] is not None and row["warmup"]["status"] == "completed")
                 and type(row["measured"]) is dict)
         wall = row["measured"].get("wall_seconds")
         require(meter.number(wall) and wall > 0
                 and (max if c8 else sum)(sample["elapsed_seconds"] for sample in measured) <= wall + 1e-6
-                and wall + row["warmup"]["elapsed_seconds"] <= row["elapsed_seconds"] + 1e-6)
+                and wall + (row["warmup"]["elapsed_seconds"] if row["warmup"] else 0) <= row["elapsed_seconds"] + 1e-6)
         expected_summary = meter._summarize_rows(measured, scheduled=cohort.MEASURED_REQUESTS,
             wall_seconds=wall, gpu_count=4 * contract.get("data_parallel_size", 1))
         # Canonical JSON distinguishes false from zero and disallows extra fields.
@@ -249,8 +283,8 @@ def validate(value, contract, contract_sha, cohort, *, model=None):
         require(row["measured"] is None)
     stop = row["stop_reason"]
     if c8:
-        validate_concurrent(row, cohort)
-        return row["completed"] and value["terminal_identity_verified"] and row["collectors_reaped"]
+        validate_concurrent(row, cohort, wave=wave)
+        return row["completed"] and row["collectors_reaped"]
     require(stop in ("complete", "deadline", "warmup-failed", "request-failed") and row["completed"] == (stop == "complete"))
     if stop == "warmup-failed":
         require(row["warmup"] is not None and row["warmup"]["status"] != "completed" and not measured)
@@ -261,10 +295,10 @@ def validate(value, contract, contract_sha, cohort, *, model=None):
         require(all(sample["status"] == "completed" for sample in samples))
         require(stop != "complete" or len(measured) == cohort.MEASURED_REQUESTS
                 and row["elapsed_seconds"] < cohort_seconds(contract, cohort))
-    return row["completed"] and value["terminal_identity_verified"]
+    return row["completed"]
 
 
-def validate_concurrent(row, cohort):
+def validate_concurrent(row, cohort, *, wave=False):
     meter = cohort.meter
     require(type(row["collectors_reaped"]) is bool and type(row["intervals"]) is list
             and len(row["intervals"]) == len(row["samples"]) and type(row["peak_in_flight"]) is int
@@ -276,14 +310,15 @@ def validate_concurrent(row, cohort):
                 and (interval["exit_code"] is None and not row["collectors_reaped"]
                      or type(interval["exit_code"]) is int and -255 <= interval["exit_code"] <= 255)
                 and meter.number(interval["start"]) and meter.number(interval["end"])
-                and row["warmup"] is not None
-                and row["warmup"]["elapsed_seconds"] <= interval["start"] <= interval["end"] <= row["elapsed_seconds"]
+                and (wave or row["warmup"] is not None)
+                and (0 if wave else row["warmup"]["elapsed_seconds"]) <= interval["start"] <= interval["end"] <= row["elapsed_seconds"]
                 and sample["elapsed_seconds"] <= interval["end"] - interval["start"] + 1e-6
                 and row["elapsed_seconds"] - row["measured"]["wall_seconds"] <= interval["start"] + 1e-6
                 and interval["end"] - interval["start"] <= row["measured"]["wall_seconds"] + 1e-6)
         require(interval["reported"] or sample["status"] != "completed" and sample["prompt_tokens"] is None)
     require(row["peak_in_flight"] == cohort.c8.peak(row["intervals"]) <= 8)
     stop = row["stop_reason"]
+    require(not wave or stop != "warmup-failed")
     require(stop in ("complete", "deadline", "warmup-failed", "request-failed", "collector-failed",
                      "cancelled", "insufficient-overlap") and row["completed"] == (stop == "complete"))
     if stop == "complete":
