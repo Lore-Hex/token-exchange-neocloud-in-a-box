@@ -744,7 +744,7 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
         if full_task:
             record.update(selection=dict(manifest["selection"]), evaluation=dict(manifest["evaluation"]),
                           full_benchmark=False)
-        publish_evidence(destination, {"observation.json": tau.encoded(record)})
+        publish_evidence(destination, external_evidence_files(record))
         return record
     if selected_operational:
         record = {"schema": "nib.tau-selected-scorer-run/v1", "toolkit": toolkit, "plan_sha256": sha,
@@ -837,6 +837,17 @@ def probe_evidence_record(record):
         notes="Fixed CPU support probe scorer only; original upstream prompts, actual CPU support replies, scripted target. "
               "No target quality, full tau trial, live admission or confidential claim. CPU owner cleanup is recorded separately.")
     return envelope
+
+
+def external_evidence_files(record):
+    toolkit = record.get("toolkit") or {}
+    envelope = evidence_record(toolkit.get("git_sha"), record.get("plan_sha256", "unverified"),
+                               record["started_utc"], record)
+    envelope.update(command="Bounded external tau trial; private endpoint and credential paths omitted.",
+        notes="Original upstream task/scorer with separately metered endpoints. A lifecycle pass is not "
+              "a task success or full benchmark qualification. Preflight failures can lack source identity "
+              "and usage observations. No confidential claim. output.log contains numeric/fixed observations only.")
+    return {"run.json": tau.encoded(envelope), "output.log": tau.encoded(record)}
 
 
 def publish_evidence(destination, files):

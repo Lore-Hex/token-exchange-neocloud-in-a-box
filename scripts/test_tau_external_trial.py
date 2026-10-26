@@ -3,7 +3,7 @@
 
 import ast
 import copy
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, redirect_stderr
 from enum import Enum
 import io
 import json
@@ -234,6 +234,19 @@ class ExternalTrialTests(unittest.TestCase):
                 self.assertIs(inputs["full_task"], True)
                 self.assertEqual(len(inputs["arguments"]), 7)
                 self.assertLessEqual(inputs["deadline"] - time.monotonic(), 90)
+            with mock.patch.object(sys, "argv", arguments), redirect_stdout(io.StringIO()), \
+                    redirect_stderr(io.StringIO()), \
+                    mock.patch.object(entry.trial, "run", side_effect=ValueError("SYNTHETIC_PRIVATE_CANARY")):
+                self.assertEqual(entry.main(), 1)
+            files = {p.name: p.read_bytes() for p in (Path(temporary) / "result").iterdir()}
+            self.assertEqual(set(files), {"run.json", "output.log"})
+            failure = json.loads(files["output.log"])
+            self.assertEqual(failure["cleanup"], "unconfirmed")
+            self.assertEqual(failure["result"], "fail")
+            self.assertIsNone(json.loads(files["run.json"])["git_sha"])
+            self.assertNotIn(b"CANARY", b"".join(files.values()))
+            for path in (Path(temporary) / "result").iterdir():
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
 
     def test_full_lifecycle_retains_scored_zero_on_late_failure(self):
         for failure in (None, "terminal", "cleanup"):
@@ -277,10 +290,12 @@ class ExternalTrialTests(unittest.TestCase):
                     mock.patch.object(runner, "validate_plan", return_value=(plan, configuration())), \
                     mock.patch.object(runner, "parent_driver", return_value=module), \
                     mock.patch.object(runner.shutil, "which", return_value="/fixed/docker"), \
-                    mock.patch.object(runner.probe, "capture", side_effect=capture), \
-                    mock.patch.object(runner, "publish_evidence", side_effect=lambda p, f: published.update(f)):
+                    mock.patch.object(runner.probe, "capture", side_effect=capture):
                 record = runner.run(Path("/unused"), "a" * 64, Path(temporary) / "result", socket, parent_pipe=True,
                     external_inputs={"deadline": time.monotonic() + 90, "arguments": (None,) * 7, "full_task": True})
+                published = {p.name: p.read_bytes() for p in (Path(temporary) / "result").iterdir()}
+                self.assertEqual(set(published), {"run.json", "output.log"})
+                self.assertEqual(json.loads(published["output.log"]), record)
             self.assertEqual(record["result"], "pass" if failure is None else "fail")
             self.assertEqual(record["schema"], "nib.tau-external-full-task-run/v1")
             self.assertEqual(record["trial"]["trial"]["reward"], "0.0")

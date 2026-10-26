@@ -2,6 +2,7 @@
 """Offline external endpoints, original parent budget and sealed-scorer boundary."""
 
 import copy
+import json
 from decimal import Decimal
 from contextlib import ExitStack
 import os
@@ -337,8 +338,7 @@ class ExternalTests(unittest.TestCase):
                     (runner, "validate_plan", {"return_value": (plan, held.manifest["input"])}),
                     (runner, "parent_driver", {"return_value": module}),
                     (runner.shutil, "which", {"return_value": "/fixed/docker"}),
-                    (runner.probe, "capture", {"side_effect": capture}),
-                    (runner, "publish_evidence", {"side_effect": lambda path, files: published.update(files)})):
+                    (runner.probe, "capture", {"side_effect": capture})):
                     stack.enter_context(mock.patch.object(target, name, **kwargs))
                 sock = mock.Mock()
                 sock.is_absolute.return_value = True
@@ -346,6 +346,9 @@ class ExternalTests(unittest.TestCase):
                 deadline = time.monotonic() + 90
                 report = runner.run(Path("/private/payload"), "a" * 64, Path(temporary) / "output", sock,
                     parent_pipe=True, external_inputs={"arguments": (None,) * 7, "deadline": deadline})
+                published = {p.name: p.read_bytes() for p in (Path(temporary) / "output").iterdir()}
+                self.assertEqual(set(published), {"run.json", "output.log"})
+                self.assertEqual(json.loads(published["output.log"]), report)
                 self.assertEqual(report["result"], "pass" if failure is None else "fail")
                 self.assertNotIn(b"CANARY", b"".join(published.values()))
                 if failure == "driver":

@@ -59,6 +59,7 @@ def main():
     for name in ("plan-sha256", "contract-sha256", "deadline-utc"):
         run.add_argument("--" + name, required=True)
     args = parser.parse_args()
+    started = trial.now()
     cancelled = False
     def cancel(signum, frame):
         nonlocal cancelled
@@ -93,10 +94,11 @@ def main():
         return 0 if record["result"] == "pass" else 1
     except BaseException:
         if args.command == "run" and not args.output.exists():
-            trial.publish_evidence(args.output, {"observation.json": trial.tau.encoded({
+            trial.publish_evidence(args.output, trial.external_evidence_files({
                 "schema": "nib.tau-external-full-task-preflight/v1" if args.full_task else "nib.tau-external-preflight/v1",
                 "result": "fail", "cleanup": "unconfirmed",
-                "quality_eligible": False, "confidential": False, "live_admission": False})})
+                "started_utc": started, "ended_utc": trial.now(),
+                "quality_eligible": False, "confidential": False, "live_admission": False}))
         print("External tau diagnostic failed; no automatic retry.", file=sys.stderr)
         return 1
     finally:
