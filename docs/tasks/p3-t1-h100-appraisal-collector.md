@@ -3,7 +3,9 @@
 Status: software-only opt-in diagnostic. No vendor request, GPU appraisal, boot,
 readiness transition or confidential service has been validated by this change.
 The production GPU gate and release verifier remain fail-closed. The executable
-is excluded from default builds and is not installed in the guest image.
+is excluded from default builds and default images. An explicit, non-activating
+image composition path is now implemented and tested offline; no native image
+containing this collector has been built or booted by this change.
 
 ## Existing Inputs and Source
 
@@ -124,7 +126,58 @@ Cross-build tests require a static opt-in binary and only standard-library/local
 guest dependencies. Linux runtime-admission negatives run on Linux CI; an ordinary
 host is deliberately rejected. These tests cannot prove real device appraisal.
 
+## Opt-In Image Composition
+
+The existing [native launcher](../../host/run-mkosi-build.py) accepts
+`--h100-collector --go ABSOLUTE_COMPILER` only with the complete existing
+`--compile-driver --install-driver --guest-runtime --verity-root --boot-uki
+--export-boot` chain. This is a separate `h100-collector/v1` profile, mutually
+exclusive with `--guest-network`. No workflow input or dispatch is added, and
+the default/debug boot consumers do not adopt a profile from an artifact.
+
+The [source/export validator](../../scripts/mkosi_export.py) requires the exact
+42-file native export closure plus 12 enumerated source members: the existing
+composition helper, Go module files, nftables sources/embed and the Linux
+collector sources. Both committed-source audits must share a revision and
+identical overlap. Missing, extra, mixed or changed sources reject. The
+[shared helper](../../scripts/mkosi_guest_network.py) compiles only the explicit
+`nibh100appraisal` tag using the existing Go 1.27.2 offline environment, a private
+source/cache tree and one bounded compilation deadline. The dependency allowlist
+is standard library plus the collector and nftables packages. ELF inspection
+requires static Linux/amd64 bytes with no interpreter or dynamic segment.
+The compiler hash/version is **observed, not authenticated**; this is not a
+toolchain provenance or reproducibility qualification.
+
+Composition installs only `/usr/libexec/nib-h100-appraisal`, mode `0755`, in the
+private guest root before verity generation. Descriptor-relative checks reject
+collisions, symlinks, hard links, unsafe parent modes, changed bytes and source
+mismatches. Existing image files are not replaced. There is no collector
+execution, unit, account, activation link, device/network permission grant,
+readiness setter, verifier integration or policy change. A failed or cancelled
+build cannot finalize a private export; existing cleanup gates still apply.
+
+The input receipt binds the full source identity, observed compiler identity,
+compile-source hashes and exact binary size/SHA-256. The worker validates and
+rehashes the installed bytes; the host compares the composition inputs with its
+original compilation receipt. The original `result.json`, including that proof,
+is hashed in the existing private bundle manifest alongside the unchanged
+`run.json` and independent resource receipt. The
+[export consumer](../../host/validate-native-boot-export.py) must explicitly
+select `--h100-collector`, re-audit the same sources and rehash the private bundle;
+the default consumer rejects it. Every execution/readiness/confidentiality claim
+in the composition proof remains false.
+
+[Synthetic tests](../../scripts/test_mkosi_h100_collector.py) cover deterministic
+staging, default opt-out payload-byte identity, exact closure/tag/dependencies,
+mutated compiler/source/output, malformed/static ELF boundaries, unsafe paths,
+collisions, cancellation and private-receipt replay. The
+[shared worker tests](../../scripts/test_mkosi_guest_network.py) check composition
+before verity and no export after failure for both profiles. Default byte checks
+are software fixtures, not a repeat native build or a new measured image hash.
+Existing native/TCG receipts are unchanged and do not validate this new profile.
+
 ```sh
 go test -race -count=1 ./guest/appraisal ./guest/nftables
 python -m unittest discover -s scripts -p 'test_h100_appraisal_contract.py'
+python -m unittest discover -s scripts -p 'test_mkosi_h100_collector.py'
 ```

@@ -396,9 +396,11 @@ class CompositionTests(unittest.TestCase):
                 self.assertTrue(all(path.suffix == ".json" for path in metadata.iterdir()))
 
     def test_worker_composes_before_verity_and_never_exports_after_failure(self):
-        _, source, _ = fixture_inputs()
-        for failure in (False, True):
-            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as tmp, ExitStack() as stack:
+        from test_mkosi_h100_collector import fixture_inputs as collector_inputs
+        for failure, collector in ((False, False), (True, False), (False, True), (True, True)):
+            _, source, _ = (collector_inputs if collector else fixture_inputs)()
+            flag = "--h100-collector" if collector else "--guest-network"
+            with self.subTest(failure=failure, collector=collector), tempfile.TemporaryDirectory() as tmp, ExitStack() as stack:
                 root = Path(tmp)
                 def path(*parts): return root / Path(*parts).relative_to("/")
                 for name in ("nib/prepared", "out", "work"): (root / name).mkdir(parents=True)
@@ -410,13 +412,14 @@ class CompositionTests(unittest.TestCase):
                 modules["package-inputs"].regular.return_value = export.encoded(source)
                 modules["dkms-worker"].CONTROL_NAMES = ()
                 modules["boot-export"].NETWORK_PROFILE = export.NETWORK_PROFILE
+                modules["boot-export"].COLLECTOR_PROFILE = export.COLLECTOR_PROFILE
                 modules["boot-export"].source_identity.side_effect = export.source_identity
                 modules["boot-export"].parsed.side_effect = export.parsed
                 modules["boot-export"].owned.return_value = nullcontext()
                 events = []
                 def compose(*args):
                     events.append("compose")
-                    self.assertEqual(args[3], source)
+                    self.assertEqual(args[2 if collector else 3], source)
                     if failure: raise ValueError("PRIVATE SENTINEL")
                     return {"result": "pass"}
                 def verity(*args, require_boot_ids, consume):
@@ -427,7 +430,7 @@ class CompositionTests(unittest.TestCase):
                     events.append("boot")
                     consume({})
                     return {"result": "pass"}
-                modules["guest-network"].compose.side_effect = compose
+                getattr(modules["guest-network"], "compose_collector" if collector else "compose").side_effect = compose
                 modules["verity-root"].build.side_effect = verity
                 modules["boot-uki"].build.side_effect = boot
                 modules["boot-export"].stage.return_value = {"published": False}
@@ -436,7 +439,7 @@ class CompositionTests(unittest.TestCase):
                 stack.enter_context(mock.patch.object(worker, "Path", side_effect=path))
                 stack.enter_context(mock.patch.object(worker, "module", side_effect=modules.__getitem__))
                 stack.enter_context(mock.patch.object(worker, "sys", mock.Mock(platform="linux", version_info=(3, 12),
-                    argv=["worker", "1", "2", "3", "4", "5", "--install-driver", "--verity-root", "--boot-uki", "--stage-boot", "--guest-network"])))
+                    argv=["worker", "1", "2", "3", "4", "5", "--install-driver", "--verity-root", "--boot-uki", "--stage-boot", flag])))
                 for name in ("geteuid", "getegid"): stack.enter_context(mock.patch.object(worker.os, name, return_value=0))
                 for name in ("expected_packages", "prepare_configuration", "install", "installation_environment"):
                     stack.enter_context(mock.patch.object(worker, name, return_value={}))
@@ -444,7 +447,8 @@ class CompositionTests(unittest.TestCase):
                 self.assertEqual(worker.main(), 1 if failure else 0)
                 report = json.loads((root / "out/result.json").read_bytes())
                 self.assertEqual(events, ["compose"] if failure else ["compose", "verity", "boot"])
-                self.assertEqual(report["stage"], "guest-network" if failure else "boot-uki")
+                self.assertEqual(report["stage"], flag[2:] if failure else "boot-uki")
+                getattr(modules["guest-network"], "compose" if collector else "compose_collector").assert_not_called()
                 self.assertEqual("artifact_stage" in report, not failure)
                 self.assertNotIn("PRIVATE SENTINEL", json.dumps(report))
                 if failure: modules["boot-export"].stage.assert_not_called()

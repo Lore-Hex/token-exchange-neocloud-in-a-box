@@ -27,7 +27,7 @@ SELF = base.read(ROOT / SCRIPT, 1 << 20)
 BUILD_STAGES = ("preparation", "guest-helper-compilation", "tools-materialization", "payload-publication",
                 "upstream-modes-and-links", "installation", "complete")
 WORKER_STAGES = ("preflight", "namespaces", "pid", "ownership", "configuration", "installation", "inventory",
-                 "driver-build", "runtime-policy", "appraisal-cli", "guest-network", "verity-root", "boot-uki")
+                 "driver-build", "runtime-policy", "appraisal-cli", "guest-network", "h100-collector", "verity-root", "boot-uki")
 BUILD_FAILURES = (None, "timeout", "process-exit", "startup-error", "invalid-result-or-cleanup",
                   "unshare-permission-denied", "unshare-missing-path", "unshare-invalid-argument", "unshare-exit",
                   *("worker-" + stage for stage in native.probe.FAILURE_STAGES))
@@ -35,7 +35,7 @@ BUILD_FAILURES = (None, "timeout", "process-exit", "startup-error", "invalid-res
 # projection. In particular, no trace, process list, path or tool output survives.
 BUILD_DETAILS = {"mapping_helper_hashes", "prepared_receipt_sha256", "tools_receipt_sha256"}
 WORKER_DETAILS = {"driver_build", "runtime_policy", "appraisal_cli_diagnostics", "appraisal_cli",
-                  "guest_network", "boot_input_diagnostics", "artifact_stage", "boot_uki", "verity_root",
+                  "guest_network", "h100_collector", "boot_input_diagnostics", "artifact_stage", "boot_uki", "verity_root",
                   "failure_frames", "private_process_states", "output_limit_stream"}
 
 
@@ -263,18 +263,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build-result", required=True, choices=("success", "failure", "cancelled", "skipped"))
     parser.add_argument("--guest-network", action="store_true")
+    parser.add_argument("--h100-collector", action="store_true")
     args = parser.parse_args()
+    selected = native.profile_options(args.guest_network, args.h100_collector)
     native.probe.native.preflight()
     # Audit the explicitly selected fixed profile, never adopt a profile from
     # the artifact. The verifier/workflow remain outside the worker closure.
     export, _ = base.helper("export_verification_alarm", native.EXPORT)
     with export.deadline_alarm():
-        revision, sources = native.committed_sources(True, True, True, True,
-            **({"guest_network": True} if args.guest_network else {}))
+        revision, sources = native.committed_sources(True, True, True, True, **selected)
         validator_source = committed_validator(revision)
         export, publication = native.export_helpers(sources)
-    result = validate(EVIDENCE, METADATA, native.source_identity(revision, sources,
-                      **({"guest_network": True} if args.guest_network else {})),
+    result = validate(EVIDENCE, METADATA, native.source_identity(revision, sources, **selected),
                       validator_source, args.build_result, export, publication)
     # Only these fixed values reach the workflow. Exit zero means metadata is
     # safe to upload, not that export passed; the workflow separately checks it.

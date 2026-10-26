@@ -7,6 +7,7 @@ import io
 import os
 from pathlib import Path
 import stat
+import struct
 import subprocess
 import time
 
@@ -28,10 +29,23 @@ def identity(raw):
     return {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
 
 
+def static_collector(raw):
+    """Inspect ELF headers only; never execute the collector during composition."""
+    require(64 <= len(raw) <= 8 << 20 and raw[:7] == b"\x7fELF\x02\x01\x01")
+    kind, machine, version = struct.unpack_from("<HHI", raw, 16)
+    offset = struct.unpack_from("<Q", raw, 32)[0]
+    header, entry, count = struct.unpack_from("<HHH", raw, 52)
+    require((kind, machine, version, header, entry) == (2, 62, 1, 64, 56)
+            and 0 < count <= 128 and 64 <= offset <= len(raw) - entry * count)
+    types = [struct.unpack_from("<I", raw, offset + i * entry)[0] for i in range(count)]
+    require(1 in types and not {2, 3}.intersection(types))  # PT_LOAD, no DYNAMIC/INTERP
+
+
 def compile_helpers(go, directory, sources, source, base, export):
     """Audited stdlib/local-guest sources; observed, not authenticated compiler."""
     export.source_identity(source)
-    require(source.get("profile") == export.NETWORK_PROFILE
+    collector = source.get("profile") == export.COLLECTOR_PROFILE
+    require(source.get("profile") in (export.NETWORK_PROFILE, export.COLLECTOR_PROFILE)
             and source["sources"] == {p: base.digest(raw) for p, raw in sources.items()}
             and go.is_absolute() and ".." not in go.parts)
     compiler = base.read(go, 64 << 20)
@@ -57,33 +71,40 @@ def compile_helpers(go, directory, sources, source, base, export):
     require(call(["env", "GOVERSION"]) == b"go1.27.2\n")
     prefix = b"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/"
     payload = {"guest-network.py": sources[SCRIPT]}
-    for role in export.NETWORK_ROLES:
-        package = "./guest/cmd/nib-" + role
-        imports = call(["list", "-deps", "-f", "{{if not .Standard}}{{.ImportPath}}{{end}}", package])
-        require(imports.split() == [prefix + b"nftables", prefix + b"internal/service", prefix + b"cmd/nib-" + role.encode()])
+    for role in (("h100-appraisal",) if collector else export.NETWORK_ROLES):
+        package = "./guest/" + ("appraisal/cmd/nib-h100-appraisal" if collector else "cmd/nib-" + role)
+        tags = ["-tags=nibh100appraisal"] if collector else []
+        imports = call(["list", "-deps", "-f", "{{if not .Standard}}{{.ImportPath}}{{end}}", *tags, package])
+        expected = ([b"nftables", b"appraisal", b"appraisal/cmd/nib-h100-appraisal"] if collector
+                    else [b"nftables", b"internal/service", b"cmd/nib-" + role.encode()])
+        require(imports.split() == [prefix + name for name in expected])
         path = directory / ("nib-" + role)
-        require(call(["build", "-trimpath", "-buildvcs=false", "-ldflags=-buildid=", "-o", str(path), package]) == b"")
+        require(call(["build", "-trimpath", "-buildvcs=false", "-ldflags=-buildid=", "-o", str(path), *tags, package]) == b"")
         raw = base.read(path, 8 << 20)
         require(raw[:7] == b"\x7fELF\x02\x01\x01")
-        payload["network/nib-" + role] = raw
+        if collector:
+            static_collector(raw)
+        payload[("collector/" if collector else "network/") + "nib-" + role] = raw
     require(base.read(go, 64 << 20) == compiler)
     base.verify(directory / "source", inputs)
-    for source_name in export.NETWORK_DATA.values():
+    helpers = export.COLLECTOR_HELPERS if collector else export.NETWORK_HELPERS
+    data = {} if collector else export.NETWORK_DATA
+    for source_name in data.values():
         payload["network/" + source_name] = sources[source_name]
-    receipt = {"schema": "nib.guest-network-inputs/v1", "source": source,
+    receipt = {"schema": "nib.h100-collector-inputs/v1" if collector else "nib.guest-network-inputs/v1", "source": source,
         "compiler": {"version": "go1.27.2", "compiler_sha256": base.digest(compiler),
                      "compiler_authenticated": False, "source_hashes": {p: base.digest(v) for p, v in inputs.items()}},
-        "files": {name: identity(payload[member]) for name, member in export.NETWORK_HELPERS.items()}}
-    receipt["files"].update({name: identity(sources[member]) for name, member in export.NETWORK_DATA.items()})
-    payload["network-inputs.json"] = export.encoded(receipt)
-    export.network_inputs(receipt, source)
+        "files": {name: identity(payload[member]) for name, member in helpers.items()}}
+    receipt["files"].update({name: identity(sources[member]) for name, member in data.items()})
+    payload["collector-inputs.json" if collector else "network-inputs.json"] = export.encoded(receipt)
+    (export.collector_inputs if collector else export.network_inputs)(receipt, source)
     return payload, receipt
 
 
 @contextmanager
 def parent(root_fd, name, export, *, create=False):
     require(name in set(export.NETWORK_HELPERS) | set(export.NETWORK_DATA)
-            | set(export.NETWORK_LINKS) | set(export.NETWORK_DATABASES))
+            | set(export.NETWORK_LINKS) | set(export.NETWORK_DATABASES) | set(export.COLLECTOR_HELPERS))
     current = os.dup(root_fd)
     try:
         for part in name.split("/")[:-1]:
@@ -112,7 +133,8 @@ def parent(root_fd, name, export, *, create=False):
 
 
 def read(root_fd, name, export):
-    limit = 65536 if name in export.NETWORK_DATABASES else 8 << 20 if name in export.NETWORK_HELPERS else 16384
+    limit = (65536 if name in export.NETWORK_DATABASES else
+             8 << 20 if name in set(export.NETWORK_HELPERS) | set(export.COLLECTOR_HELPERS) else 16384)
     with parent(root_fd, name, export) as (directory, leaf):
         fd = os.open(leaf, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=directory)
         with os.fdopen(fd, "rb") as stream:
@@ -133,18 +155,64 @@ def database(raw, width):
     return {row[0]: row for row in rows}
 
 
-def compose(processes, export, directory, source, prefix, root=ROOTFS, payload=PAYLOAD):
-    require(root == ROOTFS and payload == PAYLOAD)
+def read_inputs(payload, name, directory, export):
+    require(name in ("network-inputs.json", "collector-inputs.json"))
     with directory(payload) as payload_fd:
-        fd = os.open("network-inputs.json", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=payload_fd)
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=payload_fd)
         with os.fdopen(fd, "rb") as stream:
             info = os.fstat(stream.fileno())
             require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_uid == os.getuid()
                     and not stat.S_IMODE(info.st_mode) & 0o022 and 0 < info.st_size <= export.MAX_JSON)
             raw = stream.read(export.MAX_JSON + 1)
             require(len(raw) == info.st_size and export.stamp(info) == export.stamp(os.fstat(stream.fileno()))
-                    and export.stamp(info) == export.stamp(os.stat("network-inputs.json", dir_fd=payload_fd, follow_symlinks=False)))
-    inputs = export.parsed(raw)
+                    and export.stamp(info) == export.stamp(os.stat(name, dir_fd=payload_fd, follow_symlinks=False)))
+    return export.parsed(raw)
+
+
+def install_file(root, root_fd, payload, name, member, row, executable, deadline, directory, export):
+    export.copy(payload / member, root / name, row, 8 << 20 if executable else 16384, deadline, directory)
+    with parent(root_fd, name, export) as (fd, leaf):
+        output = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+        try:
+            os.fchmod(output, 0o755 if executable else 0o644)
+            os.fsync(output)
+            require(stat.S_IMODE(os.fstat(output).st_mode) == (0o755 if executable else 0o644))
+        finally:
+            os.close(output)
+    require(identity(read(root_fd, name, export)) == row)
+
+
+def compose_collector(export, directory, source, root=ROOTFS, payload=PAYLOAD):
+    """One inert file only: no child, account, unit, permission grant or probe."""
+    require(root == ROOTFS and payload == PAYLOAD)
+    inputs = read_inputs(payload, "collector-inputs.json", directory, export)
+    export.collector_inputs(inputs, source)
+    deadline = time.monotonic() + 120
+    with directory(root) as root_fd:
+        original = os.fstat(root_fd)
+        require(original.st_uid == os.getuid() and not stat.S_IMODE(original.st_mode) & 0o022)
+        for name, member in export.COLLECTOR_HELPERS.items():
+            with parent(root_fd, name, export, create=True) as (fd, leaf):
+                try:
+                    os.stat(leaf, dir_fd=fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    pass
+                else:
+                    raise ValueError("h100-collector-image-collision")
+            install_file(root, root_fd, payload, name, member, inputs["files"][name], True, deadline, directory, export)
+            static_collector(read(root_fd, name, export))
+        require((os.stat(root, follow_symlinks=False).st_dev, os.stat(root, follow_symlinks=False).st_ino)
+                == (original.st_dev, original.st_ino) and time.monotonic() < deadline)
+    receipt = {"schema": "nib.h100-collector-composition/v1", "result": "pass", "inputs": inputs,
+               "collector_executed": False, "services_started": False,
+               "readiness_verified": False, "confidentiality_verified": False}
+    export.collector_proof(receipt, source)
+    return receipt
+
+
+def compose(processes, export, directory, source, prefix, root=ROOTFS, payload=PAYLOAD):
+    require(root == ROOTFS and payload == PAYLOAD)
+    inputs = read_inputs(payload, "network-inputs.json", directory, export)
     export.network_inputs(inputs, source)
     deadline = time.monotonic() + 120
     with directory(root) as root_fd:
@@ -162,16 +230,8 @@ def compose(processes, export, directory, source, prefix, root=ROOTFS, payload=P
         require(all("nib" not in rows for rows in before.values()))
         for name, row in inputs["files"].items():
             member = export.NETWORK_HELPERS[name] if name in export.NETWORK_HELPERS else "network/" + export.NETWORK_DATA[name]
-            export.copy(payload / member, root / name, row, 8 << 20 if name in export.NETWORK_HELPERS else 16384,
-                        deadline, directory)
-            with parent(root_fd, name, export) as (fd, leaf):
-                output = os.open(leaf, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
-                try:
-                    os.fchmod(output, 0o755 if name in export.NETWORK_HELPERS else 0o644)
-                    os.fsync(output)
-                finally:
-                    os.close(output)
-            require(identity(read(root_fd, name, export)) == row)
+            install_file(root, root_fd, payload, name, member, row, name in export.NETWORK_HELPERS,
+                         deadline, directory, export)
         require(read(root_fd, "etc/nib/network.json", export) == b'{"schema":"nib.guest-network/v1","egress":[]}\n')
         require(read(root_fd, "etc/sysusers.d/nib.conf", export)
                 == b'u nib - "Neocloud services" /nonexistent /usr/sbin/nologin\n')

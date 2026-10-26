@@ -41,7 +41,10 @@ installed vendor executable offline; it cannot collect GPU evidence or grant
 a confidential verdict.
 The opt-in [single-H100 collector](../docs/tasks/p3-t1-h100-appraisal-collector.md)
 adds a bounded diagnostic around that pinned CLI. It is software-tested only,
-not installed in the image, and does not enable the production GPU gate.
+excluded from default images, and does not enable the production GPU gate.
+Explicit collector-only image composition is implemented and tested offline;
+it installs one inert static binary, with no activation or native build/boot
+claim for that profile.
 The optional [private initrd/UKI stage](../docs/tasks/p3-t1-initrd-uki.md) follows
 the private EROFS/verity stage using existing authenticated tools and packages.
 It assembles and inspects an unsigned UKI, then deletes all private images;
