@@ -12,7 +12,10 @@ B300 TP4 x DP2, one admitted request, eager execution, GPU-resident Engram,
 | Default output when omitted | 2,048 tokens |
 | Prefill scheduling budget | 4,096 tokens per iteration, chunking enabled |
 | HTTP request body | 4 MiB |
-| Completion deadline | 120 seconds, unchanged |
+| Completion deadline | 900 seconds |
+| Guard/TLS shutdown grace | 910 seconds |
+| Owner drain per frontend | 930 seconds |
+| Admission cutoff before child hard stop | 1,960 seconds |
 | Total admitted requests | 1 |
 
 Context is not an input-only allowance. The engine's tokenizer must verify that
@@ -22,13 +25,16 @@ tool arguments can round-trip larger replies within the aggregate body bound;
 message count, tool count, JSON depth, duplicate-key rejection and authentication
 are unchanged. The guard never truncates a request to make it fit.
 
-The deadline is deliberately unchanged: the pinned TLS shim has a 130-second
-shutdown grace and the owner has matching bounded drain/cleanup budgets. A
-600-second request would be unsafe with those budgets. Longer request durations
-require a separately reviewed TLS-shim revision, rebuilt pinned binary, matching
-guard and owner budgets, and active-stream retirement tests. The 16K value is a
-request ceiling, not a promise that every prompt/output combination finishes
-within 120 seconds. Do not advertise the paired maxima until measured.
+The long profile coordinates the request deadline, guard/TLS shutdown grace,
+owner drain and admission cutoff. It requires the pinned TLS shim's bounded
+`--shutdown-grace` option. Other profiles retain their 120-second requests and
+375-second cleanup reserve. Both frontend drains and process-group cleanup fit
+inside the long profile's 1,960-second reserve; the host's additional cleanup
+reserve stays unchanged. Wall-clock jumps can shorten, never extend, the bound.
+The 16K value is a request ceiling, not a promise that every prompt/output
+combination finishes within 900 seconds. Do not advertise the paired maxima
+until measured. Retirement must preserve an active stream and usage completion;
+forced termination is a failure, not a successful response.
 
 ## Pinned engine settings
 

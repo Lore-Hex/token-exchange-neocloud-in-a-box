@@ -28,11 +28,11 @@ func TestLongProfileLimits(t *testing.T) {
 		t.Fatal("long profile limits disagree")
 	}
 	transport := h.proxy.Transport.(*http.Transport)
-	if transport.ResponseHeaderTimeout != 120*time.Second {
+	if transport.ResponseHeaderTimeout != 900*time.Second {
 		t.Fatal("backend timeout disagrees with guard")
 	}
 	for _, want := range []string{`"context_length":131072`, `"max_output_tokens":16384`,
-		`"completion_timeout_seconds":120`, `"prompt_caching":false`, `"cached_input":null`} {
+		`"completion_timeout_seconds":900`, `"prompt_caching":false`, `"cached_input":null`} {
 		if !strings.Contains(string(h.catalog), want) {
 			t.Fatalf("catalog missing %s", want)
 		}
@@ -113,6 +113,23 @@ func TestLongCacheIsolation(t *testing.T) {
 
 type longRoundTripper func(*http.Request) (*http.Response, error)
 
+func TestProfileDeadlineAndDrainBounds(t *testing.T) {
+	for _, name := range []string{ProfileQwen, ProfileSelectedDeepSeek, ProfileSelectedGraphs, ProfileSelectedQuality, ProfileSelectedLong} {
+		p, err := profileFor(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := 120 * time.Second
+		if name == ProfileSelectedLong {
+			want = 900 * time.Second
+		}
+		h := &Handler{profile: p}
+		if p.requestTimeout() != want || h.ShutdownGrace() != want+10*time.Second {
+			t.Fatalf("profile %s deadline/drain mismatch", name)
+		}
+	}
+}
+
 func (f longRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestLongHTTPBoundsAndUsagePassthrough(t *testing.T) {
@@ -122,8 +139,8 @@ func TestLongHTTPBoundsAndUsagePassthrough(t *testing.T) {
 	h.proxy.Transport = longRoundTripper(func(r *http.Request) (*http.Response, error) {
 		calls++
 		deadline, ok := r.Context().Deadline()
-		if !ok || time.Until(deadline) < 110*time.Second || time.Until(deadline) > 120*time.Second {
-			t.Error("existing inference deadline changed")
+		if !ok || time.Until(deadline) < 890*time.Second || time.Until(deadline) > 900*time.Second {
+			t.Error("long inference deadline not enforced")
 		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil || !bytes.Contains(body, []byte(`"cache_salt":`)) || !bytes.Contains(body, []byte(`"max_tokens":16384`)) {

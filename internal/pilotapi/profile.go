@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 package pilotapi
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 const ProfileQwen = "qwen"
 const ProfileSelectedDeepSeek = "selected-deepseek"
@@ -25,6 +28,13 @@ func (p serviceProfile) bodyLimit() int {
 		return 4 << 20
 	}
 	return 65536
+}
+
+func (p serviceProfile) requestTimeout() time.Duration {
+	if p.longContext {
+		return 900 * time.Second
+	}
+	return 120 * time.Second
 }
 
 func (p serviceProfile) defaultOutput() int {

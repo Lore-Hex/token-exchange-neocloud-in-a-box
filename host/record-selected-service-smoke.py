@@ -263,7 +263,7 @@ class Docker:
         if info["State"]["Running"]:
             try:
                 self.call(["docker", "container", "kill", "--signal", "TERM", cid], seconds=5, limit=4096)
-                graceful = min(time.monotonic() + service.CLEANUP_RESERVE, time.monotonic() + self.remaining() - 60)
+                graceful = min(time.monotonic() + cleanup_budget(info), time.monotonic() + self.remaining() - 60)
                 while time.monotonic() < graceful:
                     current = self.owned(name, token, image, cid)
                     if current is None or not current["State"]["Running"]:
@@ -277,6 +277,17 @@ class Docker:
         if self.owned(name, token, image, cid) is not None:
             self.call(["docker", "container", "rm", "--force", cid], seconds=10, limit=4096)
         require(self.owned(name, token, image, cid) is None, "owner-failed")
+
+
+def cleanup_budget(info):
+    # Read only the already ownership-checked container's closed profile. This
+    # also works in a replacement watchdog, which did not launch the container.
+    command = info.get("Config", {}).get("Cmd")
+    if type(command) is list and command.count("--execution-profile") == 1:
+        index = command.index("--execution-profile") + 1
+        if index < len(command) and command[index] == service.engine_entry.LONG_PROFILE:
+            return service.cleanup_reserve(service.engine_entry.LONG_PROFILE)
+    return service.CLEANUP_RESERVE
 
 
 def watchdog(name, token, image, wall, monotonic, life_fd, docker_host):
@@ -513,7 +524,7 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
     docker = Docker(recorder, env, contract.hard_wall, contract.hard_monotonic)
     stop_at = datetime.datetime.fromtimestamp(contract.hard_wall - HOST_RESERVE,
         datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    require(docker.remaining() > HOST_RESERVE + service.CLEANUP_RESERVE, "deadline")
+    require(docker.remaining() > HOST_RESERVE + contract.cleanup_reserve, "deadline")
     command = container_command(name, token, build, base, weights, inputs, args, stop_at)
     join = {"inference_smoke": getattr(args, "inference_smoke", False),
             "conformance_smoke": getattr(args, "conformance_smoke", False),
@@ -605,7 +616,7 @@ def admitted_runtime(args, result, *, lifetime_profile=service.SMOKE_PROFILE):
     contract = service.Contract.begin(args.hard_stop_at, input_price=args.input_price,
         output_price=args.output_price, **({"lifetime_profile": lifetime_profile} if ordinary else {}),
         **({"execution_profile": execution} if execution != service.engine_entry.EAGER_PROFILE else {}))
-    deadline = min(time.monotonic() + SECONDS, contract.hard_monotonic - service.CLEANUP_RESERVE)
+    deadline = min(time.monotonic() + SECONDS, contract.hard_monotonic - contract.cleanup_reserve)
     with ExitStack() as stack:
         with service.identity.worker.alarm(deadline):
             require(sys.platform == "linux" and os.getuid() == 0, "contract")
@@ -633,7 +644,7 @@ def admitted_runtime(args, result, *, lifetime_profile=service.SMOKE_PROFILE):
                         and len(command) == 6 and command[5] in
                         (recorder.overlay.BASE_IMAGE, build["image_id"]), "contract")
                 remaining = min(deadline - time.monotonic(), contract.hard_wall - time.time()
-                                - service.CLEANUP_RESERVE) - CLIENT_REAP
+                                - contract.cleanup_reserve) - CLIENT_REAP
                 require(remaining > 0, "deadline")
                 kwargs["timeout"] = min(kwargs["timeout"], remaining)
                 return recorder.snapshot.execute_process_group(command, **kwargs)
@@ -643,7 +654,7 @@ def admitted_runtime(args, result, *, lifetime_profile=service.SMOKE_PROFILE):
             result["reason"] = "private-inputs"
             inputs = stack.enter_context(staged_inputs(args, lab))
             require(time.monotonic() < deadline and time.time() <
-                    contract.hard_wall - service.CLEANUP_RESERVE, "deadline")
+                    contract.hard_wall - contract.cleanup_reserve, "deadline")
             result.update(preflight_pass=True, reason="not-run", build_sha256=args.build_sha256,
                 preparation_sha256=args.preparation_sha256, prepared_sha256=build["prepared_sha256"],
                 image_id=build["image_id"])

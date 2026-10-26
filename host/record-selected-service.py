@@ -246,15 +246,16 @@ def runtime_plan(args, admitted, selected, commands, result):
     require(getattr(args, "execution_profile", smoke.service.engine_entry.EAGER_PROFILE) == contract.execution_profile)
     result["reason"] = "weights"
     weights = smoke.private_path(args.weights)
-    smoke.weights_view(lab, weights, min(commands.end - smoke.service.CLEANUP_RESERVE,
+    smoke.weights_view(lab, weights, min(commands.end - contract.cleanup_reserve,
                                       time.monotonic() + smoke.SECONDS))
     stop_at = smoke.service.retirement_at(contract.hard_wall - smoke.HOST_RESERVE)
     if contract.lifetime_profile == smoke.service.ORDINARY_PROFILE:
         result.update(schema="nib.selected-service-owner/v2", lifetime={
-            **smoke.service.lifetime_record(contract.lifetime_profile, contract.hard_wall - smoke.HOST_RESERVE),
+            **smoke.service.lifetime_record(contract.lifetime_profile, contract.hard_wall - smoke.HOST_RESERVE,
+                                           contract.execution_profile),
             "owner_hard_stop_at": contract.hard_stop_at})
     result["reason"] = "runtime-intent"
-    require(commands.remaining() > smoke.HOST_RESERVE + smoke.service.CLEANUP_RESERVE)
+    require(commands.remaining() > smoke.HOST_RESERVE + contract.cleanup_reserve)
     labels = owner.image_labels(image["Config"].get("Labels"))
     def runtime(identifier):
         return {"command": owner.container_command(selected, identifier, build, base, weights, inputs, args, stop_at),
@@ -312,7 +313,7 @@ def run(args, admitted, selected, result):
             join["execution_profile"] = contract.execution_profile
         if contract.lifetime_profile == smoke.service.ORDINARY_PROFILE:
             join["lifetime"] = smoke.service.lifetime_record(contract.lifetime_profile,
-                                                            contract.hard_wall - smoke.HOST_RESERVE)
+                contract.hard_wall - smoke.HOST_RESERVE, contract.execution_profile)
         start = ["docker", "container", "start", "--attach", container]
         try:
             if contract.lifetime_profile == smoke.service.ORDINARY_PROFILE:

@@ -291,7 +291,7 @@ def start(supervisor, prior):
             prepared.receipt_sha256, prior)
         require(report["subset"]["result"] == "pass", "completion")
         identities = {role: dict(supervisor.owner.identities[role]) for role in service.ROLES}
-        deadline = min(time.monotonic() + SECONDS, supervisor.cutoff() - service.CLEANUP_RESERVE)
+        deadline = min(time.monotonic() + SECONDS, supervisor.cutoff() - supervisor.contract.cleanup_reserve)
         with inference.cancellation(supervisor.shutdown), service.identity.worker.alarm(deadline):
             inference.checkpoint(supervisor, identities, deadline)
             require(prepared.files["scripts/selected_service_protocol.py"] ==

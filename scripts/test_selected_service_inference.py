@@ -423,7 +423,8 @@ sock.__enter__.return_value = sock
 sock.makefile.return_value = io.BufferedReader(body)
 owner = SimpleNamespace(peer=mock.Mock(), hostname='service.invalid', trust=mock.Mock())
 owner.trust.wrap_socket.return_value = sock
-supervisor = SimpleNamespace(owner=owner, cutoff=lambda: time.monotonic() + 1000)
+supervisor = SimpleNamespace(owner=owner, cutoff=lambda: time.monotonic() + 1000,
+    contract=SimpleNamespace(cleanup_reserve=inference.service.CLEANUP_RESERVE))
 report = {'attempts': {}, 'usage_unknown': False}
 handler, timer = signal.getsignal(signal.SIGALRM), signal.getitimer(signal.ITIMER_REAL)
 assert timer == (0.0, 0.0)

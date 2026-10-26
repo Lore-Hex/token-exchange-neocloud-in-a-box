@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -116,7 +117,7 @@ func TestShutdownWaitsForActiveResponse(t *testing.T) {
 	})}
 	defer server.Close()
 	done := make(chan error, 1)
-	go func() { done <- serve(ctx, server, listener) }()
+	go func() { done <- serve(ctx, server, listener, 130*time.Second) }()
 	response := make(chan string, 1)
 	go func() {
 		client := &http.Client{Timeout: 5 * time.Second}
@@ -152,5 +153,59 @@ func TestShutdownWaitsForActiveResponse(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("server did not stop after draining")
+	}
+}
+
+func TestShutdownClosesResponseAtGraceDeadline(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started, disconnected := make(chan struct{}), make(chan struct{})
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-r.Context().Done()
+		close(disconnected)
+	})}
+	defer server.Close()
+	done := make(chan error, 1)
+	go func() { done <- serve(ctx, server, listener, 25*time.Millisecond) }()
+	response := make(chan error, 1)
+	go func() {
+		client := &http.Client{Timeout: 5 * time.Second}
+		result, err := client.Get("http://" + listener.Addr().String())
+		if result != nil {
+			result.Body.Close()
+		}
+		response <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("request did not start")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("forced shutdown must fail, got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("server exceeded bounded shutdown")
+	}
+	select {
+	case <-disconnected:
+	case <-time.After(5 * time.Second):
+		t.Fatal("forced shutdown left handler running")
+	}
+	select {
+	case err := <-response:
+		if err == nil {
+			t.Fatal("interrupted response reported success")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("client remained connected after forced shutdown")
 	}
 }

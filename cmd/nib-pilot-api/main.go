@@ -67,13 +67,13 @@ func run() int {
 	if err != nil {
 		return 1
 	}
-	if serve(ctx, server, listener) != nil {
+	if serve(ctx, server, listener, handler.ShutdownGrace()) != nil {
 		return 1
 	}
 	return 0
 }
 
-func serve(ctx context.Context, server *http.Server, listener net.Listener) error {
+func serve(ctx context.Context, server *http.Server, listener net.Listener, grace time.Duration) error {
 	served := make(chan error, 1)
 	go func() { served <- server.Serve(listener) }()
 	select {
@@ -83,7 +83,7 @@ func serve(ctx context.Context, server *http.Server, listener net.Listener) erro
 	}
 	// Await handlers, not just the accept loop: Serve returns as soon as
 	// Shutdown closes the listener, before active streams have drained.
-	shutdown, cancel := context.WithTimeout(context.Background(), 130*time.Second)
+	shutdown, cancel := context.WithTimeout(context.Background(), grace)
 	defer cancel()
 	err := server.Shutdown(shutdown)
 	if err != nil {
