@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Synthetic dialogue/owner pipes only; no model, GPU or endpoint execution."""
 import ast
+import contextlib
 import copy
+import io
 import json
 from pathlib import Path
 import sys
@@ -34,9 +36,11 @@ class ToolMessage(types.SimpleNamespace):
     pass
 
 
-def observation(outcome="resolved", tool="name_zip"):
-    return {"schema": policy.RESOLUTION_REPORT, "tool": tool, "outcome": outcome,
-            "intended_customer_match": True if outcome == "resolved" else False if outcome == "wrong_customer" else None}
+def observation(outcome="resolved", tool="name_zip", *, failure_stage=None, legacy=False):
+    return {"schema": policy.RESOLUTION_REPORT if legacy else policy.RESOLUTION_REPORT_V2,
+            "tool": tool, "outcome": outcome,
+            "intended_customer_match": True if outcome == "resolved" else False if outcome == "wrong_customer" else None,
+            **({} if legacy else {"failure_stage": failure_stage})}
 
 
 def manifest():
@@ -186,7 +190,8 @@ class ResolutionTests(unittest.TestCase):
         with mock.patch.object(runner.tau, "committed_identity", return_value={"git_sha": "a" * 40, "files": {}}) as load:
             runner.identity(time.monotonic() + 5, True, selected_operational=True)
         paths = {name for call in load.call_args_list for name in call.kwargs.get("extra_files", ())}
-        self.assertTrue({"scripts/tau_customer_resolution.py", "scripts/tau_cpu_identity.py"} <= paths)
+        self.assertTrue({"scripts/tau_customer_resolution.py", "scripts/tau_cpu_identity.py",
+                         "scripts/tau_selected_policy.py"} <= paths)
         self.assertRaises(ValueError, runner.prepare, None, None, None, None, None, time.monotonic() + 1,
                           customer_resolution=True)
 
@@ -228,7 +233,7 @@ class ResolutionTests(unittest.TestCase):
             with self.subTest(tool=tool), mock.patch.object(resolution, "dialogue", old.dialogue), \
                     self.assertRaises(ValueError):
                 self.run_dialogue(state, proxy)
-            self.assertEqual(proxy.customer_resolution, observation("lookup_error", category))
+            self.assertEqual(proxy.customer_resolution, observation("lookup_error", category, legacy=True))
             state.executed.assert_called_once_with(state.calls)
             self.assertNotIn("_execute_tool_calls", vars(state))
             self.assertEqual(self.run_dialogue(Orchestrator(tool=tool)), observation(tool=category))
@@ -250,14 +255,14 @@ class ResolutionTests(unittest.TestCase):
             state, proxy = Orchestrator(result=value), types.SimpleNamespace(deadline=time.monotonic() + 5)
             with self.subTest(kind=type(value).__name__), self.assertRaises(ValueError):
                 self.run_dialogue(state, proxy)
-            self.assertEqual(proxy.customer_resolution, observation("lookup_error"))
+            self.assertEqual(proxy.customer_resolution, observation("lookup_error", failure_stage="result_validation"))
             state.executed.assert_called_once()
             state.agent.stop.assert_called_once()
             state.user.stop.assert_called_once()
         state, proxy = Orchestrator(result=CANARY, error=True), types.SimpleNamespace(deadline=time.monotonic() + 5)
         with self.assertRaises(worker.Abort):
             self.run_dialogue(state, proxy)
-        self.assertEqual(proxy.customer_resolution, observation("lookup_error"))
+        self.assertEqual(proxy.customer_resolution, observation("lookup_error", failure_stage="upstream_lookup"))
         self.assertNotIn(CANARY, json.dumps(proxy.customer_resolution))
 
     def test_cancel_expiry_initialization_and_cleanup_fail_closed(self):
@@ -279,6 +284,84 @@ class ResolutionTests(unittest.TestCase):
             row = observation()
             mutate(row)
             self.assertRaises(ValueError, policy.resolution_result, row, completed=True)
+
+    def test_v1_replay_is_unchanged_and_v2_stage_is_closed(self):
+        path = ROOT / "evidence/p2/2026-10-25-selected-customer-resolution-1117/scorer/output.log"
+        old = json.loads(path.read_bytes())["diagnostic"]["trial"]["customer_resolution"]
+        before = tau.encoded(old)
+        self.assertIs(policy.resolution_result(old), old)
+        self.assertEqual(tau.encoded(old), before)
+        self.assertNotIn("failure_stage", old)
+        self.assertRaises(ValueError, policy.resolution_result, old, completed=True)
+        for row in (observation(legacy=True), observation("wrong_customer", legacy=True),
+                    *(observation("lookup_error", failure_stage=stage)
+                      for stage in (None, *policy.RESOLUTION_FAILURE_STAGES))):
+            self.assertIs(policy.resolution_result(row), row)
+        for mutate in (lambda r: r.pop("failure_stage"), lambda r: r.update(failure_stage=CANARY),
+                       lambda r: r.update(failure_stage=True), lambda r: r.update(failure_stage={"message": CANARY}),
+                       lambda r: r.update(schema=policy.RESOLUTION_REPORT),
+                       lambda r: r.update(schema="nib.tau-selected-customer-resolution/v3"),
+                       lambda r: r.update(exception=CANARY), lambda r: r.update(origin=CANARY),
+                       lambda r: r.update(intended_customer_match=False)):
+            row = observation("lookup_error")
+            mutate(row)
+            self.assertRaises(ValueError, policy.resolution_result, row)
+        for outcome, tool in (("resolved", "email"), ("wrong_customer", "name_zip"),
+                              ("not_attempted", "none"), ("unsupported_tool", "none"), ("multiple_tools", "none")):
+            for stage in policy.RESOLUTION_FAILURE_STAGES:
+                self.assertRaises(ValueError, policy.resolution_result,
+                                  observation(outcome, tool, failure_stage=stage))
+
+    def test_malformed_tool_envelope_is_local_validation(self):
+        for results in (None, (), [], [ToolMessage(error=False, content=CANARY)] * 2,
+                        [object()], [ToolMessage(content=CANARY)], [ToolMessage(error=1, content=CANARY)],
+                        [ToolMessage(error=False)]):
+            state, proxy = Orchestrator(), types.SimpleNamespace(deadline=time.monotonic() + 5)
+            state.executed.return_value = results
+            with self.assertRaises((ValueError, AttributeError)):
+                self.run_dialogue(state, proxy)
+            self.assertEqual(proxy.customer_resolution, observation("lookup_error", failure_stage="result_validation"))
+            state.executed.assert_called_once_with(state.calls)
+            state.agent.stop.assert_called_once()
+            state.user.stop.assert_called_once()
+
+    def test_failure_stage_pipe_cancellation_cleanup_and_content_canaries(self):
+        class PrivateError(Exception):
+            def __str__(self):
+                raise AssertionError("exception text must not be inspected")
+
+        cases = (("upstream", "protocol_error", "upstream_lookup"),
+                 ("validation", "infrastructure_error", "result_validation"),
+                 ("exception", "infrastructure_error", "execution_exception"),
+                 ("cancelled", "cancelled", None), ("timeout", "timeout", None),
+                 ("cleanup", "infrastructure_error", "upstream_lookup"))
+        for fault, status, stage in cases:
+            channel = termination.Channel()
+            proxy = pipe.transport.WorkerProxy(channel, time.monotonic() + 5,
+                selected_operational=True, customer_resolution=True)
+            state = Orchestrator(error=fault in ("upstream", "cleanup"))
+            if fault == "validation":
+                state.executed.return_value = [ToolMessage(error=False, content={"private": CANARY})]
+            elif fault in ("exception", "cancelled", "timeout"):
+                state.executed.side_effect = {"exception": PrivateError(CANARY),
+                    "cancelled": KeyboardInterrupt(CANARY), "timeout": worker.Abort("timeout")}[fault]
+            elif fault == "cleanup":
+                state.agent.stop.side_effect = PrivateError(CANARY)
+            output = io.StringIO()
+            with self.subTest(fault=fault), contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+                pipe.execute(None, policy.configuration(customer_resolution=True), policy.support.SELECTION, proxy,
+                             run=lambda *args: self.run_dialogue(state, proxy))
+            packet = channel.sent[-1]
+            self.assertEqual(packet["status"], status)
+            self.assertEqual(packet["customer_resolution"], observation("lookup_error", failure_stage=stage))
+            self.assertIsNone(packet["reward"])
+            self.assertIsNone(packet["upstream_termination"])
+            self.assertNotIn(CANARY, json.dumps(packet))
+            self.assertEqual(output.getvalue(), "")
+            self.assertNotIn("_execute_tool_calls", vars(state))
+            state.executed.assert_called_once_with(state.calls)
+            state.agent.stop.assert_called_once()
+            state.user.stop.assert_called_once()
 
     def test_pipe_finish_has_no_reward_and_preserves_failure_observation(self):
         for failure in (False, True):
@@ -334,6 +417,25 @@ class OwnerSessionTests(unittest.TestCase):
         with self.assertRaises(worker.Abort):
             self.request(session, channel, "evaluator")
         self.assertEqual(owners["support"].sent, [])
+
+    def test_v1_and_v2_failure_observations_survive_parent_accounting(self):
+        rows = [observation("lookup_error", legacy=True),
+                *(observation("lookup_error", failure_stage=stage)
+                  for stage in (None, *policy.RESOLUTION_FAILURE_STAGES))]
+        for row in rows:
+            session, channel, _ = self.session()
+            self.request(session, channel, "simulator")
+            self.request(session, channel, "agent")
+            channel.packets.append({"schema": pipe.transport.SCHEMA, "kind": "finished", "sequence": 3,
+                "status": "protocol_error", "reward": None, "assertions_sha256": tau.digest(tau.encoded(["assertion"])),
+                "upstream_termination": None, "customer_resolution": row})
+            self.assertTrue(session.serve_once())
+            self.assertEqual(session.result["customer_resolution"], row)
+            self.assertEqual(session.result["status"], "protocol_error")
+            self.assertIsNone(session.result["reward"])
+            self.assertIsNone(session.result["customer_resolution"]["intended_customer_match"])
+            self.assertEqual(session.result["role_requests"], {"agent": 1, "simulator": 1, "evaluator": 0})
+            self.assertEqual(session.result["usage"]["total_tokens"], 16)
 
     def test_cap_failure_retains_usage_without_terminal_success(self):
         session, channel, owners = self.session()
@@ -437,33 +539,60 @@ def pinned_upstream_audit(root):
     # No real task content is emitted. Actual pinned task/database validation is
     # performed separately from execution with this deliberately synthetic DB.
     worker.require(type(resolution.expected_customer(root)) is str)
-    tools = types.SimpleNamespace(db=types.SimpleNamespace(users={CANARY: types.SimpleNamespace(
+    customer = types.SimpleNamespace(
         email="synthetic@example.test", name=types.SimpleNamespace(first_name="Synthetic", last_name="Person"),
-        address=types.SimpleNamespace(zip="12345"))}))
+        address=types.SimpleNamespace(zip="12345"))
     check = ResolutionTests()
     serialize = modules["environment/environment"]["to_json_str"].__get__(None, types.SimpleNamespace)
     check.assertIs(serialize(CANARY), CANARY)
     with check.assertRaises(ValueError):
         worker.decode(serialize(CANARY).encode())  # The original producer rejected a successful string ID.
-    for tool, arguments, error in (("find_user_id_by_name_zip", dict(identity_fixture.FACTS), False),
-            ("find_user_id_by_email", {"email": "synthetic@example.test"}, False),
-            ("find_user_id_by_email", {"email": "absent@example.test"}, True)):
+    cases = (("name_zip", "resolved", None), ("email", "resolved", None),
+             ("wrong", "wrong_customer", None), ("malformed", "lookup_error", "result_validation"),
+             ("upstream", "lookup_error", "upstream_lookup"), ("exception", "lookup_error", "execution_exception"),
+             ("cancelled", "lookup_error", None), ("timeout", "lookup_error", None),
+             ("cleanup", "lookup_error", "upstream_lookup"))
+    for case, outcome, stage in cases:
+        tool = "find_user_id_by_name_zip" if case == "name_zip" else "find_user_id_by_email"
+        error = case in ("upstream", "cleanup")
+        arguments = dict(identity_fixture.FACTS) if case == "name_zip" else {
+            "email": "absent@example.test" if error else "synthetic@example.test"}
+        customer_id = "" if case == "malformed" else "another-synthetic-customer" if case == "wrong" else CANARY
+        tools = types.SimpleNamespace(db=types.SimpleNamespace(users={customer_id: customer}))
         state = Orchestrator(tool=tool)
         state.calls[0].arguments = arguments
         state.num_errors = 0
         env = types.SimpleNamespace(sync_tools=lambda: None, to_json_str=serialize)
         env.make_tool_call = lambda name, requestor, **kw: modules["domains/retail/tools"][name](tools, **kw)
+        if case == "exception":
+            env.to_json_str = mock.Mock(side_effect=ValueError(CANARY))
+        elif case in ("cancelled", "timeout"):
+            env.make_tool_call = mock.Mock(side_effect=KeyboardInterrupt(CANARY) if case == "cancelled" else worker.Abort("timeout"))
+        elif case == "cleanup":
+            state.agent.stop.side_effect = ValueError(CANARY)
         env.get_response = types.MethodType(modules["environment/environment"]["get_response"], env)
         state.environment = env
         state._execute_tool_calls = types.MethodType(modules["orchestrator/orchestrator"]["_execute_tool_calls"], state)
-        if error:
-            with check.assertRaises(worker.Abort):
-                check.run_dialogue(state)
+        proxy = types.SimpleNamespace(deadline=time.monotonic() + 5)
+        observed = observation(outcome, resolution.TOOLS[tool], failure_stage=stage)
+        if outcome != "resolved":
+            kind = (ValueError if case in ("malformed", "exception") else
+                    KeyboardInterrupt if case == "cancelled" else worker.Abort)
+            with check.assertRaises(kind) as raised:
+                check.run_dialogue(state, proxy)
+            if type(raised.exception) is worker.Abort:
+                check.assertEqual(raised.exception.status,
+                    "timeout" if case == "timeout" else "infrastructure_error" if case == "cleanup" else "protocol_error")
         else:
-            check.assertEqual(check.run_dialogue(state), observation(tool=resolution.TOOLS[tool]))
+            check.assertEqual(check.run_dialogue(state, proxy), observed)
+        check.assertEqual(proxy.customer_resolution, observed)
+        check.assertIs(policy.resolution_result(observed), observed)
+        check.assertNotIn(CANARY, json.dumps(observed))
         check.assertEqual(state.num_errors, int(error))
         check.assertEqual(state.calls[0].arguments, arguments)
-    print("Pinned lookup/serializer/batch controls PASS; two successes and one error, no model execution.")
+        state.agent.stop.assert_called_once()
+        state.user.stop.assert_called_once()
+    print("Pinned lookup/serializer/batch controls PASS; nine synthetic cases, no model execution.")
 
 
 if __name__ == "__main__":

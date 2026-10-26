@@ -1,7 +1,7 @@
 # P2.T4: Natural Customer-Resolution Diagnostic
 
 Status: opt-in software with a [failed bounded observation](../../evidence/p2/2026-10-25-selected-customer-resolution-1117/README.md).
-The result-decoding correction below has offline tests only. No successful
+The result-decoding correction and failure-stage reporting have offline tests only. No successful
 customer resolution, simulator qualification or tau quality score is claimed.
 The default selected operational trial and CPU identity probes are unchanged.
 
@@ -54,6 +54,41 @@ tool execution and also survives local result-validation failure. They therefore
 cannot distinguish an upstream lookup error from this decoding defect; this fix
 does not retrospectively establish lookup success or blame either model.
 
+### Content-Free Failure Stage
+
+New observations use `nib.tau-selected-customer-resolution/v2`, adding only
+`failure_stage` to the nested observation. The enclosing trial/input schemas,
+limits and serving profiles are unchanged. The validator still accepts exact
+v1 observations without adding a field or inferring a cause, so original
+receipts remain immutable and replayable. Prepared scorer inputs must bind the
+new producer through the existing source closure; old bundles are not upgraded
+or admitted by bypassing source checks.
+
+The field is null unless one of these closed stages was observed:
+
+- `upstream_lookup`: the original tool batch returned a correctly shaped
+  `ToolMessage` with `error=true`. This identifies the upstream error boundary,
+  not a specific exception, missing customer, argument defect or model fault;
+  upstream `get_response` also catches `sync_tools` exceptions.
+- `result_validation`: the batch returned, but its envelope, error flag or
+  successful customer-ID representation failed local validation.
+- `execution_exception`: an ordinary exception escaped the original batch
+  before it returned. No exception type, text, traceback or arguments are read
+  or recorded by this diagnostic.
+
+All three retain `outcome=lookup_error`, a null customer match and null reward.
+Null means no stage was established, not success: timeout/cancellation during
+execution keeps the original terminal status and an unknown stage. Wrong
+customer and successful lookup observations also have null stages. A later
+cleanup failure still rejects the trial without rewriting an observed lookup
+stage. Only `resolved` can complete successfully, as before.
+
+This is offline-tested observability only, not a new run or retrospective
+diagnosis. The original 11:17 observation has no failure stage; neither the
+decoding fix nor this addition establishes its cause. No prompts, completions,
+customer IDs, arguments, raw tool results, exception text or secrets are added
+to reports. No tool retry, model substitution or evaluator call is added.
+
 ## Admission and Limits
 
 Use the existing enclosing selected launcher with explicit
@@ -87,6 +122,8 @@ the parent-bound simulator identity plus a closed observation:
   `unsupported_tool` or `multiple_tools`.
 - `intended_customer_match`: true/false only after a successful original lookup;
   otherwise null. No customer ID, arguments, reply or exception text.
+- `failure_stage`: the v2-only closed stage or null described above; absent
+  from unchanged v1 observations.
 
 Only `resolved` can complete successfully. The internal completion status
 `evaluated` is retained for existing owner finish/count handshakes, but in this
@@ -117,6 +154,12 @@ including `to_json_str` on a synthetic database; it makes no model or network
 calls. The ordinary tests also execute the original producer against a plain
 string response to reproduce the regression and cover literal comparison,
 malformed results, error precedence and content-free failure reports.
+They also replay original v1 observations, reject unknown v2 fields/stages and
+inconsistent outcomes, preserve each stage through parent accounting, and test
+execution exceptions, in-lookup cancellation/timeouts and cleanup with content
+canaries. The optional pinned-method audit covers both successful lookup methods,
+wrong customer, malformed result, upstream error, escaping exception,
+cancellation, timeout and cleanup using synthetic data only.
 
 For an already verified prepared scorer payload containing `upstream/` and
 `bench/tau-upstream-pins.json`, the optional source audit is:
