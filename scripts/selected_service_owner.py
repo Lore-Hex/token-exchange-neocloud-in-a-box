@@ -200,6 +200,11 @@ class State(network.Journal):
                 ("--inference-smoke", "--conformance-smoke", "--protocol-smoke", "--tool-smoke")))
         else:
             require("--lifetime-profile" not in command)
+        if "--long-qualification" in command:
+            require(ordinary and command.count("--long-qualification") == 1
+                    and command.count("--execution-profile") == 1
+                    and command.index("--execution-profile") + 1 < len(command)
+                    and command[command.index("--execution-profile") + 1] == smoke.service.engine_entry.LONG_PROFILE)
         prior = True
         for event in EVENTS:
             row = result.get(event + ".json")
