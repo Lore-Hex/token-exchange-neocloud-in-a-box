@@ -3,8 +3,8 @@
 Status: implemented candidates, **not full GPU qualification or a public capacity claim**.
 The explicit `long128k-eager` and `long128k-graphs` profiles keep the selected
 abliterated checkpoint, B300 TP4 x DP2, one admitted request, GPU-resident Engram,
-512 GiB host-memory bound and zero swap. The graph candidate changes only decode
-execution, not the limits below. Existing profiles remain unchanged.
+512 GiB host-memory bound and zero swap. The graph candidate changes the execution
+configuration, not the limits below. Existing profiles remain unchanged.
 
 | Bound | Candidate |
 |---|---|
@@ -65,7 +65,11 @@ No claim about a newer engine's performance applies to this candidate.
   [compilation configuration, lines 610-631](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/config/compilation.py#L610-L631)
   defines decode-only graphs; the
   [candidate builder and dispatcher](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/worker/gpu/cudagraph_utils.py#L238-L548)
-  select the one-request, one-token decode shape. Prefill stays eager/chunked.
+  select the one-request, one-token decode shape. Prefill stays chunked and
+  outside CUDA graphs. Removing `--enforce-eager` also restores the pinned
+  engine's normal compiler/JIT defaults; it does not prove that prefill is
+  uncompiled or isolate any speedup to CUDA graph replay alone. See
+  [eager overrides and compilation defaults](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/config/vllm.py#L1691-L1756).
   This does not enable DSpark, increase admission or change FP8 KV, cache
   namespaces, DP2 affinity or any deadline. Backend compatibility, actual graph
   capture/replay, memory fit and a throughput improvement still need measurement.
