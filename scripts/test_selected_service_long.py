@@ -24,6 +24,23 @@ def long_lab():
 
 
 class LongProfileTests(unittest.TestCase):
+    def test_host_preparer_accepts_long_observations_without_stream_cohort(self):
+        options = tuning_tests.host.tuning_measurement_options
+        for name in tuning.EAGER_CONTEXTS:
+            with self.subTest(execution_profile=name):
+                options(True, True, True, False, None, None, name)
+        for parity, materialization, observation, cohort, profile, provider in (
+                (False, True, True, False, None, None),
+                (True, False, True, False, None, None),
+                (True, True, False, False, None, None),
+                (True, True, True, True, None, None),
+                (True, True, True, False, "chat-2k-512-c8-600s", None),
+                (True, True, True, False, None, "provider-wheels")):
+            with self.subTest(parity=parity, materialization=materialization,
+                              observation=observation, cohort=cohort, profile=profile, provider=provider):
+                with self.assertRaises(ValueError):
+                    options(parity, materialization, observation, cohort, profile, provider, engine.LONG_PROFILE)
+
     def test_full_long_lifecycle_reserves_both_drains_and_every_reap(self):
         with lifecycle_tests.LifecycleTests().setup_service(lifetime=4800) as (supervisor, owner, clock, shutdown):
             contract = service.Contract.begin(clock.timestamp(4800), input_price="1", output_price="2",

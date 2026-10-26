@@ -128,7 +128,7 @@ def model_target(family, security, replicas, model_profile):
 def tuning_measurement_options(parity, materialization, observation, cohort, profile, provider, execution_profile=None):
     options = (parity, materialization, observation, cohort)
     require(provider is None and all(type(value) is bool for value in options))
-    if execution_profile in ("tau8k-eager", "quality32k-eager"):
+    if execution_profile in ("tau8k-eager", "quality32k-eager", "long128k-eager"):
         require(parity and materialization and observation and not cohort and profile is None)
     else:
         require(all(options) or not any(options) and profile is None)
