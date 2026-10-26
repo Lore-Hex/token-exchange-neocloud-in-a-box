@@ -41,9 +41,12 @@ onboarding steps; running the toolkit does not automatically list a provider.
 
 An opt-in [128K-context / 16K-output candidate](docs/tasks/p2-t3-long-context-cache.md)
 adds bounded chunked prefill, isolated prefix-cache namespaces and actual
-cached-token usage reporting. It is not yet GPU-qualified or enabled by default;
-gateway namespace injection and cold/warm, long-input and long-output evidence
-remain required before advertising these limits or a cache discount.
+cached-token usage reporting. The [October 26 ordinary-B300 trial](evidence/p2/2026-10-26-selected-long-qualification/README.md)
+passed all nine retrieval/cache checks through 130,816 input tokens. Warm reads
+reused 32,384 / 65,152 / 130,688 tokens; cold and different-namespace controls
+reported zero hits. The 16K-output request **timed out**, with final usage
+unknown. The overall qualification remains failed; no default-limit increase,
+production cache discount, broad isolation or confidential claim follows.
 
 Pre-alpha. **No fully verified confidential inference service yet.** Real
 8xB200 and 8xB300 lab checks and complete DeepSeek weight downloads have run. Fresh
