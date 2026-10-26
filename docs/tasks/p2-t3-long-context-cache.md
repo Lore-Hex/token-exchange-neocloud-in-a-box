@@ -1,9 +1,10 @@
 # P2.T3: Long context and isolated prefix-cache candidate
 
-Status: implemented candidate, **not GPU-qualified or a public capacity claim**.
-The explicit `long128k-eager` profile keeps the selected abliterated checkpoint,
-B300 TP4 x DP2, one admitted request, eager execution, GPU-resident Engram,
-512 GiB host-memory bound and zero swap. Existing profiles remain unchanged.
+Status: implemented candidates, **not full GPU qualification or a public capacity claim**.
+The explicit `long128k-eager` and `long128k-graphs` profiles keep the selected
+abliterated checkpoint, B300 TP4 x DP2, one admitted request, GPU-resident Engram,
+512 GiB host-memory bound and zero swap. The graph candidate changes the execution
+configuration, not the limits below. Existing profiles remain unchanged.
 
 | Bound | Candidate |
 |---|---|
@@ -58,13 +59,38 @@ No claim about a newer engine's performance applies to this candidate.
   exposes actual `usage.prompt_tokens_details.cached_tokens`, including in the
   final usage chunk when streaming usage is requested. The guard forwards it
   unchanged. An absent field must never be interpreted as a measured cache hit.
+- `long128k-graphs` removes `--enforce-eager` and selects
+  `FULL_DECODE_ONLY` with `cudagraph_capture_sizes: [1]`, retaining
+  `pass_config.fuse_allreduce_rms: false`. Pinned
+  [compilation configuration, lines 610-631](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/config/compilation.py#L610-L631)
+  defines decode-only graphs; the
+  [candidate builder and dispatcher](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/worker/gpu/cudagraph_utils.py#L238-L548)
+  select the one-request, one-token decode shape. Prefill stays chunked and
+  outside CUDA graphs. Removing `--enforce-eager` also restores the pinned
+  engine's normal compiler/JIT defaults; it does not prove that prefill is
+  uncompiled or isolate any speedup to CUDA graph replay alone. See
+  [eager overrides and compilation defaults](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/config/vllm.py#L1691-L1756).
+  This does not enable DSpark, increase admission or change FP8 KV, cache
+  namespaces, DP2 affinity or any deadline. Backend compatibility, actual graph
+  capture/replay, memory fit and a throughput improvement still need measurement.
+  Configured graph mode is not evidence that every decode used a graph.
 
 The new source files are hash-pinned in `scripts/deepseek_tuning.py`; startup
 rejects source drift. The prepared payload, image, guard, catalog, observed
 context and selected execution-profile receipt must agree. Use the existing
 selected-service prepare/build/run path with `--execution-profile long128k-eager`
+or the explicit opt-in `--execution-profile long128k-graphs`
 and `--tokenizer-parity --tokenizer-materialization --runtime-observation`.
 Do not relabel an old image or start another engine on occupied GPUs.
+
+Both profiles use the same `--long-qualification` hook and ten-request schedule,
+including the paired 114,688-prompt / 16,384-output final request. Its 3,600-second
+stage, 900-second request bound, 1,960-second cleanup reserve and 180-second host
+reserve do not increase for graphs. Host admission still requires more than
+7,540 seconds before the original absolute cutoff. The report, prepared source,
+owner execution profile and watchdog reserve must agree; an eager report cannot
+be relabeled as graph qualification. Missing final usage stays unknown, and a
+timeout cannot establish 16K actual output or a successful qualification.
 
 ## Cache isolation and routing
 
@@ -110,7 +136,7 @@ metrics labels or retain prompts/completions for these tests.
    checks that reuse has not changed answer/tool correctness.
 5. Measure concurrency separately. More context and cached prefill do not imply
    faster decode, sustained throughput or unlimited concurrent long requests.
-   Leave DSpark and newer graph recipes as separate controlled experiments.
+   Leave DSpark and larger graph/batch recipes as separate controlled experiments.
 
 The catalog deliberately keeps `prompt_caching=false` and `cached_input=null`
 until live qualification and customer billing terms exist. This candidate does
@@ -121,3 +147,7 @@ argument tampering, profile/observation mismatches and admission;
 `internal/pilotapi/long_profile_test.go` covers guard/body/output bounds, cache
 namespace isolation, preserved deadlines and unchanged usage. These are software tests,
 not hardware evidence.
+`scripts/test_selected_long_graphs.py` additionally replays the existing CLI,
+hook and cleanup tests for the closed graph profile, checks legacy argv equality,
+rejects cross-profile report substitution, and exercises pinned graph dispatch
+without importing CUDA. No graph-profile hardware run is claimed by these tests.

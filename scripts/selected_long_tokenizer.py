@@ -40,7 +40,7 @@ def prepare_runtime(expected, deadline):
     exec(compile(source, lab.__file__, "exec"), lab.__dict__)
     contract, _, modules, application, _ = lab.lab_context(receipt["lab_sha256"])
     process.engine_entry.canonical_arguments(contract)
-    require(contract["execution_profile"] == process.engine_entry.LONG_PROFILE
+    require(contract["execution_profile"] in process.engine_entry.LONG_PROFILES
             and contract["model_profile"] == service.models.select("uncensored"), "identity")
     lab.recheck_sources(modules[0], application, contract["paths"])
     lab.PARITY.verify_sources(lab.read_source, contract["paths"][-1], lab.CORRECTNESS)
