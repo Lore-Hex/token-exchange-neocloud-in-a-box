@@ -180,6 +180,14 @@ completed; reward remains null and cleanup was confirmed. No exception-origin
 or conversation evidence identifies the underlying cause or assigns model blame.
 It is not a tau quality score or simulator qualification.
 
+Software preparation now includes an explicit
+[full original retail-task-2 trial with external support](docs/tasks/p2-t4-tau-external-full-task.md),
+reusing the pinned scorer and preserving actual task reward. The separate
+[first-lookup mode](docs/tasks/p2-t4-tau-external-simulator.md) remains unchanged.
+Neither external mode has live-run evidence; the full-task path requires a
+separately admitted 32K/2048 candidate and execution approval. No full benchmark
+or selected-checkpoint quality claim follows from this preparation.
+
 The earlier [selected tau diagnostic](evidence/p2/2026-10-25-selected-tau-email-relation-0429/README.md)
 failed at the retail customer-email lookup. A bounded boolean records that the
 submitted argument occurred case-insensitively in earlier simulator-user text;

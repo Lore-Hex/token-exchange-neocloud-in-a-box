@@ -77,9 +77,10 @@ def load(name, expected=None, *, modules=None):
 SELECTED_PARENT_MODULES = ("deepseek_model_profile", "tau_support_probe", "tau_selected_policy",
     "tau_local_vllm", "tau_local_llama", "engine_tokenizer_parity", "tau_llama_identity",
     "tau_live_identity", "tau_cpu_parity", "tau_owner_channel", "tau_selected_session")
+EXTERNAL_PARENT_MODULES = ("bounded_https", "tau_external_tokenizer", "tau_external")
 
 
-def parent_driver(toolkit, *, live_local=False, selected_operational=False):
+def parent_driver(toolkit, *, live_local=False, selected_operational=False, external_simulator=False):
     # Compile the exact verified closure, never timestamp-valid .pyc files or
     # preexisting same-name modules from an ambient import path.
     modules = {}
@@ -95,10 +96,14 @@ def parent_driver(toolkit, *, live_local=False, selected_operational=False):
     names += ("tau_pipe_driver",)
     if selected_operational:
         names += ("tau_selected_driver",)
+    require(type(external_simulator) is bool and (not external_simulator or selected_operational))
+    if external_simulator:
+        names += EXTERNAL_PARENT_MODULES
     for name in names:
         path = "scripts/" + name + ".py"
         modules[name] = load(path, toolkit["files"][path], modules=modules)
-    driver = modules["tau_selected_driver" if selected_operational else "tau_pipe_driver"]
+    driver = modules["tau_external" if external_simulator else
+                     "tau_selected_driver" if selected_operational else "tau_pipe_driver"]
     if live_local:
         driver.live = modules["tau_live_identity"]
     return driver
@@ -164,8 +169,9 @@ def selected_mode(value, parent_pipe, live_local, support_probe, agent_prefix):
 
 
 def identity(deadline, parent_pipe=False, *, live_local=False, support_probe=False, agent_prefix=False,
-             selected_operational=False):
+             selected_operational=False, external_simulator=False):
     selected_mode(selected_operational, parent_pipe, live_local, support_probe, agent_prefix)
+    require(type(external_simulator) is bool and (not external_simulator or selected_operational))
     require(not live_local or parent_pipe)
     require(not support_probe or parent_pipe and not live_local)
     require(type(agent_prefix) is bool and (not agent_prefix or support_probe))
@@ -197,6 +203,10 @@ def identity(deadline, parent_pipe=False, *, live_local=False, support_probe=Fal
                   "scripts/tau_llama_identity.py", "scripts/engine_tokenizer_parity.py",
                   "scripts/tau_cpu_support_models.json", "scripts/tau_cpu_parity.cpp",
                   "scripts/test_tau_cpu_admission.py")
+    if external_simulator:
+        names += tuple("scripts/" + name + ".py" for name in EXTERNAL_PARENT_MODULES)
+        names += ("scripts/record-tau-external.py", "scripts/test_tau_external.py", "scripts/test_bounded_https.py",
+                  "scripts/test_tau_external_trial.py")
     result = tau.committed_identity(deadline)
     for start in range(0, len(names), 4):
         item = tau.committed_identity(deadline, extra_files=names[start:start + 4])
@@ -240,8 +250,10 @@ def add_wheel(files, owners, raw, package, expected, deadline):
 
 def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, deadline, *, parent_pipe=False,
             live_binding=None, support_probe=False, agent_prefix=False, selected_operational=False, identity_followup=False,
-            identity_followup_17b=False, customer_resolution=False):
+            identity_followup_17b=False, customer_resolution=False, external_simulator=False, full_task=False):
     require(type(customer_resolution) is bool and (not customer_resolution or selected_operational))
+    require(type(full_task) is bool and (not full_task or external_simulator and not customer_resolution))
+    require(type(external_simulator) is bool and (not external_simulator or customer_resolution or full_task))
     require(type(identity_followup) is bool and type(identity_followup_17b) is bool
             and not (identity_followup and identity_followup_17b)
             and (not (identity_followup or identity_followup_17b) or support_probe and not agent_prefix))
@@ -251,7 +263,8 @@ def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, de
     toolkit = (identity(deadline, parent_pipe, live_local=True) if live_binding is not None
                else identity(deadline, parent_pipe, **({"support_probe": True} if support_probe else {}),
                              **({"agent_prefix": True} if agent_prefix else {}),
-                             **({"selected_operational": True} if selected_operational else {})))
+                             **({"selected_operational": True} if selected_operational else {}),
+                             **({"external_simulator": True} if external_simulator else {})))
     pins_raw = runtime.read_file(ROOT / tau.PINS, 1 << 20, deadline)
     require(tau.digest(pins_raw) == tau.PINS_SHA)
     pins = tau.json_value(pins_raw)
@@ -261,7 +274,9 @@ def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, de
                   load("scripts/tau_support_probe.py", modules={"tau_preflight": tau}))
         manifest = policy.configuration(**({"identity_followup": True} if identity_followup else {}),
                                         **({"identity_followup_17b": True} if identity_followup_17b else {}),
-                                        **({"customer_resolution": True} if customer_resolution else {}))
+                                        **({"customer_resolution": True} if customer_resolution else {}),
+                                        **({"external_simulator": True} if external_simulator else {}),
+                                        **({"full_task": True} if full_task else {}))
         manifest_sha = tau.digest(tau.encoded(manifest))
         source_policy = policy.support if selected_operational else policy
         chosen = dict(source_policy.SELECTION)
@@ -519,13 +534,25 @@ def check_result(value, plan, manifest, *, live_local=False):
 
 
 def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment=None, support_probe=None,
-        agent_prefix=False, scorer_image_profile=None, selected_owners=None):
+        agent_prefix=False, scorer_image_profile=None, selected_owners=None, external_inputs=None):
     deadline = time.monotonic() + 60
     live_local = live_deployment is not None
-    selected_operational = selected_owners is not None
+    external_simulator = external_inputs is not None
+    full_task = False
+    require(not (external_simulator and selected_owners is not None))
+    selected_operational = selected_owners is not None or external_simulator
     selected_mode(selected_operational, parent_pipe, live_local, support_probe is not None, agent_prefix)
-    if selected_operational:
+    if selected_owners is not None:
         require(type(selected_owners) is dict and set(selected_owners) == {"manifest", "handles", "deadline"})
+    if external_simulator:
+        require(type(external_inputs) is dict)
+        full_task = external_inputs.get("full_task", False)
+        require(type(full_task) is bool and set(external_inputs) == {"arguments", "deadline"}
+                    | ({"full_task"} if full_task else set())
+                and type(external_inputs["arguments"]) is tuple and len(external_inputs["arguments"]) == 7
+                and type(external_inputs["deadline"]) in (int, float)
+                and 60 < external_inputs["deadline"] - time.monotonic() <= 960)
+        deadline = min(deadline, external_inputs["deadline"] - 60)
     require(support_probe is None or parent_pipe and not live_local)
     require(type(agent_prefix) is bool and (not agent_prefix or parent_pipe and not live_local and support_probe is None))
     require(scorer_image_profile is None or agent_prefix and type(scorer_image_profile) is str
@@ -536,14 +563,20 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
     toolkit = (identity(deadline, parent_pipe, live_local=True) if live_local else
                identity(deadline, parent_pipe, **({"support_probe": True} if probe_sources else {}),
                         **({"agent_prefix": True} if agent_prefix else {}),
-                        **({"selected_operational": True} if selected_operational else {})))
+                        **({"selected_operational": True} if selected_operational else {}),
+                        **({"external_simulator": True} if external_simulator else {})))
     options = {"parent_pipe": parent_pipe, **({"live_local": True} if live_local else {}),
                **({"support_probe": True} if probe_sources else {}), **({"agent_prefix": True} if agent_prefix else {}),
                **({"selected_operational": True} if selected_operational else {})}
     plan, manifest = validate_plan(payload, sha, toolkit, deadline, **options)
     deployment = driver = None
-    if selected_operational:
+    external = None
+    if external_simulator:
+        driver = parent_driver(toolkit, selected_operational=True, external_simulator=True)
+        require(driver.policy.is_external(manifest) and driver.policy.is_external_trial(manifest) == full_task)
+    elif selected_operational:
         driver = parent_driver(toolkit, selected_operational=True)
+        require(not driver.policy.is_external(manifest))
         driver.policy.transport_manifest(selected_owners["manifest"], tau.digest(tau.encoded(selected_owners["manifest"])))
         require(tau.encoded(selected_owners["manifest"]["input"]) == tau.encoded(manifest)
                 and type(selected_owners["deadline"]) in (int, float)
@@ -572,14 +605,20 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
                "DOCKER_CONFIG": private, "LANG": "C", "LC_ALL": "C"}
         docker = shutil.which("docker", path=env["PATH"])
         require(docker is not None)
-        operation_deadline = (selected_owners["deadline"] if selected_operational else time.monotonic() + SECONDS)
+        operation_deadline = (external_inputs["deadline"] if external_simulator else
+                              selected_owners["deadline"] if selected_operational else time.monotonic() + SECONDS)
         def command(*args, seconds=20, limit=65536):
             remaining = operation_deadline - time.monotonic()
             require(remaining > 0)
             return probe.capture([docker, "--host", "unix://" + str(socket), "--config", private, *args],
                                  timeout=min(seconds, remaining), env=env, limit=limit)
         old = signal.getsignal(signal.SIGTERM)
+        cancellation_requested = False
         def cancelled(signum, frame):
+            nonlocal cancellation_requested
+            if external_simulator and cancellation_requested:
+                return
+            cancellation_requested = True
             raise KeyboardInterrupt
         signal.signal(signal.SIGTERM, cancelled)
         try:
@@ -587,6 +626,12 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
             rows = tau.json_value(command("image", "inspect", *inspect_args, runtime.TARGET["image"]))
             require(type(rows) is list and len(rows) == 1)
             selected_manifest = check_probe_image(rows[0]) if classic else check_image(rows[0])
+            if external_simulator:
+                stage = "external-preflight"
+                with worker.alarm(min(deadline, operation_deadline - 60)):
+                    external = driver.Runtime(*external_inputs["arguments"], external_inputs["deadline"],
+                                              **({"full_task": True} if full_task else {}))
+                require(tau.encoded(external.manifest["input"]) == tau.encoded(manifest))
             inspection = {"parent_pipe": parent_pipe, **({"support_probe": True} if classic else {}),
                           **({"selected_operational": True} if selected_operational else {})}
             stage = "create"
@@ -599,7 +644,10 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
             check_container(info, name, owner, payload, sha, selected_manifest, **inspection)
             create_unknown = False
             stage = "trial"
-            if selected_operational:
+            if external_simulator:
+                observed = driver.run_process([docker, "--host", "unix://" + str(socket), "--config", private,
+                    "start", "--attach", "--interactive", name], env, payload, plan, external, operation_deadline)
+            elif selected_operational:
                 observed = driver.run_owned([docker, "--host", "unix://" + str(socket), "--config", private,
                     "start", "--attach", "--interactive", name], env, payload, plan,
                     selected_owners["manifest"], operation_deadline, selected_owners["handles"])
@@ -646,8 +694,13 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
         except BaseException:
             pass
         finally:
+            cancellation_requested = True
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
-            operation_deadline = time.monotonic() + 60
+            prior_int = signal.getsignal(signal.SIGINT)
+            if external_simulator:
+                signal.signal(signal.SIGINT, signal.SIG_IGN)
+            operation_deadline = (min(external_inputs["deadline"], time.monotonic() + 60)
+                                  if external_simulator else time.monotonic() + 60)
             try:
                 names = command("ps", "-aq", "--filter", "label=" + LABEL + "=" + owner).decode().split()
                 require(len(names) <= 1 and all(re.fullmatch("[0-9a-f]{12,64}", item) for item in names))
@@ -657,7 +710,42 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
                 cleaned = empty and not create_unknown
             except Exception:
                 cleaned = False
-            signal.signal(signal.SIGTERM, old)
+            if external is not None:
+                try:
+                    external.close()
+                except Exception:
+                    cleaned = False
+            if external_simulator:
+                try:
+                    mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGINT, signal.SIGTERM})
+                    try:
+                        signal.signal(signal.SIGINT, prior_int)
+                        signal.signal(signal.SIGTERM, old)
+                    finally:
+                        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+                except KeyboardInterrupt:
+                    stage = "cancelled"
+            else:
+                signal.signal(signal.SIGTERM, old)
+    if external_simulator:
+        record = {"schema": "nib.tau-external-full-task-run/v1" if full_task else "nib.tau-external-scorer-run/v1",
+                  "toolkit": toolkit, "plan_sha256": sha,
+                  "image": plan["image"], "platform": plan["platform"],
+                  "manifest_sha256": tau.digest(tau.encoded(external.manifest)) if external is not None else None,
+                  "endpoint_binding_sha256": external.manifest["binding_sha256"] if external is not None else None,
+                  "started_utc": started, "ended_utc": now(), "stage": stage,
+                  "cleanup": "create-completion-unknown" if create_unknown else "confirmed" if cleaned else "failed",
+                  "endpoint_usage": {name: endpoint.observation() for name, endpoint in external.endpoints.items()}
+                    if external is not None else None,
+                  "trial" if full_task else "diagnostic": result,
+                  "result": "pass" if stage == "completed" and cleaned and result
+                    and driver.accepted(result) else "fail", "quality_eligible": False, "confidential": False,
+                  "live_admission": False, "public_owner_mutated": False}
+        if full_task:
+            record.update(selection=dict(manifest["selection"]), evaluation=dict(manifest["evaluation"]),
+                          full_benchmark=False)
+        publish_evidence(destination, {"observation.json": tau.encoded(record)})
+        return record
     if selected_operational:
         record = {"schema": "nib.tau-selected-scorer-run/v1", "toolkit": toolkit, "plan_sha256": sha,
                   "image": plan["image"], "platform": plan["platform"],
