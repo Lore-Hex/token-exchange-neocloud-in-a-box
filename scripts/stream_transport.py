@@ -32,6 +32,10 @@ class StreamResponse(http.client.HTTPResponse):
     """
     tail = None
 
+    def __init__(self, *args, profile=None, **kwargs):
+        self.max_stream_bytes = measurement.stream_limit(profile)
+        super().__init__(*args, **kwargs)
+
     def _close_conn(self):
         # Preserve any bytes buffered past HTTP termination for the EOF check.
         if self.fp is not None:
@@ -49,7 +53,7 @@ class StreamResponse(http.client.HTTPResponse):
         line = self.fp.readline(16)
         require(re.fullmatch(rb"[0-9a-fA-F]{1,8}\r\n", line))
         size = int(line, 16)
-        require(size <= measurement.MAX_STREAM)
+        require(size <= self.max_stream_bytes)
         return size
 
     def _get_chunk_left(self):
@@ -62,7 +66,8 @@ class StreamResponse(http.client.HTTPResponse):
         require(self.fp.readline(3) == b"\r\n")
 
 
-def response_length(response):
+def response_length(response, *, profile=None):
+    maximum = measurement.stream_limit(profile)
     headers = response.getheaders()
     require(not response.headers.defects and len(headers) <= 32
             and sum(len(key) + len(value) for key, value in headers) <= 65536
@@ -77,8 +82,8 @@ def response_length(response):
     require(not (length is not None and encoding is not None)
             and (encoding is None or encoding.lower() == "chunked"))
     if length is not None:
-        require(length.isascii() and length.isdecimal() and len(length) <= 8
-                and 0 < int(length) <= measurement.MAX_STREAM)
+        require(length.isascii() and length.isdecimal() and len(length) <= len(str(maximum))
+                and 0 < int(length) <= maximum)
         return int(length)
     return None
 

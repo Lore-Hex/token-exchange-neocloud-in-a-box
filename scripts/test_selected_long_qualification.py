@@ -219,7 +219,8 @@ class QualificationTests(unittest.TestCase):
     def test_tokenizer_child_is_bounded_and_uses_prepared_environment(self):
         prepared = SimpleNamespace(interpreter="/verified/python", receipt_sha256="a" * 64,
             lab={"environment": {"PATH": "/verified/bin"}}, check=mock.Mock())
-        supervisor = SimpleNamespace(owner=SimpleNamespace(prepared=prepared))
+        supervisor = SimpleNamespace(owner=SimpleNamespace(prepared=prepared),
+                                     contract=SimpleNamespace(execution_profile=q.process.engine_entry.LONG_PROFILE))
         result = subprocess.CompletedProcess([], 0, q.encoded({"prepared_sha256": "a" * 64, "workload": workload()}), b"")
         with mock.patch.object(q.process.snapshot, "execute_process_group", return_value=result) as execute:
             self.assertEqual(q.prepare_owned(supervisor, time.monotonic() + 400), workload())
@@ -248,7 +249,8 @@ class QualificationTests(unittest.TestCase):
 
 class TransportTests(unittest.TestCase):
     def collect(self, body, *, tail_error=False, checkpoint_error=False, send_error=False, close_error=False):
-        supervisor = SimpleNamespace(contract=SimpleNamespace(request_seconds=900),
+        supervisor = SimpleNamespace(contract=SimpleNamespace(request_seconds=900,
+            execution_profile=q.process.engine_entry.LONG_PROFILE),
             inputs=SimpleNamespace(root=Path("/private/test")), owner=SimpleNamespace(hostname="service.invalid"))
         connection = mock.Mock()
         if send_error:

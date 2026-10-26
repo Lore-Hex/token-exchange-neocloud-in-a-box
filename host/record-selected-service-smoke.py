@@ -289,7 +289,7 @@ def cleanup_budget(info):
     command = info.get("Config", {}).get("Cmd")
     if type(command) is list and command.count("--execution-profile") == 1:
         index = command.index("--execution-profile") + 1
-        if index < len(command) and command[index] in service.engine_entry.LONG_PROFILES:
+        if index < len(command) and command[index] in service.engine_entry.LONG_CONTEXT_PROFILES:
             return service.cleanup_reserve(command[index])
     return service.CLEANUP_RESERVE
 
@@ -455,7 +455,7 @@ def execution_lifecycle(raw, execution_profile, prepared_sha256, *, failed, **jo
             if key not in ("execution", "execution_prepared_sha256", "lifecycle_schema")}
     base["schema"] = row["lifecycle_schema"]
     if join.pop("long_qualification", False):
-        require(execution_profile in service.engine_entry.LONG_PROFILES
+        require(execution_profile in service.engine_entry.LONG_CONTEXT_PROFILES
                 and not any(join[name] for name in ("inference_smoke", "conformance_smoke", "protocol_smoke", "tool_smoke")),
                 "owner-failed")
         long_lifecycle(inference.encoded(base), join["lifetime"], prepared_sha256, failed=failed,
@@ -471,7 +471,7 @@ def lifecycle(raw, *, inference_smoke=False, conformance_smoke=False, protocol_s
               execution_profile=service.engine_entry.EAGER_PROFILE, long_qualification=False):
     service.engine_entry.execution_limits(execution_profile)
     require(type(long_qualification) is bool and (not long_qualification or
-            execution_profile in service.engine_entry.LONG_PROFILES), "owner-failed")
+            execution_profile in service.engine_entry.LONG_CONTEXT_PROFILES), "owner-failed")
     if execution_profile != service.engine_entry.EAGER_PROFILE:
         return execution_lifecycle(raw, execution_profile, prepared_sha256, failed=False,
             inference_smoke=inference_smoke, conformance_smoke=conformance_smoke,
@@ -509,7 +509,7 @@ def lifecycle_failure(raw, *, inference_smoke=False, conformance_smoke=False, pr
     """Accept only the owner's fixed metadata on a nonzero container exit."""
     service.engine_entry.execution_limits(execution_profile)
     require(type(long_qualification) is bool and (not long_qualification or
-            execution_profile in service.engine_entry.LONG_PROFILES), "owner-failed")
+            execution_profile in service.engine_entry.LONG_CONTEXT_PROFILES), "owner-failed")
     if execution_profile != service.engine_entry.EAGER_PROFILE:
         return execution_lifecycle(raw, execution_profile, prepared_sha256, failed=True,
             inference_smoke=inference_smoke, conformance_smoke=conformance_smoke,
@@ -659,7 +659,8 @@ def admitted_runtime(args, result, *, lifetime_profile=service.SMOKE_PROFILE):
     if long_qualification:
         import selected_long_qualification as qualification
         require(contract.hard_monotonic - time.monotonic() > service.engine_lab.STARTUP_SECONDS
-                + qualification.RUN_SECONDS + contract.cleanup_reserve + HOST_RESERVE, "deadline")
+                + qualification.workload_profile(contract.execution_profile).run_seconds
+                + contract.cleanup_reserve + HOST_RESERVE, "deadline")
     deadline = min(time.monotonic() + SECONDS, contract.hard_monotonic - contract.cleanup_reserve)
     with ExitStack() as stack:
         with service.identity.worker.alarm(deadline):

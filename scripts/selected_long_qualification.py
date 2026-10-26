@@ -37,6 +37,42 @@ FAILURES = frozenset(("none", "contract", "identity", "deadline", "cancelled", "
 CLAIMS = ("quality_qualified", "confidential", "capacity_qualified", "cache_isolation_qualified", "pricing_measured")
 
 
+@dataclass(frozen=True)
+class WorkloadProfile:
+    context: int
+    output: int
+    targets: tuple
+    max_padding: int
+    prepare_seconds: int
+    run_seconds: int
+    million: bool = False
+
+    @property
+    def prompts(self):
+        return (*[target - 256 for target in self.targets], self.context - self.output)
+
+    @property
+    def outputs(self):
+        return (256, 256, 256, self.output)
+
+
+def workload_profile(execution_profile=process.engine_entry.LONG_PROFILE):
+    require(type(execution_profile) is str
+            and execution_profile in process.engine_entry.LONG_CONTEXT_PROFILES, "contract")
+    if execution_profile == process.engine_entry.MILLION_PROFILE:
+        return WorkloadProfile(1048576, 393216, (262144, 524288, 1048576), 2097152, 600, 7200, True)
+    return WorkloadProfile(CONTEXT, LONG_OUTPUT, TARGETS, MAX_PADDING, PREPARE_SECONDS, RUN_SECONDS)
+
+
+def workload_execution(row):
+    require(type(row) is dict, "tokenizer")
+    if row.get("schema") == "nib.selected-long-workload/v2":
+        require(row.get("execution_profile") == process.engine_entry.MILLION_PROFILE, "tokenizer")
+        return process.engine_entry.MILLION_PROFILE
+    require(row.get("schema") == WORKLOAD_SCHEMA, "tokenizer")
+    return process.engine_entry.LONG_PROFILE
+
+
 class Rejected(ValueError):
     def __init__(self, category):
         self.category = category if type(category) is str and category in FAILURES else "internal"
@@ -52,26 +88,30 @@ def digest(value):
     return hashlib.sha256(encoded(value)).hexdigest()
 
 
-def messages(level, padding):
+def messages(level, padding, *, execution_profile=process.engine_entry.LONG_PROFILE):
+    profile = workload_profile(execution_profile)
     require(type(level) is int and 0 <= level < 4 and type(padding) is int
-            and 0 <= padding <= MAX_PADDING, "contract")
+            and 0 <= padding <= profile.max_padding, "contract")
     start = "Synthetic benchmark. The initial code is CEDAR42.\n"
     end = ("\nReply only with the initial code, without explanation." if level < 3 else
            "\nList consecutive integers from 1 through 50000, one per line. Continue without explanation.")
+    if level == 3 and profile.million:
+        end = "\nList consecutive integers from 1 through 1000000, one per line. Continue without explanation."
     return [{"role": "user", "content": start + " x" * padding + end}]
 
 
-def prepare(tokenizer, *, deadline):
+def prepare(tokenizer, *, deadline, execution_profile=process.engine_entry.LONG_PROFILE):
     """Called only by the source-verified CPU child, never from an input plugin."""
     rows = []
-    deadline = min(deadline, time.monotonic() + PREPARE_SECONDS)
+    profile = workload_profile(execution_profile)
+    deadline = min(deadline, time.monotonic() + profile.prepare_seconds)
     with service.identity.worker.alarm(deadline):
-        for level, target in enumerate(PROMPTS):
+        for level, target in enumerate(profile.prompts):
             def count(padding):
                 require(time.monotonic() < deadline, "deadline")
-                ids = tokenizer.apply_chat_template(messages(level, padding), tools=None, tokenize=True,
+                ids = tokenizer.apply_chat_template(messages(level, padding, execution_profile=execution_profile), tools=None, tokenize=True,
                     add_generation_prompt=True, continue_final_message=False, **parity.TEMPLATE)
-                require(type(ids) is list and 0 < len(ids) <= 2 * CONTEXT
+                require(type(ids) is list and 0 < len(ids) <= 2 * profile.context
                         and all(type(token) is int and 0 <= token < 2**31 for token in ids), "tokenizer")
                 return len(ids), digest(ids)
             small, _ = count(64)
@@ -82,39 +122,49 @@ def prepare(tokenizer, *, deadline):
             # every selected prompt must have an exactly measured token count.
             candidates = [center] + [center + sign * delta for delta in range(1, 33) for sign in (-1, 1)]
             for padding in candidates:
-                if not 0 <= padding <= MAX_PADDING:
+                if not 0 <= padding <= profile.max_padding:
                     continue
                 size, sha = count(padding)
                 if size == target:
                     rows.append({"level": level, "padding": padding, "prompt_tokens": size,
-                        "tokens_sha256": sha, "messages_sha256": digest(messages(level, padding))})
+                        "tokens_sha256": sha, "messages_sha256": digest(messages(level, padding, execution_profile=execution_profile))})
                     break
             else:
                 require(False, "tokenizer")
-    return validate_workload({"schema": WORKLOAD_SCHEMA, "cases": rows})
+    row = {"schema": WORKLOAD_SCHEMA, "cases": rows}
+    if profile.million:
+        row.update(schema="nib.selected-long-workload/v2", execution_profile=execution_profile)
+    return validate_workload(row, execution_profile=execution_profile)
 
 
-def validate_workload(row):
-    require(type(row) is dict and set(row) == {"schema", "cases"} and row["schema"] == WORKLOAD_SCHEMA
+def validate_workload(row, *, execution_profile=None):
+    observed = workload_execution(row)
+    profile = workload_profile(observed)
+    require(execution_profile is None or workload_profile(execution_profile) == profile, "tokenizer")
+    keys = {"schema", "cases"} | ({"execution_profile"} if profile.million else set())
+    require(type(row) is dict and set(row) == keys
             and type(row["cases"]) is list and len(row["cases"]) == 4, "tokenizer")
     for level, item in enumerate(row["cases"]):
         require(type(item) is dict and set(item) == {"level", "padding", "prompt_tokens", "tokens_sha256", "messages_sha256"}
                 and type(item["level"]) is int and item["level"] == level
-                and type(item["padding"]) is int and 0 <= item["padding"] <= MAX_PADDING
-                and type(item["prompt_tokens"]) is int and item["prompt_tokens"] == PROMPTS[level]
-                and item["prompt_tokens"] + OUTPUTS[level] <= CONTEXT
+                and type(item["padding"]) is int and 0 <= item["padding"] <= profile.max_padding
+                and type(item["prompt_tokens"]) is int and item["prompt_tokens"] == profile.prompts[level]
+                and item["prompt_tokens"] + profile.outputs[level] <= profile.context
                 and type(item["tokens_sha256"]) is str and re.fullmatch("[0-9a-f]{64}", item["tokens_sha256"])
-                and item["messages_sha256"] == digest(messages(level, item["padding"])), "tokenizer")
+                and item["messages_sha256"] == digest(messages(level, item["padding"], execution_profile=observed)), "tokenizer")
     return row
 
 
 def request_bytes(workload, level, namespace):
     validate_workload(workload)
+    execution = workload_execution(workload)
+    profile = workload_profile(execution)
+    require(type(level) is int and 0 <= level < 4, "contract")
     require(type(namespace) is str and re.fullmatch("[0-9a-f]{64}", namespace), "contract")
-    raw = encoded({"model": service.MODEL, "messages": messages(level, workload["cases"][level]["padding"]),
-        "max_tokens": OUTPUTS[level], "temperature": 0, "stream": True,
+    raw = encoded({"model": service.MODEL, "messages": messages(level, workload["cases"][level]["padding"], execution_profile=execution),
+        "max_tokens": profile.outputs[level], "temperature": 0, "stream": True,
         "stream_options": {"include_usage": True}, "reasoning_effort": "none", "cache_salt": namespace})
-    require(len(raw) <= 4 << 20, "contract")
+    require(len(raw) <= service.request_bytes(execution), "contract")
     return raw
 
 
@@ -172,9 +222,13 @@ def collect(supervisor, identities, workload, level, namespace, deadline, row):
     """One owned TLS connection and POST; settlement survives late failures."""
     started = time.monotonic()
     seconds = supervisor.contract.request_seconds
+    profile = workload_profile(supervisor.contract.execution_profile)
+    stream_profile = measurement.MILLION_PROFILE if profile.million else None
+    validate_workload(workload, execution_profile=supervisor.contract.execution_profile)
     deadline = min(deadline, started + seconds)
     meter = ContentMeter(service.MODEL, timeout_seconds=seconds,
-        max_prompt_tokens=CONTEXT, max_output_tokens=OUTPUTS[level])
+        max_prompt_tokens=profile.context, max_output_tokens=profile.outputs[level],
+        profile=stream_profile)
     category, closed = None, False
     try:
         with service.identity.worker.alarm(deadline):
@@ -191,9 +245,9 @@ def collect(supervisor, identities, workload, level, namespace, deadline, row):
                     connection.sendall(header + b"Authorization: Bearer " + key.removesuffix(b"\n") + b"\r\n\r\n" + body)
                     key = body = header = None
                     response_closed = False
-                    with transport.StreamResponse(connection) as response:
+                    with transport.StreamResponse(connection, profile=stream_profile) as response:
                         response.begin()
-                        length = transport.response_length(response)
+                        length = transport.response_length(response, profile=stream_profile)
                         count = 0
                         while True:
                             require(time.monotonic() < deadline, "deadline")
@@ -228,6 +282,10 @@ def budgets(contract):
     # Deliberately reject the pre-integration contract. No fallback to global
     # 120/375 constants may extend work into the actual owner's cleanup reserve.
     seconds, reserve = contract.request_seconds, contract.cleanup_reserve
+    if getattr(contract, "execution_profile", None) == process.engine_entry.MILLION_PROFILE:
+        require(type(seconds) is int and seconds == service.request_seconds(contract.execution_profile)
+                and type(reserve) is int and reserve == service.cleanup_reserve(contract.execution_profile), "contract")
+        return seconds, reserve
     require(type(seconds) is int and 1 <= seconds <= 900 and type(reserve) is int
             and seconds < reserve <= 3600, "contract")
     return seconds, reserve
@@ -235,10 +293,14 @@ def budgets(contract):
 
 def prepare_owned(supervisor, deadline):
     owner = supervisor.owner
-    timeout = min(PREPARE_SECONDS, deadline - time.monotonic() - service.REAP_SECONDS)
+    execution = supervisor.contract.execution_profile
+    profile = workload_profile(execution)
+    timeout = min(profile.prepare_seconds, deadline - time.monotonic() - service.REAP_SECONDS)
     require(timeout > 0, "deadline")
     command = [owner.prepared.interpreter, "-I", "-S", "-B", str(process.ROOT / CHILD),
                owner.prepared.receipt_sha256]
+    if profile.million:
+        command.append(execution)
     result = process.snapshot.execute_process_group(command, env=dict(owner.prepared.lab["environment"]),
         cwd="/", timeout=timeout, stdin=subprocess.DEVNULL, max_output_bytes=8192, max_stderr_bytes=4096)
     require(result.returncode == 0 and not result.stderr, "tokenizer")
@@ -246,17 +308,18 @@ def prepare_owned(supervisor, deadline):
     require(type(row) is dict and set(row) == {"prepared_sha256", "workload"}
             and row["prepared_sha256"] == owner.prepared.receipt_sha256, "tokenizer")
     owner.prepared.check(deadline)
-    return validate_workload(row["workload"])
+    return validate_workload(row["workload"], execution_profile=execution)
 
 
 def empty_report(execution_profile=process.engine_entry.LONG_PROFILE):
-    require(type(execution_profile) is str and execution_profile in process.engine_entry.LONG_PROFILES, "contract")
-    return {"schema": SCHEMA, "result": "fail", "failure": "contract", "prepared_sha256": None,
+    profile = workload_profile(execution_profile)
+    return {"schema": "nib.selected-long-qualification/v2" if profile.million else SCHEMA,
+        "result": "fail", "failure": "contract", "prepared_sha256": None,
         "model": service.MODEL, "model_revision": service.models.select("uncensored")["hf_revision"],
         "execution_profile": execution_profile, "workload": None,
         "request_seconds": None, "cleanup_reserve_seconds": None, "elapsed_seconds": 0.0,
-        "reserved_requests": len(CASES), "reserved_prompt_tokens": sum(PROMPTS[level] for level, _ in CASES),
-        "reserved_output_tokens": sum(OUTPUTS[level] for level, _ in CASES), "concurrency": 1, "retries": 0,
+        "reserved_requests": len(CASES), "reserved_prompt_tokens": sum(profile.prompts[level] for level, _ in CASES),
+        "reserved_output_tokens": sum(profile.outputs[level] for level, _ in CASES), "concurrency": 1, "retries": 0,
         "engine_identity_before_sha256": None, "engine_identity_after_sha256": None,
         "request_rank_identity": "unknown", "cache_scope": "replica-local-routing-unobserved",
         "samples": [], "known_prompt_tokens": 0, "known_output_tokens": 0, "usage_unknown_requests": 0,
@@ -266,6 +329,7 @@ def empty_report(execution_profile=process.engine_entry.LONG_PROFILE):
 
 
 def summarize(report):
+    profile = workload_profile(report["execution_profile"])
     rows = report["samples"]
     report["known_prompt_tokens"] = sum(row["measurement"]["prompt_tokens"] or 0 for row in rows)
     report["known_output_tokens"] = sum(row["measurement"]["completion_tokens"] or 0 for row in rows)
@@ -282,7 +346,7 @@ def summarize(report):
     report["cache_reuse_observed"] = bool(warm) and any(row["measurement"]["cached_prompt_tokens"] > 0 for row in warm)
     report["cold_and_negative_zero_observed"] = len(controls) == 6 and all(row["measurement"]["cached_prompt_tokens"] == 0 for row in controls)
     long = [row for row in good if row["level"] == 3]
-    report["long_output_limit_reached"] = bool(long) and long[0]["measurement"]["completion_tokens"] == LONG_OUTPUT and long[0]["measurement"]["finish_reason"] == "length"
+    report["long_output_limit_reached"] = bool(long) and long[0]["measurement"]["completion_tokens"] == profile.output and long[0]["measurement"]["finish_reason"] == "length"
     report["checks_pass"] = (report["result"] == "completed" and len(good) == len(CASES)
         and report["context_retrieval_pass"] and report["cold_and_negative_zero_observed"]
         and len(warm) == 3 and all(row["measurement"]["cached_prompt_tokens"] > 0 for row in warm)
@@ -293,13 +357,14 @@ def summarize(report):
 
 def sequence(report, workload, collector, *, deadline, clock=time.monotonic):
     """Closed C1 schedule shared with unit tests; only run_owned grants a socket."""
-    validate_workload(workload)
+    profile = workload_profile(report["execution_profile"])
+    validate_workload(workload, execution_profile=report["execution_profile"])
     namespaces = [(secrets.token_hex(32), secrets.token_hex(32)) for _ in range(4)]
     require(len({value for pair in namespaces for value in pair}) == 8, "internal")
     for level, scope in CASES:
         require(clock() < deadline, "deadline")
         row = {"level": level, "scope": scope, "attempted": False, "accepted": False,
-               "requested_output_tokens": OUTPUTS[level], "retrieval_match": False,
+               "requested_output_tokens": profile.outputs[level], "retrieval_match": False,
                "resources_closed": False, "measurement": None, "decode_tokens_per_second_estimate": None}
         record_sample(row, measurement.Sample("protocol-error", 0.0, None, None, None,
                                               0, None, None, None, None))
@@ -315,7 +380,7 @@ def sequence(report, workload, collector, *, deadline, clock=time.monotonic):
                 "transport-error": "transport"}.get(sample.status, "protocol"))
         require(row["attempted"] and observed.resources_closed
                 and sample.first_content_seconds is not None, "protocol")
-        require(sample.prompt_tokens == PROMPTS[level], "prompt-count")
+        require(sample.prompt_tokens == profile.prompts[level], "prompt-count")
         require(level == 3 or observed.retrieval, "retrieval")
         require(sample.cached_prompt_tokens is not None, "cache-usage-missing")
         require(scope == "warm" or sample.cached_prompt_tokens == 0, "unexpected-cache-hit")
@@ -335,14 +400,14 @@ def run_owned(supervisor):
         require(threading.current_thread() is threading.main_thread() and type(supervisor) is service.Supervisor
                 and type(supervisor.owner) is process.ProcessOwner and supervisor.used
                 and supervisor.phase == "ready"
-                and supervisor.contract.execution_profile in process.engine_entry.LONG_PROFILES
+                and supervisor.contract.execution_profile in process.engine_entry.LONG_CONTEXT_PROFILES
                 and not getattr(supervisor, "_long_qualification_used", False), "contract")
         supervisor._long_qualification_used = True
-        report["execution_profile"] = supervisor.contract.execution_profile
+        report = empty_report(supervisor.contract.execution_profile)
         seconds, reserve = budgets(supervisor.contract)
         report.update(request_seconds=seconds, cleanup_reserve_seconds=reserve,
                       prepared_sha256=supervisor.owner.prepared.receipt_sha256)
-        deadline = min(started + RUN_SECONDS, supervisor.cutoff() - reserve)
+        deadline = min(started + workload_profile(supervisor.contract.execution_profile).run_seconds, supervisor.cutoff() - reserve)
         require(deadline > started, "deadline")
         identities = {role: dict(supervisor.owner.identities[role]) for role in service.ROLES}
         with inference.cancellation(supervisor.shutdown), service.identity.worker.alarm(deadline):
@@ -372,10 +437,11 @@ def validate_report(raw, prepared_sha256=None, *, execution_profile=None):
     require(type(raw) is bytes and len(raw) <= MAX_REPORT, "protocol")
     row = service.correctness.strict_json(raw)
     require(type(row) is dict and type(row.get("execution_profile")) is str
-            and row["execution_profile"] in process.engine_entry.LONG_PROFILES
+            and row["execution_profile"] in process.engine_entry.LONG_CONTEXT_PROFILES
             and (execution_profile is None or row["execution_profile"] == execution_profile), "protocol")
     template = empty_report(row["execution_profile"])
-    require(type(row) is dict and set(row) == set(template) and row["schema"] == SCHEMA
+    profile = workload_profile(row["execution_profile"])
+    require(type(row) is dict and set(row) == set(template) and row["schema"] == template["schema"]
             and row["result"] in ("completed", "fail") and row["failure"] in FAILURES
             and (row["result"] == "completed") == (row["failure"] == "none"), "protocol")
     mutable = {"result", "failure", "prepared_sha256", "workload", "request_seconds", "cleanup_reserve_seconds",
@@ -388,8 +454,12 @@ def validate_report(raw, prepared_sha256=None, *, execution_profile=None):
     require(measurement.number(row["elapsed_seconds"]) and type(row["samples"]) is list
             and len(row["samples"]) <= len(CASES), "protocol")
     seconds, reserve = row["request_seconds"], row["cleanup_reserve_seconds"]
-    require((seconds is None and reserve is None) or type(seconds) is int and 1 <= seconds <= 900
-            and type(reserve) is int and seconds < reserve <= 3600, "protocol")
+    if profile.million:
+        require((seconds is None and reserve is None) or type(seconds) is int and seconds == 3540
+                and type(reserve) is int and reserve == service.cleanup_reserve(row["execution_profile"]), "protocol")
+    else:
+        require((seconds is None and reserve is None) or type(seconds) is int and 1 <= seconds <= 900
+                and type(reserve) is int and seconds < reserve <= 3600, "protocol")
     for key in ("known_prompt_tokens", "known_output_tokens", "usage_unknown_requests"):
         require(measurement.integer(row[key], template["reserved_prompt_tokens"] + template["reserved_output_tokens"]), "protocol")
     for key in ("context_retrieval_pass", "cache_reuse_observed", "cold_and_negative_zero_observed", "long_output_limit_reached", "checks_pass"):
@@ -397,13 +467,13 @@ def validate_report(raw, prepared_sha256=None, *, execution_profile=None):
     require(row["completed_output_tokens_per_second"] is None or
             measurement.number(row["completed_output_tokens_per_second"]), "protocol")
     if row["workload"] is not None:
-        validate_workload(row["workload"])
+        validate_workload(row["workload"], execution_profile=row["execution_profile"])
     for index, sample in enumerate(row["samples"]):
         level, scope = CASES[index]
         require(type(sample) is dict and set(sample) == {"level", "scope", "attempted", "accepted", "requested_output_tokens",
             "retrieval_match", "resources_closed", "measurement", "decode_tokens_per_second_estimate"}
             and type(sample["level"]) is int and sample["level"] == level and sample["scope"] == scope
-            and type(sample["requested_output_tokens"]) is int and sample["requested_output_tokens"] == OUTPUTS[level]
+            and type(sample["requested_output_tokens"]) is int and sample["requested_output_tokens"] == profile.outputs[level]
             and all(type(sample[key]) is bool for key in ("attempted", "accepted", "retrieval_match", "resources_closed"))
             and (index == 0 or row["samples"][index - 1]["accepted"]), "protocol")
         m = sample["measurement"]
@@ -415,8 +485,8 @@ def validate_report(raw, prepared_sha256=None, *, execution_profile=None):
         for key in ("ttft_seconds", "first_content_seconds", "mean_output_token_interval_estimate_seconds"):
             require(m[key] is None or measurement.number(m[key]) and m[key] <= m["elapsed_seconds"], "protocol")
         p, o, c = m["prompt_tokens"], m["completion_tokens"], m["cached_prompt_tokens"]
-        require((p is None) == (o is None) and (p is None or measurement.integer(p, CONTEXT)
-            and measurement.integer(o, OUTPUTS[level]) and o > 0 and sample["attempted"])
+        require((p is None) == (o is None) and (p is None or measurement.integer(p, profile.context)
+            and measurement.integer(o, profile.outputs[level]) and o > 0 and sample["attempted"])
             and (c is None or p is not None and measurement.integer(c, p))
             and m["finish_reason"] in (None, "stop", "length"), "protocol")
         interval = m["mean_output_token_interval_estimate_seconds"]
@@ -437,7 +507,7 @@ def validate_report(raw, prepared_sha256=None, *, execution_profile=None):
             require(p is None and m["output_events"] == 0 and m["finish_reason"] is None, "protocol")
         if sample["accepted"]:
             require(sample["attempted"] and sample["resources_closed"] and m["status"] == "completed"
-                and p == PROMPTS[level] and c is not None and m["first_content_seconds"] is not None
+                and p == profile.prompts[level] and c is not None and m["first_content_seconds"] is not None
                 and m["finish_reason"] in ("stop", "length") and (level == 3 or sample["retrieval_match"])
                 and (scope == "warm" or c == 0), "protocol")
     if row["samples"]:

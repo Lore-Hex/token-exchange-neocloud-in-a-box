@@ -204,7 +204,7 @@ class State(network.Journal):
             require(ordinary and command.count("--long-qualification") == 1
                     and command.count("--execution-profile") == 1
                     and command.index("--execution-profile") + 1 < len(command)
-                    and command[command.index("--execution-profile") + 1] in smoke.service.engine_entry.LONG_PROFILES)
+                    and command[command.index("--execution-profile") + 1] in smoke.service.engine_entry.LONG_CONTEXT_PROFILES)
         prior = True
         for event in EVENTS:
             row = result.get(event + ".json")

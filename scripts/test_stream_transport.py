@@ -94,6 +94,48 @@ def collect(http, seconds=2):
 
 
 class TransportTests(unittest.TestCase):
+    def test_million_response_bounds_are_closed_and_legacy_is_unchanged(self):
+        class Socket:
+            def __init__(self, raw): self.raw = raw
+            def makefile(self, *args): return io.BytesIO(self.raw)
+        def response(size, profile=None):
+            raw = (b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: "
+                   + str(size).encode() + b"\r\n\r\n")
+            return stream.StreamResponse(Socket(raw), profile=profile)
+        for profile, cap in ((None, 64 << 20), (stream.measurement.MILLION_PROFILE, 512 << 20)):
+            for size in (cap, cap + 1):
+                with response(size, profile) as parsed:
+                    parsed.begin()
+                    if size == cap:
+                        self.assertEqual(stream.response_length(parsed, profile=profile), cap)
+                    else:
+                        with self.assertRaises(ValueError): stream.response_length(parsed, profile=profile)
+                raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n" + format(size, "x").encode() + b"\r\n"
+                with stream.StreamResponse(Socket(raw), profile=profile) as parsed:
+                    parsed.begin()
+                    if size == cap:
+                        self.assertEqual(parsed._read_next_chunk_size(), cap)
+                    else:
+                        with self.assertRaises(ValueError): parsed._read_next_chunk_size()
+        for profile in ("auto", True, [], "long128k"):
+            with self.assertRaises(ValueError): response(1, profile)
+
+    def test_million_profile_keeps_strict_http_termination(self):
+        class Socket:
+            def __init__(self, raw): self.raw = raw
+            def makefile(self, *args): return io.BytesIO(self.raw)
+        data = b"".join(pieces())
+        for ending in (b"0\r\n\r\n", b"0\r\n", b"0\r\nX-Trailer: private\r\n\r\n"):
+            raw = b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n" + chunk(data) + ending
+            with stream.StreamResponse(Socket(raw), profile=stream.measurement.MILLION_PROFILE) as parsed:
+                parsed.begin()
+                self.assertIsNone(stream.response_length(parsed, profile=stream.measurement.MILLION_PROFILE))
+                self.assertEqual(parsed.read1(len(data)), data)
+                if ending == b"0\r\n\r\n":
+                    self.assertEqual(parsed.read1(1), b"")
+                else:
+                    with self.assertRaises(ValueError): parsed.read1(1)
+
     def test_pinned_vllm_source_shaped_text_fixture_and_null_tool_rejection(self):
         # vLLM 5df63a7 serving.py: explicit fields survive exclude_unset;
         # final_usage_chunk uses exclude_unset + exclude_none. ParserEngine

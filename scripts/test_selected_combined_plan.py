@@ -96,7 +96,8 @@ class CompositionTests(unittest.TestCase):
 
     def test_legacy_argv_and_request_bytes_identical_to_merged_base(self):
         old_tuning = previous("deepseek_tuning")
-        self.assertEqual(plan.tuning.NAMES, old_tuning.NAMES)
+        self.assertEqual(tuple(name for name in plan.tuning.NAMES if name != plan.tuning.MILLION_PROFILE), old_tuning.NAMES)
+        self.assertEqual(set(plan.tuning.NAMES) - set(old_tuning.NAMES), {plan.tuning.MILLION_PROFILE})
         for name in old_tuning.NAMES:
             self.assertEqual(plan.tuning.arguments(self.baseline, name), old_tuning.arguments(self.baseline, name))
         old_stream = previous("stream_transport")

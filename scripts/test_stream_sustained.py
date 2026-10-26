@@ -348,7 +348,11 @@ class BindingTests(unittest.TestCase):
                 # their historical bytes remain pinned above. Current default
                 # wire/argv and normalized owner AST are checked by scaling tests.
                 if name not in ("deepseek_tuning.py", "stream_transport.py", "engine_lab.py"):
-                    self.assertEqual((ROOT / "scripts" / name).read_bytes(), original)
+                    from fixtures.stream_profile_compat import legacy_source
+                    current = (ROOT / "scripts" / name).read_bytes()
+                    if name == "stream_measurement.py":
+                        current = legacy_source(current, "stream_measurement")
+                    self.assertEqual(current, original)
 
     def test_existing_tuning_profiles_keep_historical_arguments_and_source_pins(self):
         # New closed profiles may extend the module, not alter a prior profile.

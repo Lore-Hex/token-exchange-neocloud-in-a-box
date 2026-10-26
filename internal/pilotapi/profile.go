@@ -11,6 +11,7 @@ const ProfileSelectedDeepSeek = "selected-deepseek"
 const ProfileSelectedGraphs = "selected-deepseek-graphs"
 const ProfileSelectedQuality = "selected-deepseek-quality"
 const ProfileSelectedLong = "selected-deepseek-long"
+const ProfileSelectedMillion = "selected-deepseek-million"
 
 // Profiles are closed startup choices, not caller-supplied model aliases or
 // backend settings. The same value binds catalog, admission and request bounds.
@@ -24,6 +25,9 @@ type serviceProfile struct {
 }
 
 func (p serviceProfile) bodyLimit() int {
+	if p.context == 1048576 {
+		return 16 << 20
+	}
 	if p.longContext {
 		return 4 << 20
 	}
@@ -31,6 +35,9 @@ func (p serviceProfile) bodyLimit() int {
 }
 
 func (p serviceProfile) requestTimeout() time.Duration {
+	if p.context == 1048576 {
+		return 3540 * time.Second
+	}
 	if p.longContext {
 		return 900 * time.Second
 	}
@@ -53,7 +60,7 @@ func profileFor(name string) (serviceProfile, error) {
 	switch name {
 	case ProfileQwen:
 		return qwenProfile(), nil
-	case ProfileSelectedDeepSeek, ProfileSelectedGraphs, ProfileSelectedQuality, ProfileSelectedLong:
+	case ProfileSelectedDeepSeek, ProfileSelectedGraphs, ProfileSelectedQuality, ProfileSelectedLong, ProfileSelectedMillion:
 		// The pack's tr_model_id, not its bare lab served_model_name. A future
 		// owned engine must serve this exact ID; this API never rewrites it.
 		profile := serviceProfile{model: "dealignai/deepseek-v4.1-flash-1017-uncensored-fp8",
@@ -68,6 +75,9 @@ func profileFor(name string) (serviceProfile, error) {
 		}
 		if name == ProfileSelectedLong {
 			profile.context, profile.maxOutput, profile.longContext = 131072, 16384, true
+		}
+		if name == ProfileSelectedMillion {
+			profile.context, profile.maxOutput, profile.longContext = 1048576, 393216, true
 		}
 		return profile, nil
 	default:

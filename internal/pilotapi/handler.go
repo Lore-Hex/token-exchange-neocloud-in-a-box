@@ -45,7 +45,7 @@ func (p serviceProfile) catalog(provider ProviderConfig, inputPrice, outputPrice
 		retirementAt = retirement.UTC().Format(time.RFC3339)
 	}
 	owner, _, _ := strings.Cut(p.model, "/")
-	return json.Marshal(map[string]any{
+	document := map[string]any{
 		"object": "list", "contract_version": "2.0",
 		"provider": map[string]any{
 			"id": provider.ID, "status_url": provider.StatusURL,
@@ -65,7 +65,14 @@ func (p serviceProfile) catalog(provider ProviderConfig, inputPrice, outputPrice
 			"reliability": map[string]any{"first_token_timeout_seconds": 30, "completion_timeout_seconds": int(p.requestTimeout() / time.Second),
 				"stream_idle_timeout_seconds": 30, "capacity_scope": "model"},
 		}},
-	})
+	}
+	// The pinned marketplace contract caps completion deadlines at 900s.
+	// Keep the 3540s qualification candidate unlisted until that contract and
+	// its consumers support it; do not publish a false shorter deadline.
+	if p.requestTimeout() > 900*time.Second {
+		document["data"] = []any{}
+	}
+	return json.Marshal(document)
 }
 
 type Handler struct {

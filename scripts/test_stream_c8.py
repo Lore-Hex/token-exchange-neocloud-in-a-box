@@ -381,7 +381,11 @@ class BindingTests(unittest.TestCase):
             # The new explicit salt argument is checked structurally and with
             # unchanged legacy wire bytes in test_stream_scaling.
             if name != "stream_transport":
-                self.assertEqual((ROOT / path).read_bytes(), original)
+                from fixtures.stream_profile_compat import legacy_source
+                current = (ROOT / path).read_bytes()
+                if name == "stream_measurement":
+                    current = legacy_source(current, name)
+                self.assertEqual(current, original)
 
     def test_profile_is_explicit_and_restricted_to_reviewed_engine(self):
         binding.enabled(selected())

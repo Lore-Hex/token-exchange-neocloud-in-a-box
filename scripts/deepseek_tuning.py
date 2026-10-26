@@ -9,8 +9,10 @@ SCALING_PROFILE = "batch32-graphs"
 LONG_PROFILE = "long128k-eager"
 LONG_GRAPHS_PROFILE = "long128k-graphs"
 LONG_PROFILES = (LONG_PROFILE, LONG_GRAPHS_PROFILE)
+MILLION_PROFILE = "long1m-graphs"
+LONG_CONTEXT_PROFILES = (*LONG_PROFILES, MILLION_PROFILE)
 EAGER_CONTEXTS = {"tau8k-eager": 8192, "quality32k-eager": 32768, LONG_PROFILE: 131072}
-CONTEXTS = {**EAGER_CONTEXTS, LONG_GRAPHS_PROFILE: 131072}
+CONTEXTS = {**EAGER_CONTEXTS, LONG_GRAPHS_PROFILE: 131072, MILLION_PROFILE: 1048576}
 NAMES = (*BATCH_NAMES, *CONTEXTS, SCALING_PROFILE)
 REVISION = "5df63a7203cdb9328d824a27b682e77c7b9928be"
 # https://github.com/vllm-project/vllm/tree/5df63a7203cdb9328d824a27b682e77c7b9928be
@@ -91,14 +93,14 @@ def arguments(baseline, name):
         # budget >= context when chunked prefill is disabled. Keep one sequence.
         replace("--max-num-seqs", "1", "1")
         replace("--max-model-len", "4096", str(CONTEXTS[name]))
-        replace("--max-num-batched-tokens", "4096", "4096" if name in LONG_PROFILES else str(CONTEXTS[name]))
-        if name in LONG_PROFILES:
+        replace("--max-num-batched-tokens", "4096", "4096" if name in LONG_CONTEXT_PROFILES else str(CONTEXTS[name]))
+        if name in LONG_CONTEXT_PROFILES:
             # Pinned arg_utils, CacheConfig and FrontendArgs: bounded chunks,
             # explicit APC and real cached-token usage, not an estimated hit.
             for flag in ("--enable-chunked-prefill", "--enable-prefix-caching", "--enable-prompt-tokens-details"):
                 require(flag not in result and flag.replace("--enable-", "--no-enable-") not in result)
                 result.append(flag)
-        if name != LONG_GRAPHS_PROFILE:
+        if name not in (LONG_GRAPHS_PROFILE, MILLION_PROFILE):
             return result
     else:
         replace("--max-num-seqs", "1", "32" if name == SCALING_PROFILE else "8")
@@ -111,7 +113,7 @@ def arguments(baseline, name):
         # Removing eager also restores pinned compiler/JIT defaults.
         # DSpark shares this list: target needs 8*6 rows, drafter needs 8*5.
         # Without 40, drafter rounds 48 to 50 and drops it above its 40-row cap.
-        sizes = ([1, 2, 4, 8, 16, 32] if name == SCALING_PROFILE else [1] if name == LONG_GRAPHS_PROFILE else
+        sizes = ([1, 2, 4, 8, 16, 32] if name == SCALING_PROFILE else [1] if name in (LONG_GRAPHS_PROFILE, MILLION_PROFILE) else
                  [6, 12, 24, 40, 48] if name == "batch8-dspark" else [1, 2, 4, 8])
         compilation = {"pass_config": {"fuse_allreduce_rms": False},
                        "cudagraph_mode": "FULL_DECODE_ONLY", "cudagraph_capture_sizes": sizes}
