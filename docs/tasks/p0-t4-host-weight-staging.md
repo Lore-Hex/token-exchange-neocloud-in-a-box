@@ -7,6 +7,9 @@ cloud API, GPU command or runtime admission path.
 
 ## Before Renting Or Downloading
 
+Complete the [durable SSH access gate](../../host/README.md#access-gate-before-a-paid-launch)
+before ordering a host. Successful public-key registration alone is insufficient.
+
 The pinned DeepSeek pack contains 83 files and **510,311,045,295 bytes**. A
 500 GB disk is insufficient even before filesystem overhead. This wrapper
 requires available bytes on the destination filesystem of at least the full
