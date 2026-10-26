@@ -67,6 +67,28 @@ def complete_roles(session, channel, roles=("agent", "simulator", "evaluator")):
 
 
 class ExternalTrialTests(unittest.TestCase):
+    def test_chat_support_preserves_upstream_seed_and_checks_actual_count(self):
+        for delta in (0, 1):
+            http = lookup.FakeHTTP("candidate")
+            http.result = lookup.response(prompt=20 + delta)
+            http.result.update(model=policy.EXTERNAL_MODEL, service_tier="default")
+            client = external.Endpoint("simulator", http, b"SYNTHETIC_KEY_CANARY", full_task=True,
+                                       count_budget=external.CountBudget(), support_chat=True)
+            request = body("simulator")
+            request["seed"] = 42
+            count = client.count(request, 32768, time.monotonic() + 5)
+            if delta:
+                with self.assertRaises(ValueError):
+                    client.complete(request, count, time.monotonic() + 5)
+            else:
+                client.complete(request, count, time.monotonic() + 5)
+            self.assertEqual(http.calls[1][0], external.CHAT)
+            self.assertEqual(http.calls[1][1]["seed"], 42)
+            self.assertEqual(http.calls[1][1]["messages"], request["messages"])
+            self.assertIs(http.calls[1][1]["store"], False)
+            self.assertNotIn("reasoning_effort", http.calls[1][1])
+            self.assertEqual(client.observation()["known_usage"]["prompt_tokens"], 20 + delta)
+
     def test_retained_pinned_contract_keeps_trial_budget_and_actual_serving_profile(self):
         config = configuration()
         contract = {"schema": "nib.tau-external-trial-endpoint/v2", "hostname": "candidate.example.test",
@@ -228,6 +250,7 @@ class ExternalTrialTests(unittest.TestCase):
             arguments.extend(["--output", temporary + "/result", "--plan-sha256", "a" * 64,
                 "--contract-sha256", "b" * 64, "--deadline-utc", cutoff])
             with mock.patch.object(sys, "argv", arguments), redirect_stdout(io.StringIO()), \
+                    mock.patch.object(entry.trial, "identity", return_value={"git_sha": "a" * 40}), \
                     mock.patch.object(entry.trial, "run", return_value={"result": "pass", "cleanup": "confirmed"}) as run:
                 self.assertEqual(entry.main(), 0)
                 inputs = run.call_args.kwargs["external_inputs"]
@@ -236,6 +259,7 @@ class ExternalTrialTests(unittest.TestCase):
                 self.assertLessEqual(inputs["deadline"] - time.monotonic(), 90)
             with mock.patch.object(sys, "argv", arguments), redirect_stdout(io.StringIO()), \
                     redirect_stderr(io.StringIO()), \
+                    mock.patch.object(entry.trial, "identity", return_value={"git_sha": "a" * 40}), \
                     mock.patch.object(entry.trial, "run", side_effect=ValueError("SYNTHETIC_PRIVATE_CANARY")):
                 self.assertEqual(entry.main(), 1)
             files = {p.name: p.read_bytes() for p in (Path(temporary) / "result").iterdir()}
@@ -243,7 +267,7 @@ class ExternalTrialTests(unittest.TestCase):
             failure = json.loads(files["output.log"])
             self.assertEqual(failure["cleanup"], "unconfirmed")
             self.assertEqual(failure["result"], "fail")
-            self.assertIsNone(json.loads(files["run.json"])["git_sha"])
+            self.assertEqual(json.loads(files["run.json"])["git_sha"], "a" * 40)
             self.assertNotIn(b"CANARY", b"".join(files.values()))
             for path in (Path(temporary) / "result").iterdir():
                 self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)

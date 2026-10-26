@@ -61,6 +61,7 @@ def main():
     args = parser.parse_args()
     started = trial.now()
     cancelled = False
+    toolkit = None
     def cancel(signum, frame):
         nonlocal cancelled
         if not cancelled:
@@ -85,6 +86,8 @@ def main():
         trial.require(60 < remaining <= 960)
         # Freeze one monotonic deadline; preparation and cleanup consume it.
         deadline = time.monotonic() + remaining
+        toolkit = trial.identity(min(deadline - 60, time.monotonic() + 60), True,
+                                 selected_operational=True, external_simulator=True)
         record = trial.run(args.payload, args.plan_sha256, args.output, args.docker_socket,
             parent_pipe=True, external_inputs={"deadline": deadline, "arguments": (
                 args.contract, args.contract_sha256, args.candidate_key, args.simulator_key,
@@ -93,10 +96,11 @@ def main():
         print(trial.tau.encoded({"result": record["result"], "cleanup": record["cleanup"]}).decode(), end="")
         return 0 if record["result"] == "pass" else 1
     except BaseException:
-        if args.command == "run" and not args.output.exists():
+        if args.command == "run" and toolkit is not None and not args.output.exists():
             trial.publish_evidence(args.output, trial.external_evidence_files({
                 "schema": "nib.tau-external-full-task-preflight/v1" if args.full_task else "nib.tau-external-preflight/v1",
                 "result": "fail", "cleanup": "unconfirmed",
+                "toolkit": toolkit, "plan_sha256": args.plan_sha256,
                 "started_utc": started, "ended_utc": trial.now(),
                 "quality_eligible": False, "confidential": False, "live_admission": False}))
         print("External tau diagnostic failed; no automatic retry.", file=sys.stderr)

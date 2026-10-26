@@ -845,8 +845,8 @@ def external_evidence_files(record):
                                record["started_utc"], record)
     envelope.update(command="Bounded external tau trial; private endpoint and credential paths omitted.",
         notes="Original upstream task/scorer with separately metered endpoints. A lifecycle pass is not "
-              "a task success or full benchmark qualification. Preflight failures can lack source identity "
-              "and usage observations. No confidential claim. output.log contains numeric/fixed observations only.")
+              "a task success or full benchmark qualification. Preflight failures lack usage observations. "
+              "No confidential claim. output.log contains numeric/fixed observations only.")
     return {"run.json": tau.encoded(envelope), "output.log": tau.encoded(record)}
 
 

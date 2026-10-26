@@ -85,13 +85,21 @@ def candidate_request(body, *, full_task=False):
     return result
 
 
-def simulator_request(body, *, full_task=False):
+def simulator_request(body, *, full_task=False, support_chat=False):
     result = projected(body, full_task=full_task)
     require(result["model"] == policy.EXTERNAL_MODEL and result.get("tools") is None
-            and result.get("tool_choice") in (None, "none") and "seed" not in result)
+            and result.get("tool_choice") in (None, "none") and (support_chat or "seed" not in result))
     for message in result["messages"]:
         require(set(message) == {"role", "content"} and type(message["content"]) is str
                 and message["role"] in ("system", "user", "assistant"))
+    if support_chat:
+        # Pinned tau's LLMConfigMixin.set_seed supplies this for the simulator.
+        # Chat Completions supports seed; Responses does not. Never discard it.
+        # https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create
+        if "seed" in result:
+            require(type(result["seed"]) is int and 0 <= result["seed"] < 2**32)
+        return {key: result[key] for key in ("model", "messages", "max_completion_tokens", "temperature",
+                "stream", "n", "seed") if key in result} | {"store": False, "service_tier": "default"}
     # No previous_response_id/conversation, hidden tools, background work or
     # persistent storage. The original full text history remains in each call.
     return {"model": policy.EXTERNAL_MODEL, "input": result["messages"],
@@ -111,11 +119,13 @@ class CountBudget:
 
 
 class Endpoint:
-    def __init__(self, role, http, key, counter=None, *, full_task=False, count_budget=None):
+    def __init__(self, role, http, key, counter=None, *, full_task=False, count_budget=None, support_chat=False):
         require(type(full_task) is bool and role in (("candidate", "simulator", "evaluator")
                 if full_task else ("candidate", "simulator")))
         require(not full_task or type(count_budget) is CountBudget)
         self.full_task, self.count_budget = full_task, count_budget
+        require(type(support_chat) is bool)
+        self.support_chat = support_chat
         self.context, self.output = (32768, 2048) if full_task else (8192, 256)
         self.role, self.http, self.key, self.counter = role, http, key, counter
         self.count_attempts = self.attempts = self.unknown = 0
@@ -127,7 +137,7 @@ class Endpoint:
         self.stage = "input-validation"
         require(context == self.context and self.ready is None and self.attempts < 32 and self.count_attempts < 32)
         wire = (candidate_request(body, full_task=self.full_task) if self.role == "candidate" else
-                simulator_request(body, full_task=self.full_task))
+                simulator_request(body, full_task=self.full_task, support_chat=self.support_chat))
         if self.role == "candidate":
             self.stage = "candidate-tokenization"
             count = self.counter.count(wire)
@@ -138,8 +148,9 @@ class Endpoint:
                 self.count_budget.reserve()
             self.count_attempts += 1
             self.stage = "support-count"
-            counted = self.http.post(COUNT, {key: wire[key] for key in
-                ("model", "input", "truncation")}, self.key, deadline)
+            counted = self.http.post(COUNT, {"model": wire["model"],
+                "input": wire["messages"] if self.support_chat else wire["input"],
+                "truncation": "disabled"}, self.key, deadline)
             require(type(counted) is dict and set(counted) == {"object", "input_tokens"}
                     and counted["object"] == "response.input_tokens")
             count = counted["input_tokens"]
@@ -157,13 +168,14 @@ class Endpoint:
             self.attempts += 1
             self.unknown += 1
         self.stage = "generation"
-        raw = self.http.post(CHAT if self.role == "candidate" else RESPONSES,
+        chat = self.role == "candidate" or self.support_chat
+        raw = self.http.post(CHAT if chat else RESPONSES,
                              wire, self.key, deadline, before_send=sent)
         require(type(raw) is dict and raw.get("model") == wire["model"] and type(raw.get("usage")) is dict)
         usage = raw["usage"]
         self.stage = "usage-validation"
         incoming, outgoing = ((usage.get("prompt_tokens"), usage.get("completion_tokens"))
-                              if self.role == "candidate" else (usage.get("input_tokens"), usage.get("output_tokens")))
+                              if chat else (usage.get("input_tokens"), usage.get("output_tokens")))
         require(type(incoming) is int and 0 < incoming <= self.context
                 and type(outgoing) is int and 0 <= outgoing <= self.output
                 and type(usage.get("total_tokens")) is int and usage["total_tokens"] == incoming + outgoing)
@@ -173,7 +185,8 @@ class Endpoint:
         self.unknown -= 1
         require(incoming == prompt and incoming + outgoing <= self.context)
         self.stage = "content-validation"
-        if self.role == "candidate":
+        if chat:
+            require(self.role == "candidate" or raw.get("service_tier") == "default")
             require(type(raw.get("choices")) is list and len(raw["choices"]) == 1)
             choice = raw["choices"][0]
             message = choice["message"]
@@ -204,6 +217,7 @@ class Endpoint:
 
     def observation(self):
         return {"generation_attempts": self.attempts, "count_attempts": self.count_attempts,
+                "generation_api": "chat-completions" if self.role == "candidate" or self.support_chat else "responses",
                 "stage": self.stage, "last_http_status": getattr(self.http, "last_status", None),
                 # Reserve an entire GPT-4.1 input at standard input price
                 # for each counting call; do not assume that endpoint is free.
@@ -254,8 +268,8 @@ class Runtime:
             require(all(16 <= len(key) <= 4096 and all(33 <= byte <= 126 for byte in key) for key in keys))
             options = {"full_task": True, "count_budget": CountBudget()} if full_task else {}
             self.endpoints = {"candidate": Endpoint("candidate", candidate_http, keys[0], self.counter, **options),
-                             **{role: Endpoint(role, bounded_https.HTTPS("api.openai.com", (COUNT, RESPONSES)),
-                                               keys[1], **options) for role in config["support"]}}
+                             **{role: Endpoint(role, bounded_https.HTTPS("api.openai.com", (COUNT, CHAT if pinned else RESPONSES)),
+                                               keys[1], support_chat=pinned, **options) for role in config["support"]}}
             self.manifest = {"schema": policy.EXTERNAL_TRIAL_TRANSPORT if full_task else policy.EXTERNAL_TRANSPORT,
                 "input": config, "settings": policy.settings(config),
                 "binding_sha256": contract_sha, "framing": {role: {
