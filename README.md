@@ -39,14 +39,17 @@ onboarding steps; running the toolkit does not automatically list a provider.
 
 ## Status
 
-An opt-in [128K-context / 16K-output candidate](docs/tasks/p2-t3-long-context-cache.md)
-adds bounded chunked prefill, isolated prefix-cache namespaces and actual
-cached-token usage reporting. The [October 26 ordinary-B300 trial](evidence/p2/2026-10-26-selected-long-qualification/README.md)
-passed all nine retrieval/cache checks through 130,816 input tokens. Warm reads
-reused 32,384 / 65,152 / 130,688 tokens; cold and different-namespace controls
-reported zero hits. The 16K-output request **timed out**, with final usage
-unknown. The overall qualification remains failed; no default-limit increase,
-production cache discount, broad isolation or confidential claim follows.
+The opt-in [128K-context / 16K-output profiles](docs/tasks/p2-t3-long-context-cache.md)
+provide bounded chunked prefill, cache namespaces and actual cached-token usage
+reporting. The [October 26 graph-profile trial](evidence/p2/2026-10-26-selected-long-graphs/README.md)
+**passed on ordinary 8xB300**: 114,688 input tokens plus 16,384 output tokens in
+114.83 seconds, with 2.46-second TTFT. All nine retrieval/cache checks passed
+through 130,816 input tokens; warm reads reused 32,384 / 65,152 / 130,688 tokens,
+while cold and different-namespace controls reported zero hits. Context includes
+input and output. The [earlier eager trial](evidence/p2/2026-10-26-selected-long-qualification/README.md)
+still records its long-output timeout and unknown final usage. This finite C1
+pass does not establish sustained capacity, general quality, a production cache
+discount, broad cache isolation or confidential inference; defaults are unchanged.
 
 Pre-alpha. **No fully verified confidential inference service yet.** Real
 8xB200 and 8xB300 lab checks and complete DeepSeek weight downloads have run. Fresh
