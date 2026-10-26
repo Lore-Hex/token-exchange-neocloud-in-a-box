@@ -1,7 +1,10 @@
 # P2.T4: Finite sustained C8 baseline
 
-Status: **implemented, software tests only**. No sustained hardware result,
-public-service change, saturation claim or deployment approval. The existing
+Status: **hardware attempt recorded; duration qualification failed**. The
+[October 26 run](../../evidence/p2/2026-10-26-selected-sustained-c8/README.md)
+completed all 256 measured requests at 896.05 output tokens/second, but its
+114.279-second measured window fell short of the fixed 120-second minimum.
+There is no sustained pass, public-service change, saturation claim or deployment approval. The existing
 [C8 evidence](../../evidence/p2/2026-10-24-selected-c8-stream/README.md) is one short burst, not this run.
 
 ## Closed experiment
