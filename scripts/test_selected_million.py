@@ -6,6 +6,7 @@ import io
 from contextlib import ExitStack, redirect_stdout
 from dataclasses import replace
 import json
+import sys
 import time
 from types import SimpleNamespace
 import unittest
@@ -257,6 +258,32 @@ class PreparedMillionTests(unittest.TestCase):
             with self.assertRaises(ValueError): fixture.payload(PROFILE, **{**options, key: False})
         with self.assertRaises(ValueError):
             fixture.validate({**files, "tuning.py": files["tuning.py"] + b"\n"}, contract)
+
+    def test_operator_preparation_admits_only_exact_million_options(self):
+        import itertools
+        host = tuning_tests.host
+        for choices in itertools.product((False, True), repeat=4):
+            if choices == (True, True, True, False):
+                host.tuning_measurement_options(*choices, None, None, PROFILE)
+            else:
+                with self.assertRaises(ValueError):
+                    host.tuning_measurement_options(*choices, None, None, PROFILE)
+        for profile, provider in (("chat-2k-512", None), (None, "provider")):
+            with self.assertRaises(ValueError):
+                host.tuning_measurement_options(True, True, True, False, profile, provider, PROFILE)
+        flags = ["--tokenizer-parity", "--tokenizer-materialization", "--runtime-observation"]
+        command = [host.SCRIPT, "--prepare-nonconfidential-uncensored-b300-dp2", "/unused",
+                   "--model-profile", "uncensored", "--execution-profile", PROFILE]
+        with mock.patch.object(sys, "argv", command + flags), mock.patch.object(host, "prepare") as prepare:
+            self.assertEqual(host.main(), 0)
+            prepare.assert_called_once_with("/unused", "local-correctness", "B300", "nonconfidential", 2,
+                model_profile="uncensored", execution_profile=PROFILE, tokenizer_parity=True,
+                tokenizer_materialization=True, runtime_observation=True)
+        for missing in flags:
+            with mock.patch.object(sys, "argv", command + [flag for flag in flags if flag != missing]), \
+                    mock.patch.object(host, "prepare") as prepare, self.assertRaises(ValueError):
+                host.main()
+            prepare.assert_not_called()
 
 
 if __name__ == "__main__":
