@@ -72,6 +72,38 @@ All TLS/guard/engine drains and reaps passed. The host confirms container/networ
 removal, private-input cleanup and watchdog cleanup. The build-only and broad
 deployment/quality/privacy flags remain false in the original artifacts.
 
+## Subsequent bounded serving observation
+
+The same prepared image was started again using the committed serving owner,
+without `--long-qualification`, to restore the ordinary C1 test endpoint on the
+passing 131,072-total-context / 16,384-max-output profile. The original
+[serving-progress.jsonl](serving-progress.jsonl) snapshot ends at **ready,
+04:16:55 UTC**. It is not a terminal owner receipt or cleanup proof for this
+second run. Its recorded lifetime stops new admissions at 07:24:20 UTC and
+stops the guest at 07:57 UTC on October 26; no longer retention is implied.
+
+Two external observations were produced by committed scripts at
+`e03ecbf274c11ac7cde6f220fcb2b641c8f5eb45`, distinct from the runtime source
+`3d496e0cc6964a42dc3c6e3f321f4f7a66499d96`:
+
+- [serving-startup.json](serving-startup.json), from
+  [wait-selected-service.py](../../../scripts/wait-selected-service.py), records
+  system-root TLS and a healthy response at **04:16:57 UTC**. The preceding 41
+  transport failures were bounded startup polls, not a steady-state uptime
+  measurement. No credential was accessed and no model request was sent.
+- [serving-smoke.json](serving-smoke.json), from
+  [probe-selected-service.py](../../../scripts/probe-selected-service.py), records
+  successful health, missing-key rejection, wrong-key rejection and one real
+  authenticated streaming check at **04:17:14 UTC**, with system-root TLS on
+  every check. Actual usage was 36 input / 13 output tokens, zero cached tokens
+  and zero retries. Its ten output events are not token counts.
+
+These are point-in-time ordinary HTTPS/authentication/inference observations,
+not an attestation, quality benchmark, provider conformance test, sustained
+capacity test or long-running availability guarantee. Addresses and credentials
+are deliberately absent. Source-file hashes and all original artifact hashes
+are checked offline by the evidence test.
+
 ## Replay
 
 `python3.12 -m unittest discover -s scripts -p test_selected_long_graph_evidence.py`

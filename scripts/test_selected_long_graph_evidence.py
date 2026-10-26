@@ -18,12 +18,16 @@ from test_evidence_history import GIT_ENV, GIT_OPTIONS, git
 ROOT = Path(__file__).resolve().parents[1]
 DIRECTORY = ROOT / "evidence/p2/2026-10-26-selected-long-graphs"
 SOURCE = "3d496e0cc6964a42dc3c6e3f321f4f7a66499d96"
+PROBE_SOURCE = "e03ecbf274c11ac7cde6f220fcb2b641c8f5eb45"
 HASHES = {
     "build.json": "c2032dcc8ff028a1b9423e36fa8963bbaad2ff05e9ca083b6cbd3e2259ec6699",
     "preparation.json": "c42e0a6c07a0a7e35e84632b5e4db7be1c3c66baf688bd3969081a2187c2c5eb",
     "input-contract.json": "8637ae20e1b624e2af605a3bc4abd4c050cc55eb83c676a436d8f15db8ac5e51",
     "owner.json": "bd56fa6bf9408bca0b3aa88ab8508271e40c0a97851343e685e67099a5f2b3db",
     "progress.jsonl": "e2ba29c21000ae3679e15e3264e7e74e3c7839012a0c7bb3eba97f3a1f15be1c",
+    "serving-progress.jsonl": "de8cbf2c1d074de439ca6e652b5e56c40cde52170fab4599f5ae6bfdb906857f",
+    "serving-startup.json": "1799ab5c53d98187e6081f9aef13ce21dcb05417199121dbf20604d66d5a6e40",
+    "serving-smoke.json": "934e3d1d48c37aaa01d1adbcf5aaa23d26458ff21b02abd93b449d9f0f17a363",
 }
 
 
@@ -37,7 +41,57 @@ class LongGraphEvidenceTests(unittest.TestCase):
             for forbidden in (b"PRIVATE KEY", b"Bearer ", b"/root/nib-owned", b"hixtube"):
                 self.assertNotIn(forbidden, raw)
             self.rows[name] = ([json.loads(line) for line in raw.splitlines()]
-                               if name == "progress.jsonl" else json.loads(raw))
+                               if name.endswith(".jsonl") else json.loads(raw))
+
+    def test_serving_snapshot_is_readiness_not_terminal_cleanup(self):
+        progress = self.rows["serving-progress.jsonl"]
+        self.assertEqual([item["phase"] for item in progress], ["preparation", "inputs", "weights",
+            "engine-starting", "guard-starting", "tls-starting", "ready"])
+        self.assertEqual(progress[-1]["observed_at"], "2026-10-26T04:16:55Z")
+        for item in progress:
+            self.assertEqual(item["schema"], "nib.selected-service-progress/v2")
+            self.assertEqual(item["prepared_sha256"], self.rows["build.json"]["prepared_sha256"])
+            self.assertEqual(item["execution"], self.rows["owner.json"]["lifecycle"]["execution"])
+            self.assertEqual(item["lifetime"], {"admission_stop_at": "2026-10-26T07:24:20Z",
+                "hard_stop_at": "2026-10-26T07:57:00Z", "profile": "ordinary-24h"})
+        self.assertNotIn("draining", [item["phase"] for item in progress])
+
+    def test_external_observations_bind_the_probe_not_the_runtime_source(self):
+        git(ROOT, "merge-base", "--is-ancestor", PROBE_SOURCE, "HEAD")
+        for name, count in (("serving-startup.json", 9), ("serving-smoke.json", 8)):
+            row = self.rows[name]
+            self.assertEqual(row["git_sha"], PROBE_SOURCE)
+            self.assertEqual(len(row["source_sha256"]), count)
+            for path, expected in row["source_sha256"].items():
+                self.assertEqual(hashlib.sha256(git(ROOT, "show", PROBE_SOURCE + ":" + path)).hexdigest(),
+                                 expected)
+            self.assertEqual((row["result"], row["failure"], row["tls_mode"]),
+                             ("pass", "none", "system-roots"))
+            for field in ("confidential", "e2ee", "deployment_eligible", "provider_conformance", "quality_eligible"):
+                self.assertIs(row[field], False)
+        startup = self.rows["serving-startup.json"]
+        self.assertEqual(startup["schema"], "nib.selected-external-startup/v2")
+        self.assertEqual((startup["attempts"], startup["transport_failures"], startup["health_retries"],
+                          startup["health_requests"], startup["tls_checks"]), (42, 41, 41, 1, 1))
+        self.assertEqual(startup["ended_at"], "2026-10-26T04:16:57.974753+00:00")
+        self.assertTrue(startup["health_ready"])
+        self.assertEqual(startup["model_requests"], 0)
+        for field in ("credential_accessed", "continued_readiness", "ownership_verified"):
+            self.assertIs(startup[field], False)
+        smoke = self.rows["serving-smoke.json"]
+        self.assertEqual(smoke["schema"], "nib.selected-external-smoke/v2")
+        self.assertEqual(smoke["ended_at"], "2026-10-26T04:17:14.790628+00:00")
+        for field in ("attempts", "checks", "tls_checks"):
+            self.assertEqual(smoke[field], dict.fromkeys(("health", "missing-key", "wrong-key", "stream"), True))
+        self.assertTrue(smoke["tls_peer_verified"])
+        self.assertFalse(smoke["auth_upstream_calls_measured"])
+        self.assertEqual((smoke["max_authenticated_requests"], smoke["retries"], smoke["usage_unknown"]),
+                         (1, 0, False))
+        self.assertEqual(smoke["usage"], {"prompt_tokens": 36, "completion_tokens": 13})
+        measured = smoke["measurement"]
+        self.assertEqual((measured["prompt_tokens"], measured["completion_tokens"], measured["cached_prompt_tokens"],
+                          measured["output_events"], measured["finish_reason"], measured["status"]),
+                         (36, 13, 0, 10, "stop", "completed"))
 
     def test_secret_scan_exceptions_bind_only_exact_public_hashes(self):
         rules = tomllib.loads((ROOT / ".gitleaks.toml").read_text())["rules"]
