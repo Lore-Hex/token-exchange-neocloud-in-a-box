@@ -8,12 +8,18 @@ import re
 
 MAX_EVENT = 64 << 10
 MAX_STREAM = 64 << 20
+MILLION_PROFILE = "long1m"
 FAILURES = frozenset(("protocol-error", "size-limit", "timeout", "transport-error", "cancelled"))
 
 
 def require(value):
     if not value:
         raise ValueError("stream measurement rejected")
+
+
+def stream_limit(profile=None):
+    require(profile is None or type(profile) is str and profile == MILLION_PROFILE)
+    return 512 << 20 if profile == MILLION_PROFILE else MAX_STREAM
 
 
 def number(value):
@@ -75,11 +81,13 @@ class StreamMeasurement:
     It intentionally accepts only the reviewed text benchmark subset, not tools.
     """
 
-    def __init__(self, model, *, timeout_seconds, max_prompt_tokens, max_output_tokens):
+    def __init__(self, model, *, timeout_seconds, max_prompt_tokens, max_output_tokens, profile=None):
+        self.max_stream_bytes = stream_limit(profile)
+        million = profile == MILLION_PROFILE
         require(type(model) is str and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,127}", model)
-                and number(timeout_seconds) and 0 < timeout_seconds <= 1800
+                and number(timeout_seconds) and 0 < timeout_seconds <= (3540 if million else 1800)
                 and integer(max_prompt_tokens, 1048576) and max_prompt_tokens > 0
-                and integer(max_output_tokens, 131072) and max_output_tokens > 0)
+                and integer(max_output_tokens, 393216 if million else 131072) and max_output_tokens > 0)
         self.model, self.timeout = model, timeout_seconds
         self.max_prompt, self.max_output = max_prompt_tokens, max_output_tokens
         self.pending, self.event = bytearray(), bytearray()
@@ -110,7 +118,7 @@ class StreamMeasurement:
         require(not self.closed)
         if self.failure or not self.timestamp(elapsed):
             return
-        if type(data) is not bytes or len(data) > MAX_EVENT or self.bytes + len(data) > MAX_STREAM:
+        if type(data) is not bytes or len(data) > MAX_EVENT or self.bytes + len(data) > self.max_stream_bytes:
             self.fail("size-limit")
             return
         self.bytes += len(data)

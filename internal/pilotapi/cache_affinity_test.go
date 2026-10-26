@@ -12,7 +12,14 @@ import (
 )
 
 func TestLongCacheAffinityIsStableAndIgnoresCallerRank(t *testing.T) {
-	h := longHandler(t)
+	for _, profile := range []string{ProfileSelectedLong, ProfileSelectedMillion} {
+		t.Run(profile, func(t *testing.T) { checkLongCacheAffinity(t, profile) })
+	}
+}
+
+func checkLongCacheAffinity(t *testing.T, profile string) {
+	t.Helper()
+	h := longProfileHandler(t, profile)
 	var salts, ranks []string
 	h.proxy.Transport = longRoundTripper(func(r *http.Request) (*http.Response, error) {
 		var body map[string]json.RawMessage

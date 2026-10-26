@@ -13,8 +13,12 @@ import (
 )
 
 func longHandler(t *testing.T) *Handler {
+	return longProfileHandler(t, ProfileSelectedLong)
+}
+
+func longProfileHandler(t *testing.T, profile string) *Handler {
 	t.Helper()
-	h, err := NewWithProfile(ProfileSelectedLong, testProvider(), testKey, "0.10", "0.20", "")
+	h, err := NewWithProfile(profile, testProvider(), testKey, "0.10", "0.20", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +88,14 @@ func TestLongContextRequestBounds(t *testing.T) {
 }
 
 func TestLongCacheIsolation(t *testing.T) {
-	p := longHandler(t).profile
+	for _, profile := range []string{ProfileSelectedLong, ProfileSelectedMillion} {
+		t.Run(profile, func(t *testing.T) { checkLongCacheIsolation(t, profile) })
+	}
+}
+
+func checkLongCacheIsolation(t *testing.T, profile string) {
+	t.Helper()
+	p := longProfileHandler(t, profile).profile
 	salt := func(fields string) string {
 		t.Helper()
 		body, err := p.boundRequest([]byte(selectedRequest(fields)))
@@ -114,7 +125,7 @@ func TestLongCacheIsolation(t *testing.T) {
 type longRoundTripper func(*http.Request) (*http.Response, error)
 
 func TestProfileDeadlineAndDrainBounds(t *testing.T) {
-	for _, name := range []string{ProfileQwen, ProfileSelectedDeepSeek, ProfileSelectedGraphs, ProfileSelectedQuality, ProfileSelectedLong} {
+	for _, name := range []string{ProfileQwen, ProfileSelectedDeepSeek, ProfileSelectedGraphs, ProfileSelectedQuality, ProfileSelectedLong, ProfileSelectedMillion} {
 		p, err := profileFor(name)
 		if err != nil {
 			t.Fatal(err)
@@ -122,6 +133,9 @@ func TestProfileDeadlineAndDrainBounds(t *testing.T) {
 		want := 120 * time.Second
 		if name == ProfileSelectedLong {
 			want = 900 * time.Second
+		}
+		if name == ProfileSelectedMillion {
+			want = 3540 * time.Second
 		}
 		h := &Handler{profile: p}
 		if p.requestTimeout() != want || h.ShutdownGrace() != want+10*time.Second {

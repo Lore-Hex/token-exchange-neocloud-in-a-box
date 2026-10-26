@@ -258,8 +258,8 @@ class ProcessOwner:
             command = service.pilot.pilot.shim_command(ROOT / "bin/trcs", TLS_PORT, 8001,
                 inputs.root / "cert.pem", inputs.root / "key.pem", host="0.0.0.0")
             command[command.index("--max-inflight") + 1] = str(contract.max_inflight)
-            if contract.execution_profile in engine_entry.LONG_PROFILES:
-                command[command.index("--max-request-bytes") + 1] = str(4 << 20)
+            if contract.execution_profile in engine_entry.LONG_CONTEXT_PROFILES:
+                command[command.index("--max-request-bytes") + 1] = str(service.request_bytes(contract.execution_profile))
                 command += ["--shutdown-grace", str(contract.request_seconds + 10) + "s"]
             env = self.env
         else:
@@ -494,7 +494,8 @@ def main(argv=None):
         if args.long_qualification:
             import selected_long_qualification as qualification
             require(contract.hard_monotonic - time.monotonic() > service.engine_lab.STARTUP_SECONDS
-                    + qualification.RUN_SECONDS + contract.cleanup_reserve, "deadline")
+                    + qualification.workload_profile(contract.execution_profile).run_seconds
+                    + contract.cleanup_reserve, "deadline")
         require(args.lifetime_profile == service.SMOKE_PROFILE or not any((args.inference_smoke,
             args.conformance_smoke, args.protocol_smoke, args.tool_smoke)), "contract")
         service.progress("preparation", contract, args.prepared_sha256)

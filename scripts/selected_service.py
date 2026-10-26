@@ -72,7 +72,16 @@ def lifetime_seconds(profile):
 
 def request_seconds(execution_profile):
     engine_entry.execution_limits(execution_profile)
+    if execution_profile == engine_entry.MILLION_PROFILE:
+        return 3540  # Keep request + TLS drain grace below the pinned shim's 1h cap.
     return 900 if execution_profile in engine_entry.LONG_PROFILES else 120
+
+
+def request_bytes(execution_profile):
+    engine_entry.execution_limits(execution_profile)
+    if execution_profile == engine_entry.MILLION_PROFILE:
+        return 16 << 20
+    return 4 << 20 if execution_profile in engine_entry.LONG_PROFILES else 65536
 
 
 def drain_seconds(execution_profile):
@@ -83,14 +92,14 @@ def cleanup_reserve(execution_profile):
     drain = drain_seconds(execution_profile)
     # Long requests reserve both frontend drains and all four cleanup steps:
     # TLS, guard, engine, then the unregistered-child sweep.
-    if execution_profile in engine_entry.LONG_PROFILES:
+    if execution_profile in engine_entry.LONG_CONTEXT_PROFILES:
         return 2 * drain + 4 * REAP_SECONDS
     return CLEANUP_RESERVE
 
 
 def qualification_options(enabled, lifetime_profile, execution_profile, *, smoke=False):
     require(type(enabled) is bool and (not enabled or lifetime_profile == ORDINARY_PROFILE
-            and execution_profile in engine_entry.LONG_PROFILES and not smoke), "contract")
+            and execution_profile in engine_entry.LONG_CONTEXT_PROFILES and not smoke), "contract")
 
 
 def retirement_at(wall):

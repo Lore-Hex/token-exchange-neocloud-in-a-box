@@ -39,6 +39,12 @@ onboarding steps; running the toolkit does not automatically list a provider.
 
 ## Status
 
+A separate [1M-context / 384K-output candidate](docs/tasks/p2-t3-million-context.md)
+is implemented with coordinated engine, API, stream, deadline and cleanup limits.
+It is **not yet hardware validated**. Its exact-tokenizer qualification must
+complete a 655,360-input / 393,216-output request, plus 256K/512K/1M cache checks,
+before those limits can be advertised. Existing profiles remain unchanged.
+
 The opt-in [128K-context / 16K-output profiles](docs/tasks/p2-t3-long-context-cache.md)
 provide bounded chunked prefill, cache namespaces and actual cached-token usage
 reporting. The [October 26 graph-profile trial](evidence/p2/2026-10-26-selected-long-graphs/README.md)

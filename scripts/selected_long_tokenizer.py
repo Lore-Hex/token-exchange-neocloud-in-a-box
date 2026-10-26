@@ -24,7 +24,7 @@ process, service = qualification.process, qualification.service
 require = qualification.require
 
 
-def prepare_runtime(expected, deadline):
+def prepare_runtime(expected, deadline, *, execution_profile=None):
     require(str(Path(__file__).absolute()) == str(process.ROOT / qualification.CHILD)
             and sys.version_info[:3] == (3, 12, 3), "contract")
     raw = process.bootstrap.read_source(str(process.ROOT / "prepared.json"))
@@ -40,7 +40,9 @@ def prepare_runtime(expected, deadline):
     exec(compile(source, lab.__file__, "exec"), lab.__dict__)
     contract, _, modules, application, _ = lab.lab_context(receipt["lab_sha256"])
     process.engine_entry.canonical_arguments(contract)
-    require(contract["execution_profile"] in process.engine_entry.LONG_PROFILES
+    require(contract["execution_profile"] in process.engine_entry.LONG_CONTEXT_PROFILES
+            and (execution_profile is None and contract["execution_profile"] in process.engine_entry.LONG_PROFILES
+                 or execution_profile == contract["execution_profile"] == process.engine_entry.MILLION_PROFILE)
             and contract["model_profile"] == service.models.select("uncensored"), "identity")
     lab.recheck_sources(modules[0], application, contract["paths"])
     lab.PARITY.verify_sources(lab.read_source, contract["paths"][-1], lab.CORRECTNESS)
@@ -51,7 +53,8 @@ def prepare_runtime(expected, deadline):
         # existing lab parity child. No guessed Python package/version fallback.
         from vllm.tokenizers.deepseek_v41 import DeepseekV41Tokenizer
         tokenizer = DeepseekV41Tokenizer.from_pretrained("/model", local_files_only=True, trust_remote_code=False)
-        workload = qualification.prepare(tokenizer, deadline=deadline)
+        workload = qualification.prepare(tokenizer, deadline=deadline,
+                                         execution_profile=contract["execution_profile"])
         state["check"]()
         lab.PARITY.verify_model(lab.read_source)
         lab.PARITY.verify_sources(lab.read_source, contract["paths"][-1], lab.CORRECTNESS)
@@ -69,9 +72,12 @@ def main():
             for number in (0, 1, 2):
                 os.dup2(sink.fileno(), number)
         signal.signal(signal.SIGALRM, lambda *_: os._exit(124))
-        signal.alarm(qualification.PREPARE_SECONDS)
-        require(len(sys.argv) == 2, "contract")
-        result = prepare_runtime(sys.argv[1], time.monotonic() + qualification.PREPARE_SECONDS)
+        require(len(sys.argv) in (2, 3), "contract")
+        execution = sys.argv[2] if len(sys.argv) == 3 else None
+        require(execution is None or execution == process.engine_entry.MILLION_PROFILE, "contract")
+        seconds = qualification.workload_profile(execution or process.engine_entry.LONG_PROFILE).prepare_seconds
+        signal.alarm(seconds)
+        result = prepare_runtime(sys.argv[1], time.monotonic() + seconds, execution_profile=execution)
         raw = qualification.encoded(result)
         require(len(raw) <= 8192 and os.write(report_fd, raw) == len(raw), "protocol")
         return 0

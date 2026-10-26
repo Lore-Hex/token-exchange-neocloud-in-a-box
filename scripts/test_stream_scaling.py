@@ -264,8 +264,9 @@ class BindingTests(unittest.TestCase):
         self.assertEqual(ast.dump(old, include_attributes=False), ast.dump(current, include_attributes=False))
 
     def test_shared_transport_and_spawn_only_add_explicit_options(self):
+        from fixtures.stream_profile_compat import legacy_source
         old = ast.parse(git(ROOT, "show", BASE + ":scripts/stream_transport.py"))
-        current = ast.parse((ROOT / "scripts/stream_transport.py").read_bytes())
+        current = ast.parse(legacy_source((ROOT / "scripts/stream_transport.py").read_bytes(), "stream_transport"))
         class RemoveSalt(ast.NodeTransformer):
             def visit_FunctionDef(self, node):
                 if node.name in ("request_body", "collect"):
