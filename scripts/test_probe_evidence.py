@@ -2,6 +2,8 @@
 """Synthetic inventory recording only: no real device/proc/network calls."""
 
 import datetime
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -45,13 +47,152 @@ def output(report=None, status=None):
     return json.dumps(report).encode() + recorder.MARKER + str(status).encode() + b"\n"
 
 
-def run_fixture(root, capture=None, failed=False):
+def run_fixture(root, capture=None, failed=False, *, destination=None):
     times = iter((START, END, END))
     return recorder.record(root, REVISION, SOURCE, now=lambda: next(times),
-                           capture=capture or (lambda *a, **k: output(inventory(failed))))
+                           capture=capture or (lambda *a, **k: output(inventory(failed))), output=destination)
 
 
 class ProbeEvidenceTests(unittest.TestCase):
+    def test_default_receipts_replay_original_producer_bytes(self):
+        revision = "ef4a2167c357609a4254f9de86626a88ee456294"
+        raw = recorder.git(ROOT, "show", revision + ":" + recorder.RECORDER)
+        self.assertEqual(recorder.digest(raw), "77858e523ae744bc585b28aa68cc759afbdc542dd972466185f52e3a699c40e2")
+        legacy = types.ModuleType("legacy_probe_recorder")
+        legacy.__file__ = str(path)
+        exec(compile(raw, str(path), "exec"), legacy.__dict__)
+        for failed in (False, True):
+            with self.subTest(failed=failed), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                previous, current = root / "previous", root / "current"
+                previous.mkdir(mode=0o700)
+                current.mkdir(mode=0o700)
+                times = iter((START, END, END))
+                old_name, old_code = legacy.record(previous, REVISION, SOURCE, now=lambda: next(times),
+                    capture=lambda *a, **k: output(inventory(failed)))
+                name, code = run_fixture(current, failed=failed)
+                self.assertEqual((name, code), (old_name, old_code))
+                for filename in ("run.json", "output.log"):
+                    self.assertEqual((previous / name / filename).read_bytes(),
+                                     (current / name / filename).read_bytes())
+
+    def test_external_output_keeps_committed_source_clean_and_paths_private(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory).resolve()
+            root, destination = parent / "source", parent / CANARY
+            root.mkdir(mode=0o700)
+            recorder.git(root, "init", "--quiet")
+            for name, raw in SOURCE.items():
+                target = root / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(raw)
+            recorder.git(root, "add", ".")
+            recorder.git(root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                         "-c", "commit.gpgsign=false", "commit", "-qm", "fixture")
+            revision, source = recorder.sources(root)
+            times = iter((START, END, END))
+            actual_record = recorder.record
+            def invoke(*args, **kwargs):
+                self.assertEqual(args, (root, revision, source))
+                self.assertEqual(kwargs, {"output": str(destination)})
+                return actual_record(*args, **kwargs, now=lambda: next(times), capture=lambda *a, **k: output())
+            console = io.StringIO()
+            with patch.object(recorder, "ROOT", root), patch.object(recorder.sys, "platform", "linux"), \
+                    patch.object(recorder, "record", side_effect=invoke), contextlib.redirect_stdout(console):
+                code = recorder.main(["--output", str(destination)])
+            self.assertEqual(code, 0)
+            self.assertEqual(console.getvalue(), "external-output\n")
+            self.assertEqual(recorder.git(root, "status", "--porcelain", "--untracked-files=normal"), b"")
+            self.assertFalse((root / "evidence").exists())
+            self.assertEqual({item.name for item in destination.iterdir()}, {"run.json", "output.log"})
+            self.assertEqual(destination.stat().st_mode & 0o777, 0o700)
+            for name in ("run.json", "output.log"):
+                data = (destination / name).read_text()
+                self.assertNotIn(CANARY, data)
+                self.assertNotIn(str(parent), data)
+                self.assertEqual((destination / name).stat().st_mode & 0o777, 0o600)
+            self.assertEqual(json.loads((destination / "run.json").read_bytes())["command"],
+                             "python3 -I host/record-probe.py --output <private-directory>")
+
+    def test_external_failed_probe_retained_and_no_overwrite_or_reexecution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory).resolve()
+            root, target = parent / "source", parent / "result"
+            root.mkdir(mode=0o700)
+            marker, code = run_fixture(root, failed=True, destination=target)
+            self.assertEqual((marker, code), ("external-output", 1))
+            before = {item.name: item.read_bytes() for item in target.iterdir()}
+            self.assertEqual(json.loads(before["output.log"])["inventory"]["errors"], ["gpus-unavailable"])
+            with self.assertRaises((OSError, ValueError)):
+                run_fixture(root, destination=target,
+                            capture=lambda *a, **k: self.fail("must reject before execution"))
+            self.assertEqual(before, {item.name: item.read_bytes() for item in target.iterdir()})
+
+    def test_external_output_rejects_overlap_links_existing_and_unsafe_parents(self):
+        kinds = ("source", "inside", "ancestor", "relative", "dotdot", "empty", "double-slash", "double-root",
+                 "existing", "file", "leaf-link", "parent-link", "ancestor-link", "parent-file",
+                 "public-parent", "writable-parent", "writable-ancestor", "sticky-ancestor", "wrong-owner")
+        for kind in kinds:
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory).resolve()
+                root, parent = base / "source", base / "private"
+                root.mkdir(mode=0o700)
+                parent.mkdir(mode=0o700)
+                target = parent / "result"
+                if kind in ("source", "inside", "ancestor", "relative", "dotdot", "empty", "double-slash", "double-root"):
+                    target = {"source": root, "inside": root / "result", "ancestor": base,
+                              "relative": "result", "dotdot": str(parent) + "/../result", "empty": "",
+                              "double-slash": str(parent) + "//result",
+                              "double-root": "/" + str(root / "result")}[kind]
+                elif kind == "existing":
+                    target.mkdir(mode=0o700)
+                elif kind == "file":
+                    target.write_text(CANARY)
+                elif kind == "leaf-link":
+                    target.symlink_to(root)
+                elif kind in ("parent-link", "ancestor-link"):
+                    link = base / "link"
+                    link.symlink_to(parent)
+                    if kind == "ancestor-link":
+                        (parent / "nested").mkdir(mode=0o700)
+                        target = link / "nested/result"
+                    else:
+                        target = link / "result"
+                elif kind == "parent-file":
+                    parent.rmdir()
+                    parent.write_text(CANARY)
+                elif kind in ("public-parent", "writable-parent"):
+                    parent.chmod(0o755 if kind == "public-parent" else 0o777)
+                elif kind in ("writable-ancestor", "sticky-ancestor"):
+                    base.chmod(0o777 if kind == "writable-ancestor" else 0o1777)
+                with contextlib.ExitStack() as stack:
+                    if kind == "wrong-owner":
+                        stack.enter_context(patch.object(recorder.os, "getuid", return_value=os.getuid() + 1))
+                    with self.assertRaises((OSError, ValueError)):
+                        run_fixture(root, destination=target,
+                                    capture=lambda *a, **k: self.fail("must reject before execution"))
+                self.assertEqual(list(root.iterdir()), [])
+
+    def test_external_cli_rejects_unknown_or_repeated_arguments_without_path_output(self):
+        cases = (["--output"], ["--output", CANARY, "--output", CANARY], ["--out", CANARY], [CANARY])
+        for arguments in cases:
+            with self.subTest(arguments=arguments), patch.object(recorder.sys, "platform", "linux"), \
+                    patch.object(recorder, "sources") as sources, self.assertRaises(ValueError) as raised:
+                recorder.main(arguments)
+            sources.assert_not_called()
+            self.assertNotIn(CANARY, str(raised.exception))
+
+    def test_external_output_also_rejects_opened_source_ancestor_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            # Model an alternate spelling whose lexical overlap was missed;
+            # retained directory identities must still prevent source writes.
+            with patch.object(recorder.Path, "is_relative_to", return_value=False), \
+                    self.assertRaises(ValueError):
+                run_fixture(root, destination=root / "result",
+                            capture=lambda *a, **k: self.fail("must reject before execution"))
+            self.assertEqual(list(root.iterdir()), [])
+
     def test_pass_is_only_inventory_and_has_no_identifiers(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

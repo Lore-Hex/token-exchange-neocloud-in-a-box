@@ -24,7 +24,7 @@ APPRAISAL = "host/attest-lab-gpus.py"
 PROBE = "host/probe.py"
 SHARED = "host/record-probe.py"
 PINS = {
-    SHARED: "77858e523ae744bc585b28aa68cc759afbdc542dd972466185f52e3a699c40e2",
+    SHARED: "0e66c6e690b376616391e5f207ad6b803c228faeaa95fb1b8cdd471381f49e14",
     APPRAISAL: "c72f45b3af7a27e5826f50543c15b02662f2e840d2c87a33ed4a359199a74c2c",
 }
 LIMIT = 65536
