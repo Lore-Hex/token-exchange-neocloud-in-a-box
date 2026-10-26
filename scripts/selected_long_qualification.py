@@ -249,10 +249,11 @@ def prepare_owned(supervisor, deadline):
     return validate_workload(row["workload"])
 
 
-def empty_report():
+def empty_report(execution_profile=process.engine_entry.LONG_PROFILE):
+    require(type(execution_profile) is str and execution_profile in process.engine_entry.LONG_PROFILES, "contract")
     return {"schema": SCHEMA, "result": "fail", "failure": "contract", "prepared_sha256": None,
         "model": service.MODEL, "model_revision": service.models.select("uncensored")["hf_revision"],
-        "execution_profile": process.engine_entry.LONG_PROFILE, "workload": None,
+        "execution_profile": execution_profile, "workload": None,
         "request_seconds": None, "cleanup_reserve_seconds": None, "elapsed_seconds": 0.0,
         "reserved_requests": len(CASES), "reserved_prompt_tokens": sum(PROMPTS[level] for level, _ in CASES),
         "reserved_output_tokens": sum(OUTPUTS[level] for level, _ in CASES), "concurrency": 1, "retries": 0,
@@ -334,9 +335,10 @@ def run_owned(supervisor):
         require(threading.current_thread() is threading.main_thread() and type(supervisor) is service.Supervisor
                 and type(supervisor.owner) is process.ProcessOwner and supervisor.used
                 and supervisor.phase == "ready"
-                and supervisor.contract.execution_profile == process.engine_entry.LONG_PROFILE
+                and supervisor.contract.execution_profile in process.engine_entry.LONG_PROFILES
                 and not getattr(supervisor, "_long_qualification_used", False), "contract")
         supervisor._long_qualification_used = True
+        report["execution_profile"] = supervisor.contract.execution_profile
         seconds, reserve = budgets(supervisor.contract)
         report.update(request_seconds=seconds, cleanup_reserve_seconds=reserve,
                       prepared_sha256=supervisor.owner.prepared.receipt_sha256)
@@ -365,11 +367,14 @@ def run_owned(supervisor):
     return validate_report(encoded(report))
 
 
-def validate_report(raw, prepared_sha256=None):
+def validate_report(raw, prepared_sha256=None, *, execution_profile=None):
     """Closed metadata, with derived claims recomputed instead of trusted."""
     require(type(raw) is bytes and len(raw) <= MAX_REPORT, "protocol")
     row = service.correctness.strict_json(raw)
-    template = empty_report()
+    require(type(row) is dict and type(row.get("execution_profile")) is str
+            and row["execution_profile"] in process.engine_entry.LONG_PROFILES
+            and (execution_profile is None or row["execution_profile"] == execution_profile), "protocol")
+    template = empty_report(row["execution_profile"])
     require(type(row) is dict and set(row) == set(template) and row["schema"] == SCHEMA
             and row["result"] in ("completed", "fail") and row["failure"] in FAILURES
             and (row["result"] == "completed") == (row["failure"] == "none"), "protocol")

@@ -34,8 +34,8 @@ def collector(work, level, namespace, deadline, row):
     return q.Observation(sample(level, cached=64 if row["scope"] == "warm" else 0), True, True)
 
 
-def run_sequence(collect=collector):
-    row = q.empty_report()
+def run_sequence(collect=collector, *, execution_profile=q.process.engine_entry.LONG_PROFILE):
+    row = q.empty_report(execution_profile)
     row.update(prepared_sha256="a" * 64, request_seconds=900, cleanup_reserve_seconds=1960,
         workload=workload(), engine_identity_before_sha256="b" * 64)
     try:

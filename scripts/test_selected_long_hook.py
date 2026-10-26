@@ -29,7 +29,7 @@ def successful():
             observed = replace(observed, sample=replace(observed.sample,
                 completion_tokens=q.LONG_OUTPUT, finish_reason="length"))
         return observed
-    return fixtures.run_sequence(collect)
+    return fixtures.run_sequence(collect, execution_profile=LONG)
 
 
 class HookTests(unittest.TestCase):
@@ -86,7 +86,9 @@ class HookTests(unittest.TestCase):
             args[-1]["attempted"] = True
             q.record_sample(args[-1], replace(fixtures.sample(), status="cancelled"))
             raise KeyboardInterrupt()
-        for report in (fixtures.run_sequence(), fixtures.run_sequence(miss), fixtures.run_sequence(lost)):
+        for report in (fixtures.run_sequence(execution_profile=LONG),
+                       fixtures.run_sequence(miss, execution_profile=LONG),
+                       fixtures.run_sequence(lost, execution_profile=LONG)):
             with self.subTest(failure=report["failure"]), self.supervisor() as (supervisor, backend, _, _), \
                     mock.patch.object(q, "run_owned", return_value=report):
                 result = supervisor.run(long_qualification=True)
