@@ -4,6 +4,41 @@ Reserved for version-pinned BIOS, TDX, GPU CC and QEMU launch procedures.
 Host commands require the hardware gates in PLAN.md. No BIOS/GPU settings or
 confidential launch procedure is implemented here yet.
 
+## Access Gate Before A Paid Launch
+
+Before creating or replacing a paid host, verify the selected SSH credential
+locally. A provider's saved public-key name does not prove that its private key
+still exists. Keep the private key in an operator-owned durable directory,
+outside temporary directories, disposable worktrees, source bundles and evidence.
+Require directory mode `0700` and private-key mode `0600`; retain access through
+the complete rental and evidence-retrieval period. Never upload the private key.
+
+With `PRIVATE_KEY` set to that existing private key and `REGISTERED_PUBLIC_KEY`
+set to a locally saved copy of the public key actually registered with the
+provider, compare these SHA-256 fingerprints before ordering:
+
+```sh
+ssh-keygen -y -f "$PRIVATE_KEY" | ssh-keygen -E sha256 -lf -
+ssh-keygen -E sha256 -lf "$REGISTERED_PUBLIC_KEY"
+```
+
+Both commands must succeed, and their `SHA256:` values must match. The first
+derives the public identity from the private key, rather than trusting a sibling
+`.pub` file or an agent's cached identity. It may ask for the key's passphrase.
+OpenSSH documents these operations in [ssh-keygen(1)](https://man.openbsd.org/ssh-keygen.1)
+(`-y`, `-l`, `-E`; read October 26, 2026). This checks local possession only,
+not remote login or host authenticity.
+
+Record the exact instance, selected key identity, hourly rate and independent
+billing cutoff privately. After creation, verify the host identity using the
+provider's authenticated channel and test access before transferring weights.
+Do not disable host-key checking or reuse a terminated instance's address.
+If access fails, use documented in-place recovery first. Replacement requires
+approval for the exact instance and a fresh inventory of its data and volumes;
+preserve all retained cache disks and other nodes. A stopped test process does
+not stop cloud billing. Confirm provider-reported termination when teardown is
+approved, and never remove a registered key still needed by another node.
+
 ## Private Test-Host Preparation
 
 `prepare-lab.py` prepares operator-owned mode-0700 directories for an already
