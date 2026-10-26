@@ -1,6 +1,12 @@
 # P2.T3: Long context and isolated prefix-cache candidate
 
 Status: implemented candidates, **not full GPU qualification or a public capacity claim**.
+The [October 26 graph trial](../../evidence/p2/2026-10-26-selected-long-graphs/README.md)
+passed the bounded ten-request long-context/cache test on ordinary eight-B300
+hardware. It completed the paired 114,688-input / 16,384-output case in 114.83
+seconds. This is finite C1 evidence, not general quality, sustained capacity,
+cache isolation or confidential qualification. The earlier eager failure remains
+preserved separately.
 The explicit `long128k-eager` and `long128k-graphs` profiles keep the selected
 abliterated checkpoint, B300 TP4 x DP2, one admitted request, GPU-resident Engram,
 512 GiB host-memory bound and zero swap. The graph candidate changes the execution
@@ -33,8 +39,9 @@ owner drain and admission cutoff. It requires the pinned TLS shim's bounded
 inside the long profile's 1,960-second reserve; the host's additional cleanup
 reserve stays unchanged. Wall-clock jumps can shorten, never extend, the bound.
 The 16K value is a request ceiling, not a promise that every prompt/output
-combination finishes within 900 seconds. Do not advertise the paired maxima
-until measured. Retirement must preserve an active stream and usage completion;
+combination finishes within 900 seconds. The graph trial measured one paired
+maximum case; other prompts are not covered by that result. Retirement must
+preserve an active stream and usage completion;
 forced termination is a failure, not a successful response.
 
 ## Pinned engine settings
@@ -71,9 +78,11 @@ No claim about a newer engine's performance applies to this candidate.
   uncompiled or isolate any speedup to CUDA graph replay alone. See
   [eager overrides and compilation defaults](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/config/vllm.py#L1691-L1756).
   This does not enable DSpark, increase admission or change FP8 KV, cache
-  namespaces, DP2 affinity or any deadline. Backend compatibility, actual graph
-  capture/replay, memory fit and a throughput improvement still need measurement.
-  Configured graph mode is not evidence that every decode used a graph.
+  namespaces, DP2 affinity or any deadline. The recorded graph trial completed
+  without OOM and passed the long-output check that previously timed out under
+  eager execution. Actual per-decode graph replay was not instrumented, and the
+  failed eager request has unknown final usage: do not claim a precise speedup
+  ratio or attribute all improvement to graph replay alone.
 
 The new source files are hash-pinned in `scripts/deepseek_tuning.py`; startup
 rejects source drift. The prepared payload, image, guard, catalog, observed
