@@ -5,10 +5,12 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 import unittest
 
 from test_evidence_history import GIT_ENV, GIT_OPTIONS, git
@@ -40,6 +42,35 @@ class LongEvidenceTests(unittest.TestCase):
                 self.assertNotIn(forbidden, raw)
             self.rows[name] = ([json.loads(line) for line in raw.splitlines()]
                                if name == "progress.jsonl" else json.loads(raw))
+
+    def test_secret_scan_exceptions_bind_only_original_public_hashes(self):
+        rules = tomllib.loads((ROOT / ".gitleaks.toml").read_text())["rules"]
+        entries = [entry for rule in rules if rule["id"] == "generic-api-key"
+                   for entry in rule["allowlists"]
+                   if "2026-10-26-selected-long-qualification" in str(entry["paths"])]
+        self.assertEqual(len(entries), 2)
+        for entry, name in zip(entries, ("input-contract.json", "owner.json")):
+            self.assertEqual((entry["condition"], entry["regexTarget"]), ("AND", "match"))
+            self.assertEqual(len(entry["paths"]), 1)
+            pattern = entry["paths"][0]
+            self.assertRegex(str(DIRECTORY / name), pattern)
+            self.assertIsNone(re.search(pattern, str(DIRECTORY / (name + ".other"))))
+            self.assertIsNone(re.search(pattern, str(ROOT / name)))
+            if name == "input-contract.json":
+                sources = self.rows[name]["sources"]
+                matches = []
+                for key, source in (("tokenizer-adapter.py", "engine_lab_bootstrap.py"),
+                                    ("tokenizer-parity.py", "engine_tokenizer_parity.py")):
+                    raw = git(ROOT, "show", SOURCE + ":scripts/" + source)
+                    self.assertEqual(sources[key], hashlib.sha256(raw).hexdigest())
+                    matches.append(key + '\":\"' + sources[key] + '\"')
+            else:
+                cases = self.rows[name]["owner_failure"]["qualification"]["workload"]["cases"]
+                matches = ['tokens_sha256\": \"' + row["tokens_sha256"] + '\"' for row in cases]
+            for match in matches:
+                self.assertTrue(any(re.fullmatch(regex, match) for regex in entry["regexes"]))
+                changed = match[:-2] + ("0" if match[-2] != "0" else "1") + match[-1]
+                self.assertFalse(any(re.fullmatch(regex, changed) for regex in entry["regexes"]))
 
     def test_actual_usage_cache_controls_and_failed_output_are_not_promoted(self):
         owner = self.rows["owner.json"]
