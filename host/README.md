@@ -97,6 +97,25 @@ Use the checkout's committed `host/record-probe.py` for actual hardware evidence
 `prerequisites --root PATH` reports only whether expected executables exist.
 These setup results are not hardware qualification or a model-serving result.
 
+Before a selected-service image build, keep probe evidence outside the source
+checkout so its strict clean-source guard remains satisfied:
+
+```sh
+python3 -I -S -B "$SOURCE/host/record-probe.py" --output "$NEW_PRIVATE_PROBE_DIRECTORY"
+```
+
+The output must be a new absolute directory outside (and not an ancestor of)
+the checkout. Its existing parent must be operator-owned mode `0700`; symlink
+components, unsafe ancestors and existing destinations reject before probing.
+The recorder creates a `0700` directory containing exclusive `0600` `run.json`
+and `output.log` files, retains failures, and prints only `external-output`.
+Public records use a fixed private-directory placeholder, never the supplied
+path. Omitting `--output` retains the original timestamped `evidence/p2/`
+location and receipt contract. That default makes new evidence untracked:
+preserve it outside the checkout before building, rather than weakening the
+build guard, ignoring evidence, or deleting it. The GPU-appraisal recorder
+retains its existing output interface. Neither mode admits a GPU runtime.
+
 ## Offline guest-tools probe
 
 `probe-mkosi-tools.py` reconstructs and checks the prepared tools image before

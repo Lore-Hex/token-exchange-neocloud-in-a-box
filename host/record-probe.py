@@ -153,20 +153,45 @@ def validate_output(data, source_digest, started, ended):
 
 
 @contextmanager
-def destination(root, started, label="hardware-probe"):
+def destination(root, started, label="hardware-probe", *, output=None):
     # Same confinement/private/no-overwrite contract as nib evidence new, using
     # Unix dir_fd operations so the remote host needs no Go toolchain or build.
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     with ExitStack() as stack:
-        def keep(fd):
+        def keep(fd, *, ancestor=None):
             stack.callback(os.close, fd)
             info = os.fstat(fd)
-            if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o022:
+            sticky = (ancestor in (Path("/tmp"), Path("/private/tmp"), Path("/var/tmp"))
+                      and info.st_uid == 0 and info.st_mode & stat.S_ISVTX)
+            owners = (0, os.getuid()) if ancestor is not None else (os.getuid(),)
+            if info.st_uid not in owners or (stat.S_IMODE(info.st_mode) & 0o022 and not sticky):
                 raise ValueError("private-owned-evidence-directory-required")
             return fd
-        parent = keep(os.open(root, flags))
         if label not in ("hardware-probe", "gpu-appraisal"):
             raise ValueError("invalid-evidence-label")
+        if output is not None:
+            path, source = Path(output), Path(root).resolve(strict=True)
+            if (not path.is_absolute() or str(output) != str(path) or str(path) != os.path.normpath(path)
+                    or len(path.parts) > 64 or path.is_relative_to(source) or source.is_relative_to(path)):
+                raise ValueError("external-evidence-directory-required")
+            current = Path("/")
+            parent = keep(os.open(current, flags), ancestor=current)
+            for component in path.parent.parts[1:]:
+                current /= component
+                parent = keep(os.open(component, flags, dir_fd=parent), ancestor=current)
+            info = os.fstat(parent)
+            if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+                raise ValueError("private-owned-evidence-parent-required")
+            # One exclusive child beneath a retained no-follow parent. Keep
+            # failed/partial output; never replace, retry or delete a result.
+            os.mkdir(path.name, 0o700, dir_fd=parent)
+            directory = keep(os.open(path.name, flags, dir_fd=parent))
+            os.fsync(parent)
+            yield directory, "external-output"
+            if not os.path.samestat(os.fstat(directory), os.stat(path.name, dir_fd=parent, follow_symlinks=False)):
+                raise ValueError("evidence-directory-changed")
+            return
+        parent = keep(os.open(root, flags))
         name = started.strftime("%Y-%m-%d-") + label + started.strftime("-%H%M%S%f")
         for component in ("evidence", "p2", name):
             try:
@@ -194,12 +219,12 @@ def unchanged_snapshot(path, expected):
             raise ValueError("executed-source-changed")
 
 
-def record(root, revision, source, *, now=utc_now, capture=None):
+def record(root, revision, source, *, now=utc_now, capture=None, output=None):
     started = now()
     binding = {"git_sha": revision, "probe_sha256": digest(source[PROBE]), "recorder_sha256": digest(source[RECORDER])}
     report = {"schema": "nib.probe-recording/v1", "source": binding, "result": "fail", "inventory": None,
               "hardware_validated": False, "confidential_qualified": False, "runtime_ready": False}
-    with destination(root, started) as (directory, relative):
+    with destination(root, started, output=output) as (directory, relative):
         try:
             with tempfile.TemporaryDirectory(prefix="nib-probe-source-") as temporary:
                 path = Path(temporary) / "probe.py"
@@ -221,7 +246,9 @@ def record(root, revision, source, *, now=utc_now, capture=None):
             report.update(result="fail", inventory=None, failure_code="recorder-clock-regressed")
             ended = started
         run = {"schema": "nib.evidence/v1", "phase": "P2", "task": "T2", "git_sha": revision,
-               "command": "python3 -I host/record-probe.py", "started_utc": utc_text(started),
+               "command": "python3 -I host/record-probe.py" +
+                          (" --output <private-directory>" if output is not None else ""),
+               "started_utc": utc_text(started),
                "ended_utc": utc_text(ended), "result": report["result"], "execution": "software",
                "hardware_validated": False,
                "host": {"provider": "operator-approved-test-host", "machine": "linux",
@@ -235,11 +262,13 @@ def record(root, revision, source, *, now=utc_now, capture=None):
     return relative, 0 if report["result"] == "pass" else 1
 
 
-def main():
-    if sys.platform != "linux" or len(sys.argv) != 1:
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if sys.platform != "linux" or (argv and (len(argv) != 2 or argv[0] != "--output")):
         raise ValueError("approved-Linux-test-host-required")
+    output = argv[1] if argv else None
     revision, source = sources(ROOT)
-    relative, code = record(ROOT, revision, source)
+    relative, code = record(ROOT, revision, source, output=output)
     print(relative)
     return code
 
