@@ -105,7 +105,8 @@ class SourceTests(unittest.TestCase):
     def test_flag_requires_full_export_and_compiler_without_network_profile(self):
         good = ["--install-driver", "--verity-root", "--boot-uki", "--stage-boot", "--h100-collector"]
         self.assertEqual(worker.options(good), (True,) * 5)
-        for bad in (good[::-1], good[1:], good[:-2] + good[-1:], good + [good[-1]], good + ["--guest-network"]):
+        for bad in (good[::-1], good[1:], good[:-2] + good[-1:], good + [good[-1]],
+                    good + ["--guest-network"], good + ["--tags=nibfake"]):
             with self.assertRaises(ValueError): worker.options(bad)
         with mock.patch.object(host.os, "readlink", return_value="ns:[1]"), \
                 mock.patch.object(host.probe.ownership, "prefix", return_value=[]):
@@ -152,7 +153,8 @@ class SourceTests(unittest.TestCase):
             go = root / "go"
             go.write_bytes(b"fixture compiler")
             results = []
-            with mock.patch.object(base.processes, "execute_process_group", side_effect=self.execute) as execute:
+            with mock.patch.dict(os.environ, {"GOFLAGS": "-tags=nibfake", "GOOS": "darwin", "PRIVATE_SENTINEL": "ignored"}), \
+                    mock.patch.object(base.processes, "execute_process_group", side_effect=self.execute) as execute:
                 for name in ("first", "second"):
                     results.append(helper.compile_helpers(go, root / name, raw, source, base, export))
             self.assertEqual(execute.call_count, 6)
@@ -194,8 +196,12 @@ class SourceTests(unittest.TestCase):
         helper.static_collector(elf())
         for change in ("dynamic", "interpreter", "arch", "type", "offset", "entry", "count", "load", "short"):
             bad = bytearray(elf())
-            if change in ("dynamic", "interpreter", "load"):
-                struct.pack_into("<I", bad, 64, {"dynamic": 2, "interpreter": 3, "load": 0}[change])
+            if change in ("dynamic", "interpreter"):
+                # Keep a valid PT_LOAD so rejection proves the forbidden header check.
+                bad.extend(bytes(56))
+                struct.pack_into("<H", bad, 56, 2)
+                struct.pack_into("<I", bad, 120, 2 if change == "dynamic" else 3)
+            if change == "load": struct.pack_into("<I", bad, 64, 0)
             if change == "arch": struct.pack_into("<H", bad, 18, 183)
             if change == "type": struct.pack_into("<H", bad, 16, 3)
             if change == "offset": struct.pack_into("<Q", bad, 32, (1 << 64) - 1)
