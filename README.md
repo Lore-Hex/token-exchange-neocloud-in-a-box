@@ -51,6 +51,11 @@ candidate still returns an empty model catalog: its 59-minute deadline exceeds
 the pinned marketplace contract's 15-minute ceiling. Listing requires coordinated
 contract, checker and router support. Existing profiles remain unchanged.
 
+A separate [external restart smoke](evidence/p2/2026-10-26-selected-million-external/README.md)
+passed pinned TLS, missing/wrong-key rejection and one authenticated stream.
+It records point-in-time reachability, not continuous availability or public
+listing, and does not replace the earlier terminal cleanup evidence.
+
 The [October 26 preparation checkpoint](evidence/p2/2026-10-26-million-prerequisites/README.md)
 records verified staging of all 510.3 GB, a separate verified read-only copy,
 passing host isolation controls, and the exact image/build preflight for the
