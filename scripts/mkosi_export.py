@@ -15,8 +15,9 @@ STAGE = Path("/out/boot-stage")
 TIMEOUT = 120
 MAX_JSON = 65536
 NETWORK_PROFILE = "guest-network/v1"
-# A second explicit profile, not a generic increase of the original 42-file
-# bound. Native preparation and every consumer must audit this exact union.
+COLLECTOR_PROFILE = "h100-collector/v1"
+# Explicit profiles, not a generic increase of the original 42-file bound.
+# Native preparation and every consumer must audit the selected exact union.
 NETWORK_BASE = frozenset("""
 evidence/p3/2026-10-22-runtime-apt-plan/report.json
 host/build-mkosi-native.py host/probe-build-resources.py host/probe-mkosi-native-tools.py
@@ -60,6 +61,14 @@ NETWORK_DATA = {
 NETWORK_LINKS = {"etc/systemd/system/multi-user.target.wants/nib-network.service":
                  "/usr/lib/systemd/system/nib-network.service"}
 NETWORK_DATABASES = {"etc/passwd": 7, "etc/group": 4, "etc/shadow": 9, "etc/gshadow": 4}
+COLLECTOR_EXTRA = (
+    "scripts/mkosi_guest_network.py", "go.mod", "go.sum",
+    "guest/nftables/policy.go", "guest/nftables/readback.go", "guest/nftables/nib.nft",
+    *("guest/appraisal/" + name for name in ("claims.go", "collect.go", "exec_unix.go",
+        "process_linux.go", "runtime_linux.go", "cmd/nib-h100-appraisal/main_linux.go")),
+)
+COLLECTOR_HELPERS = {"usr/libexec/nib-h100-appraisal": "collector/nib-h100-appraisal"}
+PROFILE_EXTRAS = {NETWORK_PROFILE: NETWORK_EXTRA, COLLECTOR_PROFILE: COLLECTOR_EXTRA}
 
 
 def require(value):
@@ -159,10 +168,12 @@ def owned(path, directory, remove):
 def source_identity(value):
     require(type(value) is dict and type(value.get("sources")) is dict)
     if "profile" in value:
-        require(set(value) == {"git_sha", "sources", "profile"} and value["profile"] == NETWORK_PROFILE
-                and len(NETWORK_BASE) == 42 and len(set(NETWORK_EXTRA)) == len(NETWORK_EXTRA)
-                and not NETWORK_BASE.intersection(NETWORK_EXTRA)
-                and set(value["sources"]) == NETWORK_BASE.union(NETWORK_EXTRA))
+        require(set(value) == {"git_sha", "sources", "profile"}
+                and type(value["profile"]) is str and value["profile"] in PROFILE_EXTRAS)
+        extra = PROFILE_EXTRAS[value["profile"]]
+        require(len(NETWORK_BASE) == 42 and len(set(extra)) == len(extra)
+                and not NETWORK_BASE.intersection(extra)
+                and set(value["sources"]) == NETWORK_BASE.union(extra))
     else:
         require(set(value) == {"git_sha", "sources"} and 0 < len(value["sources"]) <= 42)
     require(type(value["git_sha"]) is str and re.fullmatch("[0-9a-f]{40}", value["git_sha"]))
@@ -177,21 +188,37 @@ def network_sources(sources):
             if p in ("go.mod", "go.sum", "guest/nftables/nib.nft") or p.endswith(".go")}
 
 
-def network_inputs(value, source):
+def helper_inputs(value, source, profile, schema, helpers, data):
     source_identity(source)
-    require(source.get("profile") == NETWORK_PROFILE and type(value) is dict
+    require(source.get("profile") == profile and type(value) is dict
             and set(value) == {"schema", "source", "compiler", "files"}
-            and value["schema"] == "nib.guest-network-inputs/v1" and value["source"] == source)
+            and value["schema"] == schema and value["source"] == source)
     compiler = value["compiler"]
     require(type(compiler) is dict and set(compiler) == {"version", "compiler_sha256", "compiler_authenticated", "source_hashes"}
             and compiler["version"] == "go1.27.2" and compiler["compiler_authenticated"] is False
             and compiler["source_hashes"] == network_sources(source["sources"]))
     file_identity({"bytes": 1, "sha256": compiler["compiler_sha256"]}, 1)
-    require(type(value["files"]) is dict and set(value["files"]) == set(NETWORK_HELPERS) | set(NETWORK_DATA))
+    require(type(value["files"]) is dict and set(value["files"]) == set(helpers) | set(data))
     for name, row in value["files"].items():
-        file_identity(row, 8 << 20 if name in NETWORK_HELPERS else 16384)
-        if name in NETWORK_DATA:
-            require(row["sha256"] == source["sources"][NETWORK_DATA[name]])
+        file_identity(row, 8 << 20 if name in helpers else 16384)
+        if name in data:
+            require(row["sha256"] == source["sources"][data[name]])
+
+
+def network_inputs(value, source):
+    helper_inputs(value, source, NETWORK_PROFILE, "nib.guest-network-inputs/v1", NETWORK_HELPERS, NETWORK_DATA)
+
+
+def collector_inputs(value, source):
+    helper_inputs(value, source, COLLECTOR_PROFILE, "nib.h100-collector-inputs/v1", COLLECTOR_HELPERS, {})
+
+
+def collector_proof(value, source):
+    claims = ("collector_executed", "services_started", "readiness_verified", "confidentiality_verified")
+    require(type(value) is dict and set(value) == {"schema", "result", "inputs", *claims}
+            and value["schema"] == "nib.h100-collector-composition/v1" and value["result"] == "pass"
+            and all(value[k] is False for k in claims))
+    collector_inputs(value["inputs"], source)
 
 
 def network_proof(value, source):
@@ -242,6 +269,10 @@ def validate_proof(report, source):
         network_proof(worker.get("guest_network"), source)
     else:
         require("guest_network" not in worker)
+    if source.get("profile") == COLLECTOR_PROFILE:
+        collector_proof(worker.get("h100_collector"), source)
+    else:
+        require("h100_collector" not in worker)
     require(worker["schema"] == "nib.mkosi-install-worker/v1" and worker["result"] == "pass"
             and worker["stage"] == "boot-uki" and worker["bootable"] is False and worker["deployable"] is False
             and worker["configured_state_verified"] is True and type(worker["installed_packages"]) is int
