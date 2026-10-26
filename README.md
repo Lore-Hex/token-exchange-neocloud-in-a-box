@@ -82,9 +82,13 @@ completed 256 measured requests without errors at **896.05 output tokens/second*
 and **205.68 ms median TTFT**. Its 114.279-second measurement fell short of the
 predeclared two-minute minimum, so sustained qualification remains failed.
 Repeated-prefix cache state and replica saturation are unqualified.
-A [fresh-salt C16/C32/C64 experiment](docs/tasks/p2-t3-batch32-throughput.md)
-is implemented for bounded waves with actual zero-cache usage required. It has
-no hardware result yet and does not change the public service or old evidence.
+A [fresh-salt C16/C32/C64 experiment](evidence/p2/2026-10-26-selected-batch32/README.md)
+passed its finite functional and cleanup gates: **1,584.36 / 2,859.36 / 4,432.11
+output tokens/second**, each over at least 150 seconds, with 3,360 completed
+measured requests and zero errors, unknown usage or reported cache hits.
+This is bounded-wave throughput, not continuous saturation, quality or
+confidential qualification; the outer report remains FAIL/BLOCKED. It does
+not change the public C1 service, old evidence or customer prices.
 The latest nonroot/read-only selected-service image passed one bounded
 [private TLS inference smoke](evidence/p2/2026-10-24-selected-service-inference/README.md)
 on the ordinary node: engine/guard/TLS ready, missing/wrong keys rejected,

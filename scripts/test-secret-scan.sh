@@ -384,7 +384,7 @@ CASES
 done
 
 # Stream originals get the same exact field/value/path boundaries.
-for stream_set in window-exhaustion 600s-complete selected-timeout selected-provider selected-tau8k selected-graphs selected-c8; do
+for stream_set in window-exhaustion 600s-complete selected-timeout selected-provider selected-tau8k selected-graphs selected-c8 selected-batch32; do
 while IFS='|' read -r relative field known suffix; do
   format=pretty
   target="$tmp/stream/evidence/p2/2026-10-23-stream-$stream_set/$relative"
@@ -410,8 +410,11 @@ while IFS='|' read -r relative field known suffix; do
       tokenizer-parity.py) known=6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f ;;
     esac
   fi
-  if [[ "$stream_set" == selected-c8 ]]; then
+  if [[ "$stream_set" == selected-c8 || "$stream_set" == selected-batch32 ]]; then
     target="$tmp/stream/evidence/p2/2026-10-24-selected-c8-stream/$relative"
+    if [[ "$stream_set" == selected-batch32 ]]; then
+      target="$tmp/stream/evidence/p2/2026-10-26-selected-batch32/$relative"
+    fi
     case "$field" in
       tokenizer-parity.py|stream/engine_tokenizer_parity.py)
         known=6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f
