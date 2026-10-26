@@ -118,6 +118,11 @@ is not this launcher. Real H100 evidence, vendor availability, unprivileged NVML
 access and complete image integration remain untested. No existing B300 lab
 success is promoted into H100 or confidential validation.
 
+The [offline static-network prerequisite](p3-t1-h100-network-prerequisites.md)
+now prepares private, source-bound candidate files without activating them.
+It records the remaining network, nonroot NVML and memory-control acceptance
+tests; it does not make the collector image runnable or change these gates.
+
 Software checks use synthetic certificates/claims and fake SDK output, never
 cryptographically valid vendor tokens. They cover every missing/false positive,
 revocation/expiry, malformed JSON and signed payloads, count/identity substitution,
