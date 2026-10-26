@@ -344,7 +344,10 @@ class BindingTests(unittest.TestCase):
             with self.subTest(source=name):
                 original = git(ROOT, "show", BASE + ":scripts/" + name)
                 self.assertEqual(git(ROOT, "show", SUSTAINED_SOURCE + ":scripts/" + name), original)
-                if name != "deepseek_tuning.py":
+                # Later opt-in scaling adds a collector branch and salt input;
+                # their historical bytes remain pinned above. Current default
+                # wire/argv and normalized owner AST are checked by scaling tests.
+                if name not in ("deepseek_tuning.py", "stream_transport.py", "engine_lab.py"):
                     self.assertEqual((ROOT / "scripts" / name).read_bytes(), original)
 
     def test_existing_tuning_profiles_keep_historical_arguments_and_source_pins(self):

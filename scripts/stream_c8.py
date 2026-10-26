@@ -73,7 +73,7 @@ def spawn():
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True)
 
 
-def start_collector(workers, index):
+def start_collector(workers, index, *, factory=None):
     # Popen can raise KeyboardInterrupt after fork without returning its child.
     # Defer signals only through fixed exec/registration, never through imports
     # or readiness. The child's exec resets these caught signal dispositions.
@@ -82,7 +82,7 @@ def start_collector(workers, index):
     try:
         for sig in handlers:
             signal.signal(sig, lambda sig, frame: pending.setdefault(sig, frame))
-        process = spawn()
+        process = (spawn if factory is None else factory)()
         row = {"process": process, "index": index, "raw": bytearray(), "ready": False,
                "eof": False, "bad": False, "dispatch": None, "packet": None}
         workers.append(row)

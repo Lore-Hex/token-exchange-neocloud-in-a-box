@@ -737,6 +737,8 @@ def application_and_request(contract, sources, modules, application, measured):
         tuning = tuning_module(contract)
         if tuning is not None:
             tuning.verify_sources(read_source, contract["paths"][-1])
+        if "stream_cohort" in contract and STREAM_LAB.scaling(contract):
+            STREAM_COHORT.scaling.capacity.verify_sources(read_source, contract["paths"][-1])
         if "stream_cohort" in contract:
             # A bad benchmark fixture must not consume a full model startup.
             local, stream_workload = prepare_local_tokenizer(contract, started)
@@ -896,6 +898,10 @@ def lab_entry():
         return
     contract, sources, modules, application, measured = lab_context(sys.argv[1])
     mode, rest = sys.argv[2], sys.argv[2:]
+    if mode == "scaling-collector":
+        require(len(rest) == 1 and STREAM_LAB is not None and STREAM_LAB.scaling(contract))
+        STREAM_COHORT.scaling.child(model_identity(contract)["served_model_name"])
+        return
     if mode == "stream-collector":
         require(len(rest) == 1 and STREAM_LAB is not None and STREAM_LAB.concurrent(contract))
         STREAM_COHORT.c8.child(model_identity(contract)["served_model_name"])
