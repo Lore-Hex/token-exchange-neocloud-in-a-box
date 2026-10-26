@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Offline static-plan tests; no device, network, systemd or package execution."""
-from contextlib import redirect_stdout
+from contextlib import contextmanager, redirect_stdout
 import io
 import json
 import os
@@ -212,6 +212,35 @@ class PublicationTests(unittest.TestCase):
         self.assertTrue(self.output.exists())
         self.assertFalse((self.output / "receipt.json").exists())
         with self.assertRaises(FileExistsError): self.cli()
+
+    def test_directory_aliases_reject_before_source_audit_or_publication(self):
+        original = plan.base.directory
+        alias = self.root / "alias"
+        for target, output in ((ROOT, alias / "out"), (self.primary, alias / "out"),
+                               (self.root, alias)):
+            @contextmanager
+            def directory(path):
+                mapped = target / path.relative_to(alias) if path == alias or alias in path.parents else path
+                with original(mapped) as fd:
+                    yield fd
+            with self.subTest(target=target, output=output), \
+                    mock.patch.object(plan.base, "directory", side_effect=directory), \
+                    mock.patch.object(plan, "committed") as audit, \
+                    mock.patch.object(plan.base, "publish") as publish:
+                with self.assertRaises(ValueError):
+                    plan.main(["--manifest", str(self.manifest), "--primary-sources", str(self.primary),
+                               "--output", str(output)])
+                audit.assert_not_called()
+                publish.assert_not_called()
+        self.assertFalse(alias.exists())
+
+    def test_real_case_alias_is_rejected_when_filesystem_resolves_it(self):
+        alias = ROOT.with_name(ROOT.name.upper())
+        if alias.exists() and os.path.samestat(ROOT.stat(), alias.stat()):
+            with self.assertRaises(ValueError): self.cli(output=alias / "not-created")
+            self.assertFalse((alias / "not-created").exists())
+        else:
+            with self.assertRaises(FileNotFoundError): self.cli(output=alias / "not-created")
 
     def test_real_cli_isolated_and_fixed_error_without_private_argument_echo(self):
         for flags in ([], ["-I"]):

@@ -173,6 +173,34 @@ class Parser(argparse.ArgumentParser):
         raise ValueError("network-plan-arguments-rejected")
 
 
+def separate_output(destination, manifest_path, primary_path):
+    tools.separate_output(destination, (ROOT, manifest_path, primary_path))
+
+    def lineage(path):
+        require(len(path.parts) <= 64)
+        result = []
+        for ancestor in (path, *path.parents):
+            with base.directory(ancestor) as fd:
+                result.append(os.fstat(fd))
+        return result
+
+    # Textual paths alone miss case-insensitive aliases. Compare nofollow-opened
+    # directory identities in both directions before reading or publishing.
+    protected = [lineage(ROOT), lineage(primary_path), lineage(manifest_path.parent)]
+    parents = lineage(destination.parent)
+    try:
+        with base.directory(destination) as fd:
+            existing = os.fstat(fd)
+    except FileNotFoundError:
+        existing = None
+    ancestors = parents if existing is None else [existing, *parents]
+    require(not any(os.path.samestat(group[0], ancestor)
+                    for group in protected[:2] for ancestor in ancestors))
+    if existing is not None:
+        require(not any(os.path.samestat(existing, ancestor)
+                        for group in protected for ancestor in group))
+
+
 def main(argv=None):
     parser = Parser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--manifest", required=True, type=Path)
@@ -182,7 +210,7 @@ def main(argv=None):
     mode.add_argument("--verify", type=Path)
     args = parser.parse_args(argv)
     destination = args.output or args.verify
-    tools.separate_output(destination, (ROOT, args.manifest, args.primary_sources))
+    separate_output(destination, args.manifest, args.primary_sources)
     revision, sources = committed()
     primary = primary_sources(args.primary_sources, sources)
     files, report = prepare(private_manifest(args.manifest), revision, sources, primary)

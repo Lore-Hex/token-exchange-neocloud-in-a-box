@@ -52,7 +52,8 @@ python3 -I scripts/prepare_h100_network.py \
 
 Inputs must be absolute paths without symlink ancestors; the manifest is an
 owned, single-link 0600 file. Output must be new and outside the source tree and
-inputs. These commands are offline; they do not download missing inputs. Keep
+inputs; nofollow directory identities also reject filesystem aliases. These
+commands are offline; they do not download missing inputs. Keep
 the plan and manifest private. File hashes are input bindings, not signed
 operator authorization or proof that an address belongs to NVIDIA.
 
