@@ -19,9 +19,10 @@ The original bytes are retained, not reconstructed from this summary:
 | [owner.json](owner.json) | Original host owner stdout, successful qualification and cleanup |
 | [progress.jsonl](progress.jsonl) | Original phase timestamps and execution/lifetime bindings |
 
-The committed `scripts/prepare-deepseek-lab.py` and
-`scripts/prepare-selected-service.py` prepare the payload;
-`scripts/selected_service_image.py` builds it; `host/record-selected-service.py`
+The committed [lab owner](../../../host/record-deepseek-lab.py) prepares the lab
+payload; [selected_service_image.py](../../../scripts/selected_service_image.py)
+with `prepare` prepares the serving image, and `build` builds it;
+[the serving owner](../../../host/record-selected-service.py)
 runs it with `--execution-profile long128k-graphs --lifetime-profile ordinary-24h
 --long-qualification`. Private paths, network identifiers, credentials and TLS
 material remain outside the repository. The reusable run path and prerequisites
