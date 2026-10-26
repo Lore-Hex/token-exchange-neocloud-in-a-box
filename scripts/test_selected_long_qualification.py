@@ -61,8 +61,11 @@ class QualificationTests(unittest.TestCase):
     def test_closed_counts_reserve_output_and_never_expand_default_request(self):
         work = workload()
         q.validate_workload(work)
-        self.assertEqual(q.PROMPTS, (32512, 65280, 130816, 2048))
+        self.assertEqual(q.PROMPTS, (32512, 65280, 130816, 114688))
         self.assertEqual(len(q.CASES), 10)
+        self.assertEqual(q.PROMPTS[-1] + q.LONG_OUTPUT, q.CONTEXT)
+        self.assertEqual(q.empty_report()["reserved_prompt_tokens"], 800512)
+        self.assertEqual(q.empty_report()["reserved_output_tokens"], 18688)
         for i in range(4):
             body = json.loads(q.request_bytes(work, i, "a" * 64))
             self.assertEqual(body["max_tokens"], q.OUTPUTS[i])

@@ -81,9 +81,9 @@ Ten sequential requests, no retry:
 | 32K | 32,512 | 256 | cold, warm, different namespace |
 | 64K | 65,280 | 256 | cold, warm, different namespace |
 | Near 128K | 130,816 | 256 | cold, warm, different namespace |
-| Long output | 2,048 | 16,384 | one fresh namespace |
+| Paired maximum context/output | 114,688 | 16,384 | one fresh namespace |
 
-Totals reserved: 687,872 prompt tokens and 18,688 output tokens. Prompt padding
+Totals reserved: 800,512 prompt tokens and 18,688 output tokens. Prompt padding
 is estimated only to locate candidates; exact tokenization must confirm every
 selected count. The server's actual prompt usage must match that count. Each
 context probe transiently checks a fixed synthetic retrieval answer. Raw prompts,
@@ -99,11 +99,13 @@ retained as a failed check, not attributed to capacity or the model. Different
 namespaces can map to different replicas, so these controls do not establish
 cross-tenant isolation or replay correctness on both ranks.
 
-The long-output probe requires actual 16,384 completion tokens and `length`
-finish, not merely a requested ceiling. It does **not** prove simultaneous
-114,688-token input plus 16,384-token output. Early `stop`, timeout, missing
-usage or incomplete framing cannot pass. No 1M-context or sustained-capacity
-claim follows from these probes.
+The final probe requires 114,688 actual prompt tokens plus 16,384 actual
+completion tokens and `length` finish, testing the paired 131,072-token budget
+in one request rather than measuring the two ceilings separately. A pass proves
+one C1 request on this configuration, not both replicas or a latency SLA. Early
+`stop`, timeout, missing usage or incomplete framing cannot pass. Extra prefill
+does not extend any deadline. No 1M-context or sustained-capacity claim follows
+from these probes.
 
 ## Receipts and failure
 
