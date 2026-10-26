@@ -1,6 +1,9 @@
 # P2.T3: bounded fresh-salt C16/C32/C64 experiment
 
-Software-only opt-in, not a measured throughput or capacity result. This uses
+The [original finite hardware result](../../evidence/p2/2026-10-26-selected-batch32/README.md)
+passed the three fresh-salt functional plateaus and cleanup, with the broader
+outer FAIL/BLOCKED gates unchanged. It does not prove continuous saturation,
+quality, confidential operation or public capacity. This opt-in uses
 the existing selected ordinary B300 DP2/TP4 lab owner, private loopback engine,
 tokenizer parity, materialization and runtime observation. It does not change
 the public service, selected weights, older execution profiles or receipts.
