@@ -100,7 +100,8 @@ def arguments(baseline, name):
         replace("--max-num-seqs", "1", "8")
     if name != "batch8-eager":
         result.remove("--enforce-eager")
-        # Full decode graphs isolate graph replay from prefill compilation.
+        # Capture decode-only graphs; prefill runs outside CUDA graphs.
+        # Removing eager also restores pinned compiler/JIT defaults.
         # DSpark shares this list: target needs 8*6 rows, drafter needs 8*5.
         # Without 40, drafter rounds 48 to 50 and drops it above its 40-row cap.
         sizes = ([1] if name == LONG_GRAPHS_PROFILE else

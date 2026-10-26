@@ -24,6 +24,7 @@ c8, cohort, binding = sustained.c8, sustained.cohort, sustained.binding
 MODEL, endpoint, selected = c8_tests.MODEL, c8_tests.endpoint, c8_tests.selected
 ROOT = Path(__file__).absolute().parents[1]
 BASE = "3a33577f1f666ad294a65046fe0a7580bf20a2bc"
+SUSTAINED_SOURCE = "dd4705c3483bb9f333642c5a904c9d7b74396e09"
 
 
 def contract():
@@ -340,7 +341,29 @@ class BindingTests(unittest.TestCase):
     def test_default_transport_engine_and_workload_source_bytes_unchanged(self):
         for name in ("stream_cohort.py", "stream_transport.py", "stream_measurement.py", "tau_live_identity.py",
                      "deepseek_tuning.py", "engine_lab.py"):
-            self.assertEqual((ROOT / "scripts" / name).read_bytes(), git(ROOT, "show", BASE + ":scripts/" + name))
+            with self.subTest(source=name):
+                original = git(ROOT, "show", BASE + ":scripts/" + name)
+                self.assertEqual(git(ROOT, "show", SUSTAINED_SOURCE + ":scripts/" + name), original)
+                if name != "deepseek_tuning.py":
+                    self.assertEqual((ROOT / "scripts" / name).read_bytes(), original)
+
+    def test_existing_tuning_profiles_keep_historical_arguments_and_source_pins(self):
+        # New closed profiles may extend the module, not alter a prior profile.
+        old = types.ModuleType("historical_tuning")
+        exec(compile(git(ROOT, "show", BASE + ":scripts/deepseek_tuning.py"), "historical_tuning", "exec"), old.__dict__)
+        current = tuning_tests.tuning
+        self.assertEqual((current.BATCH_NAMES, current.EAGER_CONTEXTS, current.SOURCES),
+                         (old.BATCH_NAMES, old.EAGER_CONTEXTS, old.SOURCES))
+        tuning_tests.TuningProfiles.setUpClass()
+        fixture = tuning_tests.TuningProfiles()
+        for name in old.NAMES:
+            options = {**tuning_tests.fixtures.PayloadProfiles.options, "stream_cohort": name not in old.EAGER_CONTEXTS}
+            _, row = fixture.payload(name, **options)
+            with self.subTest(profile=name):
+                self.assertEqual(current.arguments(fixture.baseline["arguments"], name),
+                                 old.arguments(fixture.baseline["arguments"], name))
+                self.assertEqual(current.enabled(row), old.enabled(row))
+                self.assertEqual(current.context_limit(row), old.context_limit(row))
 
     def test_closed_profile_rejects_engine_and_source_drift(self):
         binding.enabled(contract())
