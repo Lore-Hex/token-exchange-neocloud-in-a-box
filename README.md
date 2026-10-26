@@ -89,6 +89,10 @@ measured requests and zero errors, unknown usage or reported cache hits.
 This is bounded-wave throughput, not continuous saturation, quality or
 confidential qualification; the outer report remains FAIL/BLOCKED. It does
 not change the public C1 service, old evidence or customer prices.
+A [combined long-context / batch32 planning helper](docs/tasks/p2-t3-combined-qualification-plan.md)
+composes the existing controls and checks fixed deadline budgets offline. It is
+**not runnable**: bounded owner sequencing and a separate receipt path remain
+unimplemented; public C1 and all existing profiles stay unchanged.
 The latest nonroot/read-only selected-service image passed one bounded
 [private TLS inference smoke](evidence/p2/2026-10-24-selected-service-inference/README.md)
 on the ordinary node: engine/guard/TLS ready, missing/wrong keys rejected,
