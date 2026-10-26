@@ -526,7 +526,8 @@ def main(argv=None):
                 result = {"schema": service.LONG_SCHEMA, "status": "failed", "reason": "preparation",
                     "deployable": False, "hardware_validated": False, "mode": service.LONG_MODE,
                     "qualification": None, "lifetime": contract.lifetime if contract is not None else None,
-                    "prepared_sha256": args.prepared_sha256}
+                    "prepared_sha256": args.prepared_sha256
+                        if re.fullmatch("[0-9a-f]{64}", args.prepared_sha256) else None}
             publish(result)
             return 1
         if not (args.inference_smoke or args.conformance_smoke or args.protocol_smoke or args.tool_smoke):

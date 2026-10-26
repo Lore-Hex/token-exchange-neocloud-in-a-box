@@ -238,6 +238,34 @@ class AdmissionTests(unittest.TestCase):
         smoke.lifecycle_failure(output.getvalue().encode(), lifetime=row["lifetime"],
                                 prepared_sha256=SHA, execution_profile=LONG, long_qualification=True)
 
+    def test_process_cli_redacts_invalid_preparation_hash_on_every_early_exit(self):
+        clock = lifecycle_tests.Clock()
+        for budget in (7360, 8000):
+            for digest in ("PRIVATE_CANARY", "a" * 64 + "PRIVATE_CANARY", "A" * 64):
+                with self.subTest(budget=budget, digest=digest), ExitStack() as stack:
+                    args = ["--prepared-sha256", digest, "--provider-config", "/PRIVATE_CANARY",
+                        "--api-key-file", "/PRIVATE_CANARY", "--cert", "/PRIVATE_CANARY",
+                        "--key", "/PRIVATE_CANARY", "--hostname", "private.invalid",
+                        "--input-price", "1", "--output-price", "2",
+                        "--hard-stop-at", clock.timestamp(budget), "--execution-profile", LONG,
+                        "--lifetime-profile", DAY, "--long-qualification"]
+                    for module in (service, service.pilot, process):
+                        stack.enter_context(mock.patch.object(module, "time", clock))
+                    prepared = stack.enter_context(mock.patch.object(process, "Prepared"))
+                    inputs = stack.enter_context(mock.patch.object(service, "snapshot_inputs"))
+                    spawn = stack.enter_context(mock.patch.object(process.subprocess, "Popen"))
+                    output = io.StringIO()
+                    stack.enter_context(redirect_stdout(output))
+                    self.assertEqual(process.main(args), 1)
+                    row = json.loads(output.getvalue())
+                    self.assertEqual((row["status"], row["reason"]), ("failed", "preparation"))
+                    self.assertIsNone(row["prepared_sha256"])
+                    self.assertIsNone(row["execution_prepared_sha256"])
+                    self.assertNotIn("PRIVATE_CANARY", output.getvalue())
+                    self.assertNotIn(digest, output.getvalue())
+                    for call in (prepared, inputs, spawn):
+                        call.assert_not_called()
+
     def test_process_cli_passes_only_opt_in_hook_and_preserves_cleanup_exception(self):
         clock = lifecycle_tests.Clock()
         args = ["--prepared-sha256", SHA, "--provider-config", "/private/provider", "--api-key-file", "/private/key",
