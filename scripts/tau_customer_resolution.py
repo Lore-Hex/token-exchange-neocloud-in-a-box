@@ -29,8 +29,8 @@ def expected_customer(root):
 def dialogue(orchestrator, expected, proxy):
     """Pinned fc0055dc step/termination/tool behavior, no scripted assistant turn."""
     from tau2.data_model.message import ToolCall, ToolMessage
-    row = {"schema": policy.RESOLUTION_REPORT, "tool": "none", "outcome": "not_attempted",
-           "intended_customer_match": None}
+    row = {"schema": policy.RESOLUTION_REPORT_V2, "tool": "none", "outcome": "not_attempted",
+           "intended_customer_match": None, "failure_stage": None}
     proxy.customer_resolution = row
     execute = orchestrator._execute_tool_calls
     present, saved = "_execute_tool_calls" in vars(orchestrator), vars(orchestrator).get("_execute_tool_calls")
@@ -47,16 +47,28 @@ def dialogue(orchestrator, expected, proxy):
         row.update(tool=TOOLS[call.name], outcome="lookup_error")
         # Execute the original arguments exactly once through the trusted upstream
         # error boundary. No argument projection, injected identity or repair.
-        results = execute(calls)
-        worker.require(type(results) is list and len(results) == 1 and type(results[0]) is ToolMessage
-                       and type(results[0].error) is bool)
-        if not results[0].error:
-            # Pinned Environment.to_json_str returns retail string IDs unchanged,
-            # not JSON-quoted. Compare the original bounded value without repair.
-            value = results[0].content
-            worker.require(type(value) is str and 0 < len(value) <= 256)
-            row.update(outcome="resolved" if value == expected else "wrong_customer",
-                       intended_customer_match=value == expected)
+        try:
+            results = execute(calls)
+        except Exception:
+            # Abort/deadline and cancellation derive from BaseException and must
+            # retain their terminal status without inventing a lookup cause.
+            row["failure_stage"] = "execution_exception"
+            raise
+        try:
+            worker.require(type(results) is list and len(results) == 1 and type(results[0]) is ToolMessage
+                           and type(results[0].error) is bool)
+            if results[0].error:
+                row["failure_stage"] = "upstream_lookup"
+            else:
+                # Pinned Environment.to_json_str returns retail string IDs unchanged,
+                # not JSON-quoted. Compare the original bounded value without repair.
+                value = results[0].content
+                worker.require(type(value) is str and 0 < len(value) <= 256)
+                row.update(outcome="resolved" if value == expected else "wrong_customer",
+                           intended_customer_match=value == expected)
+        except Exception:
+            row["failure_stage"] = "result_validation"
+            raise
         return results
 
     try:

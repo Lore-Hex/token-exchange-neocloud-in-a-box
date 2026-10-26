@@ -10,6 +10,8 @@ tau = support.tau
 SCHEMA = "nib.tau-selected-operational-input/v1"
 RESOLUTION_SCHEMA = "nib.tau-selected-customer-resolution-input/v1"
 RESOLUTION_REPORT = "nib.tau-selected-customer-resolution/v1"
+RESOLUTION_REPORT_V2 = "nib.tau-selected-customer-resolution/v2"
+RESOLUTION_FAILURE_STAGES = ("upstream_lookup", "result_validation", "execution_exception")
 TRANSPORT = "nib.tau-selected-operational-transport/v1"
 CONTEXTS = {"candidate": 8192, "simulator": 4096, "evaluator": 4096}
 LIMITS = {"concurrency": 1, "retries": 0, "turns": 32, "requests": 32,
@@ -91,8 +93,10 @@ def resolution_result(value, *, completed=False):
     if value is None:
         tau.require(not completed)
         return None
+    version_two = type(value) is dict and value.get("schema") == RESOLUTION_REPORT_V2
     tau.require(type(value) is dict and set(value) == {"schema", "tool", "outcome", "intended_customer_match"}
-                and value["schema"] == RESOLUTION_REPORT
+                | ({"failure_stage"} if version_two else set())
+                and value["schema"] in (RESOLUTION_REPORT, RESOLUTION_REPORT_V2)
                 and value["tool"] in ("none", "email", "name_zip")
                 and value["outcome"] in ("not_attempted", "resolved", "wrong_customer", "lookup_error",
                                          "unsupported_tool", "multiple_tools"))
@@ -101,6 +105,10 @@ def resolution_result(value, *, completed=False):
                  or outcome not in ("resolved", "wrong_customer") and match is None)
                 and ((value["tool"] == "none") == (outcome in ("not_attempted", "unsupported_tool", "multiple_tools")))
                 and (not completed or outcome == "resolved"))
+    if version_two:
+        stage = value["failure_stage"]
+        tau.require(stage is None or (outcome == "lookup_error" and type(stage) is str
+                                      and stage in RESOLUTION_FAILURE_STAGES))
     return value
 
 
