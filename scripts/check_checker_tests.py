@@ -11,6 +11,7 @@ import provider_conformance
 
 ROOT = Path(__file__).resolve().parent.parent
 CASES = (
+    "test_pilot_catalog.GeneratedCatalogTests",
     "test_selected_service_conformance.PinnedCheckerTests",
     "test_selected_service_protocol.PinnedProtocolTests",
     "test_selected_external_conformance.ExternalCheckerTests",

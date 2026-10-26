@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/catalog"
 )
 
 func TestMillionProfileLimits(t *testing.T) {
@@ -20,11 +22,11 @@ func TestMillionProfileLimits(t *testing.T) {
 	if h.proxy.Transport.(*http.Transport).ResponseHeaderTimeout != 3540*time.Second || h.ShutdownGrace() != 3550*time.Second {
 		t.Fatal("million transport deadlines disagree")
 	}
-	for _, want := range []string{`"context_length":1048576`, `"max_output_tokens":393216`,
-		`"completion_timeout_seconds":3540`, `"prompt_caching":false`, `"cached_input":null`} {
-		if !strings.Contains(string(h.catalog), want) {
-			t.Fatalf("catalog missing %s", want)
-		}
+	if catalog.Validate(h.catalog) != nil || !bytes.Contains(h.catalog, []byte(`"data":[]`)) {
+		t.Fatal("unqualified million profile must have a valid, empty catalog")
+	}
+	if bytes.Contains(h.catalog, []byte(selectedModel)) || bytes.Contains(h.catalog, []byte(`"completion_timeout_seconds"`)) {
+		t.Fatal("million profile advertised an unsupported marketplace declaration")
 	}
 	for _, item := range []struct {
 		fields string
@@ -42,6 +44,32 @@ func TestMillionProfileLimits(t *testing.T) {
 		if _, err := h.profile.boundRequest([]byte(selectedRequest(fields))); err == nil {
 			t.Fatal("invalid output limit accepted")
 		}
+	}
+}
+
+func TestAllClosedProfileCatalogsSatisfyPinnedSchema(t *testing.T) {
+	for _, name := range []string{ProfileQwen, ProfileSelectedDeepSeek, ProfileSelectedGraphs,
+		ProfileSelectedQuality, ProfileSelectedLong, ProfileSelectedMillion} {
+		t.Run(name, func(t *testing.T) {
+			h, err := NewWithProfile(name, testProvider(), testKey, "0.65", "1.45", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := catalog.Validate(h.catalog); err != nil {
+				t.Fatal("generated profile catalog violates pinned schema:", err)
+			}
+			var got struct{ Data []json.RawMessage }
+			if json.Unmarshal(h.catalog, &got) != nil {
+				t.Fatal("invalid catalog JSON")
+			}
+			want := 1
+			if name == ProfileSelectedMillion {
+				want = 0
+			}
+			if len(got.Data) != want {
+				t.Fatal("catalog visibility differs from the closed profile")
+			}
+		})
 	}
 }
 

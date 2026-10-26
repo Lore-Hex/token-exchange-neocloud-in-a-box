@@ -90,7 +90,29 @@ Missing namespaces stay fresh per request. Actual warm counters are necessary,
 but cross-replica controls do not establish same-replica isolation. Rank identity
 and broad cache isolation remain unqualified. Public cache discounts, first-token
 and idle-time promises, sustained concurrency, tool quality and tau2 quality
-need separate qualification before listing. Catalog caching remains false/null.
+need separate qualification before listing. Listed profiles retain false/null
+cache declarations.
+
+## Marketplace integration gate
+
+This candidate deliberately returns `data: []` from `/v1/models`. Authenticated
+direct qualification still uses the selected model ID and the declared bounds
+above, but discovery cannot publish it. The pinned marketplace v2 contract and
+provider checker 0.1.8 allow at most 900 seconds for completion, not the 3,540
+seconds needed by this candidate. Publishing 900 would misrepresent the service;
+changing only our local schema would not fix consumers. The live
+[marketplace schema](https://trustedrouter.com/providers/marketplace/catalog.v2.schema.json)
+confirmed this ceiling on October 26, 2026.
+
+Earlier synthetic checker tests replayed legacy catalogs and missed this
+integration boundary. The new fixture emits the actual Go handler catalogs for
+every closed profile and replays them through the unchanged, hash-locked checker.
+The empty candidate is schema-valid but cannot pass selected-service conformance;
+a nonempty declaration with its actual deadline remains explicitly rejected.
+Public listing requires coordinated upstream contract/checker support, verified
+router deadlines, then fresh hardware and provider conformance evidence. Until
+then the candidate remains an unlisted experiment, not a deployable marketplace
+route.
 
 ## Tests and remaining gates
 
@@ -100,7 +122,8 @@ budgets, deadlines, tokenizer child, report validation and full lifecycle joins.
 bounded HTTP/SSE framing; `internal/pilotapi/million_profile_test.go` verifies
 catalog/output/body/deadline/admission limits. Shared Go tests exercise namespace
 isolation and rank affinity for both long profiles. Historical argv and receipt
-replays remain regression gates.
+replays remain regression gates. `scripts/test_pilot_catalog.py` replays generated
+catalogs through the pinned checker; it is mandatory in `check_checker_tests.py`.
 
 Real GPU startup, all ten qualification requests, full output, cache counters,
 cleanup and hardware evidence are still required. P3/P4/P5 confidential-image,
