@@ -2,6 +2,7 @@
 """Single-attempt JSON HTTPS. No redirects, proxy environment, SDK or logging."""
 
 from contextlib import contextmanager
+import hashlib
 import http.client
 import ipaddress
 import re
@@ -29,18 +30,38 @@ def system_trust():
 
 class HTTPS:
     """A frozen host/IPv4 and explicit route set; TLS verification precedes auth."""
-    def __init__(self, hostname, paths, *, address=None, clock=time.monotonic):
+    def __init__(self, hostname, paths, *, address=None, clock=time.monotonic,
+                 port=443, certificate_pem=None, certificate_sha256=None):
         require(type(hostname) is str and len(hostname) <= 253
                 and re.fullmatch(r"[a-z0-9]+(?:[.-][a-z0-9]+)*", hostname))
         require(type(paths) is tuple and 0 < len(paths) <= 2
                 and all(path in ("/v1/chat/completions", "/v1/responses", "/v1/responses/input_tokens") for path in paths))
         if address is None:
-            require(hostname == "api.openai.com")
+            require(hostname == "api.openai.com" and port == 443 and certificate_pem is None)
         else:
             ip = ipaddress.IPv4Address(address)
             require(str(ip) == address and ip.is_global and not ip.is_multicast)
-        self.hostname, self.address, self.paths, self.clock = hostname, address, paths, clock
-        self.trust, self.attempts, self.used = system_trust(), dict.fromkeys(paths, 0), False
+        require(type(port) is int and 1 <= port <= 65535)
+        self.peer_digest = None
+        if certificate_pem is None:
+            require(certificate_sha256 is None and port == 443)
+            self.trust = system_trust()
+        else:
+            require(address is not None and paths == ("/v1/chat/completions",)
+                    and type(certificate_pem) is bytes and len(certificate_pem) <= 65536
+                    and type(certificate_sha256) is str
+                    and re.fullmatch("[0-9a-f]{64}", certificate_sha256)
+                    and hashlib.sha256(certificate_pem).hexdigest() == certificate_sha256
+                    and certificate_pem.count(b"-----BEGIN CERTIFICATE-----") == 1
+                    and certificate_pem.count(b"-----END CERTIFICATE-----") == 1)
+            pem = certificate_pem.decode("ascii")
+            self.peer_digest = hashlib.sha256(ssl.PEM_cert_to_DER_cert(pem)).digest()
+            self.trust = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            self.trust.minimum_version = ssl.TLSVersion.TLSv1_2
+            self.trust.load_verify_locations(cadata=pem)
+        self.hostname, self.address, self.paths, self.clock, self.port = hostname, address, paths, clock, port
+        self.attempts, self.used = dict.fromkeys(paths, 0), False
+        self.last_status = None
 
     def remaining(self, deadline):
         left = deadline - self.clock()
@@ -60,8 +81,10 @@ class HTTPS:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as raw:
             raw.set_inheritable(False)
             raw.settimeout(min(5, self.remaining(deadline)))
-            raw.connect((address, 443))
+            raw.connect((address, self.port))
             with self.trust.wrap_socket(raw, server_hostname=self.hostname) as connection:
+                if self.peer_digest is not None:
+                    require(hashlib.sha256(connection.getpeercert(binary_form=True)).digest() == self.peer_digest)
                 connection.settimeout(self.remaining(deadline))
                 yield connection
 
@@ -70,9 +93,11 @@ class HTTPS:
                 and 16 <= len(credential) <= 4096 and all(33 <= byte <= 126 for byte in credential))
         payload = worker.bounded_json(body, 65536)
         self.used = True
+        self.last_status = None
         try:
             with worker.alarm(deadline, self.clock), self.connection(deadline) as connection:
-                header = ("POST " + path + " HTTP/1.1\r\nHost: " + self.hostname
+                authority = self.hostname + (":" + str(self.port) if self.port != 443 else "")
+                header = ("POST " + path + " HTTP/1.1\r\nHost: " + authority
                     + "\r\nConnection: close\r\nAccept: application/json\r\nAccept-Encoding: identity"
                     + "\r\nContent-Type: application/json\r\nContent-Length: " + str(len(payload))
                     + "\r\nAuthorization: Bearer ").encode("ascii") + credential + b"\r\n\r\n"
@@ -81,6 +106,7 @@ class HTTPS:
                 connection.sendall(header + payload)
                 with http.client.HTTPResponse(connection) as response:
                     response.begin()
+                    self.last_status = response.status
                     require(response.status == 200 and not response.headers.defects
                             and len(response.getheaders()) <= 64
                             and sum(len(k) + len(v) for k, v in response.getheaders()) <= 65536

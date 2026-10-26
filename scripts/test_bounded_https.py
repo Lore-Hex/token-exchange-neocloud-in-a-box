@@ -3,6 +3,7 @@
 
 from contextlib import contextmanager
 import io
+import hashlib
 import signal
 import socket
 import time
@@ -24,6 +25,38 @@ class Connection:
 
 
 class HTTPTests(unittest.TestCase):
+    def test_pinned_candidate_binds_port_cert_and_rejects_wrong_peer(self):
+        pem = b"-----BEGIN CERTIFICATE-----\nSYNTHETIC\n-----END CERTIFICATE-----\n"
+        with mock.patch.object(https.ssl, "PEM_cert_to_DER_cert", return_value=b"synthetic-der"), \
+                mock.patch.object(https.ssl, "SSLContext") as context, \
+                mock.patch.object(https.socket, "socket") as sockets, \
+                mock.patch.object(https, "system_trust") as roots:
+            client = https.HTTPS("candidate.example.test", ("/v1/chat/completions",),
+                address="8.8.8.8", port=18443, certificate_pem=pem,
+                certificate_sha256=hashlib.sha256(pem).hexdigest())
+            peer = context.return_value.wrap_socket.return_value.__enter__.return_value
+            peer.getpeercert.return_value = b"different-der"
+            with self.assertRaises(ValueError):
+                client.post("/v1/chat/completions", {}, b"SYNTHETIC_PRIVATE_CANARY", time.monotonic() + 2)
+            sockets.return_value.__enter__.return_value.connect.assert_called_once_with(("8.8.8.8", 18443))
+            peer.sendall.assert_not_called()
+            self.assertEqual(client.attempts["/v1/chat/completions"], 0)
+            roots.assert_not_called()
+            peer.getpeercert.return_value = b"synthetic-der"
+            with client.connection(time.monotonic() + 2) as actual:
+                self.assertIs(actual, peer)
+
+    def test_pin_cannot_override_support_api_or_accept_bad_digest(self):
+        for args in ({"address": None}, {"address": "8.8.8.8"}):
+            with self.assertRaises(ValueError):
+                https.HTTPS("api.openai.com", ("/v1/responses",), certificate_pem=b"bad",
+                    certificate_sha256="a" * 64, **args)
+        with self.assertRaises(ValueError):
+            https.HTTPS("candidate.example.test", ("/v1/chat/completions",), address="8.8.8.8",
+                port=18443, certificate_pem=b"bad", certificate_sha256="a" * 64)
+        with self.assertRaises(ValueError):
+            https.HTTPS("candidate.example.test", ("/v1/chat/completions",), address="8.8.8.8", port=18443)
+
     def client(self, response):
         with mock.patch.object(https, "system_trust"):
             client = https.HTTPS("api.openai.com", ("/v1/responses",))

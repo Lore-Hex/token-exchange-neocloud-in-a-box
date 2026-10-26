@@ -121,12 +121,15 @@ class Endpoint:
         self.count_attempts = self.attempts = self.unknown = 0
         self.measured = []
         self.ready = None
+        self.stage = "idle"
 
     def count(self, body, context, deadline):
+        self.stage = "input-validation"
         require(context == self.context and self.ready is None and self.attempts < 32 and self.count_attempts < 32)
         wire = (candidate_request(body, full_task=self.full_task) if self.role == "candidate" else
                 simulator_request(body, full_task=self.full_task))
         if self.role == "candidate":
+            self.stage = "candidate-tokenization"
             count = self.counter.count(wire)
         else:
             # This is a separately counted non-generating authenticated call,
@@ -134,6 +137,7 @@ class Endpoint:
             if self.full_task:
                 self.count_budget.reserve()
             self.count_attempts += 1
+            self.stage = "support-count"
             counted = self.http.post(COUNT, {key: wire[key] for key in
                 ("model", "input", "truncation")}, self.key, deadline)
             require(type(counted) is dict and set(counted) == {"object", "input_tokens"}
@@ -141,6 +145,7 @@ class Endpoint:
             count = counted["input_tokens"]
         require(type(count) is int and 0 < count <= context - self.output)
         self.ready = worker.digest(worker.encoded(body)), wire, count
+        self.stage = "counted"
         return count
 
     def complete(self, body, prompt, deadline):
@@ -151,10 +156,12 @@ class Endpoint:
         def sent():
             self.attempts += 1
             self.unknown += 1
+        self.stage = "generation"
         raw = self.http.post(CHAT if self.role == "candidate" else RESPONSES,
                              wire, self.key, deadline, before_send=sent)
         require(type(raw) is dict and raw.get("model") == wire["model"] and type(raw.get("usage")) is dict)
         usage = raw["usage"]
+        self.stage = "usage-validation"
         incoming, outgoing = ((usage.get("prompt_tokens"), usage.get("completion_tokens"))
                               if self.role == "candidate" else (usage.get("input_tokens"), usage.get("output_tokens")))
         require(type(incoming) is int and 0 < incoming <= self.context
@@ -165,6 +172,7 @@ class Endpoint:
         self.measured.append(settled)
         self.unknown -= 1
         require(incoming == prompt and incoming + outgoing <= self.context)
+        self.stage = "content-validation"
         if self.role == "candidate":
             require(type(raw.get("choices")) is list and len(raw["choices"]) == 1)
             choice = raw["choices"][0]
@@ -174,6 +182,7 @@ class Endpoint:
                     and message.get("annotations") in (None, []) and message.get("audio") is None
                     and message.get("function_call") is None and message.get("reasoning") in (None, "")
                     and message.get("reasoning_content") in (None, "") and message.get("refusal") in (None, ""))
+            self.stage = "completed"
             return {"usage": settled, "choices": [{"finish_reason": choice["finish_reason"],
                     "message": {key: value for key, value in message.items() if key in ("role", "content", "tool_calls")}}]}
         require(raw.get("service_tier") == "default" and raw.get("status") in ("completed", "incomplete")
@@ -189,11 +198,13 @@ class Endpoint:
             require(raw.get("incomplete_details") == {"reason": "max_output_tokens"})
         else:
             require(raw.get("incomplete_details") is None and message.get("status") == "completed")
+        self.stage = "completed"
         return {"usage": settled, "choices": [{"finish_reason": "stop" if raw["status"] == "completed" else "length",
                  "message": {"role": "assistant", "content": content["text"]}}]}
 
     def observation(self):
         return {"generation_attempts": self.attempts, "count_attempts": self.count_attempts,
+                "stage": self.stage, "last_http_status": getattr(self.http, "last_status", None),
                 # Reserve an entire GPT-4.1 input at standard input price
                 # for each counting call; do not assume that endpoint is free.
                 "count_cost_reserved_usd": format(COUNT_RESERVATION * self.count_attempts, "f"),
@@ -212,11 +223,15 @@ class Runtime:
         raw = private.private_read(contract_path, deadline)
         require(worker.digest(raw) == contract_sha)
         contract = worker.decode(raw)
+        pinned = type(contract) is dict and contract.get("schema") == "nib.tau-external-trial-endpoint/v2"
+        require(not pinned or full_task)
         require(type(contract) is dict and set(contract) == {"schema", "hostname", "address", "port", "model",
                 "context_tokens", "output_tokens", "prices", "simulator", "retire_at", "conformance_sha256"}
                     | ({"candidate_profile", "evaluator"} if full_task else set())
-                and contract["schema"] == ("nib.tau-external-trial-endpoint/v1" if full_task
-                                           else "nib.tau-external-endpoint/v1") and contract["port"] == 443
+                    | ({"certificate", "certificate_sha256", "serving_profile", "serving_context_tokens"} if pinned else set())
+                and (pinned or contract["schema"] == ("nib.tau-external-trial-endpoint/v1" if full_task
+                                           else "nib.tau-external-endpoint/v1"))
+                and (type(contract["port"]) is int and 1 <= contract["port"] <= 65535 if pinned else contract["port"] == 443)
                 and contract["model"] == policy.PUBLIC_MODEL and contract["context_tokens"] == context
                 and contract["output_tokens"] == output and contract["prices"] == config["prices"]
                 and contract["simulator"] == policy.EXTERNAL_MODEL
@@ -225,14 +240,20 @@ class Runtime:
                 and contract["evaluator"] == policy.EXTERNAL_MODEL
                 and all(type(contract[key]) is int for key in ("port", "context_tokens", "output_tokens")))
         tau.sha(contract["conformance_sha256"])
+        require(not pinned or contract["serving_profile"] == "long1m-graphs"
+                and type(contract["serving_context_tokens"]) is int
+                and contract["serving_context_tokens"] == 1048576)
         try:
             self.counter = tau_external_tokenizer.Counter(source, tokenizer, wheel,
                 **({"context_tokens": context} if full_task else {}))
+            tls = {"port": contract["port"],
+                   "certificate_pem": private.private_read(contract["certificate"], deadline),
+                   "certificate_sha256": contract["certificate_sha256"]} if pinned else {}
+            candidate_http = bounded_https.HTTPS(contract["hostname"], (CHAT,), address=contract["address"], **tls)
             keys = [private.private_read(path, deadline).rstrip(b"\n") for path in (candidate_key, simulator_key)]
             require(all(16 <= len(key) <= 4096 and all(33 <= byte <= 126 for byte in key) for key in keys))
             options = {"full_task": True, "count_budget": CountBudget()} if full_task else {}
-            self.endpoints = {"candidate": Endpoint("candidate", bounded_https.HTTPS(contract["hostname"], (CHAT,),
-                               address=contract["address"]), keys[0], self.counter, **options),
+            self.endpoints = {"candidate": Endpoint("candidate", candidate_http, keys[0], self.counter, **options),
                              **{role: Endpoint(role, bounded_https.HTTPS("api.openai.com", (COUNT, RESPONSES)),
                                                keys[1], **options) for role in config["support"]}}
             self.manifest = {"schema": policy.EXTERNAL_TRIAL_TRANSPORT if full_task else policy.EXTERNAL_TRANSPORT,

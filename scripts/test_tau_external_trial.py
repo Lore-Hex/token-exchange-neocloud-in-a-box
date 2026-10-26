@@ -67,6 +67,40 @@ def complete_roles(session, channel, roles=("agent", "simulator", "evaluator")):
 
 
 class ExternalTrialTests(unittest.TestCase):
+    def test_retained_pinned_contract_keeps_trial_budget_and_actual_serving_profile(self):
+        config = configuration()
+        contract = {"schema": "nib.tau-external-trial-endpoint/v2", "hostname": "candidate.example.test",
+            "address": "8.8.8.8", "port": 18443, "model": policy.PUBLIC_MODEL, "context_tokens": 32768,
+            "output_tokens": 2048, "prices": config["prices"], "simulator": policy.EXTERNAL_MODEL,
+            "evaluator": policy.EXTERNAL_MODEL, "candidate_profile": "quality32k-eager",
+            "retire_at": int(time.time()) + 1000, "conformance_sha256": "a" * 64,
+            "certificate": "/private/synthetic-cert.pem", "certificate_sha256": "c" * 64,
+            "serving_profile": "long1m-graphs", "serving_context_tokens": 1048576}
+        for mutate in (None, lambda c: c.update(serving_profile="unknown"),
+                       lambda c: c.update(serving_context_tokens=8192), lambda c: c.update(port=True),
+                       lambda c: c.update(context_tokens=1048576)):
+            value = copy.deepcopy(contract)
+            if mutate: mutate(value)
+            raw = worker.encoded(value)
+            counter = types.SimpleNamespace(binding="b" * 64, close=mock.Mock())
+            with mock.patch.object(external.private, "private_read", side_effect=[raw, b"SYNTHETIC_PEM",
+                    b"SYNTHETIC_CANDIDATE_KEY", b"SYNTHETIC_SIMULATOR_KEY"]) as read, \
+                    mock.patch.object(external.tau_external_tokenizer, "Counter", return_value=counter), \
+                    mock.patch.object(external.bounded_https, "HTTPS") as http:
+                args = (None, worker.digest(raw), None, None, None, None, None, time.monotonic() + 90)
+                if mutate:
+                    with self.assertRaises(ValueError):
+                        external.Runtime(*args, full_task=True)
+                    self.assertEqual(read.call_count, 1)
+                    http.assert_not_called()
+                else:
+                    held = external.Runtime(*args, full_task=True)
+                    self.assertEqual(http.call_args_list[0].kwargs, {"address": "8.8.8.8", "port": 18443,
+                        "certificate_pem": b"SYNTHETIC_PEM", "certificate_sha256": "c" * 64})
+                    self.assertEqual(held.endpoints["candidate"].context, 32768)
+                    self.assertEqual(held.endpoints["candidate"].output, 2048)
+                    held.close()
+
     def test_committed_lookup_and_selected_policy_bytes_unchanged(self):
         original = subprocess.run(["git", "show", "03b8b3744709b01abf0c1377eb8e8640a69e0587:scripts/tau_selected_policy.py"],
             cwd=runner.ROOT, capture_output=True, check=True, timeout=10).stdout
