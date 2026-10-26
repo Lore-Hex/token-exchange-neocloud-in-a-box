@@ -62,6 +62,15 @@ else:
             assert threading.current_thread() is threading.main_thread()
             assert self.endpoint.expected == expected
             started = time.monotonic()
+            if mode == "lost-synchronized":
+                rendezvous = Path(sys.argv[5])
+                (rendezvous / str(os.getpid())).touch()
+                # The test requires eight dispatched but lost responses, not
+                # the legitimate early-stop outcome of an immediate child exit.
+                with c8.stream.worker.alarm(options["deadline"]):
+                    while len(list(rendezvous.iterdir())) != 8:
+                        time.sleep(0.005)
+                os._exit(4)
             if mode == "lost":
                 os._exit(4)
             if mode == "stubborn":

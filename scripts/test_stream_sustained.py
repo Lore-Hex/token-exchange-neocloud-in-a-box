@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import tempfile
 import time
 import types
 import unittest
@@ -238,16 +239,26 @@ class SustainedTests(unittest.TestCase):
 
     def test_real_wave_spawn_and_report_failures_keep_reap_and_usage(self):
         fixture = c8_tests.ProcessTests()
-        for modes, fail_at in (((), 3), (("lost",) * 8, None), (("known-failure",) * 8, None)):
+        for modes, fail_at in (((), 3), (("lost",) * 8, None), (("lost-synchronized",) * 8, None),
+                              (("known-failure",) * 8, None)):
             record = {}
-            with self.subTest(modes=modes, fail_at=fail_at), fixture.children(modes, fail_at=fail_at):
-                c8.wave(endpoint(), workload(), record, deadline=time.monotonic() + 10, model=MODEL)
+            synchronized = modes and modes[0] == "lost-synchronized"
+            with self.subTest(modes=modes, fail_at=fail_at), tempfile.TemporaryDirectory() as temporary:
+                with fixture.children(modes, fail_at=fail_at, usage_dir=temporary if synchronized else None):
+                    c8.wave(endpoint(), workload(), record, deadline=time.monotonic() + 10, model=MODEL)
+                if synchronized:
+                    self.assertEqual(len(list(Path(temporary).iterdir())), 8)
             self.assertFalse(record["completed"])
             self.assertTrue(record["collectors_reaped"])
             with mock.patch.object(cohort, "c8", c8, create=True):
                 self.assertFalse(binding.validate_cohort(record, contract(), cohort, MODEL, wave=True))
-            if modes and modes[0] == "lost":
+            if synchronized:
                 self.assertEqual(record["requests_with_unknown_usage"], 8)
+                self.assertEqual((record["started_requests"], record["not_run_requests"]), (8, 0))
+            elif modes and modes[0] == "lost":
+                self.assertGreater(record["started_requests"], 0)
+                self.assertEqual(record["requests_with_unknown_usage"], record["started_requests"])
+                self.assertEqual(record["started_requests"] + record["not_run_requests"], 8)
             if modes and modes[0] == "known-failure":
                 self.assertGreater(record["measured"]["reported_failed_output_tokens"], 0)
 
