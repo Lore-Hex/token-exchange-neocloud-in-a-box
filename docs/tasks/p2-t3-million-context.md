@@ -1,10 +1,13 @@
 # P2.T3: 1M context and 384K output candidate
 
-Status: implemented and tested against synthetic fixtures; **not hardware
-validated, quality qualified, confidential, or a public serving guarantee**.
-The existing [128K/16K graph trial](../../evidence/p2/2026-10-26-selected-long-graphs/README.md)
-remains the largest validated paired request. This is a separate, explicit
-`long1m-graphs` profile; older execution profiles and receipts are unchanged.
+Status: **finite C1 hardware trial passed on ordinary eight-B300**, including
+655,360 input plus 393,216 actual output tokens and all nine retrieval/cache
+checks through 1,048,320 input tokens. See the
+[original October 26 results](../../evidence/p2/2026-10-26-selected-million-pass/README.md).
+This is **not sustained capacity, quality qualification, confidential inference,
+or a public serving guarantee**. The existing
+[128K/16K graph trial](../../evidence/p2/2026-10-26-selected-long-graphs/README.md)
+and all older execution profiles and receipts are unchanged.
 
 ## Source and limits
 
@@ -16,7 +19,8 @@ Its SHA-256 is
 already in the [selected manifest](../../models/deepseek-v4.1-flash-1017-uncensored-fp8/1/files.sha256).
 [DeepSeek's published API table](https://api-docs.deepseek.com/quick_start/pricing/)
 lists 1M context and 384K maximum output (read October 26, 2026). The output
-ceiling is our parity target, not evidence that this deployment can generate it.
+ceiling was the parity target; the separate finite hardware trial now records
+that many actual output tokens, without making a general completion guarantee.
 
 | Bound | Explicit candidate |
 |---|---|
@@ -125,6 +129,10 @@ isolation and rank affinity for both long profiles. Historical argv and receipt
 replays remain regression gates. `scripts/test_pilot_catalog.py` replays generated
 catalogs through the pinned checker; it is mandatory in `check_checker_tests.py`.
 
-Real GPU startup, all ten qualification requests, full output, cache counters,
-cleanup and hardware evidence are still required. P3/P4/P5 confidential-image,
-verifier and full confidential-node exits remain separate unfulfilled gates.
+Real GPU startup, all ten qualification requests, full output, cache counters
+and cleanup passed in the committed finite trial. The offline
+`scripts/test_selected_million_evidence.py` replays its original producer's
+validators and rejects inflated usage, cache, privacy and capacity claims.
+The marketplace integration gate above, sustained load, general quality and
+P3/P4/P5 confidential-image, verifier and full confidential-node exits remain
+separate unfulfilled gates.

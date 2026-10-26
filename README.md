@@ -39,14 +39,17 @@ onboarding steps; running the toolkit does not automatically list a provider.
 
 ## Status
 
-A separate [1M-context / 384K-output candidate](docs/tasks/p2-t3-million-context.md)
-is implemented with coordinated engine, API, stream, deadline and cleanup limits.
-It is **not yet hardware validated**. Its exact-tokenizer qualification must
-complete a 655,360-input / 393,216-output request, plus 256K/512K/1M cache checks,
-before those limits can be advertised. It currently returns an empty model
-catalog: its 59-minute deadline exceeds the pinned marketplace contract's
-15-minute ceiling. Listing also requires coordinated contract, checker and
-router support. Existing profiles remain unchanged.
+The [1M-context / 384K-output candidate](docs/tasks/p2-t3-million-context.md)
+**passed its finite C1 trial on ordinary 8xB300**
+([original results](evidence/p2/2026-10-26-selected-million-pass/README.md)):
+655,360 input plus 393,216 actual output tokens in 45.69 minutes, with zero
+retries or unknown usage and confirmed cleanup. All nine retrieval/cache checks
+passed through 1,048,320 input tokens. The warm 1M request reused 1,048,192 tokens
+and reached first content in 1.66 seconds, versus 23.64 seconds cold.
+This is not sustained capacity, quality or confidential qualification. The
+candidate still returns an empty model catalog: its 59-minute deadline exceeds
+the pinned marketplace contract's 15-minute ceiling. Listing requires coordinated
+contract, checker and router support. Existing profiles remain unchanged.
 
 The [October 26 preparation checkpoint](evidence/p2/2026-10-26-million-prerequisites/README.md)
 records verified staging of all 510.3 GB, a separate verified read-only copy,
