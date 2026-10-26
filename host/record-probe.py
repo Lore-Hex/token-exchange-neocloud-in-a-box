@@ -171,14 +171,17 @@ def destination(root, started, label="hardware-probe", *, output=None):
             raise ValueError("invalid-evidence-label")
         if output is not None:
             path, source = Path(output), Path(root).resolve(strict=True)
-            if (not path.is_absolute() or str(output) != str(path) or str(path) != os.path.normpath(path)
+            if (path.anchor != "/" or str(output) != str(path) or str(path) != os.path.normpath(path)
                     or len(path.parts) > 64 or path.is_relative_to(source) or source.is_relative_to(path)):
                 raise ValueError("external-evidence-directory-required")
+            source_info = source.stat()
             current = Path("/")
             parent = keep(os.open(current, flags), ancestor=current)
             for component in path.parent.parts[1:]:
                 current /= component
                 parent = keep(os.open(component, flags, dir_fd=parent), ancestor=current)
+                if os.path.samestat(source_info, os.fstat(parent)):
+                    raise ValueError("external-evidence-directory-required")
             info = os.fstat(parent)
             if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
                 raise ValueError("private-owned-evidence-parent-required")

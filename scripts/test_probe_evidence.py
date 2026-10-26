@@ -129,7 +129,7 @@ class ProbeEvidenceTests(unittest.TestCase):
             self.assertEqual(before, {item.name: item.read_bytes() for item in target.iterdir()})
 
     def test_external_output_rejects_overlap_links_existing_and_unsafe_parents(self):
-        kinds = ("source", "inside", "ancestor", "relative", "dotdot", "empty", "double-slash",
+        kinds = ("source", "inside", "ancestor", "relative", "dotdot", "empty", "double-slash", "double-root",
                  "existing", "file", "leaf-link", "parent-link", "ancestor-link", "parent-file",
                  "public-parent", "writable-parent", "writable-ancestor", "sticky-ancestor", "wrong-owner")
         for kind in kinds:
@@ -139,10 +139,11 @@ class ProbeEvidenceTests(unittest.TestCase):
                 root.mkdir(mode=0o700)
                 parent.mkdir(mode=0o700)
                 target = parent / "result"
-                if kind in ("source", "inside", "ancestor", "relative", "dotdot", "empty", "double-slash"):
+                if kind in ("source", "inside", "ancestor", "relative", "dotdot", "empty", "double-slash", "double-root"):
                     target = {"source": root, "inside": root / "result", "ancestor": base,
                               "relative": "result", "dotdot": str(parent) + "/../result", "empty": "",
-                              "double-slash": str(parent) + "//result"}[kind]
+                              "double-slash": str(parent) + "//result",
+                              "double-root": "/" + str(root / "result")}[kind]
                 elif kind == "existing":
                     target.mkdir(mode=0o700)
                 elif kind == "file":
@@ -180,6 +181,17 @@ class ProbeEvidenceTests(unittest.TestCase):
                 recorder.main(arguments)
             sources.assert_not_called()
             self.assertNotIn(CANARY, str(raised.exception))
+
+    def test_external_output_also_rejects_opened_source_ancestor_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            # Model an alternate spelling whose lexical overlap was missed;
+            # retained directory identities must still prevent source writes.
+            with patch.object(recorder.Path, "is_relative_to", return_value=False), \
+                    self.assertRaises(ValueError):
+                run_fixture(root, destination=root / "result",
+                            capture=lambda *a, **k: self.fail("must reject before execution"))
+            self.assertEqual(list(root.iterdir()), [])
 
     def test_pass_is_only_inventory_and_has_no_identifiers(self):
         with tempfile.TemporaryDirectory() as directory:
