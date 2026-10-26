@@ -74,6 +74,11 @@ completed all eight requests at **645.28 output tokens/second overall** and
 **1,835.91 ms median TTFT**, excluding warmup. This improves aggregate throughput
 in the small synthetic test while increasing first-token latency; it is not
 a sustained-load guarantee or quality qualification.
+A [32-wave C8 attempt](evidence/p2/2026-10-26-selected-sustained-c8/README.md)
+completed 256 measured requests without errors at **896.05 output tokens/second**
+and **205.68 ms median TTFT**. Its 114.279-second measurement fell short of the
+predeclared two-minute minimum, so sustained qualification remains failed.
+Repeated-prefix cache state and replica saturation are unqualified.
 The latest nonroot/read-only selected-service image passed one bounded
 [private TLS inference smoke](evidence/p2/2026-10-24-selected-service-inference/README.md)
 on the ordinary node: engine/guard/TLS ready, missing/wrong keys rejected,
