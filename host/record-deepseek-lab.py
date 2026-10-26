@@ -797,7 +797,7 @@ def run_container(bundle, sha, weights, deadline, recorder, contract, config, en
             require(code == 0)
         else:
             raw = recorder.call(["docker", "container", "start", "--attach", name], env,
-                                timeout=max(1, min(MAX_SECONDS, deadline - time.time())), limit=65536)
+                                timeout=max(1, min(MAX_SECONDS, deadline - time.time())), limit=result_limits(bundle, contract)[0])
         report["output_bytes"] = len(raw)
         report["experiment_step"] = "decode"
         experiment = json.loads(raw)
@@ -858,6 +858,15 @@ def run_container(bundle, sha, weights, deadline, recorder, contract, config, en
             report["functional_pass"] = False
             report["failure"] = "bounded-lab-stage-failed"
     return report
+
+
+def result_limits(bundle, contract):
+    if "stream_cohort" not in contract:
+        return 65536, 60000
+    module = load("lab_stream_limits", Path(bundle) / "payload/stream-lab.py",
+                  contract["sources"]["stream-lab.py"])
+    # Historical source-bound bundles predate the explicit sustained profile.
+    return module.result_limits(contract) if hasattr(module, "result_limits") else (65536, 60000)
 
 
 def validate_result(row, bundle, contract, recorder):
@@ -1052,7 +1061,7 @@ def validate_result(row, bundle, contract, recorder):
     if pre_serve:
         require(row["entry_pass"] == (row["stage"] == "complete" and row["engine_stopped"] is True
                                      and row["hardware"] is not None and row["application"] is not None))
-    require(len(json.dumps(row)) <= 60000)
+    require(len(json.dumps(row)) <= result_limits(bundle, contract)[1])
 
 
 def cancel(*_):
@@ -1106,7 +1115,7 @@ def main():
     parser.add_argument("--tau-owner", action="store_true",
                         help="Prepare selected 8K owner; run requires private controller pipes, not a terminal.")
     parser.add_argument("--stream-profile", metavar="PROFILE",
-                        help="Prepared profile: chat-2k-512-c1-600s or explicit chat-2k-512-c8-600s (batch8-graphs only).")
+                        help="Prepared profile: chat-2k-512-c1-600s, chat-2k-512-c8-600s, or chat-2k-512-c8-32waves-600s (C8 requires batch8-graphs).")
     parser.add_argument("--model-profile", choices=("original", "uncensored"),
                         help="Fixed checkpoint selection during preparation only; absence selects original.")
     parser.add_argument("--execution-profile", metavar="PROFILE",

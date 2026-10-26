@@ -14,12 +14,24 @@ import stream_lab as binding
 
 stream, meter, require = cohort.stream, cohort.meter, cohort.require
 SCHEMA = "nib.chat-stream-cohort/v2"
+WAVE_SCHEMA = "nib.chat-stream-wave/v1"
 READY, GO = b"R\n", b"G"
 PACKET_BYTES, START_SECONDS, CLEANUP_SECONDS = 4096, 10, 3
 
 
 def cancelled(*_):
     raise KeyboardInterrupt
+
+
+def restore_handlers(handlers):
+    pending = None
+    for sig, handler in handlers.items():
+        try:
+            signal.signal(sig, handler)
+        except BaseException as exc:
+            pending = pending if pending is not None else exc
+    if pending is not None:
+        raise pending
 
 
 def child(model):
@@ -199,6 +211,29 @@ def peak(intervals):
 
 
 def run(endpoint, workload, *, deadline, gpu_count, cohort_seconds, model):
+    return _execute(endpoint, workload, deadline=deadline, gpu_count=gpu_count,
+                    cohort_seconds=cohort_seconds, model=model, warmup_enabled=True, record={})
+
+
+def wave(endpoint, workload, record, *, deadline, model):
+    """One measured wave; publish usage before restoring caller signal handlers."""
+    return _execute(endpoint, workload, deadline=deadline, gpu_count=8,
+                    cohort_seconds=cohort.EXTENDED_COHORT_SECONDS, model=model,
+                    warmup_enabled=False, record=record)
+
+
+def _execute(endpoint, workload, *, deadline, gpu_count, cohort_seconds, model, warmup_enabled, record):
+    require(threading.current_thread() is threading.main_thread() and type(record) is dict and not record)
+    handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        return _run(endpoint, workload, deadline=deadline, gpu_count=gpu_count,
+                    cohort_seconds=cohort_seconds, model=model, warmup_enabled=warmup_enabled,
+                    record=record, handlers=handlers)
+    finally:
+        restore_handlers(handlers)
+
+
+def _run(endpoint, workload, *, deadline, gpu_count, cohort_seconds, model, warmup_enabled, record, handlers):
     require(threading.current_thread() is threading.main_thread() and type(workload) is cohort.Workload
             and type(endpoint) is stream.identity.Endpoint and endpoint.port == stream.PORT
             and type(gpu_count) is int and gpu_count == 8 and meter.number(deadline)
@@ -210,16 +245,16 @@ def run(endpoint, workload, *, deadline, gpu_count, cohort_seconds, model):
     work_deadline = deadline - CLEANUP_SECONDS
     workers, warmup, warmup_start, measured_start = [], None, None, None
     stop, reaped = "deadline", True
-    handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
     try:
         for sig in handlers:
             signal.signal(sig, cancelled)
         if time.monotonic() < work_deadline:
             with stream.worker.alarm(work_deadline):
-                warmup_start = time.monotonic()
-                warmup = cohort._collect(client, workload, 0, work_deadline)
-                stop = "warmup-failed"
-                if warmup.status == "completed":
+                if warmup_enabled:
+                    warmup_start = time.monotonic()
+                    warmup = cohort._collect(client, workload, 0, work_deadline)
+                    stop = "warmup-failed"
+                if not warmup_enabled or warmup.status == "completed":
                     stop = "collector-failed"
                     setup_deadline = min(work_deadline, time.monotonic() + START_SECONDS)
                     for index in range(1, cohort.TOTAL_REQUESTS):
@@ -260,11 +295,7 @@ def run(endpoint, workload, *, deadline, gpu_count, cohort_seconds, model):
     finally:
         for sig in handlers:
             signal.signal(sig, signal.SIG_IGN)
-        try:
-            reaped = cleanup(workers, epoch, deadline)
-        finally:
-            for sig, handler in handlers.items():
-                signal.signal(sig, handler)
+        reaped = cleanup(workers, epoch, deadline)
     ended = time.monotonic()
     if warmup_start is not None and warmup is None:
         warmup = meter.Sample("cancelled" if stop == "cancelled" else "timeout" if stop == "deadline" else "transport-error",
@@ -292,10 +323,12 @@ def run(endpoint, workload, *, deadline, gpu_count, cohort_seconds, model):
         elif concurrency != cohort.MEASURED_REQUESTS:
             stop = "insufficient-overlap"
     all_samples = ([warmup.metadata()] if warmup is not None else []) + samples
-    return {"schema": SCHEMA, "model": model, "workload": workload.metadata(), "concurrency": 8,
+    reserved = cohort.TOTAL_REQUESTS if warmup_enabled else cohort.MEASURED_REQUESTS
+    record.update({"schema": SCHEMA if warmup_enabled else WAVE_SCHEMA,
+        "model": model, "workload": workload.metadata(), "concurrency": 8,
         "prompt_tokens_per_request": cohort.PROMPT_TOKENS, "max_output_tokens_per_request": cohort.OUTPUT_TOKENS,
-        "reserved_requests": cohort.TOTAL_REQUESTS, "reserved_total_tokens": cohort.RESERVED_TOKENS,
-        "started_requests": len(all_samples), "not_run_requests": cohort.TOTAL_REQUESTS - len(all_samples),
+        "reserved_requests": reserved, "reserved_total_tokens": reserved * (cohort.PROMPT_TOKENS + cohort.OUTPUT_TOKENS),
+        "started_requests": len(all_samples), "not_run_requests": reserved - len(all_samples),
         "known_prompt_tokens": sum(row["prompt_tokens"] or 0 for row in all_samples),
         "known_output_tokens": sum(row["completion_tokens"] or 0 for row in all_samples),
         "requests_with_unknown_usage": sum(row["completion_tokens"] is None for row in all_samples),
@@ -304,4 +337,5 @@ def run(endpoint, workload, *, deadline, gpu_count, cohort_seconds, model):
             wall_seconds=ended - measured_start, gpu_count=gpu_count) if samples else None),
         "intervals": intervals, "peak_in_flight": concurrency, "collectors_reaped": reaped,
         "elapsed_seconds": ended - epoch, "stop_reason": stop, "completed": stop == "complete",
-        "pricing_measured": False, "quality_accepted": False, "confidential": False, "sweep_accepted": False}
+        "pricing_measured": False, "quality_accepted": False, "confidential": False, "sweep_accepted": False})
+    return record

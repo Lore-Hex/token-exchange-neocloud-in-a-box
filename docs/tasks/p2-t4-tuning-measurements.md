@@ -5,6 +5,11 @@ ordinary B300 TP4 x DP2 execution profiles can opt into the complete existing
 [measurement cohort](p2-t3-ordinary-measurement.md). No engine flags, model
 weights, workloads, deadlines, context or memory limits change here.
 
+The separate opt-in [finite sustained C8 baseline](p2-t4-sustained-c8.md) reuses
+this owner with a fixed repeated-wave schedule. It is software-only until its
+own hardware evidence exists; the current public C1 service is not saturated
+by assertion.
+
 After baseline correctness passes, prepare each separately approved experiment
 from its clean reviewed commit:
 
