@@ -85,6 +85,10 @@ Repeated-prefix cache state and replica saturation are unqualified.
 A [fresh-salt C16/C32/C64 experiment](docs/tasks/p2-t3-batch32-throughput.md)
 is implemented for bounded waves with actual zero-cache usage required. It has
 no hardware result yet and does not change the public service or old evidence.
+A [combined long-context / batch32 planning helper](docs/tasks/p2-t3-combined-qualification-plan.md)
+composes the existing controls and checks fixed deadline budgets offline. It is
+**not runnable**: bounded owner sequencing and a separate receipt path remain
+unimplemented; public C1 and all existing profiles stay unchanged.
 The latest nonroot/read-only selected-service image passed one bounded
 [private TLS inference smoke](evidence/p2/2026-10-24-selected-service-inference/README.md)
 on the ordinary node: engine/guard/TLS ready, missing/wrong keys rejected,
