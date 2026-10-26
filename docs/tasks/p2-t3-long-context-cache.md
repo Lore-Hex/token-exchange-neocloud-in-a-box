@@ -81,8 +81,15 @@ tenant IDs. Gateway-side namespace injection is a separate integration gate.
 vLLM's pinned [block hashing](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/core/kv_cache_utils.py)
 incorporates `cache_salt` in the first block and propagates it through descendant
 hashes. Cache reuse is local to an engine replica. DP2 does not imply a shared
-cache: measure repeated requests on both ranks and consider workspace/session
-affinity before attributing cold misses to the model. Never use content-derived
+cache. The long-profile guard hashes its normalized cache namespace to select
+one of the two ranks using the pinned
+[`X-data-parallel-rank` interface](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/entrypoints/generate/base/serving.py).
+It strips caller-supplied rank headers; all other profiles retain their previous
+routing. The namespace is normalized once and reused for the body and affinity,
+so omitted namespaces remain isolated and do not accidentally acquire a global
+cache. This is routing configuration, not observed per-request GPU-rank evidence.
+One busy workspace can concentrate load on one replica; session-scoped affinity
+or weighted routing needs separate load qualification. Never use content-derived
 metrics labels or retain prompts/completions for these tests.
 
 ## Required live qualification

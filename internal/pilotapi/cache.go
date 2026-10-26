@@ -9,6 +9,19 @@ import (
 	"errors"
 )
 
+type cacheRankContextKey struct{}
+
+// The selected long-context engine has exactly two replicas. Stable affinity
+// avoids alternating cold caches; the full salt still isolates cache contents.
+// Pinned vLLM generate/base/serving.py consumes X-data-parallel-rank.
+func selectedCacheRank(salt json.RawMessage) string {
+	digest := sha256.Sum256(salt)
+	if digest[0]&1 == 0 {
+		return "0"
+	}
+	return "1"
+}
+
 // The gateway derives this opaque scope from the authenticated workspace, never
 // from end-user JSON. This single-key provider API trusts that gateway, not users.
 // vLLM hashes cache_salt into the first block and every descendant block.

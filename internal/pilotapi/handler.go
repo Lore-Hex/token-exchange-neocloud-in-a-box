@@ -120,6 +120,9 @@ func NewWithProfile(profileName string, provider ProviderConfig, key, inputPrice
 			pr.SetURL(upstream)
 			// Do not forward caller-selected credentials, forwarding headers or queries.
 			pr.Out.Header = http.Header{"Content-Type": {"application/json"}, "Authorization": {"Bearer " + key}}
+			if rank, ok := pr.In.Context().Value(cacheRankContextKey{}).(string); profile.longContext && ok && (rank == "0" || rank == "1") {
+				pr.Out.Header.Set("X-data-parallel-rank", rank)
+			}
 			pr.Out.URL.RawQuery = ""
 		}, Transport: transport, FlushInterval: -1, ErrorLog: log.New(io.Discard, "", 0),
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, _ error) {
@@ -201,7 +204,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 413, "invalid_request_body")
 		return
 	}
-	body, err = h.profile.boundRequest(body)
+	bounded, err := h.profile.normalizeRequest(body)
 	if err != nil {
 		writeError(w, 400, "unsupported_pilot_request")
 		return
@@ -213,11 +216,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), h.profile.requestTimeout())
 	defer cancel()
+	if h.profile.longContext {
+		ctx = context.WithValue(ctx, cacheRankContextKey{}, bounded.cacheRank)
+	}
 	_ = controller.SetWriteDeadline(time.Now().Add(h.profile.requestTimeout()))
 	defer func() { _ = controller.SetWriteDeadline(time.Time{}) }()
 	r = r.Clone(ctx)
-	r.Body = io.NopCloser(bytes.NewReader(body))
-	r.ContentLength = int64(len(body))
+	r.Body = io.NopCloser(bytes.NewReader(bounded.body))
+	r.ContentLength = int64(len(bounded.body))
 	r.GetBody = nil
 	h.proxy.ServeHTTP(w, r)
 }
@@ -229,20 +235,30 @@ func BoundRequest(body []byte) ([]byte, error) {
 }
 
 func (p serviceProfile) boundRequest(body []byte) ([]byte, error) {
+	request, err := p.normalizeRequest(body)
+	return request.body, err
+}
+
+type normalizedRequest struct {
+	body      []byte
+	cacheRank string
+}
+
+func (p serviceProfile) normalizeRequest(body []byte) (normalizedRequest, error) {
 	if p.nativeTools && !boundedToolJSON(body, p.bodyLimit()) {
-		return nil, errSelectedTools
+		return normalizedRequest{}, errSelectedTools
 	}
 	var value map[string]json.RawMessage
 	if json.Unmarshal(body, &value) != nil || value == nil {
-		return nil, errors.New("invalid JSON")
+		return normalizedRequest{}, errors.New("invalid JSON")
 	}
 	var model string
 	if json.Unmarshal(value["model"], &model) != nil || model != p.model {
-		return nil, errors.New("unsupported model")
+		return normalizedRequest{}, errors.New("unsupported model")
 	}
 	if p.nativeTools {
 		if err := validateSelectedTools(value, p.bodyLimit()); err != nil {
-			return nil, err
+			return normalizedRequest{}, err
 		}
 	} else {
 		var messages []struct {
@@ -250,17 +266,17 @@ func (p serviceProfile) boundRequest(body []byte) ([]byte, error) {
 			Content string `json:"content"`
 		}
 		if json.Unmarshal(value["messages"], &messages) != nil || len(messages) == 0 || len(messages) > 128 {
-			return nil, errors.New("text messages required")
+			return normalizedRequest{}, errors.New("text messages required")
 		}
 		for _, message := range messages {
 			if message.Role != "system" && message.Role != "user" && message.Role != "assistant" {
-				return nil, errors.New("unsupported role")
+				return normalizedRequest{}, errors.New("unsupported role")
 			}
 		}
 	}
 	if p.nativeReasoning {
 		if err := normalizeSelectedReasoning(value); err != nil {
-			return nil, err
+			return normalizedRequest{}, err
 		}
 	}
 	// Only the trusted upstream holding the provider key may supply a cache
@@ -270,17 +286,17 @@ func (p serviceProfile) boundRequest(body []byte) ([]byte, error) {
 		var err error
 		salt, err = selectedCacheSalt(value["cache_salt"])
 		if err != nil {
-			return nil, err
+			return normalizedRequest{}, err
 		}
 		delete(value, "cache_salt")
 	}
 	if err := validateOptions(value, p.reasoningHints, p.nativeReasoning, p.nativeTools); err != nil {
-		return nil, err
+		return normalizedRequest{}, err
 	}
 	if raw, ok := value["n"]; ok {
 		var n int
 		if json.Unmarshal(raw, &n) != nil || n != 1 {
-			return nil, errors.New("one completion required")
+			return normalizedRequest{}, errors.New("one completion required")
 		}
 	}
 	limit := p.maxOutput
@@ -290,7 +306,7 @@ func (p serviceProfile) boundRequest(body []byte) ([]byte, error) {
 			specified = true
 			var n int
 			if bytes.Equal(raw, []byte("null")) || json.Unmarshal(raw, &n) != nil || n < 1 || n > p.maxOutput {
-				return nil, errors.New("invalid output limit")
+				return normalizedRequest{}, errors.New("invalid output limit")
 			}
 			if n < limit {
 				limit = n
@@ -302,10 +318,13 @@ func (p serviceProfile) boundRequest(body []byte) ([]byte, error) {
 	}
 	value["max_tokens"], _ = json.Marshal(limit)
 	delete(value, "max_completion_tokens")
+	var rank string
 	if p.longContext {
 		value["cache_salt"] = salt
+		rank = selectedCacheRank(salt)
 	}
-	return json.Marshal(value)
+	encoded, err := json.Marshal(value)
+	return normalizedRequest{body: encoded, cacheRank: rank}, err
 }
 
 // The engine also accepts native sampling, grammar and template controls. Only
