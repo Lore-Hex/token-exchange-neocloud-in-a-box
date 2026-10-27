@@ -6,11 +6,14 @@ from contextlib import contextmanager, redirect_stdout, redirect_stderr
 import hashlib
 import importlib.util
 import io
+import json
 import os
 from pathlib import Path
+import signal
 import socket
 import tempfile
 import time
+import types
 import unittest
 from unittest import mock
 
@@ -204,13 +207,22 @@ class RecorderTests(unittest.TestCase):
 
     def test_recorder_failure_cleanup_precedes_output_and_has_no_credentials(self):
         trial = containers.runner
-        for failure in (None, "create", "inspect", "start", "terminal", "cleanup"):
+        for failure in (None, "prepare", "cancel_prepare", "create", "inspect", "start", "cancel_start",
+                        "terminal", "cleanup", "cancel_cleanup"):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory, \
                     socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
                 root = Path(directory).resolve()
                 sock.bind(str(root / "docker.sock"))
                 state = {"argv": None, "inspects": 0, "cleaned": False}
+                def prepare(*args):
+                    if failure == "cancel_prepare":
+                        signal.raise_signal(signal.SIGTERM)
+                    if failure == "prepare":
+                        raise ValueError("PRIVATE_EXCEPTION_CANARY")
+                    return {}, "b" * 64
                 def capture(argv, **kwargs):
+                    if argv[1] == "-C":
+                        return b"a" * 40 if argv[3] == "rev-parse" else b""
                     self.assertEqual(set(kwargs["env"]), {"PATH", "HOME", "DOCKER_CONFIG", "LANG", "LC_ALL"})
                     self.assertGreater(kwargs["timeout"], 0)
                     args = argv[5:]
@@ -231,31 +243,111 @@ class RecorderTests(unittest.TestCase):
                         return tau.encoded([info])
                     if args[0] == "start":
                         if failure == "start":
-                            raise KeyboardInterrupt
+                            raise ValueError("PRIVATE_EXCEPTION_CANARY")
+                        if failure in ("cancel_start", "cancel_cleanup"):
+                            signal.raise_signal(signal.SIGTERM)
                         return tau.encoded(catalog.catalog(time.monotonic() + 10))
                     self.assertEqual(args[:2], ["rm", "--force"])
                     self.assertEqual(args[2], state["argv"][state["argv"].index("--name") + 1])
                     state["cleaned"] = True
-                    if failure == "cleanup":
-                        raise ValueError("cleanup failed")
+                    if failure in ("cancel_start", "cancel_cleanup"):
+                        signal.raise_signal(signal.SIGINT)
+                    if failure in ("cleanup", "cancel_cleanup"):
+                        raise ValueError("PRIVATE_EXCEPTION_CANARY")
                     return b"removed"
                 try:
                     with mock.patch.object(recorder, "load", return_value=trial), \
-                            mock.patch.object(recorder, "prepare", return_value=({}, "b" * 64)), \
+                            mock.patch.object(recorder, "prepare", side_effect=prepare), \
                             mock.patch.object(trial, "publish", side_effect=lambda path, files: (path / "payload").mkdir(parents=True)), \
                             mock.patch.object(recorder.shutil, "which", return_value="/docker"), \
-                            mock.patch.object(trial.probe, "capture", side_effect=capture):
-                        if failure is None:
-                            result = recorder.record(root / "archive", root / "wheels", root / "docker.sock", root / "output")
-                            self.assertTrue(result["source_authenticated"])
-                            self.assertTrue((root / "output").is_file())
-                        else:
-                            with self.assertRaises((ValueError, KeyboardInterrupt)):
-                                recorder.record(root / "archive", root / "wheels", root / "docker.sock", root / "output")
-                            self.assertFalse((root / "output").exists())
-                    self.assertTrue(state["cleaned"])
+                            mock.patch.object(trial.probe, "capture", side_effect=capture), \
+                            mock.patch.object(recorder, "isolated", return_value=True):
+                        args = types.SimpleNamespace(source_archive=root / "archive", wheelhouse=root / "wheels",
+                            docker_socket=root / "docker.sock", output=root / "output", receipt=root / "receipt.json")
+                        stdout, stderr = io.StringIO(), io.StringIO()
+                        handlers = {kind: signal.getsignal(kind) for kind in (signal.SIGTERM, signal.SIGINT)}
+                        with redirect_stdout(stdout), redirect_stderr(stderr):
+                            code = recorder.main(["--source-archive", str(args.source_archive), "--wheelhouse", str(args.wheelhouse),
+                                "--docker-socket", str(args.docker_socket), "--output", str(args.output), "--receipt", str(args.receipt)])
+                        self.assertEqual(handlers, {kind: signal.getsignal(kind) for kind in handlers})
+                        result = json.loads(args.receipt.read_bytes())
+                        self.assertEqual(result["result"], "pass" if failure is None else "fail")
+                        self.assertIs(result["completed"], failure is None)
+                        self.assertIs(result["source_authenticated"], failure is None)
+                        self.assertEqual(code, 0 if failure is None else 1)
+                        self.assertEqual(result["cleanup"], "unconfirmed" if failure in ("cleanup", "cancel_cleanup")
+                                         else "not_created" if failure in ("prepare", "cancel_prepare") else "owned-container-removed")
+                        self.assertEqual(result["producer_git_sha"], "a" * 40)
+                        self.assertEqual(result["source_archive_sha256"], trial.runtime.ARCHIVE_SHA)
+                        self.assertEqual(result["stage"], {None: "completed", "prepare": "source_verification", "cancel_prepare": "source_verification",
+                            "create": "container_creation", "inspect": "container_verification", "start": "extraction",
+                            "cancel_start": "extraction", "terminal": "terminal_verification",
+                            "cleanup": "cleanup", "cancel_cleanup": "extraction"}[failure])
+                        self.assertIs(result["cancelled"], failure in ("cancel_prepare", "cancel_start", "cancel_cleanup"))
+                        self.assertEqual(args.output.exists(), failure is None)
+                        self.assertNotIn("PRIVATE_EXCEPTION_CANARY", stdout.getvalue() + stderr.getvalue())
+                        self.assertNotIn("PRIVATE_EXCEPTION_CANARY", args.receipt.read_text())
+                    self.assertEqual(state["cleaned"], failure not in ("prepare", "cancel_prepare"))
                 finally:
                     sock.close()
+
+    def test_existing_receipt_is_never_replaced_or_followed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            original = root / "original"
+            original.write_bytes(b"existing evidence")
+            link = root / "link"
+            link.symlink_to(original)
+            for receipt in (original, link):
+                args = types.SimpleNamespace(source_archive=root / "archive", wheelhouse=root / "wheels",
+                    docker_socket=root / "socket", output=root / "output", receipt=receipt)
+                with mock.patch.object(recorder, "isolated", return_value=True), \
+                        mock.patch.object(recorder, "record") as run, \
+                        redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.assertEqual(recorder.host(args), 1)
+                run.assert_not_called()
+                self.assertEqual(original.read_bytes(), b"existing evidence")
+                self.assertTrue(link.is_symlink())
+
+    def test_receipt_created_during_extraction_is_preserved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            args = types.SimpleNamespace(source_archive=root / "archive", wheelhouse=root / "wheels",
+                docker_socket=root / "socket", output=root / "output", receipt=root / "receipt.json")
+            def extract(*values, progress):
+                args.receipt.write_bytes(b"concurrent evidence")
+                raise ValueError("PRIVATE_EXCEPTION_CANARY")
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with mock.patch.object(recorder, "isolated", return_value=True), \
+                    mock.patch.object(recorder, "load", return_value=containers.runner), \
+                    mock.patch.object(containers.runner.probe, "capture", return_value=b"a" * 40), \
+                    mock.patch.object(recorder, "record", side_effect=extract), \
+                    redirect_stdout(stdout), redirect_stderr(stderr):
+                self.assertEqual(recorder.host(args), 1)
+            self.assertEqual(args.receipt.read_bytes(), b"concurrent evidence")
+            self.assertEqual(json.loads(stdout.getvalue())["stage"], "receipt_output")
+            self.assertNotIn("PRIVATE_EXCEPTION_CANARY", stdout.getvalue() + stderr.getvalue())
+
+    def test_provenance_failure_retains_available_identity_without_exception_text(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            args = types.SimpleNamespace(source_archive=root / "archive", wheelhouse=root / "wheels",
+                docker_socket=root / "socket", output=root / "output", receipt=root / "receipt.json")
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with mock.patch.object(recorder, "isolated", return_value=True), \
+                    mock.patch.object(recorder, "load", return_value=containers.runner), \
+                    mock.patch.object(containers.runner.probe, "capture", side_effect=[b"a" * 40, ValueError("PRIVATE_EXCEPTION_CANARY")]), \
+                    mock.patch.object(recorder, "record") as run, \
+                    redirect_stdout(stdout), redirect_stderr(stderr):
+                self.assertEqual(recorder.host(args), 1)
+            run.assert_not_called()
+            result = json.loads(args.receipt.read_bytes())
+            self.assertEqual((result["result"], result["stage"], result["cleanup"]), ("fail", "provenance", "not_created"))
+            self.assertFalse(result["completed"] or result["source_authenticated"])
+            self.assertEqual(result["producer_git_sha"], "a" * 40)
+            self.assertIsNone(result["producer_dirty"])
+            self.assertEqual(result["source_archive_sha256"], containers.runner.runtime.ARCHIVE_SHA)
+            self.assertNotIn("PRIVATE_EXCEPTION_CANARY", stdout.getvalue() + stderr.getvalue() + args.receipt.read_text())
 
 
 if __name__ == "__main__":

@@ -21,6 +21,9 @@ import uuid
 
 SCRIPT = "scripts/record-tau-telecom-catalog.py"
 SECONDS = 180
+STAGES = ("input_verification", "provenance", "source_verification", "payload_preparation",
+          "image_verification", "container_creation", "container_verification", "extraction",
+          "terminal_verification", "catalog_validation", "cleanup", "catalog_output", "completed", "receipt_output")
 
 
 def require(value):
@@ -128,7 +131,9 @@ def check_container(trial, info, name, payload, sha, selected_manifest):
     trial.check_container(normalized, name, name, payload, sha, selected_manifest)
 
 
-def record(archive, wheelhouse, socket, output):
+def record(archive, wheelhouse, socket, output, *, progress=None):
+    progress = {} if progress is None else progress
+    progress.update(stage="input_verification", cleanup="not_created")
     root = Path(__file__).absolute().parent.parent
     trial = load(root / "scripts/tau_trial.py")
     require(socket.is_absolute() and stat.S_ISSOCK(socket.stat().st_mode))
@@ -136,6 +141,7 @@ def record(archive, wheelhouse, socket, output):
     executable = shutil.which("docker")
     require(executable is not None)
     deadline = time.monotonic() + SECONDS
+    progress["stage"] = "source_verification"
     files, sha = prepare(trial, archive, wheelhouse, deadline)
     name = "nib-telecom-catalog-" + uuid.uuid4().hex
     # Local reproduction only, with the existing exact image and resource caps.
@@ -148,6 +154,7 @@ def record(archive, wheelhouse, socket, output):
         env = {"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", "HOME": str(private),
                "DOCKER_CONFIG": str(private), "LANG": "C", "LC_ALL": "C"}
         destination = Path(directory) / "inputs"
+        progress["stage"] = "payload_preparation"
         trial.publish(destination, files)
         payload = destination / "payload"
         def docker(args, limit=65536, remaining=None):
@@ -158,33 +165,103 @@ def record(archive, wheelhouse, socket, output):
                 limit=limit, env=env)
         created = False
         try:
+            progress["stage"] = "image_verification"
             selected_manifest = trial.check_image(json.loads(docker([
                 "image", "inspect", "--platform", "linux/amd64", trial.runtime.TARGET["image"]], limit=1 << 20))[0])
             argv = command(trial, name, payload, sha)
             created = True  # Clean the uniquely owned name even after an ambiguous create.
+            progress.update(stage="container_creation", cleanup="unconfirmed")
             docker(argv)
+            progress["stage"] = "container_verification"
             info = json.loads(docker(["inspect", name], limit=1 << 20))[0]
             check_container(trial, info, name, payload, sha, selected_manifest)
+            progress["stage"] = "extraction"
             raw = docker(["start", "--attach", name], remaining=SECONDS)
+            progress["stage"] = "terminal_verification"
             final = json.loads(docker(["inspect", name], limit=1 << 20))[0]
             check_container(trial, final, name, payload, sha, selected_manifest)
             require(final["State"]["Running"] is False and final["State"]["ExitCode"] == 0
                     and final["State"]["OOMKilled"] is False)
+            progress["stage"] = "catalog_validation"
             value = trial.tau.json_value(raw)
             require(value["upstream_revision"] == trial.runtime.REVISION and value["tool_count"] == 30)
             raw = trial.tau.encoded(value)
+        except BaseException as exc:
+            progress["failure_stage"] = progress["stage"]
+            progress["cancelled"] = isinstance(exc, KeyboardInterrupt)
+            raise
         finally:
             if created:
                 # One owned local container only, never a blanket prune.
+                progress["stage"] = "cleanup"
                 trial.probe.capture([*prefix, "rm", "--force", name], timeout=15, env=env)
-        with output.open("xb") as stream:
-            stream.write(raw)
-        return {"catalog_sha256": trial.tau.digest(raw), "tool_catalog_sha256": value["tool_catalog_sha256"],
-                "tool_count": 30, "selected_tasks": len(value["selected_tasks"]), "source_authenticated": True,
-                "token_count_parity_verified": False, "live_admission": False, "quality_eligible": False}
+                progress["cleanup"] = "owned-container-removed"
+        progress["stage"] = "cleanup"
+    progress["stage"] = "catalog_output"
+    with output.open("xb") as stream:
+        stream.write(raw)
+    progress["stage"] = "completed"
+    return {"catalog_sha256": trial.tau.digest(raw), "tool_catalog_sha256": value["tool_catalog_sha256"],
+            "tool_count": 30, "selected_tasks": len(value["selected_tasks"]), "source_authenticated": True,
+            "token_count_parity_verified": False, "live_admission": False, "quality_eligible": False}
 
 
-def main():
+def isolated():
+    return sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode
+
+
+def host(args):
+    progress = {"stage": "input_verification", "cleanup": "not_created"}
+    result = {"schema": "nib.tau-telecom-catalog-extraction/v1", "result": "fail", "completed": False,
+              "source_authenticated": False, "token_count_parity_verified": False, "live_admission": False,
+              "quality_eligible": False, "benchmark_executed": False, "generation_calls": 0,
+              "producer_git_sha": None, "producer_dirty": None, "recorder_sha256": None,
+              "started_utc": datetime.now(timezone.utc).isoformat(), "cancelled": False,
+              "command_line": "python3 -I -S -B scripts/record-tau-telecom-catalog.py "
+              "--source-archive PRIVATE --wheelhouse PRIVATE --docker-socket PRIVATE "
+              "--output PRIVATE --receipt PRIVATE"}
+    try:
+        require(isolated())
+        require(all(path is not None and path.is_absolute() for path in
+                    (args.source_archive, args.wheelhouse, args.docker_socket, args.output)))
+        require(args.receipt is None or args.receipt.is_absolute() and not args.receipt.exists()
+                and args.receipt != args.output)
+        progress["stage"] = "provenance"
+        root = Path(__file__).absolute().parent.parent
+        trial = load(root / "scripts/tau_trial.py")
+        git = shutil.which("git")
+        require(git is not None)
+        result.update(recorder_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                      upstream_revision=trial.runtime.REVISION, source_archive_sha256=trial.runtime.ARCHIVE_SHA,
+                      source_tree=trial.runtime.SOURCE_TREE, runtime_lock_sha256=trial.runtime.CATALOG_SHA,
+                      runtime_target=trial.runtime.TARGET)
+        result["producer_git_sha"] = trial.probe.capture([git, "-C", str(root), "rev-parse", "HEAD"]).decode().strip()
+        result["producer_dirty"] = bool(trial.probe.capture([git, "-C", str(root), "status", "--porcelain"]))
+        result.update(record(args.source_archive, args.wheelhouse, args.docker_socket, args.output, progress=progress))
+        result.update(result="pass", completed=True)
+    except BaseException as exc:
+        result.update(result="fail", completed=False, source_authenticated=False,
+                      cancelled=progress.get("cancelled", False) or isinstance(exc, KeyboardInterrupt))
+    result.update(ended_utc=datetime.now(timezone.utc).isoformat(),
+                  stage=progress.get("failure_stage", progress["stage"]), cleanup=progress["cleanup"])
+    if result["stage"] not in STAGES or result["cleanup"] not in ("not_created", "unconfirmed", "owned-container-removed"):
+        result.update(result="fail", completed=False, source_authenticated=False,
+                      stage="input_verification", cleanup="unconfirmed")
+    try:
+        if args.receipt is not None:
+            require(args.receipt.is_absolute() and args.receipt != args.output)
+            with args.receipt.open("xb") as stream:
+                stream.write((json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode())
+    except BaseException:
+        # An existing receipt is evidence, never a destination to replace.
+        result.update(result="fail", completed=False, source_authenticated=False, stage="receipt_output")
+    if result["result"] != "pass":
+        print("telecom catalog rejected", file=sys.stderr)
+    print(json.dumps(result, sort_keys=True))
+    return 0 if result["result"] == "pass" else 1
+
+
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--worker")
     parser.add_argument("--source-archive", type=Path)
@@ -192,7 +269,7 @@ def main():
     parser.add_argument("--docker-socket", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--receipt", type=Path)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     previous = {kind: signal.getsignal(kind) for kind in (signal.SIGTERM, signal.SIGINT)}
     cancellation_requested = False
     def cancelled(signum, frame):
@@ -204,38 +281,12 @@ def main():
     for kind in previous:
         signal.signal(kind, cancelled)
     try:
-        require(sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode)
         if args.worker:
+            require(isolated())
             require(args.source_archive is args.wheelhouse is args.docker_socket is args.output is args.receipt is None)
             child(args.worker)
         else:
-            require(all(path is not None and path.is_absolute() for path in
-                        (args.source_archive, args.wheelhouse, args.docker_socket, args.output)))
-            require(args.receipt is None or args.receipt.is_absolute() and not args.receipt.exists()
-                    and args.receipt != args.output)
-            root = Path(__file__).absolute().parent.parent
-            trial = load(root / "scripts/tau_trial.py")
-            git = shutil.which("git")
-            require(git is not None)
-            revision = trial.probe.capture([git, "-C", str(root), "rev-parse", "HEAD"]).decode().strip()
-            dirty = bool(trial.probe.capture([git, "-C", str(root), "status", "--porcelain"]))
-            started = datetime.now(timezone.utc).isoformat()
-            result = record(args.source_archive, args.wheelhouse, args.docker_socket, args.output)
-            result.update(schema="nib.tau-telecom-catalog-extraction/v1", result="pass",
-                          producer_git_sha=revision, producer_dirty=dirty,
-                          recorder_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-                          started_utc=started, ended_utc=datetime.now(timezone.utc).isoformat(),
-                          upstream_revision=trial.runtime.REVISION, source_archive_sha256=trial.runtime.ARCHIVE_SHA,
-                          source_tree=trial.runtime.SOURCE_TREE, runtime_lock_sha256=trial.runtime.CATALOG_SHA,
-                          runtime_target=trial.runtime.TARGET, generation_calls=0, benchmark_executed=False,
-                          cleanup="owned-container-removed",
-                          command_line="python3 -I -S -B scripts/record-tau-telecom-catalog.py "
-                          "--source-archive PRIVATE --wheelhouse PRIVATE --docker-socket PRIVATE "
-                          "--output PRIVATE --receipt PRIVATE")
-            if args.receipt is not None:
-                with args.receipt.open("xb") as stream:
-                    stream.write(trial.tau.encoded(result))
-            print(json.dumps(result, sort_keys=True))
+            return host(args)
     except BaseException:
         print("telecom catalog rejected", file=sys.stderr)
         return 1

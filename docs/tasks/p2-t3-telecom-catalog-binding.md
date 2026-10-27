@@ -50,6 +50,10 @@ catalog. Public schemas alone may be persisted; requests, tool arguments and
 results from projection remain private in memory.
 The content-free receipt records the source commit, working-tree state, exact
 runtime/source identities, catalog digests, timestamps and owned cleanup.
+Failures and cancellation also produce an exclusive content-free receipt with
+`result: fail`, `completed: false`, `source_authenticated: false`, a finite stage
+and cleanup status. Existing receipts are never overwritten or followed through
+symlinks. No upstream exception text appears in a receipt or CLI diagnostic.
 Successful extraction does not authenticate request history or task execution.
 The [recorded extraction](../../evidence/p2/2026-10-27-telecom-catalog/run.json)
 was produced from clean implementation commit `f7bb2cb2a4751181942c6451c2b398899376d2bd`;
