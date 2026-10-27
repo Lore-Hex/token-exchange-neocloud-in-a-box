@@ -23,6 +23,7 @@ import stream_transport as transport
 process, service = inference.process, inference.service
 encoded = inference.encoded
 SCHEMA = "nib.selected-long-qualification/v1"
+COMBINED_PROFILE = "long128k-batch32-graphs"
 WORKLOAD_SCHEMA = "nib.selected-long-workload/v1"
 CONTEXT, LONG_OUTPUT = 131072, 16384
 TARGETS = (32768, 65536, 131072)
@@ -58,7 +59,7 @@ class WorkloadProfile:
 
 def workload_profile(execution_profile=process.engine_entry.LONG_PROFILE):
     require(type(execution_profile) is str
-            and execution_profile in process.engine_entry.LONG_CONTEXT_PROFILES, "contract")
+            and execution_profile in (*process.engine_entry.LONG_CONTEXT_PROFILES, COMBINED_PROFILE), "contract")
     if execution_profile == process.engine_entry.MILLION_PROFILE:
         return WorkloadProfile(1048576, 393216, (262144, 524288, 1048576), 2097152, 600, 7200, True)
     return WorkloadProfile(CONTEXT, LONG_OUTPUT, TARGETS, MAX_PADDING, PREPARE_SECONDS, RUN_SECONDS)
@@ -313,7 +314,8 @@ def prepare_owned(supervisor, deadline):
 
 def empty_report(execution_profile=process.engine_entry.LONG_PROFILE):
     profile = workload_profile(execution_profile)
-    return {"schema": "nib.selected-long-qualification/v2" if profile.million else SCHEMA,
+    return {"schema": "nib.selected-combined-long/v1" if execution_profile == COMBINED_PROFILE
+            else "nib.selected-long-qualification/v2" if profile.million else SCHEMA,
         "result": "fail", "failure": "contract", "prepared_sha256": None,
         "model": service.MODEL, "model_revision": service.models.select("uncensored")["hf_revision"],
         "execution_profile": execution_profile, "workload": None,
@@ -388,7 +390,7 @@ def sequence(report, workload, collector, *, deadline, clock=time.monotonic):
         row["accepted"] = True
 
 
-def run_owned(supervisor):
+def run_owned(supervisor, *, stage_deadline=None, combined=False):
     """One opt-in post-ready call; caller retains lifecycle/terminal evidence.
 
     This is a concrete owned-loopback client, not an alternate owner or a CLI
@@ -403,11 +405,21 @@ def run_owned(supervisor):
                 and supervisor.contract.execution_profile in process.engine_entry.LONG_CONTEXT_PROFILES
                 and not getattr(supervisor, "_long_qualification_used", False), "contract")
         supervisor._long_qualification_used = True
-        report = empty_report(supervisor.contract.execution_profile)
+        require(type(combined) is bool, "contract")
+        if combined:
+            import selected_combined_owner
+            require(type(getattr(supervisor, "combined", None)) is selected_combined_owner.Run
+                    and supervisor.contract.execution_profile == process.engine_entry.LONG_GRAPHS_PROFILE, "contract")
+        report = empty_report(COMBINED_PROFILE if combined else supervisor.contract.execution_profile)
+        if combined:
+            supervisor.combined.long_row = report
         seconds, reserve = budgets(supervisor.contract)
         report.update(request_seconds=seconds, cleanup_reserve_seconds=reserve,
                       prepared_sha256=supervisor.owner.prepared.receipt_sha256)
         deadline = min(started + workload_profile(supervisor.contract.execution_profile).run_seconds, supervisor.cutoff() - reserve)
+        if stage_deadline is not None:
+            require(measurement.number(stage_deadline), "contract")
+            deadline = min(deadline, stage_deadline)
         require(deadline > started, "deadline")
         identities = {role: dict(supervisor.owner.identities[role]) for role in service.ROLES}
         with inference.cancellation(supervisor.shutdown), service.identity.worker.alarm(deadline):
@@ -429,15 +441,23 @@ def run_owned(supervisor):
         report["failure"] = failure(exc)
     report["elapsed_seconds"] = time.monotonic() - started
     summarize(report)
-    return validate_report(encoded(report))
+    return _validate_report(encoded(report), combined=combined)
 
 
 def validate_report(raw, prepared_sha256=None, *, execution_profile=None):
+    return _validate_report(raw, prepared_sha256, execution_profile=execution_profile, combined=False)
+
+
+def validate_combined_report(raw, prepared_sha256=None):
+    return _validate_report(raw, prepared_sha256, execution_profile=COMBINED_PROFILE, combined=True)
+
+
+def _validate_report(raw, prepared_sha256=None, *, execution_profile=None, combined=False):
     """Closed metadata, with derived claims recomputed instead of trusted."""
     require(type(raw) is bytes and len(raw) <= MAX_REPORT, "protocol")
     row = service.correctness.strict_json(raw)
     require(type(row) is dict and type(row.get("execution_profile")) is str
-            and row["execution_profile"] in process.engine_entry.LONG_CONTEXT_PROFILES
+            and row["execution_profile"] in ((COMBINED_PROFILE,) if combined else process.engine_entry.LONG_CONTEXT_PROFILES)
             and (execution_profile is None or row["execution_profile"] == execution_profile), "protocol")
     template = empty_report(row["execution_profile"])
     profile = workload_profile(row["execution_profile"])
