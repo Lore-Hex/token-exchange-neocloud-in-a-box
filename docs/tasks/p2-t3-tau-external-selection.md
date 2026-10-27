@@ -79,7 +79,7 @@ request cap, 32-turn cap, 32,768 input / 2,048 output limits, 1,114,112 total
 tokens, 120-second request deadline, 900-second trial deadline, original
 960-second overall cutoff, C1 execution, or zero retries.
 
-With the current **$9,176 GPU allocation**, five single-domain trials reserve
+With a historical, illustrative **$9,176 GPU allocation**, five single-domain trials reserve
 $350.224320, leaving at most $473.775680 for CPU/disk and other commitments.
 For an explicit example with $100 CPU/disk and $50 other commitments, the total
 is $9,676.224320 and the remaining estimate is $323.775680. These overhead
@@ -89,7 +89,7 @@ All three domains at one trial each require 15 trials and $1,050.672960. That is
 $10,226.672960 including GPU alone, already $226.672960 over the weekly cap
 before CPU/disk. The plan must fail; it never silently drops tasks, assumes free
 counting, or raises the cap. Four trials across all domains reserve $4,202.691840
-before hardware and other commitments and cannot fit the current allocation.
+before hardware and other commitments and cannot fit that illustrative allocation.
 
 This is not a global financial ledger or an execution permit. Separate plans
 or manual repeated invocations do not share an automatic spend counter. Before

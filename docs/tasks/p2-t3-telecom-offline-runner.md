@@ -3,7 +3,7 @@
 This is software integration, not a benchmark, real counting, token parity,
 quality, confidential inference, live admission or spending authorization.
 The original selected source, evaluator, tools and user tools are unchanged.
-The live runtime, observer and candidate's shared 16-tool limit are unchanged.
+The live admission, observer and candidate's shared 16-tool limit are unchanged.
 
 ## Minimal slice
 
@@ -71,8 +71,14 @@ failed before container creation. Its original receipt and output are retained i
 requires at most 1,024. The exact source archive authenticated successfully;
 the original worker did not run. No source filtering or guard bypass was used.
 
-The shared reader remains untouched pending approval for a source-bound
-compatibility correction. Passing real-source execution and complete local/E2E
+The shared reader now permits at most 2,285 rows only for telecom bytes matching
+the exact SHA-256 and byte count in the authenticated pinned source manifest.
+The source manifest itself must match the existing trusted `PINS_SHA` and upstream
+revision. There is no caller-controlled bound. Other inputs retain 1,024 rows;
+the existing byte, duplicate-key, selected-task uniqueness and bounded assertion
+snapshot checks are unchanged. This is source compatibility, not live admission.
+
+Passing real-source execution and complete local/E2E
 checks are still pending. Independent final-head review and hosted CI are required
 before merge. Live count/generation parity, reconciled budget approval, source-
 bound live support, a competent candidate and full multi-domain matched-reference

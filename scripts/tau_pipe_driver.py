@@ -132,9 +132,22 @@ def scripted_manifest(manifest):
 
 def selected_assertions(payload, selection):
     require(selection["domain"] in tau.DOMAINS)
-    rows = worker.decode(worker.read(payload / "upstream/data/tau2/domains" /
-                                    selection["domain"] / "tasks.json", 16 << 20))
-    require(type(rows) is list and 0 < len(rows) <= 1024)
+    name = "data/tau2/domains/" + selection["domain"] + "/tasks.json"
+    raw = worker.read(payload / "upstream" / name, 16 << 20)
+    rows = worker.decode(raw)
+    require(type(rows) is list and 0 < len(rows))
+    maximum = 1024
+    if selection["domain"] == "telecom" and len(rows) > maximum:
+        # The pinned original telecom file has 2,285 rows. No caller-supplied
+        # bound or unauthenticated replacement file gets the larger allowance.
+        pins_raw = worker.read(payload / tau.PINS, 1 << 20)
+        require(worker.digest(pins_raw) == tau.PINS_SHA)
+        pins = worker.decode(pins_raw)
+        require(pins["revision"] == tau.REVISION)
+        expected = pins["files"][name]
+        require(len(raw) == expected["bytes"] and worker.digest(raw) == expected["sha256"])
+        maximum = 2285
+    require(len(rows) <= maximum)
     matches = [row for row in rows if type(row) is dict and row.get("id") == selection["task_id"]]
     require(len(matches) == 1)
     criteria = matches[0].get("evaluation_criteria")
