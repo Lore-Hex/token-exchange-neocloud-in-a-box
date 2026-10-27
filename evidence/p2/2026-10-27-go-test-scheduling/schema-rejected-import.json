@@ -1,0 +1,20 @@
+{
+  "command": "NIB_BIN=<reviewed-nib> python3 -I scripts/record_go_test_diagnostic.py --input <private-input> --deny-file <private-deny> --output <new-evidence>",
+  "ended_utc": "2026-10-27T18:18:28.644941+00:00",
+  "execution": "software",
+  "git_sha": "248d45b5556328de1bc6418482bf91f01ac61e63",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "historical-import",
+    "provider": "local"
+  },
+  "notes": "PASS means hash-checked historical import only, not a test pass. Original full gate failed; default diagnostic exited 1 and serialized diagnostic exited 0. Observed test-only instrumented source based on 1e5273062a49fb45f643a984f436bc300f777d70. Original execution times/commands remain in invocation.json and result.json. Supports concurrency-sensitive startup latency, not a definitive OS cause. One ordered pair has cache/order/host-activity confounders. No new tests, GPU, paid calls, production changes or benchmark qualification.",
+  "phase": "P2",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-27T18:18:28.085485+00:00",
+  "task": "T3"
+}
