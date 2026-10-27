@@ -43,6 +43,13 @@ def labels(raw):
 
 
 def parse(raw, model):
+    return _parse(raw, model, minimum_concurrency=32)
+
+
+def _parse(raw, model, *, minimum_concurrency):
+    # Closed callers select the 4K short-only or 128K combined policy. The
+    # latter uses a different receipt and is not registered as a live profile.
+    require(type(minimum_concurrency) is int and minimum_concurrency in (1, 32))
     require(type(raw) is bytes and 0 < len(raw) <= LIMIT)
     result = [{"rank": rank, "graph_memory_bytes": None, "graph_capture_observed": False} for rank in (0, 1)]
     seen = set()
@@ -62,7 +69,7 @@ def parse(raw, model):
             tokens = values.get("kv_cache_size_tokens", "")
             require(tokens.isascii() and tokens.isdecimal() and len(tokens) <= 16)
             concurrency = float(values.get("kv_cache_max_concurrency", "nan"))
-            require(stream.measurement.number(concurrency) and concurrency >= 32
+            require(stream.measurement.number(concurrency) and concurrency >= minimum_concurrency
                     and 32 * 4096 <= int(tokens) < 2**53)
             row.update(kv_capacity_tokens=int(tokens), kv_max_concurrency=concurrency)
         else:
@@ -130,6 +137,11 @@ def probe(endpoint, model, deadline):
 
 
 def stable(before, after):
+    return _stable(before, after, minimum_concurrency=32)
+
+
+def _stable(before, after, *, minimum_concurrency):
+    require(type(minimum_concurrency) is int and minimum_concurrency in (1, 32))
     require(type(before) is list and type(after) is list and len(before) == len(after) == 2)
     for rank, (old, new) in enumerate(zip(before, after)):
         require(type(old) is dict and type(new) is dict
@@ -139,7 +151,8 @@ def stable(before, after):
                 and old["graph_memory_bytes"] is new["graph_memory_bytes"] is None
                 and old["graph_capture_observed"] is new["graph_capture_observed"] is False
                 and type(new["kv_capacity_tokens"]) is int and 32 * 4096 <= new["kv_capacity_tokens"] < 2**53
-                and stream.measurement.number(new["kv_max_concurrency"]) and new["kv_max_concurrency"] >= 32
+                and stream.measurement.number(new["kv_max_concurrency"])
+                and new["kv_max_concurrency"] >= minimum_concurrency
                 and all(old[k] == new[k] for k in ("kv_capacity_tokens", "kv_max_concurrency", "preemptions"))
                 and all(type(new[k]) is int and 0 <= new[k] < 2**53 for k in ("running", "waiting", "preemptions"))
                 and stream.measurement.number(new["kv_fraction"]) and new["kv_fraction"] <= 1)

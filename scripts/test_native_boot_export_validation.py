@@ -416,7 +416,7 @@ class ValidationTests(unittest.TestCase):
         job = workflow["jobs"]["boot"]
         self.assertEqual((job["runs-on"], job["timeout-minutes"]), ("ubuntu-22.04", 35))
         step = next(s for s in job["steps"] if s.get("id") == "unused_export")
-        self.assertEqual(step["if"], "${{ always() && steps.debug.outcome == 'skipped' }}")
+        self.assertEqual(step["if"], "${{ always() && steps.profile.outcome == 'success' && steps.debug.outcome == 'skipped' }}")
         self.assertEqual(step["timeout-minutes"], 5)
         upload = job["steps"][-1]
         self.assertEqual(upload["if"], "${{ always() && steps.unused_export.outputs.metadata_ready == 'true' }}")
