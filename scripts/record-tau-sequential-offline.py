@@ -21,6 +21,9 @@ from unittest import mock
 SCRIPT = "scripts/record-tau-sequential-offline.py"
 HELPERS = (SCRIPT, "scripts/record-tau-telecom-offline.py", "scripts/tau_telecom_offline.py")
 STAGES = ("provenance", "plan", "controller", "verification", "completed")
+# Pinned airline tasks score DB/COMMUNICATE, not NL_ASSERTION. The first three
+# expect no writes or communicated values; the final two require DB changes.
+AIRLINE_REWARDS = ("1.0", "1.0", "1.0", "0.0", "0.0")
 
 
 def load():
@@ -59,7 +62,8 @@ def replay(args, progress):
                 def runtime(*arguments, full_task, stage, support_source):
                     trial.require(full_task is True and support_source == args.source_archive
                                   and arguments[:7] == (Path("/offline-unused"), binding, *([Path("/offline-unused")] * 5)))
-                    held = offline.Offline(stage, support_source, [], arguments[-1], source_bound=True)
+                    assertions = offline.source_assertions(stage, support_source, arguments[-1])
+                    held = offline.Offline(stage, support_source, assertions, arguments[-1], source_bound=True)
                     held.manifest["binding_sha256"] = binding
                     held.policy = offline.policy
                     held.policy.transport_manifest(held.manifest, trial.tau.digest(trial.tau.encoded(held.manifest)))
@@ -73,10 +77,15 @@ def replay(args, progress):
         # recorder.driver loads its own verified closure, not this wrapper.
         offline = recorder.driver(trial, toolkit, {"files": {**toolkit["files"], **provenance["files"]}})
         progress["stage"] = "plan"
-        value = trial.selection_plan(args.source_archive, ["telecom"], 3, 42, recorder.BUDGET, deadline,
-                                     aggregate_cap_usd="70.044864")
-        trial.require(len(value["selections"]) == 15 and all(
-            offline.catalog.selection.assertion_count({"plan": value, "index": index}) == 0 for index in range(15)))
+        airline = args.domain == "airline"
+        trials, cap, completed = (1, "200", 5) if airline else (3, "70.044864", 1)
+        value = trial.selection_plan(args.source_archive, [args.domain], trials, 42, recorder.BUDGET, deadline,
+                                     aggregate_cap_usd=cap)
+        expected_counts = [1, 1, 1, 3, 2] if airline else [0] * 15
+        expected_rewards = AIRLINE_REWARDS if airline else ("0.0",)
+        trial.require(len(value["selections"]) == len(expected_counts) and [
+            offline.catalog.selection.assertion_count({"plan": value, "index": index})
+            for index in range(len(value["selections"]))] == expected_counts)
         # Reuse the verified fixed peers without recursively loading the wrapper.
         stack.enter_context(mock.patch.object(recorder, "driver", return_value=offline))
         stack.enter_context(mock.patch.object(trial, "parent_driver", side_effect=driver))
@@ -93,27 +102,34 @@ def replay(args, progress):
             progress["stage"] = "controller"
             result = entry.execute(parameters, {"stage": "input-verification", "cancelled": False})
         progress["stage"] = "verification"
-        raw = trial.runtime.read_file(args.output / "trial-00/output.log", 1 << 20, deadline)
-        record = trial.tau.json_value(raw)
-        trial.require(len(peers) == 1 and peers[0].accepted(record["trial"])
-                      and result["result"] == "incomplete" and result["stop_reason"] == "cap-exhausted"
-                      and result["planned_trials"] == 15 and result["completed_trials"] == 1
-                      and result["held_trial_usd"] == "0" and record["cleanup"] == "confirmed"
-                      and trial.runtime.read_file(args.output / "receipt-00.json", 1 << 20, deadline) == raw
-                      and not (args.output / "trial-01").exists())
-        progress.update(stage="completed", result="pass", completed=True, source_authenticated=True,
-            controller=result, original_receipt_sha256=trial.tau.digest(raw), scripted_peers=peers[0].observation(),
-            original_task_reward=record["trial"]["trial"]["reward"])
+        progress["controller"] = result
+        trial.require(len(peers) == completed and result["result"] == ("pass" if airline else "incomplete")
+                      and result["stop_reason"] == ("complete" if airline else "cap-exhausted")
+                      and result["planned_trials"] == len(expected_counts) and result["completed_trials"] == completed
+                      and result["held_trial_usd"] == "0" and not (args.output / f"trial-{completed:02d}").exists())
+        records = []
+        for index, peer in enumerate(peers):
+            raw = trial.runtime.read_file(args.output / f"trial-{index:02d}/output.log", 1 << 20, deadline)
+            record = trial.tau.json_value(raw)
+            trial.require(peer.accepted(record["trial"]) and record["cleanup"] == "confirmed"
+                          and record["trial"]["trial"]["reward"] == expected_rewards[index]
+                          and trial.runtime.read_file(args.output / f"receipt-{index:02d}.json", 1 << 20, deadline) == raw
+                          and peer.observation()["evaluator"]["generation_steps"] == (1 if expected_counts[index] else 0))
+            records.append({"original_receipt_sha256": trial.tau.digest(raw), "scripted_peers": peer.observation(),
+                            "original_task_reward": record["trial"]["trial"]["reward"]})
+        progress.update(stage="completed", result="pass", completed=True, source_authenticated=True, controller=result)
+        progress.update({"trials": records, "assertion_counts": expected_counts} if airline else records[0])
 
 
 def evidence_record(receipt):
-    if receipt["schema"] != "nib.tau-sequential-offline/v1" or receipt["result"] not in ("pass", "fail"):
+    if receipt["schema"] not in ("nib.tau-sequential-offline/v1", "nib.tau-airline-sequential-offline/v1") or receipt["result"] not in ("pass", "fail"):
         raise ValueError("offline receipt rejected")
+    domain = "airline" if receipt["schema"] == "nib.tau-airline-sequential-offline/v1" else "telecom"
     return {"schema": "nib.evidence/v1", "phase": "P2", "task": "T3", "git_sha": receipt["producer_git_sha"],
         "command": receipt["command_line"], "started_utc": receipt["started_utc"], "ended_utc": receipt["ended_utc"],
         "result": receipt["result"], "execution": "software", "hardware_validated": False,
         "host": {"provider": "local", "machine": "network-disabled-sequential-replay", "gpus": "none", "driver": None, "cuda": None},
-        "notes": "Original pinned telecom worker and serial controller; fixed peers and synthetic counts only. "
+        "notes": "Original pinned " + domain + " worker and serial controller; fixed peers and synthetic counts only. "
                  "Not quality, measured parity, billing proof, live admission or full tau. "
                  "Original failed and successful receipts and journals retained without rewriting producer bytes."}
 
@@ -122,6 +138,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("source-archive", "wheelhouse", "docker-socket", "output", "receipt"):
         parser.add_argument("--" + name, type=Path, required=True)
+    parser.add_argument("--domain", choices=("telecom", "airline"), default="telecom")
     args = parser.parse_args(argv)
     entry = load()
     result = {"schema": "nib.tau-sequential-offline/v1", "result": "fail", "completed": False,
@@ -132,6 +149,9 @@ def main(argv=None):
         "command_line": "python3 -I -S -B " + SCRIPT + " --source-archive PRIVATE --wheelhouse PRIVATE "
                         "--docker-socket PRIVATE --output PRIVATE --receipt PRIVATE",
         "started_utc": entry.trial.now(), "cancelled": False}
+    if args.domain == "airline":
+        result.update(schema="nib.tau-airline-sequential-offline/v1", domain="airline",
+                      command_line=result["command_line"] + " --domain airline")
     def cancel(signum, frame):
         if not result["cancelled"]:
             result["cancelled"] = True

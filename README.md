@@ -271,6 +271,14 @@ on the retained node with the 32K/2048 request budget and an external simulator.
 The first-lookup mode remains preparation only. One successful retail task is
 not the full benchmark or matched-reference selected-checkpoint qualification.
 
+The sequential test harness also supports source-authenticated airline plans
+through an explicit versioned contract, without changing older retail/telecom
+plan bytes. The [original-worker offline airline replay](evidence/p2/2026-10-27-airline-offline-pass/README.md)
+completed five fixed tasks with tool calls, original multi-assertion evaluation,
+accounting checks and confirmed cleanup. Its peers and token counts were
+synthetic, with no paid model calls. Earlier failed attempts are preserved;
+this is software coverage, not additional live-model quality evidence.
+
 The earlier [selected tau diagnostic](evidence/p2/2026-10-25-selected-tau-email-relation-0429/README.md)
 failed at the retail customer-email lookup. A bounded boolean records that the
 submitted argument occurred case-insensitively in earlier simulator-user text;
