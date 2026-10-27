@@ -160,6 +160,11 @@ python3 -I -S -B scripts/record-tau-sequential-offline.py \
   --receipt "$NEW_PRIVATE_RECEIPT"
 ```
 
+The [committed original-worker replay](../../evidence/p2/2026-10-27-sequential-tau-offline/README.md)
+passed this offline stopping check. Its
+[preceding local socket-access failure](../../evidence/p2/2026-10-27-sequential-tau-offline-socket-denied/README.md)
+is retained separately, including the full held reservation and original failed receipt.
+
 ## Offline Procedure
 
 Use a new private output directory, the retained source archive and a clean
