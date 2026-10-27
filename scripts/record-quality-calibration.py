@@ -9,6 +9,7 @@ import io
 import importlib.abc
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import statistics
@@ -28,6 +29,36 @@ import tau_trial_worker as worker
 REVISION = "92c1f4dea58e32fa772f8ee77b69cd9d7cf67bac"
 MODEL = tau_selected_policy.PUBLIC_MODEL
 MAX_OUTPUT = 8192
+
+
+def candidate_transport(contract, deadline):
+    """Select TLS only from the hash-bound contract, never by retry/detection."""
+    worker.require(type(contract) is dict and contract.get("model") == MODEL
+                   and contract.get("serving_profile") == "long1m-graphs")
+    cutoff = contract.get("retire_at")
+    now = time.time()
+    worker.require(type(cutoff) in (int, float) and math.isfinite(cutoff)
+                   and cutoff > now + 3600)
+    certificate = {}
+    if contract.get("schema") == "nib.tau-external-trial-endpoint/v2":
+        worker.require("tls_mode" not in contract)
+        mode = "pinned"
+        certificate = {"certificate_pem": tau_live_identity.private_read(contract["certificate"], deadline),
+                       "certificate_sha256": contract["certificate_sha256"]}
+    else:
+        worker.require(contract.get("schema") == "nib.quality-calibration-endpoint/v1"
+                       and set(contract) == {"schema", "model", "serving_profile", "serving_context_tokens",
+                                             "retire_at", "tls_mode", "hostname", "address", "port"}
+                       and contract["tls_mode"] == "system-roots"
+                       and type(contract["serving_context_tokens"]) is int
+                       and contract["serving_context_tokens"] == 1048576
+                       and type(contract["retire_at"]) is int and cutoff <= now + 7 * 86400
+                       and type(contract["port"]) is int and contract["port"] == 443
+                       and type(contract["address"]) is str)
+        mode = "system-roots"
+    http = bounded_https.HTTPS(contract["hostname"], ("/v1/chat/completions",),
+                              address=contract["address"], port=contract["port"], **certificate)
+    return http, mode
 
 
 def digest(raw):
@@ -213,12 +244,7 @@ def main():
         raw = tau_live_identity.private_read(args.contract, deadline)
         worker.require(digest(raw) == args.contract_sha256)
         contract = worker.decode(raw)
-        worker.require(contract["schema"] == "nib.tau-external-trial-endpoint/v2"
-                       and contract["model"] == MODEL and contract["serving_profile"] == "long1m-graphs"
-                       and contract["retire_at"] > time.time() + 3600)
-        pem = tau_live_identity.private_read(contract["certificate"], deadline)
-        http = bounded_https.HTTPS(contract["hostname"], ("/v1/chat/completions",), address=contract["address"],
-            port=contract["port"], certificate_pem=pem, certificate_sha256=contract["certificate_sha256"])
+        http, tls_mode = candidate_transport(contract, deadline)
         counter = tau_external_tokenizer.Counter(args.vllm_source, args.tokenizer, args.tokenizer_wheel, context_tokens=32768)
         key = tau_live_identity.private_read(args.candidate_key, deadline).rstrip(b"\n")
         revision = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], timeout=10, stderr=subprocess.DEVNULL).decode().strip()
@@ -237,6 +263,7 @@ def main():
                 "model": MODEL, "temperature": 0, "max_output_tokens": MAX_OUTPUT,
                 "reasoning_effort": "none", "concurrency": 1, "retries": 0,
                 "endpoint_binding_sha256": args.contract_sha256, "confidential": False,
+                "candidate_tls_mode": tls_mode,
                 "matched_reference": False, "full_quality_qualified": False})
             cancelled = False
             def cancel(signum, frame):

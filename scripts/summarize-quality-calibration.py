@@ -118,7 +118,10 @@ def report(raw):
                                              "trbench_tree_sha256", "endpoint_binding_sha256")}
     trial.require(all(type(value) is str and re.fullmatch("[0-9a-f]{%d}" % (40 if key in
         ("git_sha", "trbench_revision") else 64), value) for key, value in hashes.items()))
+    tls_mode = manifest.get("candidate_tls_mode", "unrecorded")
+    trial.require(tls_mode in ("pinned", "system-roots", "unrecorded"))
     return {"schema": "nib.quality-calibration-summary/v1", "provenance": hashes,
+            "candidate_tls_mode": tls_mode,
             "source_receipt_sha256": hashlib.sha256(raw).hexdigest(), "suite": manifest["suite"],
             **totals, "latency_median_seconds": median, "items": clean,
             "correct": sum(r["score"].get("correct", 0) for r in clean if r["status"] == "evaluated"),

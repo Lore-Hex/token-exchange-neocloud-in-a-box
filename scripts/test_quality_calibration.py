@@ -8,6 +8,7 @@ import os
 import py_compile
 from pathlib import Path
 import subprocess
+import ssl
 import sys
 import time
 import tempfile
@@ -28,15 +29,121 @@ def reply():
             "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "SYNTHETIC_REPLY_CANARY"}}]}
 
 
+def public_contract():
+    return {"schema": "nib.quality-calibration-endpoint/v1", "model": quality.MODEL,
+            "serving_profile": "long1m-graphs", "serving_context_tokens": 1048576,
+            "retire_at": int(time.time()) + 7200, "tls_mode": "system-roots",
+            "hostname": "synthetic.invalid", "address": "8.8.8.8", "port": 443}
+
+
+class CandidateTransportTests(unittest.TestCase):
+    def test_public_contract_uses_existing_system_roots_with_fixed_address(self):
+        contract = public_contract()
+        with mock.patch.object(quality.tau_live_identity, "private_read") as read, \
+             mock.patch.object(quality.bounded_https, "system_trust") as trust:
+            http, mode = quality.candidate_transport(contract, time.monotonic() + 10)
+        self.assertEqual(mode, "system-roots")
+        self.assertEqual((http.hostname, http.address, http.port), ("synthetic.invalid", "8.8.8.8", 443))
+        self.assertEqual(http.paths, ("/v1/chat/completions",))
+        self.assertIsNone(http.peer_digest)
+        self.assertIs(http.trust, trust.return_value)
+        trust.assert_called_once_with()
+        read.assert_not_called()
+
+    def test_public_contract_rejects_ambiguous_tls_and_unbounded_lifetimes(self):
+        cases = [("schema", "nib.tau-external-trial-endpoint/v3"), ("tls_mode", "insecure"),
+                 ("tls_mode", "pinned"), ("certificate", "/unused"), ("certificate_sha256", "a" * 64),
+                 ("model", "wrong"), ("serving_profile", "batch32-graphs"),
+                 ("serving_context_tokens", True), ("serving_context_tokens", 32768),
+                 ("retire_at", float("inf")), ("retire_at", float("nan")), ("retire_at", True),
+                 ("retire_at", time.time() + 7200), ("retire_at", int(time.time()) + 3500),
+                 ("retire_at", int(time.time()) + 8 * 86400), ("port", 18443),
+                 ("port", "443"), ("address", None), ("unexpected", "PRIVATE_CANARY")]
+        for key, value in cases:
+            with self.subTest(key=key, value=value), \
+                 mock.patch.object(quality.bounded_https, "HTTPS") as transport, \
+                 mock.patch.object(quality.tau_live_identity, "private_read") as read:
+                contract = public_contract()
+                contract[key] = value
+                with self.assertRaises(ValueError):
+                    quality.candidate_transport(contract, time.monotonic() + 10)
+                transport.assert_not_called()
+                read.assert_not_called()
+        for key in public_contract():
+            contract = public_contract()
+            del contract[key]
+            with self.subTest(missing=key), self.assertRaises(ValueError):
+                quality.candidate_transport(contract, time.monotonic() + 10)
+
+    def test_public_contract_keeps_transport_host_and_global_address_checks(self):
+        for field, value in (("address", "127.0.0.1"), ("address", "10.0.0.1"),
+                             ("address", "::1"), ("hostname", "https://synthetic.invalid")):
+            contract = public_contract()
+            contract[field] = value
+            with self.subTest(field=field, value=value), \
+                 mock.patch.object(quality.bounded_https, "system_trust") as trust:
+                with self.assertRaises(ValueError):
+                    quality.candidate_transport(contract, time.monotonic() + 10)
+                trust.assert_not_called()
+
+    def test_public_contract_rejects_environment_trust_overrides(self):
+        for name in ("SSL_CERT_FILE", "SSL_CERT_DIR"):
+            with self.subTest(name=name), mock.patch.dict(os.environ, {name: "/unused"}), \
+                 self.assertRaises(ValueError):
+                quality.candidate_transport(public_contract(), time.monotonic() + 10)
+
+    def test_public_tls_failure_never_sends_credentials_or_retries(self):
+        with mock.patch.object(quality.bounded_https, "system_trust") as trust, \
+             mock.patch.object(quality.bounded_https.socket, "socket") as sockets:
+            trust.return_value.wrap_socket.side_effect = ssl.SSLCertVerificationError("synthetic rejection")
+            client, _ = quality.candidate_transport(public_contract(), time.monotonic() + 10)
+            before_send = mock.Mock()
+            with self.assertRaises(ssl.SSLCertVerificationError):
+                client.post("/v1/chat/completions", {}, b"SYNTHETIC_PRIVATE_CANARY",
+                            time.monotonic() + 2, before_send=before_send)
+            sockets.assert_called_once()
+            socket = sockets.return_value.__enter__.return_value
+            socket.connect.assert_called_once_with(("8.8.8.8", 443))
+            trust.return_value.wrap_socket.assert_called_once_with(socket, server_hostname="synthetic.invalid")
+            socket.sendall.assert_not_called()
+            before_send.assert_not_called()
+            self.assertEqual(client.attempts, {"/v1/chat/completions": 0})
+            self.assertFalse(client.used)
+
+    def test_pinned_contract_has_no_system_root_fallback(self):
+        contract = public_contract()
+        contract.update(schema="nib.tau-external-trial-endpoint/v2", port=18443,
+                        certificate="/unused", certificate_sha256="a" * 64)
+        del contract["tls_mode"]
+        with mock.patch.object(quality.tau_live_identity, "private_read", return_value=b"pinned") as read, \
+             mock.patch.object(quality.bounded_https, "HTTPS", side_effect=ssl.SSLError("synthetic")) as transport:
+            with self.assertRaises(ssl.SSLError):
+                quality.candidate_transport(contract, 1234)
+        read.assert_called_once_with("/unused", 1234)
+        transport.assert_called_once_with("synthetic.invalid", ("/v1/chat/completions",),
+            address="8.8.8.8", port=18443, certificate_pem=b"pinned", certificate_sha256="a" * 64)
+        contract["tls_mode"] = "system-roots"
+        with mock.patch.object(quality.tau_live_identity, "private_read") as read, self.assertRaises(ValueError):
+            quality.candidate_transport(contract, 1234)
+        read.assert_not_called()
+
+
 class CalibrationTests(unittest.TestCase):
     def test_real_writer_preserves_interrupted_transmission(self):
-        def post(*args, before_send, **kwargs):
-            before_send()
-            raise KeyboardInterrupt
         contract = {"schema": "nib.tau-external-trial-endpoint/v2", "model": quality.MODEL,
                     "serving_profile": "long1m-graphs", "retire_at": time.time() + 7200,
                     "certificate": "/unused", "hostname": "synthetic.invalid", "address": "8.8.8.8",
                     "port": 18443, "certificate_sha256": "a" * 64}
+        self.assert_interrupted_writer(contract)
+
+    def test_public_tls_writer_preserves_interrupted_transmission(self):
+        self.assert_interrupted_writer(public_contract())
+
+    def assert_interrupted_writer(self, contract):
+        def post(*args, before_send, **kwargs):
+            before_send()
+            raise KeyboardInterrupt
+        public = contract["schema"] == "nib.quality-calibration-endpoint/v1"
         raw = json.dumps(contract).encode()
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             output = Path(temporary) / "receipt.jsonl"
@@ -49,7 +156,8 @@ class CalibrationTests(unittest.TestCase):
             stack.enter_context(mock.patch.object(quality, "source", return_value="a" * 64))
             stack.enter_context(mock.patch.object(quality, "cases", return_value=(
                 [{}] * 20, lambda r: "SYNTHETIC_PROMPT_CANARY", mock.Mock(), "b" * 64)))
-            stack.enter_context(mock.patch.object(quality.tau_live_identity, "private_read", side_effect=[raw, b"pem", b"key"]))
+            stack.enter_context(mock.patch.object(quality.tau_live_identity, "private_read",
+                                                  side_effect=[raw, b"key"] if public else [raw, b"pem", b"key"]))
             stack.enter_context(mock.patch.object(quality.bounded_https, "HTTPS", return_value=types.SimpleNamespace(last_status=None, post=post)))
             stack.enter_context(mock.patch.object(quality.tau_external_tokenizer, "Counter", return_value=types.SimpleNamespace(count=lambda b: 20, close=lambda: None)))
             def git(argv, **kwargs):
@@ -61,6 +169,7 @@ class CalibrationTests(unittest.TestCase):
             stack.enter_context(redirect_stderr(io.StringIO()))
             self.assertEqual(quality.main(), 1)
             rows = [json.loads(line) for line in output.read_bytes().splitlines()]
+            self.assertEqual(rows[0]["candidate_tls_mode"], "system-roots" if public else "pinned")
             self.assertEqual(rows[1]["status"], "cancelled")
             self.assertEqual(rows[-1]["generation_requests"], 1)
             self.assertEqual(rows[-1]["unknown_usage_requests"], 1)
@@ -82,6 +191,14 @@ class CalibrationTests(unittest.TestCase):
                     "ended_at": "2026-10-26T23:01:00+00:00"}
         raw = lambda: b"\n".join(json.dumps(row).encode() for row in (manifest, item, terminal))
         record = summary.report(raw())
+        self.assertEqual(record["candidate_tls_mode"], "unrecorded")
+        for mode in ("pinned", "system-roots"):
+            manifest["candidate_tls_mode"] = mode
+            self.assertEqual(summary.report(raw())["candidate_tls_mode"], mode)
+        manifest["candidate_tls_mode"] = "PRIVATE_CANARY"
+        with self.assertRaises(ValueError):
+            summary.report(raw())
+        del manifest["candidate_tls_mode"]
         self.assertEqual((record["result"], record["correct"], record["expected"]), ("fail", 1, 20))
         self.assertNotIn("CANARY", json.dumps(record))
         self.assertTrue(record["items"][0]["generation_started"])

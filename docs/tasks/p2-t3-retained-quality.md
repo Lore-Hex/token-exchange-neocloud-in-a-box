@@ -53,6 +53,40 @@ Only counts, timings and numerical scores are written; the benchmark's normal
 trajectory/call-log writer is not used. This directly tests the node, not the
 TrustedRouter gateway or billing path.
 
+### Public HTTPS calibration
+
+The code-scored calibration runner also accepts a separate private
+`nib.quality-calibration-endpoint/v1` contract for an existing public HTTPS
+endpoint. It requires exactly these fields:
+
+- `schema`: `nib.quality-calibration-endpoint/v1`.
+- `model`: the selected checkpoint's catalog ID, unchanged from the v2 contract.
+- `serving_profile`: `long1m-graphs`.
+- `serving_context_tokens`: integer `1048576`.
+- `retire_at`: integer Unix timestamp matching the existing owner's admission
+  cutoff, more than one hour and no more than seven days away. A new input
+  contract never renews or extends the serving owner's lifetime.
+- `tls_mode`: `system-roots`.
+- `hostname`: the operator-reviewed certificate hostname, without a URL scheme.
+- `address`: its verified public IPv4 address, fixed for this run.
+- `port`: integer `443`.
+
+Keep this contract outside the repository and pass its exact SHA256 through
+the existing `--contract-sha256` flag. No certificate path, certificate hash,
+extra fields, alternate port or TLS auto-detection is allowed in this schema.
+The existing bounded HTTPS implementation verifies system-root trust and the
+certificate hostname before transmitting credentials. It rejects environment
+trust overrides, redirects and address retries. TLS failure cannot fall back to
+an unverified connection or the old certificate mode. The old v2 contract still
+requires its exact PEM and peer pin and cannot opt into system roots.
+
+Only the calibration runner accepts this new schema; the tau2 simulator,
+evaluator, scorer, task selection and transport contracts are unchanged. No
+external judge calls are added. Numerical receipts record `candidate_tls_mode`;
+historical receipts without it remain explicitly `unrecorded`, not retrospectively
+certified. This software support does not claim a new live quality result,
+hardware attestation or confidential operation.
+
 Each run is serial, temperature zero, reasoning disabled, 8,192 output tokens
 maximum and 32K combined context; 119 seconds per request and one hour overall.
 Three consecutive protocol/transport failures stop the run without retrying.
