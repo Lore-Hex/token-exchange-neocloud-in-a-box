@@ -87,9 +87,15 @@ def _parse(raw, model, *, minimum_concurrency):
 
 
 def probe(endpoint, model, deadline):
+    deadline = min(deadline, time.monotonic() + SECONDS)
+    with stream.worker.alarm(deadline):
+        return parse(_probe_raw(endpoint, model, deadline), model)
+
+
+def _probe_raw(endpoint, model, deadline, *, selected_model=False):
     require(type(endpoint) is stream.identity.Endpoint and endpoint.port == stream.PORT)
     deadline = min(deadline, time.monotonic() + SECONDS)
-    client = stream.OwnedStreamHTTP(endpoint, model=model)
+    client = stream.OwnedStreamHTTP(endpoint, model=model, selected_model=selected_model)
     sock = response = connection = None
     try:
         with stream.worker.alarm(deadline):
@@ -129,7 +135,7 @@ def probe(endpoint, model, deadline):
             require(response.tail is not None and response.tail.read1(1) == b"")
             client.remaining(deadline)
             endpoint.check(deadline)
-            return parse(bytes(raw), model)
+            return bytes(raw)
     finally:
         for resource in (response, connection, sock):
             if resource is not None:

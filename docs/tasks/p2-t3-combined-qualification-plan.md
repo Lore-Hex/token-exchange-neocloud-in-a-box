@@ -1,22 +1,24 @@
 # P2.T3: combined long-context and batch32 planning capability
 
-**Software-only, non-executing, unrunnable until owner integration.**
+**Software-only; no runnable combined profile until owner integration.**
 The [offline helper](../../scripts/selected_combined_plan.py) composes candidate
 arguments and calculates deadline ceilings. It does not register a profile,
 prepare a runnable bundle, launch a process, make a request or produce a runtime
-receipt. The reserved name `long128k-batch32-graphs` is rejected by the existing
+receipt. A separate owned-loopback metrics collector is now tested against
+synthetic HTTP only. The reserved name `long128k-batch32-graphs` is rejected by the existing
 lab and selected-service entrypoints. Existing evidence is unchanged and cannot
 be relabelled as a combined run.
 
 The existing image preparer inventories the complete Python source tree. A
 future preparation at this new source revision would therefore bind the added
 inert files with new hashes; it would not make them executable entrypoints or
-preserve the old image's identity. No image was prepared or built here.
+preserve the old image's identity. No selected-engine image was prepared or built here.
 
 This is the first, separately testable part of the combined qualification path.
 It is not evidence that the combined engine fits in memory, captures graphs,
 passes long-context checks or supports higher public admission. No hardware,
-deployment, image build, live endpoint or confidential appraisal was exercised.
+deployment, selected-engine image build, live engine endpoint or confidential
+appraisal was exercised. The GPU-free fake-node test is software validation only.
 
 ## Candidate controls
 
@@ -97,14 +99,15 @@ must not renew the cutoff or silently borrow from cleanup.
    usage or failed cleanup must stop the path before throughput. No retries.
 3. Integrate authenticated private collectors with their existing bounded
    pipe/reap protocol. The selected service uses a fully qualified model name;
-   [stream_transport.py](../../scripts/stream_transport.py) currently admits
-   only the short lab name. Add only the exact source-bound model binding,
-   not a general name/endpoint override or request rewriting.
+   [stream_transport.py](../../scripts/stream_transport.py) now accepts that
+   exact name only through an explicit opt-in, with legacy limits unchanged.
+   The future owner must bind that choice to its authenticated source/profile;
+   there is no general name/endpoint override or request rewriting.
 4. Review [stream_capacity.py](../../scripts/stream_capacity.py) against the
    pinned source: its existing concurrency-32 / `32 * 4096` gate belongs to
    the 4K profile. Do not relabel that validator for 128K or infer long-request
-   capacity from the short workload. The offline policy below is implemented;
-   its owned collector and stage integration remain required. Preserve the old
+   capacity from the short workload. The policy and owned collector below are
+   implemented; owner/stage integration remains required. Preserve the old
    gate and receipts.
 5. Add a **separate bounded combined receipt path**, not a global cap increase.
    The selected lifecycle capture is currently 16 KiB; the existing scaling
@@ -122,9 +125,10 @@ must not renew the cutoff or silently borrow from cleanup.
 ### Combined Capacity Policy
 
 [selected_combined_capacity.py](../../scripts/selected_combined_capacity.py)
-is a non-executing parser for the reserved profile. It reuses the existing
-Prometheus decoder and rank-stability checks without changing the old short-only
-callers, request bytes, collector or receipts. Its separate versioned observation
+provides a parser and bounded owned-loopback collector for the reserved profile.
+It reuses the existing Prometheus decoder, metrics transport and rank-stability
+checks without changing old short-only callers, request bytes or receipts.
+Its separate versioned observation
 cannot be substituted for the old rank list. No owner or runtime entrypoint calls
 it yet; it does not grant profile admission.
 
@@ -151,19 +155,43 @@ remain mandatory. The old short-only parser still requires concurrency >= 32.
 The observation explicitly retains public C1 and false runtime/confidentiality
 claims. It does not prove HBM availability, graph capture, even rank placement,
 that 64 clients will run simultaneously, mixed-workload safety, or a supported
-1M/high-concurrency profile. A source/owner/engine join, bounded collector,
-original-byte capture and whole-run cleanup are still required by steps 1-6.
+1M/high-concurrency profile. A source/owner/engine join, retained original-byte
+capture and whole-run cleanup are still required by steps 1-6.
+
+### Selected-Model Collector
+
+The collector returns the original bounded metrics bytes and the separate parsed
+observation, with one GET, no retry, a five-second whole-operation deadline,
+2 MiB response ceiling, and the existing HTTP framing and process-identity checks.
+It uses only the owned loopback listener on port 8000; it accepts no arbitrary
+host, port, credential or model. Parsing stays inside the same deadline.
+
+The shared short-stream transport adds an explicit, default-off selected-model
+option for exactly the selected service's full wire ID. Without that option the
+original model validation and bytes remain unchanged. Enabling it changes only
+that closed model binding: 4K context, 512 output tokens, 60-second deadline,
+response-model validation, peer checks and cleanup remain mandatory. Tests
+normalize only literal reviewed additions before comparing the legacy source;
+unreviewed changes still fail the historical regression check.
+
+This collector is not connected to a launch owner or a public route. Its caller
+must authenticate the source and execution profile, retain original observations,
+and join them to lifecycle/cleanup evidence. There is no new runtime profile,
+CLI, admission path or increased public concurrency.
 
 Synthetic regression checks:
 
 ```sh
-PYTHONPATH=scripts uv run --project tools --frozen python -m unittest test_selected_combined_capacity test_stream_capacity test_stream_scaling test_selected_combined_plan
+PYTHONPATH=scripts uv run --project tools --frozen python -m unittest test_selected_stream_collector test_stream_transport test_selected_combined_capacity test_stream_capacity test_stream_scaling test_selected_combined_plan
 ```
 
 The tests cover the old 4K denominator being rejected under the new profile,
 exact boundary/fractional capacities, both-rank drift, malformed types, nonfinite
 values, source tampering, no-I/O behavior and continued launch rejection. They do
-not start an engine, collect live metrics or change the serving configuration.
+not start an engine, collect live engine metrics or change the serving
+configuration. Synthetic loopback tests additionally cover length/chunked
+responses, unchanged request ceilings, exact model identity, cancellation,
+restored alarms, no retries, malformed deadlines and terminal process drift.
 
 [Offline tests](../../scripts/test_selected_combined_plan.py) compare the
 composition to both existing closed transforms; check budget constants against

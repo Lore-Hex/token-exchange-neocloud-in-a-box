@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Offline capacity-policy validation; no collector, owner or runnable profile.
+"""Combined capacity validation and an owned local collector, not admission.
 
 vLLM advertises concurrency at max_model_len, not its scheduler's sequence cap.
 One 128K request and 32 short requests per rank have different requirements.
@@ -7,6 +7,7 @@ This parser does not establish graph capture, rank placement or runtime safety.
 """
 
 import hashlib
+import time
 
 import selected_combined_plan as plan
 import selected_service as service
@@ -61,3 +62,21 @@ def stable(before, after):
     _snapshot(before)
     _snapshot(after)
     capacity._stable(before["ranks"], after["ranks"], minimum_concurrency=1)
+
+
+def collect(endpoint, deadline, *, execution_profile):
+    """Return original bounded metrics plus their parsed, versioned observation.
+
+    The future owner must authenticate source/process/profile before calling,
+    retain original bytes, and join this with its lifecycle and cleanup. This
+    does not create that owner, launch a profile or authorize public admission.
+    """
+    plan.profile(execution_profile)
+    require(capacity.stream.measurement.number(deadline))
+    require(service.MODEL == capacity.stream.SELECTED_MODEL)
+    deadline = min(deadline, time.monotonic() + capacity.SECONDS)
+    with capacity.stream.worker.alarm(deadline):
+        raw = capacity._probe_raw(endpoint, service.MODEL, deadline, selected_model=True)
+        observation = parse(raw, execution_profile=execution_profile, model=service.MODEL)
+        require(time.monotonic() < deadline)
+        return raw, observation
