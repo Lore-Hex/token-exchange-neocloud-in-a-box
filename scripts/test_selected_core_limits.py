@@ -47,22 +47,27 @@ class CoreTests(unittest.TestCase):
                 core.read(link)
 
     def test_worker_namespace_user_and_mode_fail_closed(self):
-        for mode, ids, space in (("other", (65532,) * 3, [1, 2]), ("apply", (0,) * 3, [1, 2]),
-                                 ("apply", (65532,) * 3, [9, 9])):
-            with self.subTest(mode=mode, ids=ids, space=space), ExitStack() as stack:
+        for mode, ids, space, pid in (("other", (65532,) * 3, [1, 2], 9), ("apply", (0,) * 3, [1, 2], 9),
+                                      ("apply", (65532,) * 3, [9, 9], 9),
+                                      ("inspect", (65532,) * 3, [1, 2], 1), ("apply", (65532,) * 3, [1, 2], 1)):
+            with self.subTest(mode=mode, ids=ids, space=space, pid=pid), ExitStack() as stack:
                 stack.enter_context(mock.patch.object(core.sys, "platform", "linux"))
+                stack.enter_context(mock.patch.object(core.os, "getpid", return_value=pid))
                 stack.enter_context(mock.patch.object(core.os, "getresuid", return_value=ids, create=True))
                 stack.enter_context(mock.patch.object(core.os, "getresgid", return_value=ids, create=True))
                 stack.enter_context(mock.patch.object(core, "namespace", return_value=space))
                 setter = stack.enter_context(mock.patch.object(core.resource, "setrlimit"))
+                scan = stack.enter_context(mock.patch.object(core, "scan"))
                 with self.assertRaises(ValueError):
                     core.worker(mode, [1, 2])
                 setter.assert_not_called()
+                scan.assert_not_called()
 
     def test_worker_inspect_never_sets_and_apply_has_fixed_passes(self):
         for mode in ("inspect", "apply"):
             with self.subTest(mode=mode), ExitStack() as stack:
                 stack.enter_context(mock.patch.object(core.sys, "platform", "linux"))
+                stack.enter_context(mock.patch.object(core.os, "getpid", return_value=9))
                 for name in ("getresuid", "getresgid"):
                     stack.enter_context(mock.patch.object(core.os, name, return_value=(65532,) * 3, create=True))
                 stack.enter_context(mock.patch.object(core, "namespace", return_value=[1, 2]))
@@ -86,14 +91,32 @@ class CoreTests(unittest.TestCase):
                 core.same_user(1)
 
     def test_scan_sets_only_core_in_owned_namespace_and_checks_readback(self):
-        with mock.patch.object(core, "processes", return_value=[1, 9]), mock.patch.object(core, "same_user"), \
+        with mock.patch.object(core.os, "getpid", return_value=9), \
+                mock.patch.object(core, "processes", return_value=[1, 9, 23]), \
+                mock.patch.object(core, "same_user") as same_user, \
                 mock.patch.object(core.resource, "prlimit", return_value=(0, 0), create=True) as limit:
             self.assertEqual(core.scan(True), {"processes": 2, "zero": 2, "limits": [[0, 0]]})
+            self.assertEqual(same_user.call_args_list, [mock.call(1), mock.call(23)])
             self.assertEqual(limit.call_args_list, [mock.call(pid, core.resource.RLIMIT_CORE, *args)
-                for pid in (1, 9) for args in (((0, 0),), ())])
+                for pid in (1, 23) for args in (((0, 0),), ())])
+            same_user.reset_mock()
+            limit.reset_mock()
             limit.return_value = (-1, -1)
             with self.assertRaises(ValueError):
                 core.scan(True)
+            same_user.assert_called_once_with(1)
+            self.assertEqual(limit.call_args_list, [mock.call(1, core.resource.RLIMIT_CORE, (0, 0)),
+                                                   mock.call(1, core.resource.RLIMIT_CORE)])
+
+    def test_scan_inspect_only_reads_peer_limits_and_skips_self(self):
+        with mock.patch.object(core.os, "getpid", return_value=9), \
+                mock.patch.object(core, "processes", return_value=[1, 9, 23]), \
+                mock.patch.object(core, "same_user") as same_user, \
+                mock.patch.object(core.resource, "prlimit", side_effect=[(0, 0), (-1, -1)], create=True) as limit:
+            self.assertEqual(core.scan(False), {"processes": 2, "zero": 1, "limits": [[-1, -1], [0, 0]]})
+            self.assertEqual(same_user.call_args_list, [mock.call(1), mock.call(23)])
+            self.assertEqual(limit.call_args_list, [mock.call(1, core.resource.RLIMIT_CORE),
+                                                   mock.call(23, core.resource.RLIMIT_CORE)])
 
     def test_process_bound_and_missing_init(self):
         for values in (list(range(1, 1026)), [9]):
