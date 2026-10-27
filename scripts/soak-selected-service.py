@@ -165,12 +165,13 @@ def validate_sample(row, revision, hashes, mode):
     require(type(row["usage_unknown"]) is bool, "protocol")
     usage = row["usage"]
     require(usage is None or type(usage) is dict and set(usage) == {"prompt_tokens", "completion_tokens"}
-            and all(type(value) is int and value > 0 for value in usage.values())
+            and all(type(value) is int and value >= 0 for value in usage.values())
             and usage["prompt_tokens"] <= probe.service.CONTEXT - probe.service.OUTPUT
             and usage["completion_tokens"] <= probe.service.OUTPUT, "protocol")
     require(row["usage_unknown"] == (row["attempts"]["stream"] and usage is None), "protocol")
     require(row["result"] != "pass" or (all(row["checks"].values())
-            and all(row["tls_checks"].values()) and all(row["attempts"].values()) and usage is not None), "protocol")
+            and all(row["tls_checks"].values()) and all(row["attempts"].values()) and usage is not None
+            and all(value > 0 for value in usage.values())), "protocol")
     return row
 
 

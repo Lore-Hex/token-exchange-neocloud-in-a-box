@@ -171,6 +171,19 @@ class SoakTests(unittest.TestCase):
             rows, _ = self.assert_chain(args)
             self.assertTrue(rows["0000-sample.json"]["payload"]["probe"]["usage_unknown"])
 
+    def test_zero_token_failed_completion_is_preserved_not_discarded(self):
+        failed = observation(failure="completion")
+        failed["usage"] = {"prompt_tokens": 0, "completion_tokens": 0}
+        with self.fixture([failed, observation(), observation()]) as (directory, clock, calls, _):
+            args = arguments(directory, clock)
+            result = soak.run(args)
+            self.assertEqual(result["failure"], "failed-samples")
+            self.assertEqual(len(calls), 3)
+            self.assertEqual(result["known_prompt_tokens"], 24)
+            self.assertEqual(result["unknown_usage_samples"], 0)
+            rows, _ = self.assert_chain(args)
+            self.assertEqual(rows["0000-sample.json"]["payload"]["probe"], failed)
+
     def test_identity_authentication_protocol_and_cancelled_are_terminal(self):
         for failure in ("identity", "authentication", "protocol", "cancelled", "deadline"):
             with self.fixture([observation(failure=failure)]) as (directory, clock, calls, _):
