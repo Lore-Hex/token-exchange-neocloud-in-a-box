@@ -40,6 +40,7 @@ TOOL_SCHEMA = "nib.selected-service-lifecycle/v5"
 LONG_MODE = "long-qualification"
 LONG_SCHEMA = "nib.selected-service-lifecycle/v8"
 SMOKE_PROFILE, ORDINARY_PROFILE = "smoke", "ordinary-24h"
+WEEKLY_PROFILE = "ordinary-7d"
 ORDINARY_SCHEMA = "nib.selected-service-lifecycle/v6"
 PROGRESS_SCHEMA = "nib.selected-service-progress/v1"
 EXECUTION_SCHEMA = "nib.selected-service-lifecycle/v7"
@@ -66,8 +67,13 @@ def require(condition, category):
 
 
 def lifetime_seconds(profile):
-    require(type(profile) is str and profile in (SMOKE_PROFILE, ORDINARY_PROFILE), "lifetime")
-    return 4800 if profile == SMOKE_PROFILE else 86400
+    limits = {SMOKE_PROFILE: 4800, ORDINARY_PROFILE: 86400, WEEKLY_PROFILE: 604800}
+    require(type(profile) is str and profile in limits, "lifetime")
+    return limits[profile]
+
+
+def ordinary_profile(profile):
+    return type(profile) is str and profile in (ORDINARY_PROFILE, WEEKLY_PROFILE)
 
 
 def request_seconds(execution_profile):
@@ -132,7 +138,7 @@ def progress_record(phase, lifetime, prepared_sha256, execution_profile=engine_e
 
 
 def progress(phase, contract, prepared_sha256):
-    if contract.lifetime_profile == ORDINARY_PROFILE:
+    if ordinary_profile(contract.lifetime_profile):
         print(json.dumps(progress_record(phase, contract.lifetime, prepared_sha256, contract.execution_profile),
                          sort_keys=True, allow_nan=False), flush=True)
 
@@ -184,8 +190,10 @@ class Contract:
         # replace the original absolute cutoff with a new duration.
         limit = lifetime_seconds(lifetime_profile)
         engine_entry.execution_limits(execution_profile)
+        require(lifetime_profile != WEEKLY_PROFILE or execution_profile == engine_entry.MILLION_PROFILE, "lifetime")
         try:
-            wall, monotonic = pilot.retirement_deadline(hard_stop_at, public=True)
+            options = {"max_seconds": limit} if lifetime_profile == WEEKLY_PROFILE else {}
+            wall, monotonic = pilot.retirement_deadline(hard_stop_at, public=True, **options)
         except (pilot.pilot.PilotError, TypeError, ValueError):
             raise Rejected("lifetime") from None
         reserve = cleanup_reserve(execution_profile)
@@ -207,10 +215,11 @@ class Contract:
     def guard_arguments(self, inputs):
         # Paths are private snapshots. The existing Go CLI owns provider/schema
         # validation; no duplicate Python provider validator or model rewriting.
-        return ("--profile", self.execution["guard_profile"], "--api-key-file", str(inputs.root / "api-key"),
+        arguments = ("--profile", self.execution["guard_profile"], "--api-key-file", str(inputs.root / "api-key"),
                 "--provider-config", str(inputs.root / "provider.json"),
                 "--input-price", self.input_price, "--output-price", self.output_price,
                 "--retirement-at", self.admission_stop_at, "--public")
+        return arguments + (("--lifetime-profile", WEEKLY_PROFILE) if self.lifetime_profile == WEEKLY_PROFILE else ())
 
 
 class Inputs:
@@ -413,7 +422,7 @@ class Supervisor:
                 require(self.ready("engine", deadline), "readiness")
             admitted = True
             self.phase = "ready"
-            if self.contract.lifetime_profile == ORDINARY_PROFILE:
+            if ordinary_profile(self.contract.lifetime_profile):
                 progress("ready", self.contract, self.owner.prepared.receipt_sha256)
             if long_qualification:
                 import selected_long_qualification as qualification
@@ -467,7 +476,7 @@ class Supervisor:
         except BaseException:
             reason = "owner-failed"
         finally:
-            if self.contract.lifetime_profile == ORDINARY_PROFILE:
+            if ordinary_profile(self.contract.lifetime_profile):
                 try:
                     progress("draining", self.contract, self.owner.prepared.receipt_sha256)
                 except BaseException:
@@ -541,7 +550,7 @@ class Supervisor:
                 "ready": admitted, "cleanup_confirmed": confirmed, "cleanup": cleanup,
                 "deployable": False, "hardware_validated": False,
                 "tools": False, "reasoning": False, "zdr": False, "confidential": False, "e2ee": False}
-        if self.contract.lifetime_profile == ORDINARY_PROFILE:
+        if ordinary_profile(self.contract.lifetime_profile):
             result.update(schema=ORDINARY_SCHEMA, lifetime=self.contract.lifetime,
                           prepared_sha256=self.owner.prepared.receipt_sha256)
         if long_qualification:

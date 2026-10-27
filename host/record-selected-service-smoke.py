@@ -409,7 +409,7 @@ def tool_lifecycle(raw, prepared_sha256, *, failed):
 def ordinary_lifecycle(raw, lifetime, prepared_sha256, *, failed):
     require(type(raw) is bytes and len(raw) <= 16384 and type(lifetime) is dict
             and set(lifetime) == {"profile", "hard_stop_at", "admission_stop_at"}
-            and lifetime["profile"] == service.ORDINARY_PROFILE
+            and service.ordinary_profile(lifetime["profile"])
             and type(prepared_sha256) is str and re.fullmatch("[0-9a-f]{64}", prepared_sha256), "owner-failed")
     row = service.correctness.strict_json(raw)
     require(type(row) is dict and row.get("schema") == service.ORDINARY_SCHEMA
@@ -645,7 +645,7 @@ def admitted_runtime(args, result, *, lifetime_profile=service.SMOKE_PROFILE):
     require(threading.current_thread() is threading.main_thread(), "contract")
     service.lifetime_seconds(lifetime_profile)
     require(getattr(args, "lifetime_profile", service.SMOKE_PROFILE) == lifetime_profile, "lifetime")
-    ordinary = lifetime_profile == service.ORDINARY_PROFILE
+    ordinary = service.ordinary_profile(lifetime_profile)
     execution = getattr(args, "execution_profile", service.engine_entry.EAGER_PROFILE)
     service.engine_entry.execution_limits(execution)
     long_qualification = getattr(args, "long_qualification", False)

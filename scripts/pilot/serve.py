@@ -84,8 +84,9 @@ def wait_ready(process, check, shutdown, *, timeout=90):
     pilot.require(shutdown.is_set(), "readiness-timeout")
 
 
-def retirement_deadline(value, *, public):
+def retirement_deadline(value, *, public, max_seconds=86400):
     """Public runs have an absolute, advertised cutoff that restarts cannot extend."""
+    pilot.require(type(max_seconds) is int and max_seconds in (86400, 604800), "retirement-window")
     if value is None:
         pilot.require(not public, "public-retirement-required")
         return None
@@ -98,7 +99,7 @@ def retirement_deadline(value, *, public):
     # Count setup time and retain a monotonic bound if the wall clock rolls back.
     started = time.monotonic()
     remaining = cutoff - time.time()
-    pilot.require(0 < remaining <= 86400, "retirement-window")
+    pilot.require(0 < remaining <= max_seconds, "retirement-window")
     return cutoff, started + remaining
 
 
