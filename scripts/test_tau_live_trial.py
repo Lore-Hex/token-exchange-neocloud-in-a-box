@@ -157,15 +157,30 @@ class AdmissionTests(unittest.TestCase):
             lambda b, d: d["deployment.json"]["manifest"].update(quality_eligible=True),
         )
         for index, mutate in enumerate(mutations):
-            benchmark, docs = fixture_documents()
-            mutate(benchmark, docs)
-            with self.subTest(index=index), tempfile.TemporaryDirectory() as temp, \
+            # Fixture I/O must not move the 3601-second rejection case back
+            # inside the allowed one-hour window before admission reads it.
+            with self.subTest(index=index), mock.patch.object(time, "time", return_value=1800000000.5), \
+                    tempfile.TemporaryDirectory() as temp, \
                     mock.patch.object(live, "source_receipt"), mock.patch.object(socket.socket, "connect") as connect:
+                benchmark, docs = fixture_documents()
+                mutate(benchmark, docs)
                 root = Path(temp).resolve()
                 sha = write_bundle(root, docs)
                 with self.assertRaises((worker.Abort, ValueError)):
                     live.Deployment(root / "deployment.json", sha, benchmark, time.monotonic() + 5)
                 connect.assert_not_called()
+
+    def test_freshness_exact_window_boundaries(self):
+        deployment = object.__new__(live.Deployment)
+        now = 1800000000
+        with mock.patch.object(time, "time", return_value=now):
+            for offset in (1, 3600):
+                deployment.expires = now + offset
+                deployment.fresh()
+            for expires in (now, now - 1, now + 3601, True):
+                deployment.expires = expires
+                with self.subTest(expires=expires), self.assertRaises(worker.Abort):
+                    deployment.fresh()
 
     def test_same_simulator_evaluator_model_is_rejected_even_on_distinct_ports(self):
         benchmark, docs = fixture_documents()
