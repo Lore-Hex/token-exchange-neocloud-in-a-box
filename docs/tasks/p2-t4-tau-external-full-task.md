@@ -14,6 +14,11 @@ other original task/domain/trial rows without changing this default. Its
 aggregate reservations and separate run-approval gate are mandatory; no staged
 live result is claimed.
 
+The explicit [source-bound support opt-in](p2-t3-source-bound-support.md) adds
+authenticated telecom tools and per-call count/usage checks with an additional
+worst-case generation reservation. Legacy defaults remain unchanged; this is
+not live admission or proof of token parity.
+
 ## Original task and evaluator
 
 The source archive and all task/runtime files remain pinned to tau revision
