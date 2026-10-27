@@ -93,30 +93,34 @@ Cache routing retains normalized per-workspace namespaces and DP affinity.
 Missing namespaces stay fresh per request. Actual warm counters are necessary,
 but cross-replica controls do not establish same-replica isolation. Rank identity
 and broad cache isolation remain unqualified. Public cache discounts, first-token
-and idle-time promises, sustained concurrency, tool quality and tau2 quality
-need separate qualification before listing. Listed profiles retain false/null
-cache declarations.
+and idle-time promises and sustained concurrency need separate qualification.
+The million profile now declares prompt-cache support based on the measured
+warm counters, with cached input priced at the regular input rate, not an
+invented discount. Reasoning is unadvertised until enabled-reasoning qualification.
+Subsequent [retail tau2](../../evidence/p2/2026-10-26-tau-external-retail-pass/README.md)
+and [calibration](p2-t3-retained-quality.md) results are separate bounded evidence,
+not full-suite quality certification.
 
 ## Marketplace integration gate
 
-This candidate deliberately returns `data: []` from `/v1/models`. Authenticated
-direct qualification still uses the selected model ID and the declared bounds
-above, but discovery cannot publish it. The pinned marketplace v2 contract and
-provider checker 0.1.8 allow at most 900 seconds for completion, not the 3,540
-seconds needed by this candidate. Publishing 900 would misrepresent the service;
-changing only our local schema would not fix consumers. The live
+The original candidate deliberately returned `data: []`: the marketplace v2.0
+contract and provider checker 0.1.8 allowed at most 900 seconds for completion,
+not the 3,540 seconds needed by this profile. The live
 [marketplace schema](https://trustedrouter.com/providers/marketplace/catalog.v2.schema.json)
 confirmed this ceiling on October 26, 2026.
 
-Earlier synthetic checker tests replayed legacy catalogs and missed this
-integration boundary. The new fixture emits the actual Go handler catalogs for
-every closed profile and replays them through the unchanged, hash-locked checker.
-The empty candidate is schema-valid but cannot pass selected-service conformance;
-a nonempty declaration with its actual deadline remains explicitly rejected.
-Public listing requires coordinated upstream contract/checker support, verified
-router deadlines, then fresh hardware and provider conformance evidence. Until
-then the candidate remains an unlisted experiment, not a deployable marketplace
-route.
+The coordinated v2.1 contract now permits an explicit completion deadline up to
+3600 seconds, while v2.0 still rejects anything above 900. This profile emits one
+model with its actual 3540-second deadline and qualified capabilities. The
+[schema provenance](../../catalog/schema-provenance.json) identifies the exact
+control-plane source revision; it does not claim that revision is deployed.
+Legacy catalogs remain byte-identical and replay through the unchanged 0.1.8
+checker. That historical checker still rejects the new v2.1 declaration, as it
+should: old evidence cannot become a new qualification by relabeling it.
+
+Public listing requires deployed upstream contract/checker support, verified
+router deadlines, then fresh endpoint conformance. Until that happens, catalog
+support alone is not a public serving or uptime guarantee.
 
 ## Tests and remaining gates
 

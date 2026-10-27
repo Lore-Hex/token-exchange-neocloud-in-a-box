@@ -88,6 +88,33 @@ func TestFixtureGoldenAndDeterminism(t *testing.T) {
 	}
 }
 
+func TestLongCompletionsRequireExplicitV21(t *testing.T) {
+	golden, err := os.ReadFile("../../catalog/testdata/catalog.v2.golden.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, version := range []string{"2.0", "2.1", "2.2", ""} {
+		for _, seconds := range []int{0, 900, 901, 3540, 3600, 3601} {
+			var doc map[string]any
+			if err := json.Unmarshal(golden, &doc); err != nil {
+				t.Fatal(err)
+			}
+			doc["contract_version"] = version
+			for _, row := range doc["data"].([]any) {
+				row.(map[string]any)["reliability"].(map[string]any)["completion_timeout_seconds"] = seconds
+			}
+			raw, err := json.Marshal(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			valid := seconds > 0 && (version == "2.0" && seconds <= 900 || version == "2.1" && seconds <= 3600)
+			if (Validate(raw) == nil) != valid {
+				t.Fatalf("unexpected catalog acceptance for version %q, %d seconds", version, seconds)
+			}
+		}
+	}
+}
+
 func TestExactDecimalPrices(t *testing.T) {
 	for _, price := range []string{"0", "0.000000000000000000000000000001", "9007199254740993.123456789012345678901234567890", "1.2300", strings.Repeat("9", 128)} {
 		t.Run(price, func(t *testing.T) {

@@ -66,11 +66,24 @@ neither native capabilities nor privacy properties are inferred from draft
 engine arguments. Canonical IDs/context limits come from the selected packs;
 the local `/v1/models` stub retains their native IDs separately.
 
-The [unmodified public schema](../internal/catalog/catalog.v2.schema.json) is
+The [pinned marketplace schema](../internal/catalog/catalog.v2.schema.json) is
 embedded with a runtime SHA-256 check; the compiler has no network loader.
 [Schema provenance](schema-provenance.json) records its source, date, hash and
-the separately pinned checker contract. The checker is stricter than the public
-schema for some optional fields, so only their common required fields are emitted.
+the separately pinned checker contract. The current pin comes from an exact
+control-plane source revision, not an assertion of public deployment. Explicit
+contract `2.1` allows completion deadlines up to 3600 seconds; `2.0` retains its
+900-second ceiling. The generator's synthetic `2.0` output is byte-identical.
+
+The million-token serving profile declares `2.1` and its actual 3540-second
+deadline. Its tool and cache capabilities were qualified in the
+[million-context proof](../evidence/p2/2026-10-26-selected-million-pass/README.md)
+and [quality calibration](../evidence/p2/2026-10-26-tau-external-retail-pass/README.md).
+Cached input is priced at the regular input rate, so no discount is claimed.
+Reasoning remains unadvertised: those qualification runs disabled reasoning.
+No confidential inference is claimed. The older
+`0.1.8` offline checker payload remains pinned for reproducible historical `2.0`
+proofs; fresh `2.1` qualification requires the updated provider checker schema.
+These schema changes alone do not publish or qualify a live endpoint.
 
 ## Local proof
 

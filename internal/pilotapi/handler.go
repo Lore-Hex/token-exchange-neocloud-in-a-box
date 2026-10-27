@@ -45,8 +45,18 @@ func (p serviceProfile) catalog(provider ProviderConfig, inputPrice, outputPrice
 		retirementAt = retirement.UTC().Format(time.RFC3339)
 	}
 	owner, _, _ := strings.Cut(p.model, "/")
+	version := "2.0"
+	var cachedInput any
+	capabilities := map[string]bool{"streaming": true, "tools": false, "structured_output": false, "reasoning": false, "prompt_caching": false}
+	if p.context == 1048576 {
+		// Explicit v2.1 preserves the v2.0 900-second ceiling. These capabilities
+		// were qualified on the million-token profile; older declarations stay fixed.
+		version = "2.1"
+		capabilities["tools"], capabilities["prompt_caching"] = true, true
+		cachedInput = inputPrice // Cache support does not imply a billing discount.
+	}
 	document := map[string]any{
-		"object": "list", "contract_version": "2.0",
+		"object": "list", "contract_version": version,
 		"provider": map[string]any{
 			"id": provider.ID, "status_url": provider.StatusURL,
 			"support_contact": provider.SupportContact, "incident_contact": provider.IncidentContact,
@@ -58,19 +68,13 @@ func (p serviceProfile) catalog(provider ProviderConfig, inputPrice, outputPrice
 			"id": p.model, "object": "model", "owned_by": owner, "name": p.name,
 			"type": "chat", "context_length": p.context, "max_output_tokens": p.maxOutput,
 			"endpoints": []string{"chat/completions"}, "input_modalities": []string{"text"}, "output_modalities": []string{"text"},
-			"capabilities": map[string]bool{"streaming": true, "tools": false, "structured_output": false, "reasoning": false, "prompt_caching": false},
+			"capabilities": capabilities,
 			"pricing": map[string]any{"currency": "USD", "unit": "per_1m_tokens", "input": inputPrice,
-				"output": outputPrice, "cached_input": nil, "cache_write": nil, "minimum_request": "0"},
+				"output": outputPrice, "cached_input": cachedInput, "cache_write": nil, "minimum_request": "0"},
 			"lifecycle": map[string]any{"status": "active", "deprecation_at": nil, "retirement_at": retirementAt, "replacement_model_id": nil},
 			"reliability": map[string]any{"first_token_timeout_seconds": 30, "completion_timeout_seconds": int(p.requestTimeout() / time.Second),
 				"stream_idle_timeout_seconds": 30, "capacity_scope": "model"},
 		}},
-	}
-	// The pinned marketplace contract caps completion deadlines at 900s.
-	// Keep the 3540s qualification candidate unlisted until that contract and
-	// its consumers support it; do not publish a false shorter deadline.
-	if p.requestTimeout() > 900*time.Second {
-		document["data"] = []any{}
 	}
 	return json.Marshal(document)
 }

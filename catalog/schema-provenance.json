@@ -1,14 +1,15 @@
 {
   "schema_url": "https://trustedrouter.com/providers/marketplace/catalog.v2.schema.json",
-  "retrieved_utc_date": "2026-10-19",
-  "sha256": "d4d06605dd62dd471955af41b1ac88dd51bf1927e1127d3b3526693fcd7b0f47",
+  "retrieved_utc_date": "2026-10-27",
+  "sha256": "927350ccda756319f30f129c486286213b4f3ff4bb7b8f6dda27b939c55d35d8",
   "vendored_file": "internal/catalog/catalog.v2.schema.json",
-  "representation": "Exact public response bytes; no reformatting or local schema changes.",
+  "representation": "Compact JSON with trailing newline generated from the control-plane source at the revision below. This is not a claim that the public endpoint already serves this revision.",
+  "source_revision": "https://github.com/Lore-Hex/quill-router/blob/ac20d95dcfddbb3d9e9388af63cf6d3657743132/src/trusted_router/provider_contract.py",
   "refresh_command": "curl --fail --silent --show-error --max-time 30 https://trustedrouter.com/providers/marketplace/catalog.v2.schema.json -o /tmp/catalog.v2.schema.json",
   "checker_package": "trustedrouter-provider-check==0.1.8",
   "checker_source": "https://github.com/Lore-Hex/trustedrouter-provider-check",
   "checker_contract_sha256": "973e380e5ab7e6303576dd7555c186244649befdc2da5c64017611abe9918769",
   "checker_bundled_schema_sha256": "3069dbcc1ab9f34982ec092a674fc2b629bf90fe7cd51606b813f1d036cf261e",
   "checker_dependency_lock": "catalog/checker/uv.lock",
-  "notes": "The public schema and checker bundled schema are distinct snapshots. Go validates the public pin without network access. The loopback-only checker uses its bundled fallback and enforces its vendored exact-field and decimal rules. No receipt, documentation or privacy extensions are emitted. Updating either pin requires review and a rerun, not a runtime fetch."
+  "notes": "The Go schema now supports explicit 2.1 long completions and retains the 2.0 900-second ceiling. The historical 0.1.8 checker payload and its 2.0 proofs are unchanged; that bundled fallback cannot validate 2.1. Fresh 2.1 qualification requires a checker with the updated schema, not weakening or relabeling the historical proof. No receipt or privacy claims are emitted. Updating either pin requires review and a rerun, not a runtime fetch."
 }

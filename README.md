@@ -113,10 +113,13 @@ The [1M-context / 384K-output candidate](docs/tasks/p2-t3-million-context.md)
 retries or unknown usage and confirmed cleanup. All nine retrieval/cache checks
 passed through 1,048,320 input tokens. The warm 1M request reused 1,048,192 tokens
 and reached first content in 1.66 seconds, versus 23.64 seconds cold.
-This is not sustained capacity, quality or confidential qualification. The
-candidate still returns an empty model catalog: its 59-minute deadline exceeds
-the pinned marketplace contract's 15-minute ceiling. Listing requires coordinated
-contract, checker and router support. Existing profiles remain unchanged.
+This is not sustained capacity, matched-reference quality or confidential
+qualification. The catalog now explicitly uses contract `2.1` to declare its
+59-minute deadline, tested limits, tools and prompt caching. Reasoning remains
+unadvertised until an enabled-reasoning qualification passes. Older
+`2.0` profiles remain unchanged. Public listing still requires deployed router
+and checker support plus fresh endpoint conformance; a catalog is not a live
+marketplace listing.
 
 A separate [external restart smoke](evidence/p2/2026-10-26-selected-million-external/README.md)
 passed pinned TLS, missing/wrong-key rejection and one authenticated stream.
