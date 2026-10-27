@@ -552,7 +552,15 @@ def lifecycle_failure(raw, *, inference_smoke=False, conformance_smoke=False, pr
     return row
 
 
-def run_container(args, contract, lab, recorder, env, build, base, image, inputs, result):
+def run_container(args, contract, lab, recorder, env, build, base, image, inputs, result, *, combined=None, receipt_path=None):
+    if combined is not None:
+        import selected_combined_owner as combined_owner
+        require(type(combined) is combined_owner.Run and receipt_path is not None
+                and contract.execution_profile == combined_owner.BASE_PROFILE
+                and contract.lifetime_profile == service.ORDINARY_PROFILE
+                and not getattr(args, "long_qualification", False), "contract")
+    else:
+        require(receipt_path is None, "contract")
     weights = private_path(args.weights)
     deadline = min(time.monotonic() + SECONDS, contract.startup_deadline)
     with service.identity.worker.alarm(deadline):
@@ -563,6 +571,14 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
         datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     require(docker.remaining() > HOST_RESERVE + contract.cleanup_reserve, "deadline")
     command = container_command(name, token, build, base, weights, inputs, args, stop_at)
+    if combined is not None:
+        clocks = combined.row["deadline_plan"]
+        command.insert(command.index(build["image_id"]) + 1, "--combined-qualification")
+        for flag, value in (("preparation-seconds", clocks["preparation_seconds"]),
+                ("started-wall", clocks["now_wall"]), ("started-monotonic", clocks["now_monotonic"]),
+                ("original-hard-wall", clocks["hard_wall"]),
+                ("original-hard-monotonic", clocks["hard_monotonic"])):
+            command += ["--" + flag, str(value)]
     join = {"inference_smoke": getattr(args, "inference_smoke", False),
             "conformance_smoke": getattr(args, "conformance_smoke", False),
             "protocol_smoke": getattr(args, "protocol_smoke", False),
@@ -572,6 +588,16 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
         join["execution_profile"] = contract.execution_profile
     monitor, identifier, attempted, finished, accepted = None, None, False, False, False
     reader, writer = os.pipe()
+    def captured(raw):
+        if combined is None:
+            return lifecycle(raw, **join)
+        from selected_combined_receipt import capture
+        result["capture_sha256"] = image_builder.digest(raw)
+        value = capture(raw, build["prepared_sha256"])
+        result["lifecycle"] = value
+        require(value["deadline_plan"] == combined.row["deadline_plan"], "deadline")
+        require(value["result"] == "pass", "owner-failed")
+        return value
     try:
         require(docker.owned(name, token, build["image_id"]) is None, "identity")
         monitor = subprocess.Popen([sys.executable, "-I", "-S", "-B", str(Path(__file__).absolute()),
@@ -592,16 +618,37 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
         result.update(runtime_started=None, reason="lifecycle")
         start_command = ["docker", "container", "start", "--attach", identifier]
         try:
-            raw = docker.call(start_command, seconds=docker.remaining() - 120, limit=16384)
+            limit = 16384
+            if combined is not None:
+                from selected_combined_receipt import MAX_CAPTURE, sink, tau_runtime
+                limit = MAX_CAPTURE
+                try:
+                    with sink(receipt_path) as output:
+                        attached = recorder.snapshot.execute_process_group(start_command, env=env,
+                            timeout=docker.remaining() - 120, stdout_file=output, max_output_bytes=limit)
+                finally:
+                    # A timeout, cancellation or CLI failure cannot discard the
+                    # bytes already received. Replay may reject an incomplete
+                    # frame; the original still exists and is never zero usage.
+                    raw = tau_runtime.read_file(Path(receipt_path), limit, time.monotonic() + 5)
+                    result["capture_sha256"] = image_builder.digest(raw)
+                    result["capture_complete"] = False
+                if attached.returncode != 0:
+                    raise subprocess.CalledProcessError(attached.returncode, start_command, output=raw)
+                result["capture_complete"] = True
+            else:
+                raw = docker.call(start_command, seconds=docker.remaining() - 120, limit=limit)
         except subprocess.CalledProcessError as error:
             # The shared bounded process helper retains stdout on nonzero exit.
             # Never expose stderr, exception text or unvalidated output.
             if error.cmd == start_command and type(error.returncode) is int and -64 <= error.returncode <= 255:
                 result["start_client_exit_code"] = error.returncode
-                if error.returncode == 1:
+                if combined is not None and type(error.stdout) is bytes:
+                    captured(error.stdout)
+                elif error.returncode == 1:
                     result["owner_failure"] = lifecycle_failure(error.stdout, **join)
             raise
-        owner_result = lifecycle(raw, **join)
+        owner_result = captured(raw)
         if join["inference_smoke"] or join["conformance_smoke"] or join["protocol_smoke"] or join["tool_smoke"]:
             # Retain validated accounting even when the subsequent inspect or
             # host/watchdog cleanup fails; none of these facts imply PASS.

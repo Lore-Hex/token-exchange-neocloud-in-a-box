@@ -132,3 +132,13 @@ def arguments(baseline, name):
 def verify_sources(read_source, root):
     for path, expected in SOURCES.items():
         require(hashlib.sha256(read_source(root + "/" + path, 256 << 10)).hexdigest() == expected)
+
+
+def combined_arguments(baseline):
+    """Private owner composition only; deliberately absent from NAMES."""
+    long = arguments(baseline, LONG_GRAPHS_PROFILE)
+    batch = arguments(baseline, SCALING_PROFILE)
+    for flag in ("--max-num-seqs", "--compilation-config"):
+        require(long.count(flag) == batch.count(flag) == 1)
+        long[long.index(flag) + 1] = batch[batch.index(flag) + 1]
+    return long

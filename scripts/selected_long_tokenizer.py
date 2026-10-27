@@ -17,6 +17,7 @@ import os
 import signal
 import time
 import types
+from contextlib import contextmanager
 
 import selected_long_qualification as qualification
 
@@ -24,7 +25,8 @@ process, service = qualification.process, qualification.service
 require = qualification.require
 
 
-def prepare_runtime(expected, deadline, *, execution_profile=None):
+@contextmanager
+def tokenizer_runtime(expected, deadline, *, execution_profile=None):
     require(str(Path(__file__).absolute()) == str(process.ROOT / qualification.CHILD)
             and sys.version_info[:3] == (3, 12, 3), "contract")
     raw = process.bootstrap.read_source(str(process.ROOT / "prepared.json"))
@@ -53,15 +55,20 @@ def prepare_runtime(expected, deadline, *, execution_profile=None):
         # existing lab parity child. No guessed Python package/version fallback.
         from vllm.tokenizers.deepseek_v41 import DeepseekV41Tokenizer
         tokenizer = DeepseekV41Tokenizer.from_pretrained("/model", local_files_only=True, trust_remote_code=False)
-        workload = qualification.prepare(tokenizer, deadline=deadline,
-                                         execution_profile=contract["execution_profile"])
+        yield tokenizer, contract
         state["check"]()
         lab.PARITY.verify_model(lab.read_source)
         lab.PARITY.verify_sources(lab.read_source, contract["paths"][-1], lab.CORRECTNESS)
         lab.recheck_sources(modules[0], application, contract["paths"])
-        return {"prepared_sha256": expected, "workload": workload}
     finally:
         state["check"]()
+
+
+def prepare_runtime(expected, deadline, *, execution_profile=None):
+    with tokenizer_runtime(expected, deadline, execution_profile=execution_profile) as (tokenizer, contract):
+        workload = qualification.prepare(tokenizer, deadline=deadline,
+                                         execution_profile=contract["execution_profile"])
+    return {"prepared_sha256": expected, "workload": workload}
 
 
 def main():

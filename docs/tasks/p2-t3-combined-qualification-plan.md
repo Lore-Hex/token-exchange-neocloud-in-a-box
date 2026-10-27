@@ -1,20 +1,24 @@
-# P2.T3: combined long-context and batch32 planning capability
+# P2.T3: private 128K and batch32 qualification owner
 
-**Software-only; no runnable combined profile until owner integration.**
-The [offline helper](../../scripts/selected_combined_plan.py) composes candidate
-arguments and calculates deadline ceilings. It does not register a profile,
-prepare a runnable bundle, launch a process, make a request or produce a runtime
-receipt. A separate owned-loopback metrics collector is now tested against
-synthetic HTTP only. The reserved name `long128k-batch32-graphs` is rejected by the existing
-lab and selected-service entrypoints. Existing evidence is unchanged and cannot
-be relabelled as a combined run.
+**Implemented and tested against fakes; not hardware-qualified.** The
+[private CLI](../../host/record-selected-combined.py) integrates the
+[owner](../../scripts/selected_combined_owner.py), existing long/scaling helpers,
+and a separate bounded original-byte receipt channel. It runs one engine
+lifetime, long retrieval/cache/16K-output checks first, short C16/C32/C64 scaling
+only after those checks pass, then retires the entire owned container.
+The [pure planner](../../scripts/selected_combined_plan.py) still performs no I/O
+or admission itself. `long128k-batch32-graphs` remains rejected by public and
+legacy execution-profile registration; only the closed private CLI selects it.
+Existing evidence is unchanged and cannot be relabelled as a combined run.
 
 The existing image preparer inventories the complete Python source tree. A
-future preparation at this new source revision would therefore bind the added
-inert files with new hashes; it would not make them executable entrypoints or
-preserve the old image's identity. No selected-engine image was prepared or built here.
+future preparation at this new source revision binds the added files and closed
+entrypoints with new hashes; it cannot preserve the old image's identity.
+The private host verifies the complete committed Python source closure against
+the prepared image before any container creation. No selected-engine image was
+prepared or built here.
 
-This is the first, separately testable part of the combined qualification path.
+This is a software integration of the combined qualification path.
 It is not evidence that the combined engine fits in memory, captures graphs,
 passes long-context checks or supports higher public admission. No hardware,
 deployment, selected-engine image build, live engine endpoint or confidential
@@ -69,25 +73,30 @@ waves, collection and reaping, but not its upstream tokenizer preparation.
 
 `DeadlinePlan.begin` requires an explicit positive preparation allocation `P`
 and at least `8440 + P` seconds remaining under **both** original clocks. No
-default `P` is provided: the eventual owner must account for host preflight,
-source and weight checks, short-workload preparation and child reaping. Choosing
-a number in this offline calculator does not prove that those operations fit.
-The allocation and its exact operations still need source-backed integration.
+default `P` is provided. The private owner additionally requires at least 145
+seconds (60 host preflight + 60 short-tokenizer preparation + 25 child cleanup),
+but that minimum is not a duration estimate or a guarantee that weight hashing
+fits. Host preflight, complete source and weight checks, and short-tokenizer
+preparation all consume the original `P` deadline. Operators must budget more
+where needed; expiry fails closed and never starts the engine with unverified
+weights. The long tokenizer's separate 180 seconds stay inside the long stage.
 
 Each stage end is fixed relative to the captured start, with all later stage
 budgets reserved. Clock observations can only shorten the original cutoff;
 backwards wall-clock movement, early completion, delayed startup and repeated
 observations never grant a fresh duration. Expired ceilings remain expired.
-The helper reads no clock, schedules nothing and admits no stage. It cannot
-authorize a run or a deadline extension.
+The pure helper reads no clock, schedules nothing and admits no stage. The owner
+observes both clocks at stage boundaries and enforces their fixed deadlines;
+the child receipt must match the host's original clock allocation exactly.
 
 The legacy lab and smoke owners remain capped at **4800 seconds / 80 minutes**.
-No longer bound was installed. A future explicit combined-only owner mode may
-use the existing ordinary-24h upper ceiling, but only with enough time before
-the originally authorized cutoff. It must reject an insufficient window and
-must not renew the cutoff or silently borrow from cleanup.
+Their bounds are unchanged. The explicit combined-only owner uses the existing
+ordinary-24h upper ceiling, but requires enough time before the originally
+authorized cutoff. Its watchdog ends at `P + 8440`, even if a longer rental
+window was authorized. It rejects an insufficient window and cannot renew the
+cutoff or silently borrow from cleanup.
 
-## Required integration before any run
+## Owner boundaries
 
 1. Bind the closed profile to the existing selected ordinary B300 DP2/TP4
    source closure. Keep public C1 separate from private engine sequence
@@ -101,13 +110,13 @@ must not renew the cutoff or silently borrow from cleanup.
    pipe/reap protocol. The selected service uses a fully qualified model name;
    [stream_transport.py](../../scripts/stream_transport.py) now accepts that
    exact name only through an explicit opt-in, with legacy limits unchanged.
-   The future owner must bind that choice to its authenticated source/profile;
+   The closed owner binds that choice to its authenticated source/profile;
    there is no general name/endpoint override or request rewriting.
 4. Review [stream_capacity.py](../../scripts/stream_capacity.py) against the
    pinned source: its existing concurrency-32 / `32 * 4096` gate belongs to
    the 4K profile. Do not relabel that validator for 128K or infer long-request
    capacity from the short workload. The policy and owned collector below are
-   implemented; owner/stage integration remains required. Preserve the old
+   integrated into the private owner. Preserve the old
    gate and receipts.
 5. Add a **separate bounded combined receipt path**, not a global cap increase.
    The selected lifecycle capture is currently 16 KiB; the existing scaling
@@ -120,6 +129,46 @@ must not renew the cutoff or silently borrow from cleanup.
    worst-case reserves. Obtain independent exact-head CLEAN and full CI green
    before merge; any hardware run remains separately authorized.
 
+## Private entrypoint and receipts
+
+Future authorized execution uses a new source-bound selected-service image
+prepared from the existing `long128k-graphs` lab contract. There is no arbitrary
+engine-argument, model, endpoint or concurrency override. The closed launcher
+revalidates that contract, applies only the existing batch32 sequence/graph
+transform, and retains the long C1 frontend contract. The nested lifecycle
+receipt describes those frontends; distinct combined long/scaling schemas
+describe the private engine stages. Legacy validators reject those new schemas.
+
+The isolated `python3 -I -S -B host/record-selected-combined.py` CLI accepts
+`--inspect` or `--run`, the existing smoke owner's build/preparation/private-input
+arguments, an explicit `--preparation-seconds`, and an empty, owner-only 0700
+`--receipt-directory`. Run uses Docker `--network none`, no published ports,
+the existing read-only inputs and process-identity checks, and the existing
+ownership/watchdog cleanup. Inspect validates inputs but starts no engine;
+it is not qualification. No run is authorized by this document.
+
+The exclusive 0600 `intent.json`, `capture.jsonl` and `host.json` files are
+private originals. Long (12 KiB), scaling (30 MiB), lifecycle (16 KiB) and four
+raw capacity observations (2 MiB each) have closed independent bounds. The
+base64 envelope has a 52 MiB limit; attach adds at most 64 KiB of progress. No
+legacy 16 KiB bound changes. Each component retains exact bytes, size and hash;
+replay recomputes stage claims, usage, source/engine joins and metric parsing.
+The full host replay also requires the original clock allocation, successful
+runtime exit, watchdog/container cleanup and private-input cleanup.
+
+```sh
+python3 -I -S -B host/record-selected-combined.py --replay \
+  --receipt-directory "$PRIVATE_RECEIPTS" --prepared-sha256 "$PREPARED_SHA256"
+```
+
+Replay performs no inference or daemon operations. Partial captures, failed
+publication, cancellation and unknown dispatches are retained, never rewritten
+as zero usage. A missing/invalid final receipt cannot release a reservation;
+neither this owner nor its replay changes billing ledgers or grants live budget.
+Private receipts must not be committed wholesale: the raw engine observations
+and workload/accounting are for the authorized operator's evidence archive.
+All hardware, public-admission and confidentiality claims remain false here.
+
 ## Verification scope
 
 ### Combined Capacity Policy
@@ -129,8 +178,8 @@ provides a parser and bounded owned-loopback collector for the reserved profile.
 It reuses the existing Prometheus decoder, metrics transport and rank-stability
 checks without changing old short-only callers, request bytes or receipts.
 Its separate versioned observation
-cannot be substituted for the old rank list. No owner or runtime entrypoint calls
-it yet; it does not grant profile admission.
+cannot be substituted for the old rank list. Only the closed private owner uses
+it for this sequential experiment; it does not grant public profile admission.
 
 At pinned vLLM `5df63a7203cdb9328d824a27b682e77c7b9928be`,
 [CacheConfig](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/config/cache.py)
@@ -156,7 +205,8 @@ The observation explicitly retains public C1 and false runtime/confidentiality
 claims. It does not prove HBM availability, graph capture, even rank placement,
 that 64 clients will run simultaneously, mixed-workload safety, or a supported
 1M/high-concurrency profile. A source/owner/engine join, retained original-byte
-capture and whole-run cleanup are still required by steps 1-6.
+capture and whole-run cleanup are enforced by the owner. Actual hardware
+qualification still requires a complete, reviewed run.
 
 ### Selected-Model Collector
 
@@ -174,15 +224,14 @@ response-model validation, peer checks and cleanup remain mandatory. Tests
 normalize only literal reviewed additions before comparing the legacy source;
 unreviewed changes still fail the historical regression check.
 
-This collector is not connected to a launch owner or a public route. Its caller
-must authenticate the source and execution profile, retain original observations,
-and join them to lifecycle/cleanup evidence. There is no new runtime profile,
-CLI, admission path or increased public concurrency.
+The private owner authenticates the source and execution profile, retains
+original observations, and joins them to lifecycle/cleanup evidence. It does
+not connect the collector to a public route or increase public concurrency.
 
 Synthetic regression checks:
 
 ```sh
-PYTHONPATH=scripts uv run --project tools --frozen python -m unittest test_selected_stream_collector test_stream_transport test_selected_combined_capacity test_stream_capacity test_stream_scaling test_selected_combined_plan
+PYTHONPATH=scripts uv run --project tools --frozen python -m unittest test_selected_combined_owner test_selected_combined_host test_selected_combined_source test_selected_stream_collector test_stream_transport test_selected_combined_capacity test_stream_capacity test_stream_scaling test_selected_combined_plan test_selected_long_hook
 ```
 
 The tests cover the old 4K denominator being rejected under the new profile,
@@ -197,5 +246,8 @@ restored alarms, no retries, malformed deadlines and terminal process drift.
 composition to both existing closed transforms; check budget constants against
 the actual helpers, exact boundaries and clock movement; assert launch rejection;
 and replay legacy argv, request bytes and receipt validators. These tests do not
-exercise the unimplemented owner, live combined capacity collection or receipt
-channel.
+exercise live combined capacity collection. The owner tests additionally drive
+the actual long and scaling control flow through one fake lifetime; verify
+source/engine forgery rejection, cancellation and partial unknown accounting,
+maximum original receipts, failed payload publication, host/watchdog cleanup,
+and private replay. These remain software tests, not tau2 quality or GPU proof.

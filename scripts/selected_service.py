@@ -339,6 +339,8 @@ class Supervisor:
         # renew a previously shortened monotonic lifetime.
         self.hard_deadline = min(self.hard_deadline,
             time.monotonic() + self.contract.hard_wall - time.time())
+        if getattr(self, "combined", None) is not None:
+            self.hard_deadline = min(self.hard_deadline, self.combined.deadline("service-cleanup"))
         return self.hard_deadline
 
     def checkpoint(self, deadline):
@@ -372,12 +374,18 @@ class Supervisor:
         return True
 
     def run(self, *, inference_smoke=False, conformance_smoke=False, protocol_smoke=False, tool_smoke=False,
-            long_qualification=False):
+            long_qualification=False, combined=None):
         require(type(inference_smoke) is bool and type(conformance_smoke) is bool
                 and type(protocol_smoke) is bool and type(tool_smoke) is bool
                 and sum((inference_smoke, conformance_smoke, protocol_smoke, tool_smoke)) <= 1,
                 "contract")
         smoke = inference_smoke or conformance_smoke or protocol_smoke or tool_smoke
+        if combined is not None:
+            import selected_combined_owner
+            require(type(combined) is selected_combined_owner.Run and not smoke and not long_qualification,
+                    "contract")
+            combined.bind_owner(self.owner, self.contract)
+            self.combined = combined
         qualification_options(long_qualification, self.contract.lifetime_profile,
                               self.contract.execution_profile, smoke=smoke)
         lifetime_seconds(self.contract.lifetime_profile)
@@ -433,6 +441,10 @@ class Supervisor:
                 reader_closed = all(item["resources_closed"] for item in qualification_result["samples"])
                 require(qualification_result["checks_pass"], "owner-failed")
                 self.checkpoint(self.cutoff() - self.contract.cleanup_reserve)
+            if combined is not None:
+                combined.run(self)
+                reader_closed = combined.readers_closed()
+                require(combined.checks_pass(), "owner-failed")
             if smoke:
                 import selected_service_inference as inference
                 inference_result = inference.validate_report(inference.encoded(inference.run_once(self)),
@@ -462,7 +474,7 @@ class Supervisor:
                 # This deliberate whole-owner retirement is not external
                 # cancellation. Ordinary checkpoints remain unchanged.
                 self.phase = "draining"
-            while not smoke and not long_qualification and time.monotonic() < self.cutoff() - self.contract.cleanup_reserve:
+            while not smoke and not long_qualification and combined is None and time.monotonic() < self.cutoff() - self.contract.cleanup_reserve:
                 deadline = min(self.cutoff() - self.contract.cleanup_reserve, time.monotonic() + observer.SECONDS)
                 self.checkpoint(deadline)
                 for role in ROLES:
@@ -543,6 +555,8 @@ class Supervisor:
                 unregistered = self.owner.reap_unregistered(deadline) is True and time.monotonic() <= deadline
             except BaseException:
                 unregistered = False
+        if combined is not None:
+            reader_closed = combined.readers_closed()
         confirmed = unregistered and reader_closed and all(row["reaped"] for row in cleanup)
         graceful = all(row["drained"] for row in cleanup)
         result = {"schema": "nib.selected-service-lifecycle/v1", "reason": reason,
@@ -557,6 +571,11 @@ class Supervisor:
             result.update(schema=LONG_SCHEMA, mode=LONG_MODE, qualification=qualification_result)
             if reason != "retired" or self.shutdown.is_set() or qualification_result is None \
                     or qualification_result.get("checks_pass") is not True:
+                result["status"] = "failed"
+        if combined is not None:
+            # A distinct private envelope owns these observations; never emit a
+            # legacy long-qualification or public capacity acceptance receipt.
+            if not combined.checks_pass() or self.shutdown.is_set():
                 result["status"] = "failed"
         if smoke:
             result.update(schema=INFERENCE_SCHEMA, mode=INFERENCE_MODE, inference=inference_result)

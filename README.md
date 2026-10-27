@@ -60,7 +60,7 @@ recorded hardware results, not mocks or a live uptime guarantee.
 | 1M combined context / 384K output | [655,360 input + 393,216 actual output tokens](evidence/p2/2026-10-26-selected-million-pass/README.md), filling 1,048,576 combined tokens in one completed request. |
 | Prefix / KV caching | [All nine retrieval/cache checks passed](evidence/p2/2026-10-26-selected-million-pass/README.md); the warm 1M request reused 1,048,192 tokens, with first content in 1.66 seconds versus 23.64 seconds cold. |
 | Long-output throughput | The [long-output request](evidence/p2/2026-10-26-selected-million-pass/README.md) averaged 143.44 output tokens/second across the whole request, including prefill. |
-| Concurrent throughput | A [separate bounded-wave experiment](evidence/p2/2026-10-26-selected-batch32/README.md) reached 4,432.11 aggregate output tokens/second at C64. This is not the 1M profile: the combined long-context/high-concurrency configuration remains unimplemented. |
+| Concurrent throughput | A [separate bounded-wave experiment](evidence/p2/2026-10-26-selected-batch32/README.md) reached 4,432.11 aggregate output tokens/second at C64. This is not the 1M profile: the combined 1M/high-concurrency configuration remains unimplemented. |
 
 ### Quality Calibration
 
@@ -188,10 +188,12 @@ measured requests and zero errors, unknown usage or reported cache hits.
 This is bounded-wave throughput, not continuous saturation, quality or
 confidential qualification; the outer report remains FAIL/BLOCKED. It does
 not change the public C1 service, old evidence or customer prices.
-A [combined long-context / batch32 planning helper](docs/tasks/p2-t3-combined-qualification-plan.md)
-composes the existing controls and checks fixed deadline budgets offline. It is
-**not runnable**: bounded owner sequencing and a separate receipt path remain
-unimplemented; public C1 and all existing profiles stay unchanged.
+A [private 128K / batch32 qualification owner](docs/tasks/p2-t3-combined-qualification-plan.md)
+reuses the existing controls in one bounded engine lifetime, long checks before
+short scaling, with separate original-byte receipts and terminal cleanup.
+It is **tested against fakes, not hardware-qualified**; no combined image was
+built or run. This is not 1M/high-concurrency qualification. Public 1M C1 and
+all existing public profiles stay unchanged.
 The latest nonroot/read-only selected-service image passed one bounded
 [private TLS inference smoke](evidence/p2/2026-10-24-selected-service-inference/README.md)
 on the ordinary node: engine/guard/TLS ready, missing/wrong keys rejected,
