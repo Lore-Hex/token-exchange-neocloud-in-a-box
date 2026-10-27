@@ -11,10 +11,14 @@ These are the unmodified, content-free originals from committed producer
 
 | Receipt | SHA-256 |
 |---|---|
-| [run.json](run.json) | `92c6d36597f24f3a39831ba5d8271dcd85bfab1f488824e1446c610cf4c35c74` |
+| [observer-run.json](observer-run.json) | `92c6d36597f24f3a39831ba5d8271dcd85bfab1f488824e1446c610cf4c35c74` |
 | [0000-intent.json](0000-intent.json) | `8e93b7a65eae279f561ebc3a54ef0ffb3a4c0e5fdff689d7b218506b70fa7970` |
 | [0000-sample.json](0000-sample.json) | `23fb7364e9fb63d1e004e54771daa96bb3a32a04cdb011656deb558c32013516` |
 | [terminal.json](terminal.json) | `b166eeeb4525988a178a4a4b5c1df14d8095420c57ac200e0fba670917651166` |
+
+`observer-run.json` preserves the producer's original `run.json` bytes. Only the
+filename differs because the evidence linter reserves `run.json` for the generic
+`nib.evidence/v1` format. The receipt hash and chain have not changed.
 
 The four HTTP attempts covered health, missing-key rejection, wrong-key rejection
 and one authenticated stream. TLS verification used system roots. The stream

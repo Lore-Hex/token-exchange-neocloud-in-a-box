@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DIRECTORY = ROOT / "evidence/p2/2026-10-27-ordinary-short-observer"
 REVISION = "fd380d29456816f329dbffca0c46a67c4c6530f8"
 ORIGINALS = {
-    "run.json": "92c6d36597f24f3a39831ba5d8271dcd85bfab1f488824e1446c610cf4c35c74",
+    "observer-run.json": "92c6d36597f24f3a39831ba5d8271dcd85bfab1f488824e1446c610cf4c35c74",
     "0000-intent.json": "8e93b7a65eae279f561ebc3a54ef0ffb3a4c0e5fdff689d7b218506b70fa7970",
     "0000-sample.json": "23fb7364e9fb63d1e004e54771daa96bb3a32a04cdb011656deb558c32013516",
     "terminal.json": "b166eeeb4525988a178a4a4b5c1df14d8095420c57ac200e0fba670917651166",
@@ -50,7 +50,7 @@ class ShortObserverEvidenceTests(unittest.TestCase):
                           and any(isinstance(target, ast.Name) and target.id == "SOURCES"
                                   for target in node.targets))
         paths = set(ast.literal_eval(assignment.value))
-        run, probe = self.rows["run.json"], self.rows["0000-sample.json"]["probe"]
+        run, probe = self.rows["observer-run.json"], self.rows["0000-sample.json"]["probe"]
         for row, expected in ((run, paths | {"scripts/soak-selected-service.py"}), (probe, paths)):
             self.assertEqual(row["git_sha"], REVISION)
             self.assertEqual(set(row["source_sha256"]), expected)
@@ -65,7 +65,7 @@ class ShortObserverEvidenceTests(unittest.TestCase):
         self.assertEqual((run["max_http_requests"], run["max_model_posts"], run["max_authenticated_requests"]), (4, 3, 1))
         self.assertEqual((run["concurrency"], run["max_output_tokens_per_request"], run["retries"]), (1, 256, 0))
         for row in (intent, sample, terminal):
-            self.assertEqual(row["run_sha256"], ORIGINALS["run.json"])
+            self.assertEqual(row["run_sha256"], ORIGINALS["observer-run.json"])
         self.assertEqual((intent["sample"], sample["sample"]), (0, 0))
         self.assertEqual((intent["max_http_requests"], intent["max_authenticated_requests"]), (4, 1))
         start = datetime.fromisoformat(run["started_at"])
