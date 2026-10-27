@@ -36,6 +36,15 @@ def archive(members, revision=proof.static.SYSTEMD):
 
 
 class InputTests(unittest.TestCase):
+    def test_documented_source_and_executable_pins_match_code(self):
+        document = (proof.ROOT / "docs/tasks/p3-t1-network-proof-inputs.md").read_text()
+        pins = [proof.SOURCE_ARCHIVE, *(row[1:] for row in proof.EXECUTABLES.values())]
+        for size, sha in pins:
+            with self.subTest(sha=sha):
+                self.assertRegex(sha, r"^[0-9a-f]{64}$")
+                self.assertIn("`" + sha + "`", document)
+                self.assertIn(format(size, ","), document)
+
     def test_fixed_candidate_reuses_shared_go_fixture_without_startup_files(self):
         files, receipt = bundle()
         self.assertEqual(set(files), {"receipt.json", "proof-plan.json",

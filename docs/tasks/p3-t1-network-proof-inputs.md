@@ -45,7 +45,7 @@ No executable, unit, workflow flag or network namespace is emitted or enabled.
 
 The original [systemd 255.4 source archive](https://snapshot.ubuntu.com/ubuntu/20261020T000000Z/pool/main/s/systemd/systemd_255.4.orig.tar.gz)
 is 14,952,427 bytes, SHA-256
-`96e75bd08c57ad401677456fb88ef54a9f05bb1693013bc6ecce839640fd5`.
+`96e75bd08c57ad401677456fb88ef54a9f05bb1695693013bc6ecce839640fd5`.
 Its two authenticated manual members are inspected as data only. The only
 accepted PAX metadata is the original exact revision comment `387a14a7b67b8b76adaed4175e14bb7e39b2f738`:
 
