@@ -2,7 +2,8 @@
 
 Status: **manifest/budget, aggregation, isolated scorer/container wiring,
 runtime-identity checks and selected-owner lifecycle implemented;
-original-revision full quality gate unproven** (2026-10-25). The
+selected calibration evidence recorded; original-revision full quality gate
+unproven** (2026-10-27). The
 [preflight foundation](../tasks/p2-t3-tau-preflight.md) verifies pinned public
 inputs without importing upstream or contacting endpoints. The
 [content-free aggregator](../tasks/p2-t3-tau-aggregation.md) checks frozen coverage
@@ -24,7 +25,7 @@ retains no READY/scorer result and unconfirmed cleanup. The separate
 [CPU-only parity pass](../../evidence/p2/2026-10-24-cpu-http-threads-pass/output.log)
 does not promote that failure.
 
-The latest merged [selected tau diagnostic](../../evidence/p2/2026-10-25-selected-tau-email-relation-0429/README.md),
+The October 25 [selected tau diagnostic](../../evidence/p2/2026-10-25-selected-tau-email-relation-0429/README.md),
 producer `32771fb4ca03cc25ab3177b70c431813cd1a2bf0`, reached GPU readiness in
 840,203 ms and passed four tokenizer-parity cases. Its
 [joined controller/scorer report](../../evidence/p2/2026-10-25-selected-tau-email-relation-0429/evidence/output.log)
@@ -36,6 +37,24 @@ scorer execution, not a successful task or quality score. The bounded
 prior-user-text relation does not establish the correct customer identity,
 simulator correctness or which model caused the failure. The Qwen3-0.6B
 simulator and Qwen3-1.7B evaluator remain unqualified support models.
+
+The October 26 [external retail trial](../../evidence/p2/2026-10-26-tau-external-retail-pass/README.md)
+used the pinned original tau task 2, trial 0, seed 42, with
+`gpt-4.1-2025-04-14` as simulator and evaluator. It scored reward **1.0**,
+terminated normally with zero tool errors, and retained known usage for all
+14 agent, five simulator and one evaluator requests. This is one selected
+task success on the abliterated checkpoint, not full-domain coverage or a
+matched-reference comparison. The earlier failed attempts remain evidence.
+
+Separate October 27 selected-case calibrations are also recorded:
+[IFEval](../../evidence/p2/2026-10-27-quality-ifeval-200/README.md)
+passed 174/200 strict and 181/200 loose prompt checks on the first 200 of 541
+prompts, with no retries, truncations or missing cases.
+[MMLU-Pro](../../evidence/p2/2026-10-27-quality-mmlu-pro-200/README.md)
+scored 171/200 correct on a systematic-stride selection from 12,032 cases.
+Its receipt remains **FAIL** because one answer reached the output cap; that
+case counts as incorrect and the denominator remains 200. Neither calibration
+is the full benchmark, a matched-reference comparison or confidential evidence.
 
 These operational experiments use a different checkpoint from the original revision
 required below and cannot satisfy its matched-reference quality gate.
@@ -164,8 +183,9 @@ do not add benchmark dependencies or debug logging to the attested service.
 
 Reviewed original-revision serving/reference identities, matched simulator and
 evaluator settings, measured smoke limits, complete scored coverage and separate
-run-cost approvals remain prerequisites for the full quality gate. The latest
-selected joined report establishes startup, failed scorer execution and cleanup,
-not task success or qualification of its checkpoint or support models. Follow
+run-cost approvals remain prerequisites for the full quality gate. The selected
+retail success and IFEval/MMLU-Pro calibrations do not qualify the original
+checkpoint, support models or confidential profile, and do not supersede the
+preserved failed attempts. Follow
 the [run gates](../gates.md); this plan does not rent resources, spend credits,
 extend a rental or publish a score.
