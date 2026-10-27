@@ -103,7 +103,9 @@ must not renew the cutoff or silently borrow from cleanup.
 4. Review [stream_capacity.py](../../scripts/stream_capacity.py) against the
    pinned source: its existing concurrency-32 / `32 * 4096` gate belongs to
    the 4K profile. Do not relabel that validator for 128K or infer long-request
-   capacity from the short workload. Preserve the old gate and receipts.
+   capacity from the short workload. The offline policy below is implemented;
+   its owned collector and stage integration remain required. Preserve the old
+   gate and receipts.
 5. Add a **separate bounded combined receipt path**, not a global cap increase.
    The selected lifecycle capture is currently 16 KiB; the existing scaling
    report can be 30 MiB with a 32 MiB owner capture. Define closed component
@@ -116,6 +118,52 @@ must not renew the cutoff or silently borrow from cleanup.
    before merge; any hardware run remains separately authorized.
 
 ## Verification scope
+
+### Combined Capacity Policy
+
+[selected_combined_capacity.py](../../scripts/selected_combined_capacity.py)
+is a non-executing parser for the reserved profile. It reuses the existing
+Prometheus decoder and rank-stability checks without changing the old short-only
+callers, request bytes, collector or receipts. Its separate versioned observation
+cannot be substituted for the old rank list. No owner or runtime entrypoint calls
+it yet; it does not grant profile admission.
+
+At pinned vLLM `5df63a7203cdb9328d824a27b682e77c7b9928be`,
+[CacheConfig](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/config/cache.py)
+defines concurrency **per DP engine at max_model_len tokens**. Its `metrics_info`
+uses the full `str()` value, not the rounded human log. The pinned
+[get_kv_cache_capacity](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/core/kv_cache_utils.py)
+returns `int(concurrency * max_model_len)` as the group-aware token capacity.
+Both source files are SHA-256 pinned in the helper, in addition to the four
+existing metrics/engine source pins. These were read on October 27, 2026;
+they are upstream semantics, not our hardware measurements.
+
+Consequently, requiring `kv_cache_max_concurrency >= 32` at 128K would wrongly
+require capacity for 32 simultaneous **long** requests per rank. This proposed
+experiment runs long C1 and short batches sequentially. Its capacity precondition
+is at least one 131072-token request and at least `32 * 4096 = 131072` tokens
+per rank. The short allowance is conservative relative to its 2048/512 workload.
+The new parser requires concurrency >= 1, token capacity equal to the pinned
+formula, both exact ranks, idle scheduler counters and unchanged capacity /
+preemption counters between snapshots. FP8 KV, no KV offload and prefix caching
+remain mandatory. The old short-only parser still requires concurrency >= 32.
+
+The observation explicitly retains public C1 and false runtime/confidentiality
+claims. It does not prove HBM availability, graph capture, even rank placement,
+that 64 clients will run simultaneously, mixed-workload safety, or a supported
+1M/high-concurrency profile. A source/owner/engine join, bounded collector,
+original-byte capture and whole-run cleanup are still required by steps 1-6.
+
+Synthetic regression checks:
+
+```sh
+PYTHONPATH=scripts uv run --project tools --frozen python -m unittest test_selected_combined_capacity test_stream_capacity test_stream_scaling test_selected_combined_plan
+```
+
+The tests cover the old 4K denominator being rejected under the new profile,
+exact boundary/fractional capacities, both-rank drift, malformed types, nonfinite
+values, source tampering, no-I/O behavior and continued launch rejection. They do
+not start an engine, collect live metrics or change the serving configuration.
 
 [Offline tests](../../scripts/test_selected_combined_plan.py) compare the
 composition to both existing closed transforms; check budget constants against
