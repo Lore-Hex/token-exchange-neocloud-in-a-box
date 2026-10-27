@@ -15,6 +15,9 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class _ExternalEvidenceChecks:
+    schema_version = 1
+    source_revisions = {}
+
     def setUp(self):
         self.rows = {}
         for name, (revision, digest) in self.originals.items():
@@ -32,7 +35,9 @@ class _ExternalEvidenceChecks:
         self.assertEqual({p.relative_to(self.directory).as_posix() for p in self.directory.rglob("*")},
                          {*self.originals, "README.md"})
         for name, row in self.rows.items():
-            revision = row["git_sha"]
+            # Squash merges can retain exact producer files without retaining
+            # the producer commit in main's ancestry. Original receipts stay intact.
+            revision = self.source_revisions.get(row["git_sha"], row["git_sha"])
             git(ROOT, "merge-base", "--is-ancestor", revision, "HEAD")
             source = ast.parse(git(ROOT, "show", revision + ":scripts/probe-selected-service.py"))
             assignment = next(node for node in source.body if isinstance(node, ast.Assign)
@@ -48,7 +53,9 @@ class _ExternalEvidenceChecks:
     def test_bounded_credential_free_startup_then_one_healthy_peer(self):
         row = self.rows["startup.json"]
         self.assertEqual((row["schema"], row["result"], row["failure"]),
-                         ("nib.selected-external-startup/v1", "pass", "none"))
+                         (f"nib.selected-external-startup/v{self.schema_version}", "pass", "none"))
+        if self.schema_version == 2:
+            self.assertEqual(row["tls_mode"], "system-roots")
         self.assertEqual((row["attempts"], row["health_retries"], row["transport_failures"]),
                          (self.startup_attempts, self.startup_attempts - 1, self.startup_attempts - 1))
         self.assertEqual((row["tls_checks"], row["health_requests"]), (1, 1))
@@ -67,7 +74,9 @@ class _ExternalEvidenceChecks:
     def test_all_checks_one_authenticated_stream_actual_usage_and_no_quality_claim(self):
         row = self.rows["probe.json"]
         self.assertEqual((row["schema"], row["result"], row["failure"]),
-                         ("nib.selected-external-smoke/v1", "pass", "none"))
+                         (f"nib.selected-external-smoke/v{self.schema_version}", "pass", "none"))
+        if self.schema_version == 2:
+            self.assertEqual(row["tls_mode"], "system-roots")
         expected = dict.fromkeys(("health", "missing-key", "wrong-key", "stream"), True)
         for field in ("attempts", "checks", "tls_checks"):
             self.assertEqual(row[field], expected)
@@ -121,6 +130,25 @@ class MillionExternalEvidenceTests(_ExternalEvidenceChecks, unittest.TestCase):
     cached_prompt_tokens = 0
     ttft_seconds = 0.666639500297606
     elapsed_seconds = 0.7810464175418019
+
+
+class PublicWeeklyExternalEvidenceTests(_ExternalEvidenceChecks, unittest.TestCase):
+    directory = ROOT / "evidence/p2/2026-10-27-selected-public-weekly"
+    originals = {
+        "startup.json": ("0ac1642de8a6c84bbb23ae24b212b54fbd88ac1d",
+                         "0e935eaccf19f883a209fbc1f232804d8d69243539ac2cd6174e1abbb582733c"),
+        "probe.json": ("0ac1642de8a6c84bbb23ae24b212b54fbd88ac1d",
+                       "05537fcd64b60d749fc979b11d2400f3d6168eb37a9cf6e6a1f8e740b740cef2"),
+    }
+    source_revisions = {
+        "0ac1642de8a6c84bbb23ae24b212b54fbd88ac1d":
+            "95de501a21a2977e7c7aa6a70695512dd33a41f9",
+    }
+    schema_version = 2
+    startup_attempts = 96
+    cached_prompt_tokens = 0
+    ttft_seconds = 0.6706833336502314
+    elapsed_seconds = 0.7925418755039573
 
 
 if __name__ == "__main__":
