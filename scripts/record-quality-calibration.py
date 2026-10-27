@@ -6,6 +6,8 @@ import contextlib
 from datetime import datetime, timezone
 import hashlib
 import io
+import importlib.abc
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -32,7 +34,7 @@ def digest(raw):
     return hashlib.sha256(raw).hexdigest()
 
 
-def source(root, revision):
+def source(root, revision, modules=None):
     head = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], timeout=10).decode().strip()
     worker.require(head == revision)
     names = subprocess.check_output(["git", "-C", str(root), "ls-tree", "-r", "--name-only", revision,
@@ -45,11 +47,51 @@ def source(root, revision):
         committed = subprocess.check_output(["git", "-C", str(root), "show", revision + ":" + name], timeout=10)
         worker.require(path.is_file() and not path.is_symlink() and path.read_bytes() == committed)
         hashes[name] = digest(committed)
+        if modules is not None and name.startswith("trbench/") and name.endswith(".py"):
+            modules[name] = committed
     return digest(worker.encoded(hashes))
 
 
+class VerifiedSources(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+    """Compile only verified bytes, never cached bytecode or untracked modules."""
+    def __init__(self, root, modules):
+        self.root, self.modules = root, modules
+
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname != "trbench" and not fullname.startswith("trbench."):
+            return None
+        name = fullname.replace(".", "/")
+        for relative, package in ((name + "/__init__.py", True), (name + ".py", False)):
+            if relative in self.modules:
+                spec = importlib.util.spec_from_loader(fullname, self, origin=str(self.root / relative), is_package=package)
+                spec.loader_state = relative
+                return spec
+        raise ImportError("Unverified benchmark module")
+
+    def create_module(self, spec):
+        return None
+
+    def exec_module(self, module):
+        relative = module.__spec__.loader_state
+        module.__file__ = str(self.root / relative)
+        exec(compile(self.modules[relative], module.__file__, "exec"), module.__dict__)
+
+
+@contextlib.contextmanager
+def verified_imports(root, modules):
+    names = lambda: [name for name in sys.modules if name == "trbench" or name.startswith("trbench.")]
+    worker.require(not names())
+    finder = VerifiedSources(root, modules)
+    sys.meta_path.insert(0, finder)
+    try:
+        yield
+    finally:
+        sys.meta_path.remove(finder)
+        for name in names():
+            del sys.modules[name]
+
+
 def cases(suite, root, count):
-    sys.path.insert(0, str(root))
     if suite == "gsm8k":
         from trbench.evals.gsm8k import loader, run, score
         worker.require(loader.CACHE.is_file())
@@ -148,7 +190,10 @@ def evaluate(index, item, prompt, grade, counter, http, key, deadline, row=None)
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    class PrivateParser(argparse.ArgumentParser):
+        def error(self, message):
+            raise ValueError("Invalid calibration arguments")
+    parser = PrivateParser(description=__doc__)
     for name in ("trbench-root", "contract", "candidate-key", "vllm-source", "tokenizer", "tokenizer-wheel", "output"):
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--contract-sha256", required=True)
@@ -159,8 +204,10 @@ def main():
     deadline = time.monotonic() + 3600
     started = datetime.now(timezone.utc).isoformat()
     # All prompts, replies and grader diagnostics remain in process memory.
-    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-        tree_sha = source(args.trbench_root, REVISION)
+    with contextlib.ExitStack() as stack, contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        modules = {}
+        tree_sha = source(args.trbench_root, REVISION, modules)
+        stack.enter_context(verified_imports(args.trbench_root, modules))
         rows, prompt, grade, dataset_sha = cases(args.suite, args.trbench_root, args.count)
         worker.require(len(rows) == args.count)
         raw = tau_live_identity.private_read(args.contract, deadline)

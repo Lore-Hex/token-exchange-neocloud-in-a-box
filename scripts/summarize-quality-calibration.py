@@ -8,6 +8,7 @@ import json
 import math
 from pathlib import Path
 import re
+import statistics
 import subprocess
 import sys
 
@@ -42,7 +43,12 @@ def score_fields(suite, value):
 
 
 def timestamp(value):
-    return datetime.fromisoformat(value).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        parsed = datetime.fromisoformat(value)
+        trial.require(parsed.tzinfo is not None)
+        return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except Exception:
+        raise ValueError("Invalid calibration timestamp") from None
 
 
 def report(raw):
@@ -64,29 +70,62 @@ def report(raw):
         trial.require(row["status"] not in ("evaluated", "truncated") or score and usage is not None)
         trial.require(row["status"] != "truncated" or not any(score.get(key, 0) for key in
                       ("correct", "prompt_strict", "prompt_loose", "instruction_strict", "instruction_loose")))
+        finish = row.get("finish_reason")
+        trial.require(finish in (None, "stop", "length"))
+        http_status = row.get("http_status")
+        trial.require(http_status is None or type(http_status) is int and 100 <= http_status <= 599)
+        completed = row["status"] in ("evaluated", "truncated")
+        if completed:
+            trial.require(http_status == 200 and finish == ("stop" if row["status"] == "evaluated" else "length")
+                          and usage["completion_tokens"] <= 8192 and sum(usage.values()) <= 32768
+                          and usage["prompt_tokens"] + 8192 <= 32768)
+        # Earlier successful receipts predate the explicit send marker. A
+        # measured HTTP response proves transmission; failures cannot infer it.
+        started = row.get("generation_started")
+        if "generation_started" not in row:
+            trial.require(completed)
+            started = True
+        trial.require(type(started) is bool and (started or usage is None and http_status is None)
+                      and (not completed or started))
         clean.append({"index": index, "status": row["status"], "score": score, "usage": usage,
+                      "generation_started": started, "http_status": http_status, "finish_reason": finish,
                       "elapsed_seconds": number(row["elapsed_seconds"])})
     evaluated = sum(row["status"] == "evaluated" for row in clean)
-    trial.require(summary["expected"] == expected and summary["attempted"] == len(clean)
-                  and summary["evaluated"] == evaluated and summary["missing"] == expected - len(clean))
+    totals = {"expected": expected, "attempted": len(clean), "evaluated": evaluated,
+              "missing": expected - len(clean), "errors": len(clean) - evaluated,
+              "known_prompt_tokens": sum((row["usage"] or {}).get("prompt_tokens", 0) for row in clean),
+              "known_completion_tokens": sum((row["usage"] or {}).get("completion_tokens", 0) for row in clean),
+              "generation_requests": sum(row["generation_started"] for row in clean),
+              "unknown_usage_requests": sum(row["generation_started"] and row["usage"] is None for row in clean)}
+    for key, value in totals.items():
+        if key == "generation_requests" and key not in summary:
+            trial.require(all("generation_started" not in row for row in items))
+        else:
+            trial.require(type(summary[key]) is int and summary[key] == value)
+    median = statistics.median(row["elapsed_seconds"] for row in clean) if clean else None
+    trial.require(summary["latency_median_seconds"] == median)
+    started_utc, ended_utc = timestamp(manifest["started_at"]), timestamp(summary["ended_at"])
+    trial.require(datetime.fromisoformat(summary["ended_at"]) >= datetime.fromisoformat(manifest["started_at"]))
     hashes = {key: manifest[key] for key in ("git_sha", "trbench_revision", "dataset_sha256",
                                              "trbench_tree_sha256", "endpoint_binding_sha256")}
     trial.require(all(type(value) is str and re.fullmatch("[0-9a-f]{%d}" % (40 if key in
         ("git_sha", "trbench_revision") else 64), value) for key, value in hashes.items()))
     return {"schema": "nib.quality-calibration-summary/v1", "provenance": hashes,
             "source_receipt_sha256": hashlib.sha256(raw).hexdigest(), "suite": manifest["suite"],
-            "expected": expected, "evaluated": evaluated, "missing": expected - len(clean),
-            "errors": len(clean) - evaluated, "items": clean,
+            **totals, "latency_median_seconds": median, "items": clean,
             "correct": sum(r["score"].get("correct", 0) for r in clean if r["status"] == "evaluated"),
             "prompt_strict": sum(r["score"].get("prompt_strict", 0) for r in clean if r["status"] == "evaluated"),
             "prompt_loose": sum(r["score"].get("prompt_loose", 0) for r in clean if r["status"] == "evaluated"),
-            "started_utc": timestamp(manifest["started_at"]), "ended_utc": timestamp(summary["ended_at"]),
+            "started_utc": started_utc, "ended_utc": ended_utc,
             "result": "pass" if evaluated == expected else "fail", "confidential": False,
             "full_benchmark": False, "matched_reference": False, "quality_qualified": False}
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    class PrivateParser(argparse.ArgumentParser):
+        def error(self, message):
+            raise ValueError("Invalid summary arguments")
+    parser = PrivateParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--trbench-root", type=Path, required=True)
@@ -110,4 +149,7 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except Exception:
+        sys.exit("Calibration summary rejected; no input text retained.")

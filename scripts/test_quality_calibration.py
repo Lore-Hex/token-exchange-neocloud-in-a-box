@@ -4,7 +4,11 @@ import importlib.util
 from contextlib import ExitStack, redirect_stdout, redirect_stderr
 import io
 import json
+import os
+import py_compile
 from pathlib import Path
+import subprocess
+import sys
 import time
 import tempfile
 import types
@@ -70,13 +74,32 @@ class CalibrationTests(unittest.TestCase):
                     "trbench_tree_sha256": "d" * 64, "endpoint_binding_sha256": "e" * 64}
         item = {"kind": "item", "index": 0, "status": "evaluated", "score": {"correct": 1, "total": 1, "errors": 0, "score": 100.0},
                 "usage": {"prompt_tokens": 20, "completion_tokens": 3}, "elapsed_seconds": 1.5,
+                "http_status": 200, "finish_reason": "stop", "generation_started": True,
                 "unexpected_text": "SYNTHETIC_PRIVATE_CANARY"}
         terminal = {"kind": "summary", "expected": 20, "attempted": 1, "evaluated": 1, "missing": 19,
+                    "errors": 0, "known_prompt_tokens": 20, "known_completion_tokens": 3,
+                    "generation_requests": 1, "unknown_usage_requests": 0, "latency_median_seconds": 1.5,
                     "ended_at": "2026-10-26T23:01:00+00:00"}
         raw = lambda: b"\n".join(json.dumps(row).encode() for row in (manifest, item, terminal))
         record = summary.report(raw())
         self.assertEqual((record["result"], record["correct"], record["expected"]), ("fail", 1, 20))
         self.assertNotIn("CANARY", json.dumps(record))
+        self.assertTrue(record["items"][0]["generation_started"])
+        self.assertEqual(record["generation_requests"], 1)
+        for target, key, invalid in ((item, "finish_reason", "length"),
+                                     (item["usage"], "completion_tokens", 8193),
+                                     (item["usage"], "prompt_tokens", 24577),
+                                     (item, "generation_started", False),
+                                     (terminal, "generation_requests", 2),
+                                     (terminal, "unknown_usage_requests", 1),
+                                     (terminal, "known_prompt_tokens", 19),
+                                     (terminal, "errors", 1),
+                                     (terminal, "ended_at", "2026-10-25T23:01:00+00:00")):
+            original = target[key]
+            target[key] = invalid
+            with self.assertRaises(ValueError):
+                summary.report(raw())
+            target[key] = original
         terminal["missing"] = 0
         with self.assertRaises(ValueError):
             summary.report(raw())
@@ -85,6 +108,37 @@ class CalibrationTests(unittest.TestCase):
             item["score"] = invalid
             with self.assertRaises(ValueError):
                 summary.report(raw())
+
+    def test_verified_import_ignores_bytecode_and_untracked_modules(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            package = root / "trbench"
+            package.mkdir()
+            file = package / "__init__.py"
+            file.write_bytes(b"answer = 9\n")
+            timestamp = int(time.time()) - 100
+            os.utime(file, (timestamp, timestamp))
+            py_compile.compile(str(file), doraise=True)
+            verified = b"answer = 1\n"
+            file.write_bytes(verified)
+            os.utime(file, (timestamp, timestamp))
+            (package / "untracked.py").write_text("answer = 9\n")
+            with quality.verified_imports(root, {"trbench/__init__.py": verified}):
+                import trbench
+                self.assertEqual(trbench.answer, 1)
+                with self.assertRaises(ImportError):
+                    importlib.import_module("trbench.untracked")
+            self.assertNotIn("trbench", sys.modules)
+
+    def test_cli_failures_and_timestamp_never_echo_input(self):
+        canary = "SYNTHETIC_PRIVATE_CANARY"
+        with self.assertRaisesRegex(ValueError, "^Invalid calibration timestamp$"):
+            summary.timestamp(canary)
+        for script in ("record-quality-calibration.py", "summarize-quality-calibration.py"):
+            proc = subprocess.run([sys.executable, "-I", "-B", str(Path(__file__).with_name(script)),
+                                   "--suite", canary], capture_output=True, timeout=10)
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertNotIn(canary.encode(), proc.stdout + proc.stderr)
 
     def test_pinned_source_enumeration_cannot_use_empty_index(self):
         with mock.patch.object(quality.subprocess, "check_output", side_effect=[b"a" * 40, b""]) as git:
