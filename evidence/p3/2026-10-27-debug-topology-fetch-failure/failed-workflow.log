@@ -1,0 +1,25 @@
+boot	Fetch only authenticated public inputs	﻿2026-10-27T13:11:23.9987911Z ##[group]Run test "$RUNNER_ENVIRONMENT" = github-hosted
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:23.9988197Z [36;1mtest "$RUNNER_ENVIRONMENT" = github-hosted[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:23.9988382Z [36;1mumask 077[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:23.9988566Z [36;1mmkdir -p -m 700 build/native-install build/debug-boot[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:23.9988844Z [36;1mcurl --disable --fail --silent --show-error --proto '=https' --tlsv1.2 \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:23.9989091Z [36;1m  --max-time 60 --max-filesize 473225 \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:23.9989405Z [36;1m  https://codeload.github.com/systemd/mkosi/tar.gz/ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:23.9989702Z [36;1m  --output build/native-install/source.tar.gz[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:23.9989993Z [36;1mrelease=https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/releases/download[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:23.9990394Z [36;1mcurl --disable --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --tlsv1.2 \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:23.9990697Z [36;1m  --max-time 120 --max-filesize 23847293 \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:23.9990940Z [36;1m  "$release/build-input-indexes-20261020/metadata.tar.gz" \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:23.9991169Z [36;1m  --output build/native-install/metadata.tar.gz[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:23.9991438Z [36;1mprintf '%s  %s\n' 54def86b7b37b3b5178782965e499f0242a98f36bc7828105f112005576663a7 \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:23.9991745Z [36;1m  build/native-install/metadata.tar.gz | sha256sum --check --strict[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:23.9992036Z [36;1m/usr/bin/python3.10 -I -S -B scripts/fetch_mkosi_tools.py --guest-runtime \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:23.9992328Z [36;1m  --metadata-archive "$PWD/build/native-install/metadata.tar.gz" \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:23.9993003Z [36;1m  --output "$PWD/build/native-install/inputs" > build/native-install/input-fetch.log[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:23.9993304Z [36;1m/usr/bin/python3.10 -I -S -B scripts/fetch_debug_boot_runtime.py \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:23.9993544Z [36;1m  --output "$PWD/build/debug-boot/runtime-inputs"[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:24.0025337Z shell: /usr/bin/bash -e {0}
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:24.0025504Z ##[endgroup]
+boot	Fetch only authenticated public inputs	2026-10-27T13:11:24.9612927Z build/native-install/metadata.tar.gz: OK
+boot	Fetch only authenticated public inputs	2026-10-27T13:16:04.2929509Z Pinned input fetch failed; see content-free diagnostic.
+boot	Fetch only authenticated public inputs	2026-10-27T13:16:04.3126667Z ##[error]Process completed with exit code 1.

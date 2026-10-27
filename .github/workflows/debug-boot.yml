@@ -67,7 +67,7 @@ jobs:
             build/native-install/metadata.tar.gz | sha256sum --check --strict
           /usr/bin/python3.10 -I -S -B scripts/fetch_mkosi_tools.py --guest-runtime \
             --metadata-archive "$PWD/build/native-install/metadata.tar.gz" \
-            --output "$PWD/build/native-install/inputs" > build/native-install/input-fetch.log
+            --output "$PWD/build/native-install/inputs"
           /usr/bin/python3.10 -I -S -B scripts/fetch_debug_boot_runtime.py \
             --output "$PWD/build/debug-boot/runtime-inputs"
       - name: Generate one fresh private native export

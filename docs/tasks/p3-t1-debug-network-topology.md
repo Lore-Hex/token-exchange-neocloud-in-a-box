@@ -220,6 +220,14 @@ TMPDIR=/private/tmp PYTHONPATH=scripts uv run --project tools --frozen python -m
 
 ### Beyond Down-Only Topology
 
+The [first actual topology attempt](../../evidence/p3/2026-10-27-debug-topology-fetch-failure/README.md)
+failed during pinned archive fetching, before build or QEMU. Original cleanup
+metadata and GitHub records are retained; the specific archive/category cannot
+be recovered because the workflow discarded the fetcher's typed stdout. The
+diagnostic correction keeps that existing content-free output in the Actions
+log, without changing pins, bounds, retries, cleanup or proof claims. No retry
+or guest success is implied.
+
 The next slice must reconcile the actual image's original networkd
 configuration/drop-ins/generators and credentials, authenticate its original
 executables, and install/read back the unchanged strict nft policy **before**
