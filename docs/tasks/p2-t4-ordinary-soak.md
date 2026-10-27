@@ -1,7 +1,8 @@
 # Bounded Ordinary-Serving Soak
 
-**Implemented and tested against fakes only. No live 24-hour run is recorded by
-this change.** This provider-neutral observer repeats the existing
+**Implemented, tested against fakes, and validated by a
+[five-minute live observation](../../evidence/p2/2026-10-27-ordinary-short-observer/README.md).
+No completed live 24-hour run is recorded.** This provider-neutral observer repeats the existing
 [selected-service probe](../../scripts/probe-selected-service.py) against an
 already-running, separately approved ordinary-TLS service. It neither launches
 nor renews an owner, modifies hardware, changes catalog routing, nor tears down
@@ -99,7 +100,8 @@ python3 -I -S -B scripts/soak-selected-service.py \
 For the existing pinned mode, replace `--tls-mode system-roots` with
 `--tls-mode pinned --certificate "$PRIVATE_CERTIFICATE_FILE"
 --certificate-sha256 "$CERTIFICATE_SHA256"`. Mixed trust modes fail closed.
-No command above has been executed against a live service as part of this work.
+The committed short observation used the system-root mode with a 300-second
+window and one sample. It does not validate a full-day result.
 
 ## Evidence and Failure Handling
 
