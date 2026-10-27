@@ -51,9 +51,13 @@ TMPDIR=/private/tmp python3 -I -S -B scripts/record-tau-telecom-offline.py \
   --index 0 --receipt /absolute/new-receipt.json
 
 PYTHONPATH=scripts python3 -B -m unittest -q test_tau_telecom_offline \
+  test_tau_telecom_parser test_tau_pipe_driver \
   test_tau_telecom_catalog test_tau_telecom_projection \
   test_tau_external_trial test_tau_external_selection
 ```
+
+Set `NIB_TAU_SOURCE_ARCHIVE` to the same absolute archive path for the optional
+real-source parser and catalog tests; neither imports upstream code on the host.
 
 The receipt is exclusively created on success **or failure**, with a known stage
 and cleanup state, never raw exception text. Existing receipts are not replaced.
@@ -78,8 +82,28 @@ revision. There is no caller-controlled bound. Other inputs retain 1,024 rows;
 the existing byte, duplicate-key, selected-task uniqueness and bounded assertion
 snapshot checks are unchanged. This is source compatibility, not live admission.
 
-Passing real-source execution and complete local/E2E
-checks are still pending. Independent final-head review and hosted CI are required
+## Software evidence
+
+Producer `38e35bcd2f9512eb38d6cf6d86c82d9458639c32` completed selected indices
+0 and 1 in the original network-disabled worker. Original receipts and output
+are retained in `evidence/p2/2026-10-27-telecom-offline-index0/` and
+`evidence/p2/2026-10-27-telecom-offline-index1/`. Each reached `user_stop`, with
+two agent and three simulator generations, both original tool round trips,
+zero tool errors, original evaluation reward `0.0`, and confirmed attach and
+container cleanup. Both original tasks have zero NL assertions, so no LLM
+evaluator generation occurred. These are scripted software results, not task
+successes by a model. The other three selected tasks have parser/catalog
+coverage, not recorded worker execution in this slice.
+
+The focused set passed 100 tests including the authenticated archive checks.
+The task file SHA-256 is
+`37e562e1ae3242577407e1303b1548bc64e7ea68e37d36173e6747990ceaf8a4`,
+13,977,063 bytes, 2,285 rows; the trusted pins manifest and full archive are
+verified before accepting this identity. Forged pins, same-size changed bytes,
+wrong-size bytes, another domain, 2,286 rows, duplicate keys/tasks, oversized
+strings/counts/files and symlinks all retain fail-closed tests.
+
+Complete local/E2E checks remain required. Independent final-head review and hosted CI are required
 before merge. Live count/generation parity, reconciled budget approval, source-
 bound live support, a competent candidate and full multi-domain matched-reference
 evaluation remain separate gates. This slice does not satisfy P2.T3 quality.

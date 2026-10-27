@@ -9,6 +9,8 @@ import io
 import json
 from pathlib import Path
 import signal
+import socket
+import sys
 import tempfile
 import time
 import types
@@ -133,6 +135,91 @@ class OfflineTests(unittest.TestCase):
 
 
 class ReceiptTests(unittest.TestCase):
+    def test_exact_helper_closure_ignores_ambient_modules_and_rejects_wrong_hash(self):
+        trial = fixtures.containers.runner
+        provenance = {"files": {name: worker.digest((trial.ROOT / name).read_bytes()) for name in recorder.HELPERS}}
+        owned = types.SimpleNamespace(parent_driver=mock.Mock(return_value=external), runtime=fixtures.catalog.runtime,
+                                      load=trial.load)
+        with mock.patch.dict(sys.modules, {"tau_telecom_catalog": types.SimpleNamespace(untrusted=True)}):
+            held = recorder.driver(owned, {}, provenance)
+        self.assertFalse(hasattr(held.catalog, "untrusted"))
+        self.assertEqual(held.catalog.CATALOG_SHA, fixtures.catalog.CATALOG_SHA)
+        provenance["files"]["scripts/tau_telecom_offline.py"] = "0" * 64
+        with self.assertRaises(ValueError): recorder.driver(owned, {}, provenance)
+
+    def test_real_recorder_lifecycle_reaps_only_owned_name_and_keeps_failure(self):
+        trial = fixtures.containers.runner
+        for failure in (None, "prepare", "create", "inspect", "attach", "cancel_attach", "terminal", "cleanup"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory, \
+                    socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+                root = Path(directory).resolve()
+                sock.bind(str(root / "docker.sock"))
+                state = {"argv": None, "inspects": 0, "removed": False}
+                provenance = {"git_sha": "a" * 40, "files": {}}
+                plan = {"producer": {"git_sha": "a" * 40}, "selection": {"domain": "telecom", "task_id": "0"}}
+                diagnostic = {"trial": {"status": "evaluated", "upstream_termination": {"reason": "user_stop"}}}
+                held = types.SimpleNamespace(accepted=mock.Mock(return_value=True), close=mock.Mock(), observation=lambda: {})
+                def prepare(*args, **kwargs):
+                    if failure == "prepare": raise ValueError("PRIVATE_EXCEPTION_CANARY")
+                    return {"trial.json": b"{}"}, plan
+                def attached(argv, env, *args):
+                    self.assertEqual(argv[5:8], ["start", "--attach", "--interactive"])
+                    self.assertEqual(set(env), {"PATH", "HOME", "DOCKER_CONFIG", "LANG", "LC_ALL"})
+                    if failure == "attach": raise ValueError("PRIVATE_EXCEPTION_CANARY")
+                    if failure == "cancel_attach": raise KeyboardInterrupt
+                    return diagnostic
+                fake = types.SimpleNamespace(catalog=types.SimpleNamespace(bind=lambda *args: {"stage_binding": {"index": 0}}),
+                    Offline=lambda *args: held,
+                    external=types.SimpleNamespace(pipe=types.SimpleNamespace(selected_assertions=lambda *args: []), run_process=attached))
+                def capture(argv, **kwargs):
+                    self.assertEqual(set(kwargs["env"]), {"PATH", "HOME", "DOCKER_CONFIG", "LANG", "LC_ALL"})
+                    self.assertGreater(kwargs["timeout"], 0)
+                    args = argv[5:]
+                    if args[0] == "image": return worker.encoded([fixtures.containers.image_inspection()])
+                    if args[0] == "create":
+                        state["argv"] = args
+                        if failure == "create": raise ValueError("PRIVATE_EXCEPTION_CANARY")
+                        return b"owned"
+                    if args[0] == "inspect":
+                        state["inspects"] += 1
+                        if failure == "inspect": raise ValueError("PRIVATE_EXCEPTION_CANARY")
+                        info = fixtures.containers.LifecycleTests().info(state["argv"])
+                        info["Config"]["OpenStdin"] = True
+                        if state["inspects"] == 2 and failure == "terminal": info["State"]["ExitCode"] = 1
+                        return worker.encoded([info])
+                    self.assertEqual(args[:2], ["rm", "--force"])
+                    self.assertEqual(args[2], state["argv"][state["argv"].index("--name") + 1])
+                    self.assertTrue(held.close.called)
+                    self.assertFalse((root / "receipt.json").exists())
+                    if failure == "cleanup": raise ValueError("PRIVATE_EXCEPTION_CANARY")
+                    state["removed"] = True
+                    return b"removed"
+                with mock.patch.object(recorder, "loader", return_value=trial), \
+                        mock.patch.object(trial.tau, "committed_identity", return_value=provenance), \
+                        mock.patch.object(trial, "identity", return_value=provenance), \
+                        mock.patch.object(recorder, "driver", return_value=fake), \
+                        mock.patch.object(trial, "selection_plan", return_value={"producer_git_sha": "a" * 40}), \
+                        mock.patch.object(trial, "prepare", side_effect=prepare), \
+                        mock.patch.object(trial, "publish", side_effect=lambda path, files: (path / "payload").mkdir(parents=True)), \
+                        mock.patch.object(trial, "validate_plan"), \
+                        mock.patch.object(recorder.shutil, "which", return_value="/docker"), \
+                        mock.patch.object(trial.probe, "capture", side_effect=capture), \
+                        mock.patch.object(recorder.sys, "flags", types.SimpleNamespace(isolated=True, no_site=True)), \
+                        mock.patch.object(recorder.sys, "dont_write_bytecode", True), redirect_stdout(io.StringIO()) as output:
+                    args = types.SimpleNamespace(source_archive=root / "archive", wheelhouse=root / "wheels",
+                        docker_socket=root / "docker.sock", receipt=root / "receipt.json", index=0)
+                    code = recorder.host(args)
+                receipt = json.loads(args.receipt.read_bytes())
+                self.assertEqual(code, 0 if failure is None else 1)
+                self.assertEqual(receipt["cleanup"], "not_created" if failure == "prepare" else
+                                 "unconfirmed" if failure == "cleanup" else "owned-container-removed")
+                self.assertEqual(receipt["cancelled"], failure == "cancel_attach")
+                self.assertEqual(receipt["completed"], failure is None)
+                self.assertNotIn("PRIVATE_EXCEPTION_CANARY", output.getvalue())
+                if failure in ("terminal", "cleanup"):
+                    self.assertEqual(receipt["diagnostic"], diagnostic)
+                if failure != "prepare": held.close.assert_called_once()
+
     def invoke(self, directory, action):
         args = types.SimpleNamespace(source_archive=Path("/synthetic/source"), wheelhouse=Path("/synthetic/wheels"),
             docker_socket=Path("/synthetic/docker.sock"), receipt=Path(directory) / "receipt.json", index=0)
