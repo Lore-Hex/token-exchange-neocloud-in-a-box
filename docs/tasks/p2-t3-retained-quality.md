@@ -54,6 +54,8 @@ TrustedRouter gateway or billing path.
 Each run is serial, temperature zero, reasoning disabled, 8,192 output tokens
 maximum and 32K combined context; 119 seconds per request and one hour overall.
 Three consecutive protocol/transport failures stop the run without retrying.
-`scripts/summarize-quality-calibration.py --input PRIVATE.jsonl --output EVIDENCE`
+`scripts/summarize-quality-calibration.py --input PRIVATE.jsonl --output EVIDENCE --trbench-root PRIVATE`
 publishes a content-free standard evidence pair. Its `pass` means every selected
-case was evaluated; answer accuracy is reported separately.
+case was evaluated; answer accuracy is reported separately. It rechecks the
+immutable benchmark commit's source tree before publishing a result, validates
+suite-specific scores and usage, and retains failed cases in the denominator.

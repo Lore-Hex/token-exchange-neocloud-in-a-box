@@ -89,15 +89,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--trbench-root", type=Path, required=True)
     args = parser.parse_args()
     trial.require(sys.flags.isolated and args.input.stat().st_size <= 1 << 20)
     record = report(args.input.read_bytes())
+    calibration = trial.load("scripts/record-quality-calibration.py")
+    trial.require(calibration.source(args.trbench_root, record["provenance"]["trbench_revision"])
+                  == record["provenance"]["trbench_tree_sha256"])
     root = Path(__file__).resolve().parents[1]
     revision = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], timeout=10).decode().strip()
     committed = subprocess.check_output(["git", "-C", str(root), "show", revision + ":scripts/" + Path(__file__).name], timeout=10)
     trial.require(committed == Path(__file__).read_bytes())
     envelope = trial.evidence_record(revision, record["source_receipt_sha256"], record["started_utc"], record)
-    envelope.update(command="python3 -I -B scripts/summarize-quality-calibration.py --input PRIVATE --output EVIDENCE",
+    envelope.update(command="python3 -I -B scripts/summarize-quality-calibration.py --input PRIVATE --output EVIDENCE --trbench-root PRIVATE",
         notes="Scored selected cases using pinned TrustedRouter formatters and graders against a retained ordinary-TLS "
               "GPU endpoint. Pass means every selected case was evaluated, not every answer correct. "
               "No full-suite, matched-reference, public-listing or confidential qualification.")
