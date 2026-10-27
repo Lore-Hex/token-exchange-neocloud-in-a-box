@@ -1,0 +1,28 @@
+boot	Fetch only authenticated public inputs	﻿2026-10-27T13:59:40.3823306Z ##[group]Run test "$RUNNER_ENVIRONMENT" = github-hosted
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3823944Z [36;1mtest "$RUNNER_ENVIRONMENT" = github-hosted[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3824354Z [36;1mumask 077[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3824850Z [36;1mmkdir -p -m 700 build/native-install build/debug-boot[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3825423Z [36;1mcurl --disable --fail --silent --show-error --proto '=https' --tlsv1.2 \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3825929Z [36;1m  --max-time 60 --max-filesize 473225 \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3826630Z [36;1m  https://codeload.github.com/systemd/mkosi/tar.gz/ecf7f5702bb2052b7a69cab3fe7d37bc3b9ad77b \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3827258Z [36;1m  --output build/native-install/source.tar.gz[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3827866Z [36;1mrelease=https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/releases/download[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3829215Z [36;1mcurl --disable --fail --location --silent --show-error --proto '=https' --proto-redir '=https' --tlsv1.2 \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3829843Z [36;1m  --max-time 120 --max-filesize 23847293 \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3830490Z [36;1m  "$release/build-input-indexes-20261020/metadata.tar.gz" \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3830958Z [36;1m  --output build/native-install/metadata.tar.gz[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3831572Z [36;1mprintf '%s  %s\n' 54def86b7b37b3b5178782965e499f0242a98f36bc7828105f112005576663a7 \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3832189Z [36;1m  build/native-install/metadata.tar.gz | sha256sum --check --strict[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3832786Z [36;1m/usr/bin/python3.10 -I -S -B scripts/fetch_mkosi_tools.py --guest-runtime \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3833386Z [36;1m  --metadata-archive "$PWD/build/native-install/metadata.tar.gz" \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3833916Z [36;1m  --output "$PWD/build/native-install/inputs"[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3834451Z [36;1m/usr/bin/python3.10 -I -S -B scripts/fetch_debug_boot_runtime.py \[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3834949Z [36;1m  --output "$PWD/build/debug-boot/runtime-inputs"[0m
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3885186Z shell: /usr/bin/bash -e {0}
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:40.3885768Z ##[endgroup]
+boot	Fetch only authenticated public inputs	2026-10-27T13:59:41.3172252Z build/native-install/metadata.tar.gz: OK
+boot	Fetch only authenticated public inputs	2026-10-27T14:02:03.7813975Z {"delay_seconds": 1, "expected_bytes": 113500352, "expected_sha256": "b3f16d16b54796497884b27810b0942243bdc6ef26da1ce821e948ece39a9492", "failed_attempt": 1, "failure": "timeout", "input_kind": "archive", "package_execution": false, "result": "retry", "returncode": null, "schema": "nib.input-fetch-retry/v1"}
+boot	Fetch only authenticated public inputs	2026-10-27T14:03:04.7867028Z {"delay_seconds": 2, "expected_bytes": 113500352, "expected_sha256": "b3f16d16b54796497884b27810b0942243bdc6ef26da1ce821e948ece39a9492", "failed_attempt": 2, "failure": "timeout", "input_kind": "archive", "package_execution": false, "result": "retry", "returncode": null, "schema": "nib.input-fetch-retry/v1"}
+boot	Fetch only authenticated public inputs	2026-10-27T14:04:06.7935257Z Pinned input fetch failed; see content-free diagnostic.
+boot	Fetch only authenticated public inputs	2026-10-27T14:04:06.7937018Z {"expected_bytes": 113500352, "expected_sha256": "b3f16d16b54796497884b27810b0942243bdc6ef26da1ce821e948ece39a9492", "failure": "timeout", "input_kind": "archive", "package_execution": false, "result": "fail", "returncode": null, "schema": "nib.input-fetch-failure/v1"}
+boot	Fetch only authenticated public inputs	2026-10-27T14:04:06.8267899Z ##[error]Process completed with exit code 1.

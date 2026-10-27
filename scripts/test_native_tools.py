@@ -208,6 +208,75 @@ class FetchTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             fetcher.public_url(good, nvidia=True, snapshot=True)
 
+    def test_only_exact_kernel_archive_uses_locked_primary_in_both_guest_plans(self):
+        for path, scope in ((fetcher.tools.FILES[-1], fetcher.GUEST_SCOPE),
+                            fetcher.tools.TARGETS["guest-runtime"]):
+            value = json.loads((ROOT / path).read_bytes())
+            original = copy.deepcopy(value)
+            items = fetcher.plan(value, guest=True, guest_scope=scope)
+            primary = []
+            for row in value["packages"]:
+                item = items["repo/pool/" + base.package_name(row)]
+                self.assertEqual(item[1:], (int(row["Size"]), row["SHA256"]))
+                if item == fetcher.UBUNTU_PRIMARY_ARCHIVE:
+                    primary.append(row["Package"])
+                    self.assertEqual((row["Version"], row["Architecture"], row["index"]),
+                                     ("6.8.0-147.147", "amd64", "noble-updates-main"))
+                else:
+                    prefix = fetcher.NVIDIA_BASE if row["index"] == "nvidia" else fetcher.UBUNTU_SNAPSHOT
+                    self.assertEqual(item[0], prefix + row["Filename"].removeprefix("./"))
+            self.assertEqual(primary, ["linux-modules-extra-6.8.0-147-generic"])
+            self.assertEqual(value, original)
+
+    def test_primary_selection_binds_full_origin_path_size_and_digest(self):
+        value = json.loads((ROOT / fetcher.tools.FILES[-1]).read_bytes())
+        selected = next(row for row in value["packages"] if row["SHA256"] == fetcher.UBUNTU_PRIMARY_ARCHIVE[2])
+        value["packages"] = [selected]
+        value["archive_bytes"] = int(selected["Size"])
+        mutations = (
+            lambda v: next(i for i in v["indexes"] if i["id"] == selected["index"]).update(
+                base_url="https://security.ubuntu.com/ubuntu/"),
+            lambda v: v["packages"][0].update(Filename=selected["Filename"].replace("147.147", "147.148")),
+            lambda v: (v["packages"][0].update(Size=str(int(selected["Size"]) - 1)),
+                       v.update(archive_bytes=v["archive_bytes"] - 1)),
+            lambda v: v["packages"][0].update(SHA256="0" * 64),
+        )
+        for mutate in mutations:
+            changed = copy.deepcopy(value)
+            mutate(changed)
+            items = fetcher.plan(changed, guest=True)
+            row = changed["packages"][0]
+            self.assertEqual(items["repo/pool/" + base.package_name(row)],
+                             (fetcher.UBUNTU_SNAPSHOT + row["Filename"], int(row["Size"]), row["SHA256"]))
+
+    def test_primary_timeout_keeps_three_attempts_without_source_fallback(self):
+        item = fetcher.UBUNTU_PRIMARY_ARCHIVE
+        execute = mock.Mock(side_effect=subprocess.TimeoutExpired("curl", 60))
+        output, delays = io.StringIO(), []
+        with contextlib.redirect_stdout(output), self.assertRaises(fetcher.FetchFailure) as caught:
+            fetcher.fetch_item("archives/" + item[2] + ".deb", item, execute, 600, lambda: 0, delays.append)
+        self.assertEqual(execute.call_count, 3)
+        self.assertEqual(delays, [1, 2])
+        self.assertEqual(caught.exception.report["failure"], "timeout")
+        self.assertEqual([json.loads(line)["failed_attempt"] for line in output.getvalue().splitlines()], [1, 2])
+        for call in execute.call_args_list:
+            args, options = call.args[0], call.kwargs
+            self.assertEqual(args[-1], item[0])
+            self.assertEqual(args[args.index("--max-time") + 1], "60")
+            self.assertEqual(args[args.index("--max-filesize") + 1], str(item[1]))
+            self.assertFalse(set(args) & {"--location", "--retry", "--insecure"})
+            self.assertEqual((options["timeout"], options["max_output_bytes"]), (60, item[1] + 65536))
+            self.assertEqual(options["env"], fetcher.ENV)
+
+    def test_primary_still_rejects_wrong_size_and_digest_without_retry(self):
+        item = fetcher.UBUNTU_PRIMARY_ARCHIVE
+        for data, failure in ((b"short", "size"), (b"x" * item[1], "digest")):
+            execute = mock.Mock(return_value=subprocess.CompletedProcess([], 0, data, b""))
+            with self.subTest(failure=failure), self.assertRaises(fetcher.FetchFailure) as caught:
+                fetcher.fetch_item("archives/" + item[2] + ".deb", item, execute, 600, lambda: 0, mock.Mock())
+            self.assertEqual(caught.exception.report["failure"], failure)
+            execute.assert_called_once()
+
     def test_archived_metadata_is_verified_before_any_network_and_not_refetched(self):
         execute = mock.Mock(return_value=subprocess.CompletedProcess([], 0, b"deb", b""))
         metadata = {"metadata/noble-main.xz": b"idx"}

@@ -32,6 +32,14 @@ HOSTS = {"archive.ubuntu.com", "security.ubuntu.com"}
 # https://snapshot.ubuntu.com/ (Snapshot ID format / reproducible deployments).
 # Package size/SHA-256 still come from the existing signed-index locks.
 UBUNTU_SNAPSHOT = "https://snapshot.ubuntu.com/ubuntu/20261020T000000Z/"
+# This exact locked archive timed out at the snapshot; its original Ubuntu URL
+# returned the identical bytes within the existing 60-second bound. See
+# evidence/p3/2026-10-27-debug-kernel-fetch-timeout/README.md. No mirror fallback.
+UBUNTU_PRIMARY_ARCHIVE = (
+    "https://archive.ubuntu.com/ubuntu/pool/main/l/linux/"
+    "linux-modules-extra-6.8.0-147-generic_6.8.0-147.147_amd64.deb",
+    113500352, "b3f16d16b54796497884b27810b0942243bdc6ef26da1ce821e948ece39a9492",
+)
 MAX_BYTES = 160 << 20
 NVIDIA_BASE = "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/"
 GUEST_SCOPE = "kernel-driver-build-dependency-coverage"
@@ -116,8 +124,9 @@ def plan(lock, *, guest=False, guest_scope=GUEST_SCOPE):
         else:
             require(row["Filename"].startswith("pool/"))
             require(index["base_url"] in {"https://" + host + "/ubuntu/" for host in HOSTS})
-            public_url(index["base_url"] + row["Filename"])
-            url = public_url(UBUNTU_SNAPSHOT + row["Filename"], snapshot=True)
+            primary = public_url(index["base_url"] + row["Filename"])
+            url = (primary if (primary, int(row["Size"]), row["SHA256"]) == UBUNTU_PRIMARY_ARCHIVE
+                   else public_url(UBUNTU_SNAPSHOT + row["Filename"], snapshot=True))
         name = "repo/pool/" + base.package_name(row)
         require(name not in items)
         items[name] = (url, int(row["Size"]), row["SHA256"])
