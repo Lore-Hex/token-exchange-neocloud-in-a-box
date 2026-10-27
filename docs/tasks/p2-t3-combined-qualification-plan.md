@@ -197,4 +197,5 @@ restored alarms, no retries, malformed deadlines and terminal process drift.
 composition to both existing closed transforms; check budget constants against
 the actual helpers, exact boundaries and clock movement; assert launch rejection;
 and replay legacy argv, request bytes and receipt validators. These tests do not
-exercise the unimplemented owner, combined capacity policy or receipt channel.
+exercise the unimplemented owner, live combined capacity collection or receipt
+channel.

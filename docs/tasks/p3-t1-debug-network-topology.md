@@ -107,8 +107,9 @@ The command remains excluded from default, original debug and `nibfake` builds.
 The opt-in `--guest-network --debug-topology` pair on
 [host/run-debug-boot.py](../../host/run-debug-boot.py) now connects the existing
 [private debug-boot pipeline](p3-t1-debug-boot-probe.md) to the down-only controller.
-This is software integration, **not a recorded guest run**. Neither the workflow
-inputs nor any release accepted measurement changes; no workflow was dispatched.
+This is software integration, **not a recorded guest run**. The separate manual
+workflow selection below is default-off; no release accepted measurement changes
+and no workflow was dispatched for the software tests.
 Do not invoke the command on a host or add capabilities to an existing unit.
 
 - `--debug-topology` without `--guest-network` is rejected before launching a
@@ -169,6 +170,55 @@ CPU debug case. Packet isolation, networkd, confidentiality, reproducibility,
 production service and signed-image claims remain false.
 
 ## Remaining Runtime Proof
+
+### Manual CPU Selection
+
+The [existing CPU debug workflow](../../.github/workflows/debug-boot.yml) exposes
+three typed boolean inputs, all defaulting to false: `debug_boot`,
+`guest_network` and `debug_topology`. It remains manual, main-only, hosted Ubuntu
+22.04, read-only token permissions and the original 35-minute serial job.
+When `debug_boot` enables the job, `debug_topology=true` requires
+`guest_network=true`; a first step rejects an
+incompatible selection **before checkout, tool setup or input fetching**. The
+debug step checks the same finite selection again before resolving the compiler
+or invoking the owner. No selection silently changes a native image profile.
+
+Original false/false and true/false paths retain their exact launcher arguments.
+The true/true path adds only `--debug-topology` to `--guest-network`. Native image
+build and unused-export cleanup arguments are unchanged. The unused-export helper
+is reached only after profile validation succeeds (invalid inputs stop before
+checkout or image creation). The existing metadata-only upload
+and independent cleanup gates still preserve a verified failed receipt and refuse
+upload readiness for a missing/killed owner or unknown result. There are no
+automatic triggers, retries, caller-supplied commands or arbitrary flags, wider
+timeouts, cloud provisioning or production profile changes.
+
+After final-head independent review, normal full/E2E/hosted gates, merge and the
+applicable run authorization, one bounded original-image-profile proof may use:
+
+```sh
+gh workflow run debug-boot.yml --ref main -f debug_boot=true -f guest_network=true -f debug_topology=true
+```
+
+Before dispatch, require no queued, waiting or active owner in the existing
+`bounded-cpu-debug-boot` group. Wait for existing owners; never cancel/recover them
+or displace a pending run with another dispatch. Record the exact producer SHA
+and run URL. Do not dispatch before review or retry a failed proof automatically.
+The run fetches only locked public inputs, builds a fresh matching private
+`guest-network/v1` export, and uses the original CPU-only TCG/no-NIC/no-GPU limits.
+It must retain failure metadata and confirm owned cleanup. Missing pinned inputs
+or kernel support is a failure to investigate, not permission to substitute pins,
+load guessed modules, widen bounds or claim success. No such runtime result is
+claimed by the workflow selection tests.
+
+Offline workflow tests execute the actual selection shell against local stubs;
+they never invoke sudo, compile a guest, boot QEMU or dispatch a workflow:
+
+```sh
+TMPDIR=/private/tmp PYTHONPATH=scripts uv run --project tools --frozen python -m unittest test_debug_topology_workflow test_debug_topology test_debug_boot test_mkosi_guest_network
+```
+
+### Beyond Down-Only Topology
 
 The next slice must reconcile the actual image's original networkd
 configuration/drop-ins/generators and credentials, authenticate its original
