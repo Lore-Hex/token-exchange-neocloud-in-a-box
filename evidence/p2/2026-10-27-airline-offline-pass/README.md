@@ -44,3 +44,17 @@ with a real upstream is not asserted.
 This does not establish live endpoint eligibility, a repeated full-domain tau
 score, a matched-reference comparison, GPU performance, confidential inference
 or a production change.
+
+## Publication Check
+
+The first evidence-bearing commit passed CI's Python and Go tests, but both
+[PR](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/40558592244)
+and [branch](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/actions/runs/40558586155)
+checks rejected 48 secret-scanner matches. All were the exact public file
+digests of `engine_tokenizer_parity.py` and `tau_external_tokenizer.py`, already
+recognized at older sequential-evidence paths. Their SHA-256 values were checked
+against the producer's committed source. No credential was found or exempted.
+The existing match-level exception is extended only to these exact fields,
+digests and artifact paths, preserving original journal bytes. Positive controls
+still reject changed values, key fields, other paths, out-of-range receipt
+numbers and an unrelated key on the same compact JSON line.
