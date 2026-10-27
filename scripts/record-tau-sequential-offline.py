@@ -21,6 +21,9 @@ from unittest import mock
 SCRIPT = "scripts/record-tau-sequential-offline.py"
 HELPERS = (SCRIPT, "scripts/record-tau-telecom-offline.py", "scripts/tau_telecom_offline.py")
 STAGES = ("provenance", "plan", "controller", "verification", "completed")
+# Pinned airline tasks score DB/COMMUNICATE, not NL_ASSERTION. The first three
+# expect no writes or communicated values; the final two require DB changes.
+AIRLINE_REWARDS = ("1.0", "1.0", "1.0", "0.0", "0.0")
 
 
 def load():
@@ -79,6 +82,7 @@ def replay(args, progress):
         value = trial.selection_plan(args.source_archive, [args.domain], trials, 42, recorder.BUDGET, deadline,
                                      aggregate_cap_usd=cap)
         expected_counts = [1, 1, 1, 3, 2] if airline else [0] * 15
+        expected_rewards = AIRLINE_REWARDS if airline else ("0.0",)
         trial.require(len(value["selections"]) == len(expected_counts) and [
             offline.catalog.selection.assertion_count({"plan": value, "index": index})
             for index in range(len(value["selections"]))] == expected_counts)
@@ -98,6 +102,7 @@ def replay(args, progress):
             progress["stage"] = "controller"
             result = entry.execute(parameters, {"stage": "input-verification", "cancelled": False})
         progress["stage"] = "verification"
+        progress["controller"] = result
         trial.require(len(peers) == completed and result["result"] == ("pass" if airline else "incomplete")
                       and result["stop_reason"] == ("complete" if airline else "cap-exhausted")
                       and result["planned_trials"] == len(expected_counts) and result["completed_trials"] == completed
@@ -107,7 +112,7 @@ def replay(args, progress):
             raw = trial.runtime.read_file(args.output / f"trial-{index:02d}/output.log", 1 << 20, deadline)
             record = trial.tau.json_value(raw)
             trial.require(peer.accepted(record["trial"]) and record["cleanup"] == "confirmed"
-                          and record["trial"]["trial"]["reward"] == "0.0"
+                          and record["trial"]["trial"]["reward"] == expected_rewards[index]
                           and trial.runtime.read_file(args.output / f"receipt-{index:02d}.json", 1 << 20, deadline) == raw
                           and peer.observation()["evaluator"]["generation_steps"] == (1 if expected_counts[index] else 0))
             records.append({"original_receipt_sha256": trial.tau.digest(raw), "scripted_peers": peer.observation(),

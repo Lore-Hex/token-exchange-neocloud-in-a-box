@@ -656,6 +656,10 @@ class ControllerTests(unittest.TestCase):
 
 
 class OfflineRecorderTests(unittest.TestCase):
+    def test_airline_fixture_does_not_override_original_reward_basis(self):
+        recorder = selections.runner.load("scripts/record-tau-sequential-offline.py")
+        self.assertEqual(recorder.AIRLINE_REWARDS, ("1.0", "1.0", "1.0", "0.0", "0.0"))
+
     def test_failures_are_content_free_and_original_receipts_exclusive(self):
         recorder = selections.runner.load("scripts/record-tau-sequential-offline.py")
         for failure in (ValueError("PRIVATE_CANARY"), KeyboardInterrupt()):

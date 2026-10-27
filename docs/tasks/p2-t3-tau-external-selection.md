@@ -171,7 +171,13 @@ Add `--domain airline` for a separate offline replay of the five frozen airline
 tasks, one trial each, under a synthetic $200 cap. It checks the original
 assertion counts **1, 1, 1, 3, 2**, an actual agent `calculate` tool round trip,
 the text-only user simulator, and each original ordered multi-assertion judge.
-Every scripted reward remains zero. Original source and scorer, budgeting,
+The fixed fixture preserves original rewards **1, 1, 1, 0, 0**. These airline
+tasks score `DB` and `COMMUNICATE`: the first three require neither a write nor
+a communicated value, while the last two require database changes. The pinned
+[evaluator](https://github.com/sierra-research/tau2-bench/blob/fc0055dc4e0a316c3f83133267fbd6faaa770992/src/tau2/evaluator/evaluator.py)
+runs the all-false language judge but does not multiply its result into these
+tasks' rewards. The fixture does not change that original scoring basis.
+The default telecom fixture retains its zero reward. Original source and scorer, budgeting,
 usage reconciliation and container cleanup remain mandatory. This mode is
 not a live-model benchmark, an invoice, a repeated-trial score or permission
 to spend. The default telecom replay is unchanged.
