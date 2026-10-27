@@ -647,6 +647,7 @@ class CallerTests(Fixture, unittest.TestCase):
             recorder.snapshot.cleanup_process_group.side_effect = ValueError("PRIVATE_CANARY")
         with ExitStack() as stack:
             stack.enter_context(mock.patch.object(host, "state_directories"))
+            stack.enter_context(mock.patch.object(host.smoke.core_limits, "check_host"))
             stack.enter_context(mock.patch.object(host.network, "Journal", return_value=self.journal))
             stack.enter_context(mock.patch.object(self.journal, "initialize"))
             command_factory = stack.enter_context(mock.patch.object(host.network, "Commands", return_value=self.commands))
@@ -757,6 +758,7 @@ class StateDirectoryTests(unittest.TestCase):
             result.update(preflight_pass=True, reason="not-run")
             yield (contract, None, None, None, None, None, None, None)
         with self.observed_uid(uid), ExitStack() as stack:
+            stack.enter_context(mock.patch.object(host.smoke.core_limits, "check_host"))
             stack.enter_context(mock.patch.object(host.smoke, "admitted_runtime", admitted))
             stack.enter_context(mock.patch.object(host, "admitted_commands"))
             journal = stack.enter_context(mock.patch.object(host.network, "Journal"))

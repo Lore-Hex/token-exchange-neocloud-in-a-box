@@ -268,6 +268,8 @@ def runtime_plan(args, admitted, selected, commands, result):
 
 
 def run(args, admitted, selected, result):
+    result.update(preflight_pass=False, reason="host-identity")
+    smoke.core_limits.check_host()
     contract, lab, recorder, _, build, base, image, inputs = admitted
     commands = admitted_commands(admitted)
     env = commands.env
