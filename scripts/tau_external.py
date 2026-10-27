@@ -24,6 +24,12 @@ COUNT_BINDING = worker.digest(b"OpenAI Responses input_tokens; gpt-4.1-2025-04-1
 COUNT_RESERVATION = Decimal("2.095152")  # Entire published 1,047,576-token context at $2/M.
 
 
+def source_support():
+    # Loaded from the verified parent closure only for the explicit opt-in.
+    import tau_external_support
+    return tau_external_support
+
+
 def projected(body, *, full_task=False):
     """Only two upstream optional aliases are removed; all values are retained."""
     result = worker.decode(worker.bounded_json(body, 65536))
@@ -233,7 +239,7 @@ class Endpoint:
 
 class Runtime:
     def __init__(self, contract_path, contract_sha, candidate_key, simulator_key, source, tokenizer, wheel, deadline,
-                 *, full_task=False, stage=None):
+                 *, full_task=False, stage=None, support_source=None):
         require(type(full_task) is bool)
         self.counter, self.endpoints = None, {}
         config = policy.configuration(customer_resolution=not full_task, external_simulator=True, full_task=full_task,
@@ -262,6 +268,15 @@ class Runtime:
         require(not pinned or contract["serving_profile"] == "long1m-graphs"
                 and type(contract["serving_context_tokens"]) is int
                 and contract["serving_context_tokens"] == 1048576)
+        bound, admission = None, None
+        endpoint_type = Endpoint
+        if support_source is not None:
+            require(full_task and pinned and support_source.is_absolute())
+            support = source_support()
+            bound = support.Source(support_source, stage, deadline)
+            require(bound.binding["selection"] == config["selection"])
+            admission = support.Admission(config)
+            endpoint_type = support.Endpoint
         try:
             self.counter = tau_external_tokenizer.Counter(source, tokenizer, wheel,
                 **({"context_tokens": context} if full_task else {}))
@@ -272,16 +287,20 @@ class Runtime:
             keys = [private.private_read(path, deadline).rstrip(b"\n") for path in (candidate_key, simulator_key)]
             require(all(16 <= len(key) <= 4096 and all(33 <= byte <= 126 for byte in key) for key in keys))
             options = {"full_task": True, "count_budget": CountBudget()} if full_task else {}
-            self.endpoints = {"candidate": Endpoint("candidate", candidate_http, keys[0], self.counter, **options),
-                             **{role: Endpoint(role, bounded_https.HTTPS("api.openai.com", (COUNT, CHAT if pinned else RESPONSES)),
+            if bound is not None:
+                options.update(source=bound, admission=admission)
+            self.endpoints = {"candidate": endpoint_type("candidate", candidate_http, keys[0], self.counter,
+                                              **({"support_chat": True} if bound is not None else {}), **options),
+                             **{role: endpoint_type(role, bounded_https.HTTPS("api.openai.com", (COUNT, CHAT if pinned else RESPONSES)),
                                                keys[1], support_chat=pinned, **options) for role in config["support"]}}
+            framing = bound.sha256 if bound is not None else COUNT_BINDING
             self.manifest = {"schema": policy.external_transport(config),
                 "input": config, "settings": policy.settings(config),
                 "binding_sha256": contract_sha, "framing": {role: {
                     "reasoning_effort": "none", "parallel_tool_calls": False, "context_tokens": context,
                     "served_model": policy.PUBLIC_MODEL if role == "candidate" else policy.EXTERNAL_MODEL,
-                    "framing_sha256": self.counter.binding if role == "candidate" else COUNT_BINDING,
-                    "tokenizer_sha256": tau.VOCABULARY_DIGEST if role == "candidate" else COUNT_BINDING}
+                    "framing_sha256": self.counter.binding if role == "candidate" else framing,
+                    "tokenizer_sha256": tau.VOCABULARY_DIGEST if role == "candidate" else framing}
                     for role in config["contexts"]}}
             policy.transport_manifest(self.manifest, worker.digest(worker.encoded(self.manifest)))
         except BaseException:
@@ -326,6 +345,9 @@ class Session(local.CountedSession):
 
 
 def accepted(value):
+    endpoints = value.get("endpoints", {})
+    if any("generation_admission" in row for row in endpoints.values()) and not source_support().accepted(endpoints):
+        return False
     if value.get("schema") in ("nib.tau-external-full-task/v1", "nib.tau-external-staged/v2"):
         row = value["trial"]
         staged = value["schema"] == "nib.tau-external-staged/v2"

@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S -B scripts/record-tau-telecom-offline.py --source-archive PRIVATE --wheelhouse PRIVATE --docker-socket PRIVATE --index 0 --receipt PRIVATE --source-bound-support",
+  "ended_utc": "2026-10-27T11:32:35Z",
+  "execution": "software",
+  "git_sha": "4c9a2ef2fb4c3fc46296ae7b4fef1a67bf6ae93b",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "offline-telecom-recorder",
+    "provider": "local"
+  },
+  "notes": "Original pinned telecom worker, scripted peers and synthetic counts. Not quality, parity, live admission or full tau. Original receipt.json bytes and any failed receipts are retained.",
+  "phase": "P2",
+  "result": "pass",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-27T11:31:56Z",
+  "task": "T3"
+}

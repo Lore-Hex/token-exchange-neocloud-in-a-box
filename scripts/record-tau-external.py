@@ -70,6 +70,7 @@ def main():
         run.add_argument("--" + name, type=Path, required=True)
     for name in ("plan-sha256", "contract-sha256", "deadline-utc"):
         run.add_argument("--" + name, required=True)
+    run.add_argument("--support-source-archive", type=Path)
     args = parser.parse_args()
     started = trial.now()
     cancelled = False
@@ -119,6 +120,7 @@ def main():
                                     "source_git_sha": plan["producer"]["git_sha"]}).decode(), end="")
             return 0
         trial.require(not args.output.exists())
+        trial.require(args.support_source_archive is None or args.full_task and args.support_source_archive.is_absolute())
         deadline_utc = datetime.datetime.strptime(args.deadline_utc, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.timezone.utc)
         remaining = deadline_utc.timestamp() - time.time()
         trial.require(60 < remaining <= 960)
@@ -131,6 +133,7 @@ def main():
                 args.contract, args.contract_sha256, args.candidate_key, args.simulator_key,
                 args.vllm_source, args.tokenizer, args.tokenizer_wheel),
                 **({"full_task": True} if args.full_task else {}),
+                **({"support_source": args.support_source_archive} if args.support_source_archive is not None else {}),
                 **({"stage_binding": {"sha256": args.selection_plan_sha256, "index": args.selection_index}} if staged else {})})
         print(trial.tau.encoded({"result": record["result"], "cleanup": record["cleanup"]}).decode(), end="")
         return 0 if record["result"] == "pass" else 1
