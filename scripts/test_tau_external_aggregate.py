@@ -575,18 +575,20 @@ class ControllerTests(unittest.TestCase):
         self.assertFalse(self.args.output.exists())
 
     def test_sequential_plan_cannot_use_single_trial_entry_without_owned_journal(self):
-        stage = {"plan": self.value, "index": 0}
-        manifest = selections.configuration(stage)
-        with mock.patch.object(self.trial, "identity", return_value=TOOLKIT), \
-                mock.patch.object(self.trial, "validate_plan", return_value=({}, manifest)), \
-                mock.patch.object(self.trial, "parent_driver", return_value=aggregate.external), \
-                mock.patch.object(aggregate.external, "Runtime") as runtime, \
-                mock.patch.object(self.trial.probe, "capture") as docker, self.assertRaises(ValueError):
-            self.trial.run(None, PAYLOAD, None, None, parent_pipe=True, external_inputs={"full_task": True,
-                "deadline": time.monotonic() + 900, "arguments": (None,) * 7,
-                "stage_binding": selection.binding(stage)})
-        runtime.assert_not_called()
-        docker.assert_not_called()
+        for value in (self.value, plan(domains=["airline"])[0]):
+            stage = {"plan": value, "index": 0}
+            manifest = selections.configuration(stage)
+            with self.subTest(schema=value["schema"]), \
+                    mock.patch.object(self.trial, "identity", return_value=TOOLKIT), \
+                    mock.patch.object(self.trial, "validate_plan", return_value=({}, manifest)), \
+                    mock.patch.object(self.trial, "parent_driver", return_value=aggregate.external), \
+                    mock.patch.object(aggregate.external, "Runtime") as runtime, \
+                    mock.patch.object(self.trial.probe, "capture") as docker, self.assertRaises(ValueError):
+                self.trial.run(None, PAYLOAD, None, None, parent_pipe=True, external_inputs={"full_task": True,
+                    "deadline": time.monotonic() + 900, "arguments": (None,) * 7,
+                    "stage_binding": selection.binding(stage)})
+            runtime.assert_not_called()
+            docker.assert_not_called()
 
     def test_inner_trial_early_cancellation_survives_owned_cleanup(self):
         stage = {"plan": self.value, "index": 0}
