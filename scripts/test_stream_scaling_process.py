@@ -8,6 +8,7 @@ from pathlib import Path
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 from unittest import mock
@@ -22,7 +23,7 @@ REAL_POPEN = subprocess.Popen
 
 class ProcessTests(unittest.TestCase):
     @contextmanager
-    def children(self, mode="normal", *, fail_at=None, inherited=()):
+    def children(self, mode="normal", *, fail_at=None, inherited=(), connected_dir=None):
         children = []
         def spawn(args, **kwargs):
             self.assertEqual(args, ["/opt/nib/python", "scaling-collector"])
@@ -30,9 +31,13 @@ class ProcessTests(unittest.TestCase):
                 stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True))
             if len(children) == fail_at:
                 raise OSError("PRIVATE_CANARY")
-            child = REAL_POPEN([sys.executable, "-I", "-S", "-B",
+            command = [sys.executable, "-I", "-S", "-B",
                 str(ROOT / "scripts/fixtures/stream_scaling_child.py"), mode, fixtures.MODEL,
-                json.dumps(inherited), json.dumps(fixtures.endpoint().expected)], **kwargs)
+                json.dumps(inherited), json.dumps(fixtures.endpoint().expected)]
+            if connected_dir is not None:
+                self.assertEqual(mode, "http-connected")
+                command.append(str(connected_dir))
+            child = REAL_POPEN(command, **kwargs)
             children.append(child)
             return child
         with mock.patch.object(scaling.subprocess, "Popen", side_effect=spawn):
@@ -122,15 +127,43 @@ class ProcessTests(unittest.TestCase):
         self.assertEqual(sum(s["completion_tokens"] or 0 for s in row["samples"]), 80)
 
     def test_actual_http_child_main_thread_peer_checks_and_unique_salts(self):
+        self.http_wave()
+
+    def http_wave(self, *, connected_dir=None):
         fixture = fixtures.ProcessTests()
-        with fixture.http_server() as seen, self.children("http"):
+        mode = "http" if connected_dir is None else "http-connected"
+        with fixture.http_server(participants=16) as seen, self.children(mode, connected_dir=connected_dir):
             row = self.wave()
-        self.assertEqual(row["stop_reason"], "complete")
+        # Only bounded collector metadata, never HTTP bodies or exception text.
+        diagnostic = {"received": len(seen), "reaped": row["collectors_reaped"],
+            "samples": [{key: sample[key] for key in ("status", "elapsed_seconds", "completion_tokens")}
+                        for sample in row["samples"]],
+            "exits": [{key: interval[key] for key in ("reported", "exit_code")}
+                      for interval in row["intervals"]]}
+        self.assertEqual(row["stop_reason"], "complete", json.dumps(diagnostic, sort_keys=True))
+        self.assertEqual(row["peak_in_flight"], 16)
         self.assertEqual(len(seen), 16)
         self.assertEqual(len({body["cache_salt"] for _, body in seen}), 16)
         self.assertTrue(all(path == "/v1/chat/completions" and body["model"] == fixtures.MODEL
                             and body["max_completion_tokens"] == 512 for path, body in seen))
         self.assertTrue(all(s["cached_prompt_tokens"] is None for s in row["samples"]))
+
+    def test_http_fixture_queues_entire_wave_before_first_accept(self):
+        original = fixtures.ThreadingHTTPServer.get_request
+        connected_before_accept = []
+        with tempfile.TemporaryDirectory() as directory:
+            def accept(server):
+                if not connected_before_accept:
+                    # Model a descheduled accept thread without guessing a
+                    # sleep duration or changing any collector deadline.
+                    deadline = time.monotonic() + 5
+                    while len(list(Path(directory).iterdir())) < 16 and time.monotonic() < deadline:
+                        time.sleep(0.005)
+                    connected_before_accept.append(len(list(Path(directory).iterdir())))
+                return original(server)
+            with mock.patch.object(fixtures.ThreadingHTTPServer, "get_request", accept):
+                self.http_wave(connected_dir=directory)
+        self.assertEqual(connected_before_accept, [16])
 
 
 if __name__ == "__main__":

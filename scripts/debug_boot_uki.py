@@ -12,6 +12,7 @@ import sys
 import types
 
 SUFFIX = b" systemd.unit=nib-debug-boot.target nib.debug-boot=v1"
+TOPOLOGY_PROFILE = "debug-topology/v1"
 UNITS = {
     "nib-debug-boot-stage.service": "etc/systemd/system/nib-debug-boot-stage.service",
     "10-nib-debug-boot.conf": "etc/systemd/system/initrd-switch-root.service.d/10-nib-debug-boot.conf",
@@ -115,8 +116,10 @@ def operation(processes, boot, name):
 
 def build(boot, pefile, processes, config, report):
     report["stage"] = "original-uki"
-    boot.require(config["schema"] == "nib.debug-uki-input/v1" and not boot.WORK.exists()
-                 and not boot.ROOTFS.exists())
+    topology = input_profile(config)
+    boot.require(not boot.WORK.exists() and not boot.ROOTFS.exists())
+    if topology:
+        report.update(schema="nib.debug-topology-uki/v1", profile=TOPOLOGY_PROFILE)
     boot.ROOTFS.parent.mkdir(mode=0o700)
     parts = original(boot, pefile, config)
     report["stage"] = "supplement"
@@ -147,6 +150,17 @@ def build(boot, pefile, processes, config, report):
                   original_uki=config["original"]["uki"]["image"], probe=config["probe"],
                   supplement=boot.identity(archive), uki=observed)
     return report
+
+
+def input_profile(config):
+    if type(config) is not dict:
+        raise ValueError("debug-uki-rejected")
+    if config.get("schema") == "nib.debug-uki-input/v1" and "profile" not in config:
+        return False
+    if (config.get("schema") == "nib.debug-uki-input/v2" and config.get("profile") == TOPOLOGY_PROFILE
+            and set(config) == {"schema", "profile", "root_hash", "original", "probe", "units"}):
+        return True
+    raise ValueError("debug-uki-rejected")
 
 
 def main():

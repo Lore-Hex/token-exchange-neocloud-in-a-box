@@ -31,15 +31,16 @@ BUNDLE = ROOT / "build/native-install/evidence-boot"
 TIMEOUT = 900
 SCRIPT = "host/run-debug-boot.py"
 SELF = base.read(ROOT / SCRIPT, 1 << 20)
+TOPOLOGY_PROFILE = "debug-topology/v1"
 
 
-def capture_producer(uid, gid, guest_network=False):
+def capture_producer(uid, gid, guest_network=False, debug_topology=False):
     # Audit as the runner, before launching any image/QEMU worker. Never invoke
     # Git or honor repository configuration as root, and retain this result in
     # the independent parent even when the later worker is killed.
-    require(type(guest_network) is bool)
+    require(type(guest_network) is bool and type(debug_topology) is bool and (not debug_topology or guest_network))
     args = ["/usr/bin/python3.10", "-I", "-S", "-B", str(ROOT / "host/debug-boot.py"), "--source-only",
-            *(["--guest-network"] if guest_network else [])]
+            *(["--guest-network"] if guest_network else []), *(["--debug-topology"] if debug_topology else [])]
     child = subprocess.Popen(args, user=uid, group=gid, extra_groups=[], cwd=ROOT,
         env={"PATH": "/usr/bin:/bin", "HOME": "/nonexistent", "LANG": "C", "LC_ALL": "C",
              "RUNNER_ENVIRONMENT": "github-hosted"},
@@ -52,6 +53,7 @@ def capture_producer(uid, gid, guest_network=False):
     value = json.loads(raw)
     require(set(value) == {"schema", "source", "debug_source"} and value["schema"] == "nib.debug-producer/v1")
     require(value["source"].get("profile") == ("guest-network/v1" if guest_network else None))
+    require(value["debug_source"].get("profile") == (TOPOLOGY_PROFILE if debug_topology else None))
     revision = value["source"]["git_sha"]
     require(type(revision) is str and re.fullmatch("[0-9a-f]{40}", revision) and revision != "0" * 40
             and value["debug_source"]["git_sha"] == revision
@@ -112,19 +114,25 @@ def same(path, original):
 def finish(state, private, bundle, started, producer):
     require(state["empty_verified"] is True and state["group_removed"] is True
             and os.getuid() == os.geteuid() > 0 and shutil.rmtree.avoids_symlink_attacks)
-    worker = {"schema": "nib.debug-boot/v1", "result": "fail", "stage": "worker-missing",
+    topology = producer["debug_source"].get("profile") == TOPOLOGY_PROFILE
+    require(producer["debug_source"].get("profile") in (None, TOPOLOGY_PROFILE)
+            and (not topology or producer["source"].get("profile") == "guest-network/v1"))
+    schema = "nib.debug-topology-boot/v1" if topology else "nib.debug-boot/v1"
+    worker = {"schema": schema, "result": "fail", "stage": "worker-missing",
               "boot_verified": False, "confidentiality_verified": False}
     worker_raw = base.encoded(worker)
     try:
         candidate = base.read(DIRECTORY / "worker.json", 65536)
         worker = json.loads(candidate)
-        require(worker["schema"] == "nib.debug-boot/v1" and worker["confidentiality_verified"] is False)
+        require(worker["schema"] == schema and worker["confidentiality_verified"] is False)
+        if topology:
+            require(worker.get("result") in ("pass", "fail"))
         worker_raw = candidate
     except FileNotFoundError:
         state["result"] = "fail"
     except (OSError, ValueError, KeyError, TypeError):
         state["result"] = "fail"
-        worker = {"schema": "nib.debug-boot/v1", "result": "fail", "stage": "worker-invalid",
+        worker = {"schema": schema, "result": "fail", "stage": "worker-invalid",
                   "boot_verified": False, "confidentiality_verified": False}
         worker_raw = base.encoded(worker)
     same(PRIVATE, private)
@@ -136,10 +144,16 @@ def finish(state, private, bundle, started, producer):
     passed = (state["result"] == "pass" and worker["result"] == "pass"
               and worker.get("stage") == "complete" and worker.get("boot_verified") is True
               and worker.get("source") == producer["source"] and worker.get("debug_source") == producer["debug_source"])
+    if topology:
+        passed = passed and topology_worker_passed(worker)
     result = {"schema": "nib.debug-boot-validation/v1", "result": "pass" if passed else "fail",
               "private_images_removed": True, "metadata_only": True, "boot_verified": passed,
               "confidentiality_verified": False, "reproducibility_verified": False,
               "production_service_verified": False, "signed": False}
+    if topology:
+        result.update(schema="nib.debug-topology-validation/v1", profile=TOPOLOGY_PROFILE,
+                      topology_down_only_verified=passed, packet_isolation_verified=False,
+                      networkd_verified=False)
     run = {"schema": "nib.evidence/v1", "phase": "P3", "task": "T1", "execution": "software",
            "git_sha": producer["source"]["git_sha"], "result": result["result"],
            "started_utc": started, "ended_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -150,6 +164,9 @@ def finish(state, private, bundle, started, producer):
     if producer["source"].get("profile") == "guest-network/v1":
         run["command"] += " --guest-network"
         run["notes"] += " Source-bound network service is a required root-probe dependency; no connectivity or confidential-service qualification."
+    if topology:
+        run["command"] += " --debug-topology"
+        run["notes"] += " Down-only private veth topology and owned cleanup only; no packet or networkd proof."
     files = {"validation.json": base.encoded(result), "resources.json": base.encoded({**state, "producer": producer}),
              "worker.json": worker_raw, "run.json": base.encoded(run)}
     base.publish(DIRECTORY / "metadata", files)
@@ -157,19 +174,55 @@ def finish(state, private, bundle, started, producer):
     return result["result"]
 
 
+def topology_worker_passed(worker):
+    """Do not turn a root-only PASS or an unbound subordinate result into proof."""
+    qemu, assembly = worker.get("qemu", {}), worker.get("assembly", {})
+    compiler, inputs = worker.get("compiler", {}), worker.get("input_files", {})
+    if any(type(item) is not dict for item in (qemu, assembly, compiler, inputs)):
+        return False
+    uki = assembly.get("uki", {})
+    if type(uki) is not dict:
+        return False
+    image, probe = uki.get("image"), compiler.get("probe")
+    for identity, limit in ((image, 256 << 20), (probe, 8 << 20)):
+        if (type(identity) is not dict or set(identity) != {"bytes", "sha256"}
+                or type(identity["bytes"]) is not int or not 0 < identity["bytes"] <= limit
+                or type(identity["sha256"]) is not str or not re.fullmatch("[0-9a-f]{64}", identity["sha256"])):
+            return False
+    return (worker.get("profile") == TOPOLOGY_PROFILE and worker.get("topology_down_only_verified") is True
+            and assembly.get("schema") == "nib.debug-topology-uki/v1" and assembly.get("profile") == TOPOLOGY_PROFILE
+            and assembly.get("result") == "pass" and assembly.get("signed") is False
+            and assembly.get("confidentiality_verified") is False
+            and assembly.get("probe") == probe and qemu.get("debug_uki") == image
+            and assembly.get("original_uki") == inputs.get("nib.efi") and inputs.get("nib.efi") is not None
+            and image != inputs["nib.efi"] and assembly.get("root_hash") == worker.get("root_hash")
+            and type(worker.get("root_hash")) is str and re.fullmatch("[0-9a-f]{64}", worker["root_hash"]) is not None
+            and qemu.get("schema") == "nib.debug-topology-qemu/v1" and qemu.get("profile") == TOPOLOGY_PROFILE
+            and qemu.get("result") == "pass" and qemu.get("boot_verified") is True
+            and qemu.get("confidentiality_verified") is False and qemu.get("topology_down_only_verified") is True
+            and base.encoded(qemu.get("proof")) == base.encoded({"initrd": True, "root": True, "complete": True,
+                                    "guest_failure": None, "protocol_error": None, "topology_down_only": True})
+            and base.encoded(qemu.get("terminal")) == base.encoded({"exit_code": 0, "stdout_bytes": 0, "stderr_bytes": 0,
+                                       "process_group_cleaned": True, "failure_kind": None}))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("downloads", "archive", "runtime-inputs", "go"):
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--guest-network", action="store_true")
+    parser.add_argument("--debug-topology", action="store_true")
     args = parser.parse_args()
+    require(not args.debug_topology or args.guest_network)
     uid, gid = build.identity()  # Existing hosted Ubuntu 22.04 gate, unchanged.
     require(all(p.is_absolute() and ".." not in p.parts for p in (args.downloads, args.archive, args.runtime_inputs, args.go)))
     owned(DIRECTORY, uid)
     bundle = owned(BUNDLE, uid)
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     began = time.monotonic()
-    producer = capture_producer(uid, gid, **({"guest_network": True} if args.guest_network else {}))
+    options = {**({"guest_network": True} if args.guest_network else {}),
+               **({"debug_topology": True} if args.debug_topology else {})}
+    producer = capture_producer(uid, gid, **options)
     with base.directory(DIRECTORY) as fd:
         for name in ("private", "metadata", "worker.json", "resources.json"):
             require(not os.path.lexists(DIRECTORY / name))
@@ -183,7 +236,8 @@ def main():
         try:
             state = execute(uid, gid, ["--downloads", str(args.downloads), "--archive", str(args.archive),
                                       "--runtime-inputs", str(args.runtime_inputs), "--go", str(args.go),
-                                      *(["--guest-network"] if args.guest_network else [])],
+                                      *(["--guest-network"] if args.guest_network else []),
+                                      *(["--debug-topology"] if args.debug_topology else [])],
                             TIMEOUT - (time.monotonic() - began))
             # The cgroup has finished its independent cleanup. Cancellation
             # must not interrupt the subsequent owned-image deletion halfway.

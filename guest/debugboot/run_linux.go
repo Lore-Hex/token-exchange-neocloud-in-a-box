@@ -214,6 +214,12 @@ func check(ctx context.Context, deadline time.Time, stage *failureStage, read *r
 }
 
 func stageInitrd(network bool) error {
+	return stageExecutable(func(run *os.Root, raw []byte) error { return stageAt(run, raw, network) })
+}
+
+// Both explicit debug modes share the same initrd identity, tmpfs and exclusive
+// executable-copy guards. The callback is compile-time selected, never input.
+func stageExecutable(stage func(*os.Root, []byte) error) error {
 	if _, err := os.Stat("/etc/initrd-release"); err != nil {
 		return errRejected
 	}
@@ -246,7 +252,7 @@ func stageInitrd(network bool) error {
 	if err != nil || !os.SameFile(before, after) {
 		return errRejected
 	}
-	return stageAt(run, raw, network)
+	return stage(run, raw)
 }
 
 // Run has no configurable paths, command, network or success override.

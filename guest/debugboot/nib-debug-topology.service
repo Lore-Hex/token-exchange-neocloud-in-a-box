@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: Apache-2.0
+# Only the explicit topology initrd stages this as /run's debug probe unit.
+[Unit]
+Description=Debug root and down-only isolated topology probe
+DefaultDependencies=no
+Requires=systemd-udevd.service systemd-udev-trigger.service nib-network.service
+After=systemd-udevd.service systemd-udev-trigger.service nib-network.service
+BindsTo=nib-network.service
+SuccessAction=poweroff
+FailureAction=poweroff
+
+[Service]
+Type=oneshot
+ExecStart=/run/nib-debug-boot
+TimeoutStartSec=150
+TimeoutStopSec=2
+KillMode=control-group
+User=root
+Group=root
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_NET_ADMIN
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+LimitCORE=0
+LimitFSIZE=0
+MemoryMax=64M
+TasksMax=32
+UMask=0077
+StandardInput=null
+StandardOutput=null
+StandardError=null
