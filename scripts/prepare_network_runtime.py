@@ -34,6 +34,7 @@ INTERPRETER = "lib64/ld-linux-x86-64.so.2"
 DEFAULT_DIRS = ("usr/lib/x86_64-linux-gnu", "lib/x86_64-linux-gnu", "usr/lib", "lib")
 RUNPATH = "/usr/lib/x86_64-linux-gnu/systemd"
 MAX_OBJECTS = 128
+MAX_PACKAGES = 33
 MAX_ARCHIVES = 64 << 20
 CLAIMS = dict.fromkeys(("runtime_linkage_validated", "symbol_versions_verified", "dlopen_nss_verified",
                        "package_binaries_executed", "maintainer_scripts_executed", "image_modified",
@@ -56,7 +57,7 @@ def unique(pairs):
 
 
 def selection(lock, names):
-    require(type(names) is list and 2 <= len(names) <= 32 and len(set(names)) == len(names)
+    require(type(names) is list and 2 <= len(names) <= MAX_PACKAGES and len(set(names)) == len(names)
             and {"systemd", "nftables"} <= set(names)
             and all(type(n) is str and re.fullmatch(r"[a-z0-9][a-z0-9+.-]{0,127}", n) for n in names))
     rows = [r for r in lock["packages"] if r["Package"] in names]

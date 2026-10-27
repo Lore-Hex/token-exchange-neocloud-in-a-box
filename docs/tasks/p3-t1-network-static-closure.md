@@ -66,7 +66,7 @@ deployability remain unproven. All runtime/activation proof fields remain false.
 
 ## Bounds And Use
 
-Limits: 32 selected Ubuntu packages, 64 MiB compressed archives total, existing
+Limits: 33 selected Ubuntu packages, 64 MiB compressed archives total, existing
 50,000-member/512 MiB virtual-tree bounds, 128 visited ELF objects, 16 MiB per
 ELF, 32 entries per string-valued dynamic tag, 256 headers/sections, 64 KiB
 dynamic table, 1 MiB string table, 64 KiB helper output. Shared archive/index
