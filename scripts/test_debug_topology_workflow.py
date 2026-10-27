@@ -1,11 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """Execute workflow selection against local stubs, never sudo/build/boot."""
+import json
 from pathlib import Path
+import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 
 import yaml
+
+from fetch_mkosi_tools import FetchFailure
 
 ROOT = Path(__file__).absolute().parent.parent
 WORKFLOW = ".github/workflows/debug-boot.yml"
@@ -110,6 +115,27 @@ class WorkflowTests(unittest.TestCase):
             self.assertNotIn("topology", self.steps[name]["run"])
         self.assertEqual(sum("host/run-debug-boot.py" in step.get("run", "") for step in self.job["steps"]), 1)
         self.assertNotIn("always()", self.steps["debug"].get("if", ""))
+
+    def test_typed_fetch_failure_reaches_log_and_still_stops_following_work(self):
+        step = next(row for row in self.job["steps"] if row.get("name") == "Fetch only authenticated public inputs")
+        command = step["run"][step["run"].index("/usr/bin/python3.10 -I -S -B scripts/fetch_mkosi_tools.py"):]
+        command = command.replace("/usr/bin/python3.10", shlex.quote(sys.executable))
+        report = FetchFailure("archives/" + "a" * 64 + ".deb", 17, "a" * 64, "process-exit", 28).report
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / "scripts").mkdir()
+            (root / "build/native-install").mkdir(parents=True)
+            (root / "scripts/fetch_mkosi_tools.py").write_text(
+                "import json\nprint(json.dumps(" + repr(report) + ", sort_keys=True))\nraise SystemExit(1)\n")
+            (root / "scripts/fetch_debug_boot_runtime.py").write_text(
+                "from pathlib import Path\nPath('unexpected-runtime-fetch').touch()\n")
+            result = subprocess.run(["/bin/bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", command],
+                cwd=root, env={"PATH": "/usr/bin:/bin", "HOME": str(root), "LANG": "C", "LC_ALL": "C"},
+                stdin=subprocess.DEVNULL, capture_output=True, timeout=5)
+            self.assertEqual((result.returncode, result.stderr), (1, b""))
+            self.assertEqual(result.stdout, (json.dumps(report, sort_keys=True) + "\n").encode())
+            self.assertFalse((root / "unexpected-runtime-fetch").exists())
+            self.assertFalse((root / "build/native-install/input-fetch.log").exists())
 
 
 if __name__ == "__main__":
