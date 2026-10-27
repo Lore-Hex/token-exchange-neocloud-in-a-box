@@ -47,6 +47,7 @@ def receipt(value, index=0):
     stage = {"plan": value, "index": index}
     selected, binding = selection.selected(stage), selection.binding(stage)
     source = support_tests.retail_source()
+    source.assertion_count = selection.assertion_count(stage)
     # Explicit synthetic source stand-in. Real ownership authenticates the archive
     # before recording this digest; these fixtures never grant source admission.
     source.binding.update(source_authenticated=True, selection=selected, stage_binding=binding)
@@ -91,6 +92,29 @@ class PlanTests(unittest.TestCase):
             self.assertEqual(tau.encoded(value), tau.encoded(original.build(sources, pins, "a" * 40,
                 domains, 3, 42, selections.BUDGET)))
 
+    def test_v1_sequential_bytes_unchanged_and_airline_requires_v2(self):
+        raw = subprocess.run(["git", "show", "43ad42ddee27d1ece4a512331d5e42f7953c9c14:scripts/tau_external_selection.py"],
+            cwd=selections.runner.ROOT, capture_output=True, check=True, timeout=10).stdout
+        original = types.ModuleType("prior_sequential_selection")
+        exec(compile(raw, "<reviewed-sequential-selection>", "exec"), original.__dict__)
+        for domains in (["retail"], ["telecom"], ["retail", "telecom"]):
+            for trials in (1, 3, 4):
+                value, sources, pins = plan(domains=domains, trials=trials)
+                self.assertEqual(tau.encoded(value), tau.encoded(original.build(sources, pins, TOOLKIT["git_sha"],
+                    domains, trials, 42, selections.BUDGET, aggregate_cap_usd="200")))
+        for domains in (["airline"], list(tau.DOMAINS)):
+            for trials in (1, 3, 4):
+                value, sources, pins = plan(domains=domains, trials=trials)
+                self.assertEqual(value["schema"], selection.AIRLINE_SEQUENTIAL_SCHEMA)
+                selection.verify_sources(value, sources, pins)
+                old = selection.build(sources, pins, TOOLKIT["git_sha"], domains, trials, 42, selections.BUDGET)
+                self.assertEqual(value["selections"], old["selections"])
+                self.assertEqual(value["trial_seeds"], old["trial_seeds"])
+                with self.assertRaises(ValueError): original.validate(value)
+                with self.assertRaises(ValueError): selection.validate({**value, "schema": selection.SEQUENTIAL_SCHEMA})
+        value = plan()[0]
+        with self.assertRaises(ValueError): selection.validate({**value, "schema": selection.AIRLINE_SEQUENTIAL_SCHEMA})
+
     def test_sequential_cap_keeps_all_frozen_rows_and_legacy_full_sum(self):
         value, sources, pins = plan(trials=3)
         old = selection.build(sources, pins, TOOLKIT["git_sha"], ["retail"], 3, 42, selections.BUDGET)
@@ -119,9 +143,7 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(value["budget"]["remaining_usd"], "0")
         self.assertEqual(value["budget"]["basis"], "operator-declared-reservations-not-invoice")
         self.assertEqual(plan("674.000001")[0]["result"], "fail")
-        with self.assertRaises(ValueError):
-            plan(domains=["airline"])
-        for domains in (["retail"], ["telecom"], ["retail", "telecom"]):
+        for domains in (["retail"], ["telecom"], ["retail", "telecom"], ["airline"], list(tau.DOMAINS)):
             self.assertEqual(plan(domains=domains)[0]["result"], "pass")
 
     def test_forged_cap_source_order_and_prior_schema_cannot_admit(self):
@@ -220,6 +242,26 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(len(list(self.path.glob("receipt-*.json"))), 15)
         with self.assertRaises(ValueError): journal.reserve()
         with self.assertRaises(ValueError): journal.stop("failed")
+
+    def test_airline_multi_assertion_receipt_releases_only_known_usage(self):
+        for count in (1, 2, 3):
+            for unknown in (False, True):
+                with self.subTest(count=count, unknown=unknown), tempfile.TemporaryDirectory() as directory:
+                    value = plan(domains=["airline"], assertions=count)[0]
+                    journal = aggregate.Journal(Path(directory).resolve() / "run", value, CONTRACT, TOOLKIT)
+                    try:
+                        record = self.claim(journal)
+                        self.assertEqual(record["trial"]["nl_assertion_count"], count)
+                        if unknown:
+                            record["endpoint_usage"]["evaluator"].update(unknown_responses=1)
+                            with self.assertRaises(ValueError): journal.settle(record, tau.encoded(record))
+                            self.assertEqual(journal.stop("failed", stage="settlement")["held_trial_usd"], "70.044864")
+                        else:
+                            journal.settle(record, tau.encoded(record))
+                            self.assertEqual(journal.spent, Decimal("4.19044935"))
+                            self.assertTrue(journal.reserve())
+                    finally:
+                        journal.close()
 
     def test_exclusive_destination_and_original_receipts_never_overwritten(self):
         journal = self.journal()
@@ -533,18 +575,20 @@ class ControllerTests(unittest.TestCase):
         self.assertFalse(self.args.output.exists())
 
     def test_sequential_plan_cannot_use_single_trial_entry_without_owned_journal(self):
-        stage = {"plan": self.value, "index": 0}
-        manifest = selections.configuration(stage)
-        with mock.patch.object(self.trial, "identity", return_value=TOOLKIT), \
-                mock.patch.object(self.trial, "validate_plan", return_value=({}, manifest)), \
-                mock.patch.object(self.trial, "parent_driver", return_value=aggregate.external), \
-                mock.patch.object(aggregate.external, "Runtime") as runtime, \
-                mock.patch.object(self.trial.probe, "capture") as docker, self.assertRaises(ValueError):
-            self.trial.run(None, PAYLOAD, None, None, parent_pipe=True, external_inputs={"full_task": True,
-                "deadline": time.monotonic() + 900, "arguments": (None,) * 7,
-                "stage_binding": selection.binding(stage)})
-        runtime.assert_not_called()
-        docker.assert_not_called()
+        for value in (self.value, plan(domains=["airline"])[0]):
+            stage = {"plan": value, "index": 0}
+            manifest = selections.configuration(stage)
+            with self.subTest(schema=value["schema"]), \
+                    mock.patch.object(self.trial, "identity", return_value=TOOLKIT), \
+                    mock.patch.object(self.trial, "validate_plan", return_value=({}, manifest)), \
+                    mock.patch.object(self.trial, "parent_driver", return_value=aggregate.external), \
+                    mock.patch.object(aggregate.external, "Runtime") as runtime, \
+                    mock.patch.object(self.trial.probe, "capture") as docker, self.assertRaises(ValueError):
+                self.trial.run(None, PAYLOAD, None, None, parent_pipe=True, external_inputs={"full_task": True,
+                    "deadline": time.monotonic() + 900, "arguments": (None,) * 7,
+                    "stage_binding": selection.binding(stage)})
+            runtime.assert_not_called()
+            docker.assert_not_called()
 
     def test_inner_trial_early_cancellation_survives_owned_cleanup(self):
         stage = {"plan": self.value, "index": 0}
@@ -612,6 +656,10 @@ class ControllerTests(unittest.TestCase):
 
 
 class OfflineRecorderTests(unittest.TestCase):
+    def test_airline_fixture_does_not_override_original_reward_basis(self):
+        recorder = selections.runner.load("scripts/record-tau-sequential-offline.py")
+        self.assertEqual(recorder.AIRLINE_REWARDS, ("1.0", "1.0", "1.0", "0.0", "0.0"))
+
     def test_failures_are_content_free_and_original_receipts_exclusive(self):
         recorder = selections.runner.load("scripts/record-tau-sequential-offline.py")
         for failure in (ValueError("PRIVATE_CANARY"), KeyboardInterrupt()):

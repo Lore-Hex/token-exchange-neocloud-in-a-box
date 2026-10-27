@@ -18,6 +18,7 @@ import tau_external_support as support
 import test_tau_external as fixtures
 import test_tau_external_trial as full
 import test_tau_telecom_catalog as catalogs
+import test_tau_external_selection as selections
 
 external, worker = support.external, support.worker
 ARCHIVE = Path("/synthetic/archive")
@@ -52,6 +53,32 @@ def endpoint_contract():
 
 
 class SupportTests(unittest.TestCase):
+    def test_airline_requires_authenticated_new_plan_before_any_transport(self):
+        _, sources, pins = selections.fixtures(["airline"], trials=1)
+        plan = catalogs.selection.build(sources, pins, "a" * 40, ["airline"], 1, 42, selections.BUDGET,
+                                        aggregate_cap_usd="200")
+        raw = worker.encoded(pins)
+        with mock.patch.object(support.runtime.tau, "PINS_SHA", worker.digest(raw)), \
+                mock.patch.object(support.runtime, "read_file", return_value=raw), \
+                mock.patch.object(support.runtime, "source_inputs", return_value=({}, sources)), \
+                mock.patch.object(external.bounded_https, "HTTPS") as http:
+            stage = {"plan": plan, "index": 0}
+            source = support.Source(ARCHIVE, stage, time.monotonic() + 10)
+            self.assertEqual(source.domain, "airline")
+            self.assertEqual(source.assertion_count, 1)
+            self.assertIsNone(source.tools)
+            self.assertEqual(source.binding["stage_binding"], catalogs.selection.binding(stage))
+            for role in ("simulator", "evaluator"):
+                chat, count = source.project(role, full.body(role), time.monotonic() + 10)
+                self.assertEqual(count, {"model": chat["model"], "input": chat["messages"], "truncation": "disabled"})
+            for mutate in (lambda p: p.update(schema=catalogs.selection.SEQUENTIAL_SCHEMA),
+                           lambda p: p["domain_tasks"]["airline"]["assertion_counts"].__setitem__(0, 2),
+                           lambda p: p["source_files"][next(iter(sources))].update(sha256="f" * 64)):
+                forged = copy.deepcopy(plan)
+                mutate(forged)
+                with self.assertRaises(ValueError): support.Source(ARCHIVE, {"plan": forged, "index": 0}, time.monotonic() + 10)
+            http.assert_not_called()
+
     def test_authenticated_catalog_and_original_tool_history_on_both_wires(self):
         with catalogs.bound_fixture() as contract:
             source = support.Source(ARCHIVE, contract["stage"], time.monotonic() + 10)
@@ -310,11 +337,20 @@ class SupportTests(unittest.TestCase):
                 stage = {"plan": plan, "index": index}
                 if domain == "airline":
                     with self.assertRaises(ValueError): support.Source(archive, stage, deadline)
-                    continue
+                    stage = {"plan": catalogs.selection.build(sources, pins, "a" * 40, [domain], 1, 42, budget,
+                                                               aggregate_cap_usd="200"), "index": index}
                 source = support.Source(archive, stage, deadline)
-                self.assertEqual(source.assertion_count, 0)
+                self.assertEqual(source.assertion_count, [1, 1, 1, 3, 2][index] if domain == "airline" else 0)
                 self.assertIs(source.binding["source_authenticated"], True)
                 self.assertEqual(len(source.tools) if source.tools is not None else 0, 30 if domain == "telecom" else 0)
+                if domain == "airline":
+                    for role in ("simulator", "evaluator"):
+                        chat, counted = source.project(role, full.body(role), deadline)
+                        self.assertNotIn("tools", chat)
+                        self.assertEqual(counted, {"model": chat["model"], "input": chat["messages"], "truncation": "disabled"})
+                    forged = copy.deepcopy(stage)
+                    forged["plan"]["schema"] = catalogs.selection.SEQUENTIAL_SCHEMA
+                    with self.assertRaises(ValueError): support.Source(archive, forged, deadline)
         raw = worker.encoded(endpoint_contract())
         counter = types.SimpleNamespace(binding="b" * 64, close=mock.Mock())
         with mock.patch.object(external.private, "private_read", side_effect=[raw, b"SYNTHETIC_PEM",
