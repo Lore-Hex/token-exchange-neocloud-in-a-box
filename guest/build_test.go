@@ -31,7 +31,7 @@ func goCommand(t *testing.T, env []string, args ...string) string {
 // because this file is excluded from nibfake builds.
 func TestTaggedGuestSuite(t *testing.T) {
 	env := []string{"GOFLAGS=", "GOWORK=off", "GOOS=" + runtime.GOOS, "GOARCH=" + runtime.GOARCH, "CGO_ENABLED=1"}
-	t.Log(goCommand(t, env, "test", "-race", "-tags=nibfake", "-count=1", "./..."))
+	t.Log(goCommand(t, env, "test", "-race", "-p=1", "-tags=nibfake", "-count=1", "./..."))
 }
 
 func TestReleaseSymbolsExcludeFakes(t *testing.T) {

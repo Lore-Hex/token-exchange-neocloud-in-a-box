@@ -1,0 +1,7 @@
+{
+  "maximum_observations": 2,
+  "per_observation_timeout_seconds": 180,
+  "reviewed_head": "1e5273062a49fb45f643a984f436bc300f777d70",
+  "started": "2026-10-27T18:02:00.893543+00:00",
+  "window_release_utc": "2026-10-27T18:01:47Z"
+}

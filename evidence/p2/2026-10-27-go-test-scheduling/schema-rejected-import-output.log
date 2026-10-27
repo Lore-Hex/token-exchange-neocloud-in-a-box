@@ -1,0 +1,54 @@
+{
+  "files": {
+    "01-default-parallel.log": {
+      "input_sha256": "374d568804e1381305676d9f3f8a6c2d6ae78c7a031fac6d8bc94402c893fc38",
+      "published": true,
+      "scrubbed_sha256": "374d568804e1381305676d9f3f8a6c2d6ae78c7a031fac6d8bc94402c893fc38"
+    },
+    "02-serialized.log": {
+      "input_sha256": "af1286096ac9f834c0fe488d667369e6d9b9d9746a2f43419283430a5cee7878",
+      "published": true,
+      "scrubbed_sha256": "af1286096ac9f834c0fe488d667369e6d9b9d9746a2f43419283430a5cee7878"
+    },
+    "invocation.json": {
+      "input_sha256": "81251a1eddc96bead1e322cb66e8d352cb4d71d55e3bda5bf64ac6363ecc57b6",
+      "published": true,
+      "scrubbed_sha256": "81251a1eddc96bead1e322cb66e8d352cb4d71d55e3bda5bf64ac6363ecc57b6"
+    },
+    "original-failed-full-check.log": {
+      "input_sha256": "3d9f4d6cbf07870c47bd501bb2b0cc313e5516c3c63f9de8c36777ae4c33a96c",
+      "published": true,
+      "scrubbed_sha256": "0475161bf962c99bb546e9bc35ad442936fe8bee27ff93732ef01b2be9ab9d14"
+    },
+    "result.json": {
+      "input_sha256": "65ae413086e1d21b5def0ab0b67a82458dabfa6d981bff06c204ae70e00b7791",
+      "published": true,
+      "scrubbed_sha256": "65ae413086e1d21b5def0ab0b67a82458dabfa6d981bff06c204ae70e00b7791"
+    },
+    "source-after.json": {
+      "input_sha256": "39e83aea088c3c1b66e699973897ff177cca694a5bfe87f7d11a806ddd5ce322",
+      "published": false,
+      "scrubbed_sha256": "39e83aea088c3c1b66e699973897ff177cca694a5bfe87f7d11a806ddd5ce322"
+    },
+    "source-before.json": {
+      "input_sha256": "39e83aea088c3c1b66e699973897ff177cca694a5bfe87f7d11a806ddd5ce322",
+      "published": false,
+      "scrubbed_sha256": "39e83aea088c3c1b66e699973897ff177cca694a5bfe87f7d11a806ddd5ce322"
+    },
+    "trace-summary.json": {
+      "input_sha256": "7c3d9fa07ce302ff69f80d5acdc5dc59690f8ed3d12ca139491dd2db42e74c05",
+      "published": true,
+      "scrubbed_sha256": "7c3d9fa07ce302ff69f80d5acdc5dc59690f8ed3d12ca139491dd2db42e74c05"
+    }
+  },
+  "hardware_validated": false,
+  "importer_revision": "248d45b5556328de1bc6418482bf91f01ac61e63",
+  "new_test_execution": false,
+  "observation_exit_codes": [
+    1,
+    0
+  ],
+  "observed_revision": "1e5273062a49fb45f643a984f436bc300f777d70",
+  "operation": "historical-import-only",
+  "original_full_gate": "fail"
+}

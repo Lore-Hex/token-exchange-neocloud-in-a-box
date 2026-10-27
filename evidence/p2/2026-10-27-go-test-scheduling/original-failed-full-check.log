@@ -1,0 +1,90 @@
+./build/staticcheck ./...
+uv run --project tools --frozen yamllint --strict .github .yamllint.yaml
+go run ./cmd/nib lint
+Configuration validation passed; no hardware validation performed.
+uv run --project tools --frozen python scripts/check-doc-links.py
+Local Markdown paths and heading links passed.
+uv run --project tools --frozen python -m unittest discover -s scripts -p 'test_*.py'
+............................................................................................................................................................................................................................................................................................................................................................................................................................................................................................s...............................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................sss.........................................................................s..........................................................................................................................................................................s..............................................................................................................s....................sssssssssss..................................................................................................................................................................................................................................................................................................................................................s...................sssssss.......................................................................................................................................................................................s................................sssssssssssssss......................................................................................................................................................s................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................[REDACTED]/.local/share/uv/python/cpython-3.12.13-macos-aarch64-none/lib/python3.12/zipfile/__init__.py:1624: UserWarning: Duplicate name: 'alpha/__init__.py'
+  return self._open_to_write(zinfo, force_zip64=force_zip64)
+.....................................................................................................................................................................................................................................................................................................................................
+----------------------------------------------------------------------
+Ran 3650 tests in 980.421s
+
+OK (skipped=43)
+Bounded native installation: pass
+Bounded native installation: pass
+Bounded native installation: pass
+pass
+{"result": "pass", "git_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "static_graph_closed": true}
+{"result": "fail", "git_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "static_graph_closed": false}
+{"result": "fail", "git_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "static_graph_closed": false}
+{"result": "fail", "git_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+{"result": "fail", "git_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+{"result": "fail", "git_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+{"result": "fail", "git_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+go vet ./...
+uv run --project tools --frozen python scripts/check_gcp_terraform.py
+Terraform mock plans passed: 17 cases; evidence: [REDACTED]/build/gcp-terraform-wuhgamz_/evidence
+go test -race -count=1 ./...
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/cmd/nib	4.189s
+?   	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/cmd/nib-catalog	[no test files]
+?   	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/cmd/nib-domain-check	[no test files]
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/cmd/nib-elf-metadata	11.858s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/cmd/nib-network-elf-inputs	13.478s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/cmd/nib-pilot-api	2.304s
+--- FAIL: TestTaggedGuestSuite (8.65s)
+    build_test.go:34: go [test -race -tags=nibfake -count=1 ./...]: exit status 1
+        ?   	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest	[no test files]
+        ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/appraisal	4.105s
+        ?   	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/cmd/nib-engine	[no test files]
+        ?   	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/cmd/nib-gpu-gate	[no test files]
+        ?   	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/cmd/nib-network	[no test files]
+        ?   	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/cmd/nib-weights	[no test files]
+        --- FAIL: TestBoundedQueryFiniteOutput (3.65s)
+            --- FAIL: TestBoundedQueryFiniteOutput/4095 (2.01s)
+                query_unix_test.go:28: bounded stdout changed or was rejected
+        FAIL
+        FAIL	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/debugboot	8.058s
+        ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/debugtopology	3.200s
+        ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/internal/service	4.327s
+        ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/nftables	3.772s
+        ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/systemd	3.873s
+        FAIL
+FAIL
+FAIL	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest	11.780s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/appraisal	4.170s
+?   	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/cmd/nib-engine	[no test files]
+?   	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/cmd/nib-gpu-gate	[no test files]
+?   	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/cmd/nib-network	[no test files]
+?   	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/cmd/nib-weights	[no test files]
+--- FAIL: TestBoundedQueryFiniteOutput (5.83s)
+    --- FAIL: TestBoundedQueryFiniteOutput/4095 (2.00s)
+        query_unix_test.go:28: bounded stdout changed or was rejected
+    --- FAIL: TestBoundedQueryFiniteOutput/4096 (2.02s)
+        query_unix_test.go:28: bounded stdout changed or was rejected
+FAIL
+FAIL	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/debugboot	9.554s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/debugtopology	3.764s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/internal/service	3.071s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/nftables	3.078s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/systemd	3.198s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/host	3.793s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/catalog	5.536s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/config	5.403s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/domaincheck	4.179s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/elfmeta	4.272s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/evidence	9.111s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/modelpack	6.220s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/pilotapi	5.281s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/protocol	3.434s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/repopolicy	5.618s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/verify	3.755s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/models/packcheck	3.554s
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/models/sourceaudit	3.552s
+?   	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/schemas	[no test files]
+?   	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/scripts/fixtures/pilot_catalog	[no test files]
+?   	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/scripts/fixtures/selected_tls_listener	[no test files]
+ok  	github.com/Lore-Hex/token-exchange-neocloud-in-a-box/tests/e2e/fake-agent	6.592s
+FAIL
+make: *** [test] Error 1
