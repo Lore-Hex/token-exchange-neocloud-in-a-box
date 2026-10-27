@@ -19,6 +19,9 @@ worker = local.worker
 require = measurement.require
 HOST, PORT = "127.0.0.1", 8000
 MODEL = "deepseek-v4.1-flash-1017"
+# Closed selected-service wire identity; equality is checked against its owner
+# contract in tests. It is not a general provider/model-name override.
+SELECTED_MODEL = "dealignai/deepseek-v4.1-flash-1017-uncensored-fp8"
 # Existing engine_lab context and engine_local_correctness request bounds.
 CONTEXT, MAX_OUTPUT, REQUEST_SECONDS = 4096, 512, 60
 PATH = "/v1/chat/completions"
@@ -88,8 +91,13 @@ def response_length(response, *, profile=None):
     return None
 
 
-def request_body(messages, prompt_tokens, max_output_tokens, *, model=MODEL, cache_salt=None):
-    require(type(model) is str and re.fullmatch(r"[a-z0-9_.-]{1,128}", model))
+def model_binding(model, selected_model):
+    require(type(selected_model) is bool and type(model) is str)
+    require(model == SELECTED_MODEL if selected_model else re.fullmatch(r"[a-z0-9_.-]{1,128}", model))
+
+
+def request_body(messages, prompt_tokens, max_output_tokens, *, model=MODEL, cache_salt=None, selected_model=False):
+    model_binding(model, selected_model)
     require(type(max_output_tokens) is int and 0 < max_output_tokens <= MAX_OUTPUT
             and type(prompt_tokens) is int and 0 < prompt_tokens <= CONTEXT - max_output_tokens
             and type(messages) is list and 1 <= len(messages) <= 2
@@ -116,12 +124,13 @@ class OwnedStreamHTTP(local.LocalChatHTTP):
     does not grant PID/UID/capability access or claim endpoint attestation.
     """
 
-    def __init__(self, endpoint, *, model=MODEL):
+    def __init__(self, endpoint, *, model=MODEL, selected_model=False):
         require(type(endpoint) is identity.Endpoint and endpoint.port == PORT)
-        require(type(model) is str and re.fullmatch(r"[a-z0-9_.-]{1,128}", model))
+        model_binding(model, selected_model)
         super().__init__(PORT)
         self.endpoint = endpoint
         self.model = model
+        self.selected_model = selected_model
 
     def connect(self, sock, deadline):
         self.endpoint.check(deadline)
@@ -131,7 +140,8 @@ class OwnedStreamHTTP(local.LocalChatHTTP):
     def collect(self, messages, *, prompt_tokens, max_output_tokens, deadline, cache_salt=None):
         require(threading.current_thread() is threading.main_thread()
                 and measurement.number(deadline))
-        raw = request_body(messages, prompt_tokens, max_output_tokens, model=self.model, cache_salt=cache_salt)
+        raw = request_body(messages, prompt_tokens, max_output_tokens, model=self.model,
+                           cache_salt=cache_salt, selected_model=self.selected_model)
         require(self.busy.acquire(blocking=False))
         started = time.monotonic()
         deadline = min(deadline, started + REQUEST_SECONDS)
