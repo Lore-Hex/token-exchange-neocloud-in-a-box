@@ -63,7 +63,8 @@ passed through 1,048,320 input tokens. The warm 1M request reused 1,048,192 toke
 and reached first content in 1.66 seconds, versus 23.64 seconds cold.
 This is not sustained capacity, matched-reference quality or confidential
 qualification. The catalog now explicitly uses contract `2.1` to declare its
-59-minute deadline, tested limits, tools, reasoning and prompt caching. Older
+59-minute deadline, tested limits, tools and prompt caching. Reasoning remains
+unadvertised until an enabled-reasoning qualification passes. Older
 `2.0` profiles remain unchanged. Public listing still requires deployed router
 and checker support plus fresh endpoint conformance; a catalog is not a live
 marketplace listing.

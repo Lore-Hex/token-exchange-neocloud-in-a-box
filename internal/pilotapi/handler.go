@@ -46,12 +46,14 @@ func (p serviceProfile) catalog(provider ProviderConfig, inputPrice, outputPrice
 	}
 	owner, _, _ := strings.Cut(p.model, "/")
 	version := "2.0"
+	var cachedInput any
 	capabilities := map[string]bool{"streaming": true, "tools": false, "structured_output": false, "reasoning": false, "prompt_caching": false}
 	if p.context == 1048576 {
 		// Explicit v2.1 preserves the v2.0 900-second ceiling. These capabilities
 		// were qualified on the million-token profile; older declarations stay fixed.
 		version = "2.1"
-		capabilities["tools"], capabilities["reasoning"], capabilities["prompt_caching"] = true, true, true
+		capabilities["tools"], capabilities["prompt_caching"] = true, true
+		cachedInput = inputPrice // Cache support does not imply a billing discount.
 	}
 	document := map[string]any{
 		"object": "list", "contract_version": version,
@@ -68,7 +70,7 @@ func (p serviceProfile) catalog(provider ProviderConfig, inputPrice, outputPrice
 			"endpoints": []string{"chat/completions"}, "input_modalities": []string{"text"}, "output_modalities": []string{"text"},
 			"capabilities": capabilities,
 			"pricing": map[string]any{"currency": "USD", "unit": "per_1m_tokens", "input": inputPrice,
-				"output": outputPrice, "cached_input": nil, "cache_write": nil, "minimum_request": "0"},
+				"output": outputPrice, "cached_input": cachedInput, "cache_write": nil, "minimum_request": "0"},
 			"lifecycle": map[string]any{"status": "active", "deprecation_at": nil, "retirement_at": retirementAt, "replacement_model_id": nil},
 			"reliability": map[string]any{"first_token_timeout_seconds": 30, "completion_timeout_seconds": int(p.requestTimeout() / time.Second),
 				"stream_idle_timeout_seconds": 30, "capacity_scope": "model"},

@@ -95,7 +95,8 @@ but cross-replica controls do not establish same-replica isolation. Rank identit
 and broad cache isolation remain unqualified. Public cache discounts, first-token
 and idle-time promises and sustained concurrency need separate qualification.
 The million profile now declares prompt-cache support based on the measured
-warm counters, but cached pricing remains null, not an invented discount.
+warm counters, with cached input priced at the regular input rate, not an
+invented discount. Reasoning is unadvertised until enabled-reasoning qualification.
 Subsequent [retail tau2](../../evidence/p2/2026-10-26-tau-external-retail-pass/README.md)
 and [calibration](p2-t3-retained-quality.md) results are separate bounded evidence,
 not full-suite quality certification.
