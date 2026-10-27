@@ -65,7 +65,15 @@ func childDirectory(root *os.Root, name string) (*os.Root, error) {
 // fixed files, never overwrite existing units/binaries, and keep failure fatal
 // to initrd-switch-root.service through the debug-only Requires drop-in.
 func stageAt(run *os.Root, executable []byte, network bool) error {
-	if !ownedDirectory(run) || len(executable) == 0 || len(executable) > 8<<20 {
+	service, err := units.ReadFile("nib-debug-boot.service")
+	if err != nil {
+		return errRejected
+	}
+	return stageServiceAt(run, executable, network, service)
+}
+
+func stageServiceAt(run *os.Root, executable []byte, network bool, service []byte) error {
+	if !ownedDirectory(run) || len(executable) == 0 || len(executable) > 8<<20 || len(service) == 0 || len(service) > 16384 {
 		return errRejected
 	}
 	systemd, err := childDirectory(run, "systemd")
@@ -83,6 +91,9 @@ func stageAt(run *os.Root, executable []byte, network bool) error {
 	}
 	for _, name := range []string{"nib-debug-boot.service", "nib-debug-boot.target"} {
 		raw, err := units.ReadFile(name)
+		if name == "nib-debug-boot.service" {
+			raw = service
+		}
 		if err != nil || newFileAt(system, name, raw, 0444) != nil {
 			return errRejected
 		}
