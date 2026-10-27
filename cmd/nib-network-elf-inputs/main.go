@@ -3,9 +3,7 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha256"
-	"debug/elf"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,6 +12,8 @@ import (
 	"os"
 	"slices"
 	"time"
+
+	"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/internal/elfmeta"
 )
 
 const deadline = 10 * time.Second
@@ -68,79 +68,11 @@ type inventory struct {
 }
 
 func readMetadata(raw []byte) (metadata, error) {
-	result := metadata{Needed: []string{}, Rpath: []string{}, Runpath: []string{}}
-	f, err := elf.NewFile(bytes.NewReader(raw))
-	if err != nil {
-		return result, errRejected
+	m, err := elfmeta.Read(raw)
+	if err != nil || m.Interpreter != "/lib64/ld-linux-x86-64.so.2" || len(m.Soname) != 0 {
+		return metadata{}, errRejected
 	}
-	defer f.Close()
-	if f.Class != elf.ELFCLASS64 || f.Data != elf.ELFDATA2LSB || f.Machine != elf.EM_X86_64 ||
-		f.Type != elf.ET_DYN || len(f.Progs) == 0 || len(f.Progs) > 256 || len(f.Sections) > 256 {
-		return result, errRejected
-	}
-	var dynamic *elf.Prog
-	for _, p := range f.Progs {
-		if p.Off > uint64(len(raw)) || p.Filesz > uint64(len(raw))-p.Off {
-			return result, errRejected
-		}
-		switch p.Type {
-		case elf.PT_INTERP:
-			if result.Interpreter != "" || p.Filesz < 2 || p.Filesz > 1024 {
-				return result, errRejected
-			}
-			value := raw[p.Off : p.Off+p.Filesz]
-			if value[len(value)-1] != 0 || bytes.IndexByte(value[:len(value)-1], 0) >= 0 {
-				return result, errRejected
-			}
-			result.Interpreter = string(value[:len(value)-1])
-		case elf.PT_DYNAMIC:
-			if dynamic != nil {
-				return result, errRejected
-			}
-			dynamic = p
-		}
-	}
-	if result.Interpreter != "/lib64/ld-linux-x86-64.so.2" || dynamic == nil {
-		return result, errRejected
-	}
-	var section *elf.Section
-	for _, s := range f.Sections {
-		if s.Type == elf.SHT_DYNAMIC {
-			if section != nil {
-				return result, errRejected
-			}
-			section = s
-		}
-	}
-	// debug/elf reads dynamic sections. Bind that view to the loader's segment.
-	if section == nil || section.Offset != dynamic.Off || section.Size != dynamic.Filesz ||
-		section.Addr != dynamic.Vaddr || section.Size > 65536 {
-		return result, errRejected
-	}
-	for tag, destination := range map[elf.DynTag]*[]string{
-		elf.DT_NEEDED: &result.Needed, elf.DT_RPATH: &result.Rpath, elf.DT_RUNPATH: &result.Runpath,
-	} {
-		values, err := f.DynValue(tag)
-		if err != nil || len(values) > 32 {
-			return result, errRejected
-		}
-		strings, err := f.DynString(tag)
-		if err != nil || len(strings) != len(values) {
-			return result, errRejected
-		}
-		for _, value := range strings {
-			if len(value) == 0 || len(value) > 256 {
-				return result, errRejected
-			}
-			for _, c := range value {
-				if c < 33 || c > 126 {
-					return result, errRejected
-				}
-			}
-		}
-		*destination = append(*destination, strings...)
-	}
-	return result, nil
+	return metadata{Interpreter: m.Interpreter, Needed: m.Needed, Rpath: m.Rpath, Runpath: m.Runpath}, nil
 }
 
 func inspect(input io.Reader, args []string) ([]byte, error) {

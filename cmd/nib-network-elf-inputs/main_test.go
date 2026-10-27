@@ -80,6 +80,7 @@ func fixture(p pin) []byte {
 	u32(1088+40, 2)
 	u64(1088+56, 16)
 	u32(1152+4, uint32(elf.SHT_STRTAB))
+	u64(1152+16, 448)
 	u64(1152+24, 448)
 	u64(1152+32, uint64(len(strtab)))
 	return raw
