@@ -4,7 +4,10 @@ Run the model. TrustedRouter handles customer accounting, credit enforcement,
 billing, payments and provider payouts under your onboarding agreement. This
 toolkit supplies the inference endpoint, not a second business platform.
 
-**Current scope:** the small Qwen CPU pilot works locally over ordinary TLS.
+**Current scope:** real ordinary-TLS inference works with both the small local
+Qwen CPU pilot and the selected DeepSeek checkpoint on eight B300 GPUs. The
+[measured GPU results](../../README.md#verified-functionality) include streaming,
+tools, 1M combined context and prefix caching, each with its own tested limits.
 The full confidential GPU node is still in development. No deployment command
 in this guide grants a confidential, E2EE or ZDR classification.
 
@@ -12,6 +15,26 @@ The [local Linux proof](../../evidence/p3/2026-10-19-provider-neutral-linux/run.
 exercises configured provider metadata and passes all 18 service checks with
 real Qwen inference, streaming usage, retirement and shutdown. It runs offline
 in local Docker, not on a public node; it does not test payment settlement.
+
+## Choose a Serving Path
+
+| Path | Start here | Scope |
+|---|---|---|
+| Small local Qwen | [Qwen pilot](qwen-pilot.md), then [service runbook](qwen-service.md) | Real CPU inference for validating API integration; not the DeepSeek GPU launch procedure. |
+| Selected DeepSeek on eight B300s | [1M GPU profile](../tasks/p2-t3-million-context.md), [public-owner smoke](../../evidence/p2/2026-10-27-selected-public-weekly/README.md) | Ordinary TLS, 1,048,576 combined tokens, 393,216 output tokens and public C1. Existing bounded evidence is not a sustained-load guarantee. |
+| Confidential GPU node | [Phase dependencies](../../PLAN.md#8-phases) | Full CPU/GPU attestation and the confidential production path remain unfinished. |
+
+Use reviewed committed source, exact model and engine pins, and the chosen
+path's prepare/build/run procedure. The GPU path is not the Qwen binary with a
+different model name. Keep one owner per GPU allocation; drain it before a
+replacement starts. Its finite retirement and cleanup deadline must fit the
+approved rental window. Do not reuse a completed run's receipt or extend a
+running owner's deadline in place.
+
+Publish only the capacity qualified for that profile. The separate short-prompt
+C64 experiment does not permit raising the 1M service above C1. Prefix-cache
+support also does not imply a discount: the selected 1M catalog prices cached
+input at the regular input rate until separate pricing is agreed.
 
 ## 1. Configure Your Endpoint
 
@@ -112,7 +135,9 @@ Usage is part of the API contract: preserve integer `prompt_tokens`,
 models that support them. Streaming must send final usage when requested with
 `stream_options.include_usage`. Do not synthesize zero counts for a missing
 report, treat a broken stream as success, or calculate customer charges here.
-The pilot's engine does not offer billable prompt caching and its catalog says so.
+The Qwen pilot does not offer billable prompt caching. The selected GPU profile
+does expose actual cache reads; follow its declared capability and agreed price,
+not the Qwen pilot's settings.
 
 ## 3. Connect to TrustedRouter
 
@@ -133,6 +158,38 @@ Publish only callable models with truthful capabilities and prices. Coordinate
 price changes, retirement cutoffs and withdrawal before shutting down a node.
 Do not silently replace a model behind an unchanged ID. For the finite pilot,
 follow the [activation and withdrawal sequence](qwen-service.md#activation-order).
+
+### Launch Checklist
+
+Record the following for your own endpoint before treating a listing as ready:
+
+1. Run conformance against the current published catalog schema and retain the
+   original result and checker version. The 1M profile requires contract `2.1`
+   for its explicit 3,540-second deadline; a legacy `2.0` catalog must not be
+   relabeled or given a larger timeout. An offline checker/schema snapshot is
+   not proof of current marketplace acceptance.
+2. Verify the public catalog and model/provider pages expose the intended
+   model, limits, prices, regions and privacy classification. Test the actual
+   serving URL, not just an engine's loopback port.
+3. With an approved test budget, pin your model and provider with no fallback.
+   Exercise both non-streaming and streaming through each enabled gateway
+   entry point. Require actual integer usage, a valid finish reason and the
+   streaming terminator. Missing usage is not zero usage.
+4. Correlate each test request with TrustedRouter's authoritative generation
+   record. Confirm the serving provider, billing path, actual token counts and
+   charge. A successful HTTP response or a locally calculated price alone
+   does not verify settlement; keep this check out of the inference node.
+5. For an ordinary-only route, verify that a confidential privacy floor rejects
+   the request with fallback disabled. Ordinary TLS must not silently satisfy
+   a confidential requirement.
+6. Exercise health, admission limits, retirement and withdrawal. Check proxy
+   idle deadlines separately from model completion deadlines; prefer streaming
+   for long responses. A short PONG does not validate a 59-minute connection.
+
+Keep the operator's identities, domains, credentials and private billing records
+outside this repository. Publish only scoped, content-free evidence where
+appropriate. Activation of one operator does not complete the confidential P6
+phase or automatically qualify another deployment.
 
 ## Basic Operations, No Content Logging
 

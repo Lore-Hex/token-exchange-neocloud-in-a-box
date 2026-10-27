@@ -37,9 +37,11 @@ database. Basic health and content-free lifecycle logs are enough to operate the
 pilot; usage travels in API responses, not a second billing ledger.
 
 Start with the [TrustedRouter operator guide](docs/operators/trustedrouter.md).
-The [small Qwen pilot](docs/operators/qwen-pilot.md) exercises real inference
-locally, and the [service runbook](docs/operators/qwen-service.md) describes its
-endpoint configuration. Marketplace activation and payout terms are separate
+It distinguishes the [small Qwen pilot](docs/operators/qwen-pilot.md), which
+exercises real inference locally, from the measured eight-B300 DeepSeek serving
+path. Use the [1M GPU profile runbook](docs/tasks/p2-t3-million-context.md) for
+that path and the [Qwen service runbook](docs/operators/qwen-service.md) only for
+the CPU pilot. Marketplace activation and payout terms are per-operator
 onboarding steps; running the toolkit does not automatically list a provider.
 
 ## Status
@@ -80,13 +82,15 @@ full-suite scores or a comparison against the original DeepSeek weights. See the
 - **Confidential operation (P3-P5):** end-to-end hardware attestation, the generic
   TrustedRouter verifier, and the fully verified confidential DeepSeek deployment.
   Earlier CC lab results do not establish that complete path.
-- **Production onboarding:** the 1M catalog now declares contract `2.1`, including
-  its 59-minute deadline. Contract, checker and gateway updates are merged; rollout
-  and fresh conformance against the published schema remain in progress. The
-  ordinary public endpoint works, but marketplace activation and billing/settlement
-  still need end-to-end verification. Neither the
+- **Operator-specific onboarding:** the 1M catalog declares contract `2.1`,
+  including its 59-minute deadline. Each operator must verify current published
+  schema compatibility, gateway behavior, actual token usage and settlement on
+  its own route before activation. These are deployment-specific checks, not a
+  statement that ordinary inference is unfinished. Neither the
   [finite 1M result](evidence/p2/2026-10-26-selected-million-pass/README.md) nor the
-  [public smoke](evidence/p2/2026-10-27-selected-public-weekly/README.md) proves those.
+  [public smoke](evidence/p2/2026-10-27-selected-public-weekly/README.md) proves
+  another operator's listing or settlement. Keep those deployment records outside
+  this provider-neutral repository; see the [launch checklist](docs/operators/trustedrouter.md#launch-checklist).
 - **Broader reliability and quality:** full multi-domain tau2, repeated trials,
   original-versus-abliterated comparisons, a completed 24-hour soak and sustained
   mixed-workload testing. Bounded throughput tests are not production SLOs.
