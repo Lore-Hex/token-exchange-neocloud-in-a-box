@@ -117,7 +117,8 @@ def record(args, result, progress):
             require(final["State"]["Running"] is False and final["State"]["ExitCode"] == 0
                     and final["State"]["OOMKilled"] is False)
         except BaseException as exc:
-            progress.update(failure_stage=progress["stage"], cancelled=isinstance(exc, KeyboardInterrupt))
+            progress.update(failure_stage=progress["stage"],
+                            cancelled=progress.get("cancelled", False) or isinstance(exc, KeyboardInterrupt))
             raise
         finally:
             held.close()

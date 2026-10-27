@@ -149,7 +149,7 @@ class ReceiptTests(unittest.TestCase):
 
     def test_real_recorder_lifecycle_reaps_only_owned_name_and_keeps_failure(self):
         trial = fixtures.containers.runner
-        for failure in (None, "prepare", "create", "inspect", "attach", "cancel_attach", "terminal", "cleanup"):
+        for failure in (None, "prepare", "create", "inspect", "attach", "cancel_attach", "returned_cancelled", "terminal", "cleanup"):
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory, \
                     socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
                 root = Path(directory).resolve()
@@ -158,7 +158,10 @@ class ReceiptTests(unittest.TestCase):
                 provenance = {"git_sha": "a" * 40, "files": {}}
                 plan = {"producer": {"git_sha": "a" * 40}, "selection": {"domain": "telecom", "task_id": "0"}}
                 diagnostic = {"trial": {"status": "evaluated", "upstream_termination": {"reason": "user_stop"}}}
-                held = types.SimpleNamespace(accepted=mock.Mock(return_value=True), close=mock.Mock(), observation=lambda: {})
+                if failure == "returned_cancelled":
+                    diagnostic["trial"].update(status="cancelled", upstream_termination=None)
+                held = types.SimpleNamespace(accepted=mock.Mock(return_value=failure != "returned_cancelled"),
+                                             close=mock.Mock(), observation=lambda: {})
                 def prepare(*args, **kwargs):
                     if failure == "prepare": raise ValueError("PRIVATE_EXCEPTION_CANARY")
                     return {"trial.json": b"{}"}, plan
@@ -213,11 +216,14 @@ class ReceiptTests(unittest.TestCase):
                 self.assertEqual(code, 0 if failure is None else 1)
                 self.assertEqual(receipt["cleanup"], "not_created" if failure == "prepare" else
                                  "unconfirmed" if failure == "cleanup" else "owned-container-removed")
-                self.assertEqual(receipt["cancelled"], failure == "cancel_attach")
+                self.assertEqual(receipt["cancelled"], failure in ("cancel_attach", "returned_cancelled"))
                 self.assertEqual(receipt["completed"], failure is None)
                 self.assertNotIn("PRIVATE_EXCEPTION_CANARY", output.getvalue())
-                if failure in ("terminal", "cleanup"):
+                if failure in ("terminal", "cleanup", "returned_cancelled"):
                     self.assertEqual(receipt["diagnostic"], diagnostic)
+                if failure == "returned_cancelled":
+                    self.assertEqual(receipt["stage"], "trial")
+                    self.assertIs(receipt["source_authenticated"], False)
                 if failure != "prepare": held.close.assert_called_once()
 
     def invoke(self, directory, action):
