@@ -1,0 +1,52 @@
+{
+  "complete_two_observations": true,
+  "ended": "2026-10-27T18:03:04.597704+00:00",
+  "runs": [
+    {
+      "cancelled": false,
+      "command": [
+        "go",
+        "test",
+        "-race",
+        "-count=1",
+        "-json",
+        "-run",
+        "^Test(TaggedGuestSuite|BoundedQueryFiniteOutput|BoundedQuery)$",
+        "./..."
+      ],
+      "ended": "2026-10-27T18:02:12.938640+00:00",
+      "exit_code": 1,
+      "name": "01-default-parallel",
+      "owned_process_reaped": true,
+      "pid": 75201,
+      "seconds": 11.931221124716103,
+      "serial": false,
+      "started": "2026-10-27T18:02:01.007397+00:00",
+      "timed_out": false
+    },
+    {
+      "cancelled": false,
+      "command": [
+        "go",
+        "test",
+        "-race",
+        "-count=1",
+        "-json",
+        "-p=1",
+        "-run",
+        "^Test(TaggedGuestSuite|BoundedQueryFiniteOutput|BoundedQuery)$",
+        "./..."
+      ],
+      "ended": "2026-10-27T18:03:04.224944+00:00",
+      "exit_code": 0,
+      "name": "02-serialized",
+      "owned_process_reaped": true,
+      "pid": 76247,
+      "seconds": 51.169573958963156,
+      "serial": true,
+      "started": "2026-10-27T18:02:13.055270+00:00",
+      "timed_out": false
+    }
+  ],
+  "source_unchanged": true
+}

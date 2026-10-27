@@ -47,6 +47,9 @@ failure's exact stage remains unknown. No retry-until-green was performed.
 
 ## Evidence and gates
 
+[Imported evidence](../../evidence/p2/2026-10-27-go-test-scheduling/run.json)
+retains the original failed full gate and both filtered observations.
+
 `scripts/record_go_test_diagnostic.py` imports only the exact retained inputs,
 scrubbing them through the existing `scripts/scrub-secrets.sh`. It never runs
 Go or repeats the observations. Its `run.json` describes the import operation,
