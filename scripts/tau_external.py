@@ -30,6 +30,11 @@ def source_support():
     return tau_external_support
 
 
+def source_aggregate():
+    import tau_external_aggregate
+    return tau_external_aggregate
+
+
 def projected(body, *, full_task=False):
     """Only two upstream optional aliases are removed; all values are retained."""
     result = worker.decode(worker.bounded_json(body, 65536))

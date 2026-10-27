@@ -78,7 +78,7 @@ SELECTED_PARENT_MODULES = ("deepseek_model_profile", "tau_support_probe", "tau_e
     "tau_local_vllm", "tau_local_llama", "engine_tokenizer_parity", "tau_llama_identity",
     "tau_live_identity", "tau_cpu_parity", "tau_owner_channel", "tau_selected_session")
 EXTERNAL_PARENT_MODULES = ("bounded_https", "tau_external_tokenizer", "tau_external", "tau_telecom_projection",
-                          "tau_telecom_catalog", "tau_external_support")
+                          "tau_telecom_catalog", "tau_external_support", "tau_external_aggregate")
 
 
 def parent_driver(toolkit, *, live_local=False, selected_operational=False, external_simulator=False):
@@ -208,7 +208,8 @@ def identity(deadline, parent_pipe=False, *, live_local=False, support_probe=Fal
         names += tuple("scripts/" + name + ".py" for name in EXTERNAL_PARENT_MODULES)
         names += ("scripts/record-tau-external.py", "scripts/test_tau_external.py", "scripts/test_bounded_https.py",
                   "scripts/test_tau_external_trial.py", "scripts/test_tau_external_selection.py",
-                  "scripts/test_tau_external_support.py", "bench/tau-telecom-catalog.json")
+                  "scripts/test_tau_external_support.py", "bench/tau-telecom-catalog.json",
+                  "scripts/record-tau-sequential.py", "scripts/test_tau_external_aggregate.py")
     result = tau.committed_identity(deadline)
     for start in range(0, len(names), 4):
         item = tau.committed_identity(deadline, extra_files=names[start:start + 4])
@@ -250,7 +251,7 @@ def add_wheel(files, owners, raw, package, expected, deadline):
     require(len(files) <= worker.MAX_FILES and sum(map(len, files.values())) <= worker.MAX_PAYLOAD)
 
 
-def selection_plan(archive_path, domains, trials, seed, budget_inputs, deadline):
+def selection_plan(archive_path, domains, trials, seed, budget_inputs, deadline, *, aggregate_cap_usd=None):
     toolkit = identity(deadline, True, selected_operational=True, external_simulator=True)
     policy = selected_policy(toolkit)
     pins_raw = runtime.read_file(ROOT / tau.PINS, 1 << 20, deadline)
@@ -261,7 +262,8 @@ def selection_plan(archive_path, domains, trials, seed, budget_inputs, deadline)
     catalog = runtime.read_file(ROOT / runtime.CATALOG, 1 << 20, deadline)
     require(tau.digest(catalog) == runtime.CATALOG_SHA
             and runtime.make_catalog(source_rows, sources) == tau.json_value(catalog))
-    plan = policy.staged().build(sources, pins, toolkit["git_sha"], domains, trials, seed, budget_inputs)
+    plan = policy.staged().build(sources, pins, toolkit["git_sha"], domains, trials, seed, budget_inputs,
+                                 aggregate_cap_usd=aggregate_cap_usd)
     require(time.monotonic() < deadline)
     return plan
 
@@ -275,6 +277,44 @@ def read_stage(path, sha, index, deadline):
     # The complete configuration validates shape, budget and index before any
     # endpoint secrets, socket inspection or Docker command can be reached.
     return stage
+
+
+class AggregateOwner:
+    """Only this parent-owned journal can admit a sequential-plan dispatch."""
+    def __init__(self, destination, plan, archive, contract_sha, deadline):
+        require(type(deadline) in (int, float) and 0 < deadline - time.monotonic() <= 86400
+                and type(archive) is type(Path()) and archive.is_absolute())
+        self.deadline, self.archive = deadline, archive
+        toolkit = identity(min(deadline, time.monotonic() + 600), True,
+                           selected_operational=True, external_simulator=True)
+        driver = parent_driver(toolkit, selected_operational=True, external_simulator=True)
+        # The original archive authenticates the complete frozen selection before
+        # creating a journal, reading credentials, or constructing HTTP clients.
+        driver.source_support().Source(archive, {"plan": plan, "index": 0}, min(deadline, time.monotonic() + 600))
+        self.driver = driver
+        self.journal = driver.source_aggregate().Journal(destination, plan, contract_sha, toolkit)
+
+    def reserve(self):
+        require(time.monotonic() < self.deadline)
+        if not self.journal.reserve():
+            return None
+        return tau.json_value(tau.encoded({"plan": self.journal.plan, "index": self.journal.index}))
+
+    def claim(self, manifest, payload_sha, toolkit, inputs):
+        require(inputs.get("support_source") == self.archive and inputs["deadline"] <= self.deadline
+                and time.monotonic() < inputs["deadline"])
+        source = self.driver.source_support().Source(self.archive, manifest["stage"], inputs["deadline"] - 60)
+        self.journal.claim(manifest["stage"], payload_sha, inputs["arguments"][1], toolkit, source.sha256)
+
+    def settle(self, record, destination):
+        raw = runtime.read_file(destination / "output.log", 1 << 20, self.deadline)
+        self.journal.settle(record, raw)
+
+    def finish(self, reason, *, stage="completed"):
+        try:
+            return self.journal.stop(reason, stage=stage)
+        finally:
+            self.journal.close()
 
 
 def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, deadline, *, parent_pipe=False,
@@ -575,10 +615,11 @@ def check_result(value, plan, manifest, *, live_local=False):
 
 
 def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment=None, support_probe=None,
-        agent_prefix=False, scorer_image_profile=None, selected_owners=None, external_inputs=None):
+        agent_prefix=False, scorer_image_profile=None, selected_owners=None, external_inputs=None, aggregate_owner=None):
     deadline = time.monotonic() + 60
     live_local = live_deployment is not None
     external_simulator = external_inputs is not None
+    require(aggregate_owner is None or type(aggregate_owner) is AggregateOwner and external_simulator and parent_pipe)
     full_task = False
     stage_binding = None
     support_source = None
@@ -626,6 +667,11 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
         require(driver.policy.is_staged(manifest) == (stage_binding is not None))
         if stage_binding is not None:
             require(tau.encoded(stage_binding) == tau.encoded(driver.policy.staged().binding(manifest["stage"])))
+        sequential = (stage_binding is not None
+                      and manifest["stage"]["plan"]["schema"] == driver.policy.staged().SEQUENTIAL_SCHEMA)
+        require(sequential == (aggregate_owner is not None))
+        if sequential:
+            aggregate_owner.claim(manifest, sha, toolkit, external_inputs)
     elif selected_operational:
         driver = parent_driver(toolkit, selected_operational=True)
         require(not driver.policy.is_external(manifest))
@@ -647,6 +693,7 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
     name = "nib-tau-" + owner
     started = now()
     result, stage, cleaned, create_unknown = None, "image", False, False
+    interrupted = False
     prefix_body = None
     selected_manifest = None
     with tempfile.TemporaryDirectory(prefix="nib-tau-docker-") as private:
@@ -745,8 +792,8 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
             if deployment is not None:
                 deployment.check(operation_deadline)
             stage = "completed"
-        except BaseException:
-            pass
+        except BaseException as exc:
+            interrupted = isinstance(exc, KeyboardInterrupt) or cancellation_requested
         finally:
             cancellation_requested = True
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
@@ -800,6 +847,8 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
                           full_benchmark=False)
         if stage_binding is not None:
             record.update(schema="nib.tau-external-staged-run/v1", stage_binding=stage_binding)
+        if aggregate_owner is not None:
+            record["cancelled"] = interrupted or stage == "cancelled"
         publish_evidence(destination, external_evidence_files(record))
         return record
     if selected_operational:
