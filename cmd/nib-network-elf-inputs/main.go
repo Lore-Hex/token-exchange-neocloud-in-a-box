@@ -18,7 +18,7 @@ import (
 
 const deadline = 10 * time.Second
 
-var rejected = errors.New("network ELF inventory rejected")
+var errRejected = errors.New("network ELF inventory rejected")
 
 type pin struct {
 	Path    string   `json:"path"`
@@ -71,43 +71,43 @@ func readMetadata(raw []byte) (metadata, error) {
 	result := metadata{Needed: []string{}, Rpath: []string{}, Runpath: []string{}}
 	f, err := elf.NewFile(bytes.NewReader(raw))
 	if err != nil {
-		return result, rejected
+		return result, errRejected
 	}
 	defer f.Close()
 	if f.Class != elf.ELFCLASS64 || f.Data != elf.ELFDATA2LSB || f.Machine != elf.EM_X86_64 ||
 		f.Type != elf.ET_DYN || len(f.Progs) == 0 || len(f.Progs) > 256 || len(f.Sections) > 256 {
-		return result, rejected
+		return result, errRejected
 	}
 	var dynamic *elf.Prog
 	for _, p := range f.Progs {
 		if p.Off > uint64(len(raw)) || p.Filesz > uint64(len(raw))-p.Off {
-			return result, rejected
+			return result, errRejected
 		}
 		switch p.Type {
 		case elf.PT_INTERP:
 			if result.Interpreter != "" || p.Filesz < 2 || p.Filesz > 1024 {
-				return result, rejected
+				return result, errRejected
 			}
 			value := raw[p.Off : p.Off+p.Filesz]
 			if value[len(value)-1] != 0 || bytes.IndexByte(value[:len(value)-1], 0) >= 0 {
-				return result, rejected
+				return result, errRejected
 			}
 			result.Interpreter = string(value[:len(value)-1])
 		case elf.PT_DYNAMIC:
 			if dynamic != nil {
-				return result, rejected
+				return result, errRejected
 			}
 			dynamic = p
 		}
 	}
 	if result.Interpreter != "/lib64/ld-linux-x86-64.so.2" || dynamic == nil {
-		return result, rejected
+		return result, errRejected
 	}
 	var section *elf.Section
 	for _, s := range f.Sections {
 		if s.Type == elf.SHT_DYNAMIC {
 			if section != nil {
-				return result, rejected
+				return result, errRejected
 			}
 			section = s
 		}
@@ -115,26 +115,26 @@ func readMetadata(raw []byte) (metadata, error) {
 	// debug/elf reads dynamic sections. Bind that view to the loader's segment.
 	if section == nil || section.Offset != dynamic.Off || section.Size != dynamic.Filesz ||
 		section.Addr != dynamic.Vaddr || section.Size > 65536 {
-		return result, rejected
+		return result, errRejected
 	}
 	for tag, destination := range map[elf.DynTag]*[]string{
 		elf.DT_NEEDED: &result.Needed, elf.DT_RPATH: &result.Rpath, elf.DT_RUNPATH: &result.Runpath,
 	} {
 		values, err := f.DynValue(tag)
 		if err != nil || len(values) > 32 {
-			return result, rejected
+			return result, errRejected
 		}
 		strings, err := f.DynString(tag)
 		if err != nil || len(strings) != len(values) {
-			return result, rejected
+			return result, errRejected
 		}
 		for _, value := range strings {
 			if len(value) == 0 || len(value) > 256 {
-				return result, rejected
+				return result, errRejected
 			}
 			for _, c := range value {
 				if c < 33 || c > 126 {
-					return result, rejected
+					return result, errRejected
 				}
 			}
 		}
@@ -145,31 +145,31 @@ func readMetadata(raw []byte) (metadata, error) {
 
 func inspect(input io.Reader, args []string) ([]byte, error) {
 	if len(args) != 2 || args[0] != "--target" {
-		return nil, rejected
+		return nil, errRejected
 	}
 	p, ok := pins[args[1]]
 	if !ok {
-		return nil, rejected
+		return nil, errRejected
 	}
 	raw, err := io.ReadAll(io.LimitReader(input, int64(p.Bytes)+1))
 	if err != nil || len(raw) != p.Bytes {
-		return nil, rejected
+		return nil, errRejected
 	}
 	sha := sha256.Sum256(raw)
 	if hex.EncodeToString(sha[:]) != p.SHA256 {
-		return nil, rejected
+		return nil, errRejected
 	}
 	// Authentication precedes ELF parsing; this is not a general ELF admission API.
 	meta, err := readMetadata(raw)
 	if err != nil || !slices.Equal(meta.Needed, p.Needed) || len(meta.Rpath) != 0 ||
 		!slices.Equal(meta.Runpath, p.Runpath) {
-		return nil, rejected
+		return nil, errRejected
 	}
 	report := inventory{Schema: "nib.network-elf-inputs/v1", Scope: "offline-direct-elf-inventory-only",
 		Target: args[1], Executable: p, ELF: meta}
 	encoded, err := json.Marshal(report)
 	if err != nil || len(encoded) >= 4096 {
-		return nil, rejected
+		return nil, errRejected
 	}
 	return append(encoded, '\n'), nil
 }
@@ -180,7 +180,7 @@ func main() {
 	defer timer.Stop()
 	output, err := inspect(os.Stdin, os.Args[1:])
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Network ELF inventory rejected; no execution attempted.")
+		fmt.Fprintln(os.Stderr, "Network ELF inventory errRejected; no execution attempted.")
 		os.Exit(1)
 	}
 	if _, err := os.Stdout.Write(output); err != nil {

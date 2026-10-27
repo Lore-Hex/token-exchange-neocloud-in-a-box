@@ -147,22 +147,22 @@ func (failingReader) Read([]byte) (int, error) { return 0, errors.New("untrusted
 
 func TestArgumentsAuthenticationSizeAndReadErrors(t *testing.T) {
 	for _, args := range [][]string{nil, {"nft"}, {"--target", "unknown"}, {"--target", "nft", "--run"}, {"--file", "nft"}} {
-		if out, err := inspect(failingReader{}, args); err != rejected || len(out) != 0 {
+		if out, err := inspect(failingReader{}, args); err != errRejected || len(out) != 0 {
 			t.Fatal("accepted arguments")
 		}
 	}
 	for _, name := range []string{"networkd", "nft"} {
 		for _, size := range []int{0, pins[name].Bytes - 1, pins[name].Bytes, pins[name].Bytes + 1} {
-			if out, err := inspect(bytes.NewReader(make([]byte, size)), []string{"--target", name}); err != rejected || len(out) != 0 {
+			if out, err := inspect(bytes.NewReader(make([]byte, size)), []string{"--target", name}); err != errRejected || len(out) != 0 {
 				t.Fatal("accepted unpinned input")
 			}
 		}
 		reader := bytes.NewReader(make([]byte, pins[name].Bytes+100))
-		if _, err := inspect(reader, []string{"--target", name}); err != rejected || reader.Len() != 99 {
+		if _, err := inspect(reader, []string{"--target", name}); err != errRejected || reader.Len() != 99 {
 			t.Fatal("read exceeded selected size plus one")
 		}
 	}
-	if _, err := inspect(failingReader{}, []string{"--target", "nft"}); err != rejected {
+	if _, err := inspect(failingReader{}, []string{"--target", "nft"}); err != errRejected {
 		t.Fatal(err)
 	}
 	if deadline != 10*time.Second {
@@ -197,13 +197,13 @@ func TestMalformedMetadataAndLoaderViewReject(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			raw := fixture(pins["nft"])
 			change(raw)
-			if _, err := readMetadata(raw); err != rejected {
+			if _, err := readMetadata(raw); err != errRejected {
 				t.Fatal("accepted malformed metadata")
 			}
 		})
 	}
 	for _, n := range []int{0, 6, 63, 1279} {
-		if _, err := readMetadata(fixture(pins["nft"])[:n]); err != rejected {
+		if _, err := readMetadata(fixture(pins["nft"])[:n]); err != errRejected {
 			t.Fatal("accepted truncation")
 		}
 	}
@@ -221,7 +221,7 @@ func TestUnexpectedLibrariesPathsAndOrderingReject(t *testing.T) {
 			change(&p)
 			raw := fixture(p)
 			syntheticPin(t, "nft", raw)
-			if _, err := inspect(bytes.NewReader(raw), []string{"--target", "nft"}); err != rejected {
+			if _, err := inspect(bytes.NewReader(raw), []string{"--target", "nft"}); err != errRejected {
 				t.Fatal("accepted changed dependencies")
 			}
 		})
@@ -232,7 +232,7 @@ func TestUnexpectedLibrariesPathsAndOrderingReject(t *testing.T) {
 		raw := fixture(p)
 		binary.LittleEndian.PutUint64(raw[832+len(p.Needed)*16:], uint64(elf.DT_RPATH))
 		syntheticPin(t, "nft", raw)
-		if _, err := inspect(bytes.NewReader(raw), []string{"--target", "nft"}); err != rejected {
+		if _, err := inspect(bytes.NewReader(raw), []string{"--target", "nft"}); err != errRejected {
 			t.Fatal("accepted RPATH")
 		}
 	})
