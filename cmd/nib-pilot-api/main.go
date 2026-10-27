@@ -28,6 +28,7 @@ func configuredHandler(arguments []string) (*pilotapi.Handler, error) {
 	outputPrice := flags.String("output-price", "", "USD per million output tokens")
 	retirement := flags.String("retirement-at", "", "fixed UTC retirement for a public pilot")
 	public := flags.Bool("public", false, "require public operator metadata and retirement (listener stays loopback)")
+	lifetime := flags.String("lifetime-profile", "ordinary-24h", "closed serving lease: ordinary-24h or ordinary-7d")
 	if err := flags.Parse(arguments); err != nil {
 		return nil, err
 	}
@@ -50,7 +51,7 @@ func configuredHandler(arguments []string) (*pilotapi.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	return pilotapi.NewWithProfile(*profile, provider, strings.TrimSuffix(string(key), "\n"), *inputPrice, *outputPrice, *retirement)
+	return pilotapi.NewWithLifetime(*profile, provider, strings.TrimSuffix(string(key), "\n"), *inputPrice, *outputPrice, *retirement, *lifetime)
 }
 
 func run() int {

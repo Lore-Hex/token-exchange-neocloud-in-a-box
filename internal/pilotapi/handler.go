@@ -104,6 +104,23 @@ func New(provider ProviderConfig, key, inputPrice, outputPrice, retirementAt str
 // NewWithProfile selects one closed profile at startup. It keeps New's fixed
 // loopback backend and requires the engine to serve the catalog ID unchanged.
 func NewWithProfile(profileName string, provider ProviderConfig, key, inputPrice, outputPrice, retirementAt string) (*Handler, error) {
+	return NewWithLifetime(profileName, provider, key, inputPrice, outputPrice, retirementAt, "ordinary-24h")
+}
+
+// NewWithLifetime opts the qualified million-token service into one bounded
+// weekly lease. It does not renew leases or change any request/cleanup limits.
+func NewWithLifetime(profileName string, provider ProviderConfig, key, inputPrice, outputPrice, retirementAt, lifetime string) (*Handler, error) {
+	limit := 24 * time.Hour
+	switch lifetime {
+	case "ordinary-24h":
+	case "ordinary-7d":
+		if profileName != ProfileSelectedMillion || retirementAt == "" {
+			return nil, errors.New("weekly lease requires the million profile and an explicit cutoff")
+		}
+		limit *= 7
+	default:
+		return nil, errors.New("unsupported serving lifetime")
+	}
 	profile, err := profileFor(profileName)
 	if err != nil {
 		return nil, err
@@ -111,7 +128,7 @@ func NewWithProfile(profileName string, provider ProviderConfig, key, inputPrice
 	if !apiKeyPattern.MatchString(key) {
 		return nil, errors.New("invalid pilot key")
 	}
-	retirement, err := parseRetirement(retirementAt, time.Now())
+	retirement, err := parseRetirementWindow(retirementAt, time.Now(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -144,12 +161,16 @@ func NewWithProfile(profileName string, provider ProviderConfig, key, inputPrice
 }
 
 func parseRetirement(value string, now time.Time) (time.Time, error) {
+	return parseRetirementWindow(value, now, 24*time.Hour)
+}
+
+func parseRetirementWindow(value string, now time.Time, limit time.Duration) (time.Time, error) {
 	if value == "" { // Loopback-only local proofs do not need an operator cutoff.
 		return time.Time{}, nil
 	}
 	cutoff, err := time.Parse(time.RFC3339, value)
-	if err != nil || cutoff.UTC().Format(time.RFC3339) != value || !cutoff.After(now) || cutoff.Sub(now) > 24*time.Hour {
-		return time.Time{}, errors.New("retirement must be a future UTC second within 24 hours")
+	if err != nil || cutoff.UTC().Format(time.RFC3339) != value || !cutoff.After(now) || cutoff.Sub(now) > limit {
+		return time.Time{}, errors.New("retirement must be a future UTC second within the selected lease")
 	}
 	// Preserve a monotonic deadline so a wall-clock rollback cannot extend a run.
 	return now.Add(cutoff.Sub(now)), nil

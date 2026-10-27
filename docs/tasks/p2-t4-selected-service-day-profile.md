@@ -102,6 +102,11 @@ interpreter, engine arguments or model flags are introduced.
 
 ## Verification and later work
 
+The separately opt-in [weekly serving lease](p2-t4-weekly-serving-lease.md)
+extends the qualified million-token service to a bounded seven-day run. The day
+profile described here, its default arguments and historical evidence remain
+unchanged. A longer lease is not proof of a completed long soak.
+
 [Focused tests](../../scripts/test_selected_service_lifetime.py) use fake clocks,
 owned-process fixtures and synthetic Docker observations. They cover the exact
 4,800/86,400-second boundaries, unknown profiles, source/profile/cutoff mismatch,

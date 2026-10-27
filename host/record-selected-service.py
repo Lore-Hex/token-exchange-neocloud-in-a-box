@@ -249,7 +249,7 @@ def runtime_plan(args, admitted, selected, commands, result):
     smoke.weights_view(lab, weights, min(commands.end - contract.cleanup_reserve,
                                       time.monotonic() + smoke.SECONDS))
     stop_at = smoke.service.retirement_at(contract.hard_wall - smoke.HOST_RESERVE)
-    if contract.lifetime_profile == smoke.service.ORDINARY_PROFILE:
+    if smoke.service.ordinary_profile(contract.lifetime_profile):
         result.update(schema="nib.selected-service-owner/v2", lifetime={
             **smoke.service.lifetime_record(contract.lifetime_profile, contract.hard_wall - smoke.HOST_RESERVE,
                                            contract.execution_profile),
@@ -313,12 +313,12 @@ def run(args, admitted, selected, result):
         join["prepared_sha256"] = build["prepared_sha256"]
         if contract.execution_profile != smoke.service.engine_entry.EAGER_PROFILE:
             join["execution_profile"] = contract.execution_profile
-        if contract.lifetime_profile == smoke.service.ORDINARY_PROFILE:
+        if smoke.service.ordinary_profile(contract.lifetime_profile):
             join["lifetime"] = smoke.service.lifetime_record(contract.lifetime_profile,
                 contract.hard_wall - smoke.HOST_RESERVE, contract.execution_profile)
         start = ["docker", "container", "start", "--attach", container]
         try:
-            if contract.lifetime_profile == smoke.service.ORDINARY_PROFILE:
+            if smoke.service.ordinary_profile(contract.lifetime_profile):
                 raw = start_day(commands, start, join["lifetime"], build["prepared_sha256"],
                                 **({"execution_profile": contract.execution_profile}
                                    if contract.execution_profile != smoke.service.engine_entry.EAGER_PROFILE else {}))

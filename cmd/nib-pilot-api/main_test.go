@@ -102,6 +102,30 @@ func TestCLIKeyFileLengthAndNewline(t *testing.T) {
 	}
 }
 
+func TestWeeklyCLIRequiresClosedProfileAndAbsoluteCutoff(t *testing.T) {
+	keyFile := filepath.Join(t.TempDir(), "api-key")
+	if err := os.WriteFile(keyFile, []byte(strings.Repeat("x", 64)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	base := []string{"--api-key-file", keyFile, "--provider-config", "../../examples/provider.json",
+		"--input-price", "0.65", "--output-price", "1.45", "--profile", pilotapi.ProfileSelectedMillion}
+	cutoff := time.Now().Add(6 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	for _, row := range []struct {
+		args []string
+		ok   bool
+	}{
+		{[]string{"--retirement-at", cutoff}, false},
+		{[]string{"--lifetime-profile", "ordinary-7d"}, false},
+		{[]string{"--lifetime-profile", "forever", "--retirement-at", cutoff}, false},
+		{[]string{"--lifetime-profile", "ordinary-7d", "--retirement-at", cutoff}, true},
+	} {
+		_, err := configuredHandler(append(append([]string{}, base...), row.args...))
+		if (err == nil) != row.ok {
+			t.Fatalf("weekly CLI admission mismatch: %v", err)
+		}
+	}
+}
+
 func TestShutdownWaitsForActiveResponse(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

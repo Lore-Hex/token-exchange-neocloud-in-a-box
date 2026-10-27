@@ -171,7 +171,7 @@ class State(network.Journal):
         require(type(contract) is dict)
         profile = contract.get("lifetime_profile", smoke.service.SMOKE_PROFILE)
         smoke.service.lifetime_seconds(profile)
-        ordinary = profile == smoke.service.ORDINARY_PROFILE
+        ordinary = smoke.service.ordinary_profile(profile)
         require(set(contract) == {"schema", "network", "wall", "monotonic"}
                 | ({"lifetime_profile"} if ordinary else set())
                 and contract["schema"] == "nib.selected-service-owner-intent/v" + ("2" if ordinary else "1"))
@@ -234,7 +234,7 @@ class State(network.Journal):
 
 
 def owner_intent(journal):
-    ordinary = journal.lifetime_profile == smoke.service.ORDINARY_PROFILE
+    ordinary = smoke.service.ordinary_profile(journal.lifetime_profile)
     result = {"schema": "nib.selected-service-owner-intent/v" + ("2" if ordinary else "1"),
         "network": asdict(journal.network), "wall": journal.contract["hard_wall"],
         "monotonic": journal.contract["hard_monotonic"]}

@@ -224,7 +224,7 @@ class ProcessOwner:
 
     def start(self, role, contract, inputs, register, deadline):
         require(self.prepared.lab["execution_profile"] == contract.execution_profile, "runtime-limits")
-        if contract.lifetime_profile == service.ORDINARY_PROFILE:
+        if service.ordinary_profile(contract.lifetime_profile):
             service.progress("weights" if role == "engine" else role + "-starting", contract,
                              self.prepared.receipt_sha256)
         if role == "engine":
@@ -246,7 +246,7 @@ class ProcessOwner:
                 absent = self.reap("weights", validator, min(deadline, time.monotonic() + service.REAP_SECONDS))
             require(valid and absent, "model")
             self.check_mounts(deadline)
-            if contract.lifetime_profile == service.ORDINARY_PROFILE:
+            if service.ordinary_profile(contract.lifetime_profile):
                 service.progress("engine-starting", contract, self.prepared.receipt_sha256)
             command = [self.prepared.interpreter, "-I", "-S", "-B", str(PAYLOAD / "launch.py"),
                        self.prepared.lab_sha, "selected-service-engine"]
@@ -532,7 +532,7 @@ def main(argv=None):
             publish(result)
             return 1
         if not (args.inference_smoke or args.conformance_smoke or args.protocol_smoke or args.tool_smoke):
-            if args.lifetime_profile == service.ORDINARY_PROFILE:
+            if service.ordinary_profile(args.lifetime_profile):
                 publish({"schema": service.ORDINARY_SCHEMA, "status": "failed",
                     "reason": "preparation", "deployable": False, "hardware_validated": False,
                     "lifetime": contract.lifetime if contract is not None else None,

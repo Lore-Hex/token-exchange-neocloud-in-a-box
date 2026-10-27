@@ -34,12 +34,13 @@ class LifetimeTests(unittest.TestCase):
         for module in (service, service.pilot, host, process):
             self.stack.enter_context(mock.patch.object(module, "time", self.clock))
 
-    def contract(self, seconds, profile=service.SMOKE_PROFILE):
+    def contract(self, seconds, profile=service.SMOKE_PROFILE, **options):
         return service.Contract.begin(self.clock.timestamp(seconds), input_price="1", output_price="2",
-                                      lifetime_profile=profile)
+                                      lifetime_profile=profile, **options)
 
     def supervisor(self, profile=DAY):
-        contract = self.contract(86400 if profile == DAY else 4800, profile)
+        options = {"execution_profile": service.engine_entry.MILLION_PROFILE} if profile == service.WEEKLY_PROFILE else {}
+        contract = self.contract(service.lifetime_seconds(profile), profile, **options)
         shutdown = lifecycle_tests.Shutdown(self.clock)
         backend = lifecycle_tests.Owner(self.clock, shutdown)
         backend.prepared = types.SimpleNamespace(receipt_sha256="a" * 64)
@@ -278,7 +279,8 @@ class JournalTests(unittest.TestCase):
         with mock.patch.object(network.os, "getuid", return_value=0), \
                 mock.patch.object(network.proof.sys, "platform", "linux"), \
                 mock.patch.object(network.proof, "check_venue") as venue:
-            for profile, remaining, accepted in ((DAY, 86400, True), (DAY, 86401, False),
+            for profile, remaining, accepted in ((service.WEEKLY_PROFILE, 604800, True),
+                    (service.WEEKLY_PROFILE, 604801, False), (DAY, 86400, True), (DAY, 86401, False),
                     (DAY, 0, False), ("smoke", 4800, True), ("smoke", 4801, False)):
                 with self.subTest(profile=profile, remaining=remaining), \
                         mock.patch.object(commands, "remaining", return_value=remaining):
