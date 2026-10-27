@@ -39,14 +39,37 @@ onboarding steps; running the toolkit does not automatically list a provider.
 
 ## Status
 
-A separate [1M-context / 384K-output candidate](docs/tasks/p2-t3-million-context.md)
-is implemented with coordinated engine, API, stream, deadline and cleanup limits.
-It is **not yet hardware validated**. Its exact-tokenizer qualification must
-complete a 655,360-input / 393,216-output request, plus 256K/512K/1M cache checks,
-before those limits can be advertised. It currently returns an empty model
-catalog: its 59-minute deadline exceeds the pinned marketplace contract's
-15-minute ceiling. Listing also requires coordinated contract, checker and
-router support. Existing profiles remain unchanged.
+**Live correctness calibration now runs against the retained ordinary-TLS node.**
+The [original tau2 retail task 2](evidence/p2/2026-10-26-tau-external-retail-pass/README.md)
+completed with reward **1.0**, 14 agent calls, five simulator calls, one evaluator
+call and zero tool errors. The
+[50-case GSM8K calibration](evidence/p2/2026-10-26-quality-gsm8k-50/README.md)
+scored **50/50** with zero request errors. A
+[200-case MMLU-Pro calibration](evidence/p2/2026-10-27-quality-mmlu-pro-200/README.md)
+scored **171/200 (85.5%)**, counting one output-cap truncation as incorrect.
+The [200-prompt IFEval calibration](evidence/p2/2026-10-27-quality-ifeval-200/README.md)
+scored **87.0% strict / 90.5% loose**, with all requests completed.
+These selected-case results use the
+abliterated checkpoint, not the original DeepSeek weights; they are not a full
+tau2 score, matched-reference quality qualification, or confidential attestation.
+See the [reproducible calibration procedure](docs/tasks/p2-t3-retained-quality.md).
+
+The [1M-context / 384K-output candidate](docs/tasks/p2-t3-million-context.md)
+**passed its finite C1 trial on ordinary 8xB300**
+([original results](evidence/p2/2026-10-26-selected-million-pass/README.md)):
+655,360 input plus 393,216 actual output tokens in 45.69 minutes, with zero
+retries or unknown usage and confirmed cleanup. All nine retrieval/cache checks
+passed through 1,048,320 input tokens. The warm 1M request reused 1,048,192 tokens
+and reached first content in 1.66 seconds, versus 23.64 seconds cold.
+This is not sustained capacity, quality or confidential qualification. The
+candidate still returns an empty model catalog: its 59-minute deadline exceeds
+the pinned marketplace contract's 15-minute ceiling. Listing requires coordinated
+contract, checker and router support. Existing profiles remain unchanged.
+
+A separate [external restart smoke](evidence/p2/2026-10-26-selected-million-external/README.md)
+passed pinned TLS, missing/wrong-key rejection and one authenticated stream.
+It records point-in-time reachability, not continuous availability or public
+listing, and does not replace the earlier terminal cleanup evidence.
 
 The [October 26 preparation checkpoint](evidence/p2/2026-10-26-million-prerequisites/README.md)
 records verified staging of all 510.3 GB, a separate verified read-only copy,
@@ -171,6 +194,15 @@ lookup with `lookup_error` and unknown customer match. Ten measured requests
 completed; reward remains null and cleanup was confirmed. No exception-origin
 or conversation evidence identifies the underlying cause or assigns model blame.
 It is not a tau quality score or simulator qualification.
+
+Software preparation now includes an explicit
+[full original retail-task-2 trial with external support](docs/tasks/p2-t4-tau-external-full-task.md),
+reusing the pinned scorer and preserving actual task reward. The separate
+[first-lookup mode](docs/tasks/p2-t4-tau-external-simulator.md) remains unchanged.
+The [full-task path now has a passing live trial](evidence/p2/2026-10-26-tau-external-retail-pass/README.md)
+on the retained node with the 32K/2048 request budget and an external simulator.
+The first-lookup mode remains preparation only. One successful retail task is
+not the full benchmark or matched-reference selected-checkpoint qualification.
 
 The earlier [selected tau diagnostic](evidence/p2/2026-10-25-selected-tau-email-relation-0429/README.md)
 failed at the retail customer-email lookup. A bounded boolean records that the

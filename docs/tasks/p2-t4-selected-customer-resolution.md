@@ -4,6 +4,9 @@ Status: opt-in software with a [failed bounded observation](../../evidence/p2/20
 The result-decoding correction and failure-stage reporting have offline tests only. No successful
 customer resolution, simulator qualification or tau quality score is claimed.
 The default selected operational trial and CPU identity probes are unchanged.
+An explicit [external-simulator variant](p2-t4-tau-external-simulator.md) reuses
+this first-lookup boundary without creating or restarting a candidate owner;
+it is separately gated and has no live result yet.
 
 ## Scope and Source
 

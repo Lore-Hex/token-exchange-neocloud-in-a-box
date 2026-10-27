@@ -162,6 +162,27 @@ write_receipt_field() {
 
 # The source-derived prefix and controls are compact JSON; never exempt the
 # entire line, which could also contain an unrelated secret candidate.
+for trial_set in preflight-missing-source simulator-seed-failure retail-pass; do
+  while IFS='|' read -r field known; do
+    format=compact
+    target="$tmp/external/evidence/p2/2026-10-26-tau-external-$trial_set/output.log"
+    mkdir -p "$(dirname "$target")"
+    write_receipt_field "$target" "$field" "$known"
+    expect_receipt_scan "$target" 0
+    write_receipt_field "$target" "$field" "$unknown"
+    expect_receipt_scan "$target" 42
+    write_receipt_field "$target" api_key "$known"
+    expect_receipt_scan "$target" 42
+    write_receipt_field "$tmp/external/other.log" "$field" "$known"
+    expect_receipt_scan "$tmp/external/other.log" 42
+    printf '{"%s":"%s","api_key":"%s"}\n' "$field" "$known" "$unknown" > "$target"
+    expect_receipt_scan "$target" 42
+  done <<'EXTERNAL_HASHES'
+engine_tokenizer_parity.py|6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f
+tau_external_tokenizer.py|cb8ac0b55bd5da6399f7be594d39f962893b788a08990e52608b34a09daacd73
+EXTERNAL_HASHES
+done
+
 for prefix_receipt in 2026-10-23-native-prefix-count 2026-10-24-selected-prefix-count; do
 for known in \
   9d6bde6f28006680e5d37e06d816356d782004f1e8dbabf46d42e81b088afc16 \
