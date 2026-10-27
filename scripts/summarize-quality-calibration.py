@@ -16,8 +16,29 @@ import tau_trial as trial
 
 
 def number(value):
-    trial.require(type(value) in (int, float, bool) and math.isfinite(value) and value >= 0)
+    trial.require(type(value) in (int, float) and math.isfinite(value) and value >= 0)
     return value
+
+
+def score_fields(suite, value):
+    trial.require(type(value) is dict)
+    if suite == "ifeval":
+        trial.require(set(value) == {"prompt_strict", "prompt_loose", "instruction_strict", "instruction_loose", "instructions"})
+        trial.require(all(type(value[key]) is bool for key in ("prompt_strict", "prompt_loose")))
+        trial.require(all(type(value[key]) is int for key in ("instruction_strict", "instruction_loose", "instructions")))
+        n = value["instructions"]
+        trial.require(1 <= n <= 100 and 0 <= value["instruction_strict"] <= value["instruction_loose"] <= n
+                      and value["prompt_strict"] == (value["instruction_strict"] == n)
+                      and value["prompt_loose"] == (value["instruction_loose"] == n))
+    else:
+        trial.require(set(value) == {"correct", "total", "errors", "score"} |
+                      ({"no_answer"} if suite == "mmlu_pro" else set()))
+        trial.require(type(value["total"]) is int and value["total"] == 1
+                      and all(type(value[key]) is int and value[key] in (0, 1) for key in
+                              ("correct", "errors", *( ["no_answer"] if suite == "mmlu_pro" else []))))
+        trial.require(value["correct"] + value["errors"] + value.get("no_answer", 0) <= 1
+                      and number(value["score"]) == value["correct"] * 100)
+    return dict(value)
 
 
 def timestamp(value):
@@ -35,12 +56,14 @@ def report(raw):
     clean = []
     for index, row in enumerate(items):
         trial.require(row["kind"] == "item" and row["index"] == index and row["status"] in
-                      ("evaluated", "truncated", "protocol_or_transport_error", "timeout"))
-        score = {key: number(value) for key, value in (row["score"] or {}).items() if key in
-                 ("correct", "total", "errors", "no_answer", "score", "prompt_strict", "prompt_loose",
-                  "instruction_strict", "instruction_loose", "instructions")}
-        usage = None if row["usage"] is None else {key: number(row["usage"][key])
-                                                    for key in ("prompt_tokens", "completion_tokens")}
+                      ("evaluated", "truncated", "protocol_or_transport_error", "timeout", "cancelled"))
+        score = {} if row["score"] is None else score_fields(manifest["suite"], row["score"])
+        usage = row["usage"]
+        trial.require(usage is None or type(usage) is dict and set(usage) == {"prompt_tokens", "completion_tokens"}
+                      and all(type(value) is int and 0 <= value < 2**31 for value in usage.values()))
+        trial.require(row["status"] not in ("evaluated", "truncated") or score and usage is not None)
+        trial.require(row["status"] != "truncated" or not any(score.get(key, 0) for key in
+                      ("correct", "prompt_strict", "prompt_loose", "instruction_strict", "instruction_loose")))
         clean.append({"index": index, "status": row["status"], "score": score, "usage": usage,
                       "elapsed_seconds": number(row["elapsed_seconds"])})
     evaluated = sum(row["status"] == "evaluated" for row in clean)

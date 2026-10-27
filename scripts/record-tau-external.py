@@ -11,6 +11,7 @@ if __name__ == "__main__":
 import argparse
 import datetime
 import os
+import re
 from pathlib import Path
 import signal
 import stat
@@ -100,7 +101,8 @@ def main():
             trial.publish_evidence(args.output, trial.external_evidence_files({
                 "schema": "nib.tau-external-full-task-preflight/v1" if args.full_task else "nib.tau-external-preflight/v1",
                 "result": "fail", "cleanup": "unconfirmed",
-                "toolkit": toolkit, "plan_sha256": args.plan_sha256,
+                "toolkit": toolkit,
+                **({"plan_sha256": args.plan_sha256} if re.fullmatch("[0-9a-f]{64}", args.plan_sha256) else {}),
                 "started_utc": started, "ended_utc": trial.now(),
                 "quality_eligible": False, "confidential": False, "live_admission": False}))
         print("External tau diagnostic failed; no automatic retry.", file=sys.stderr)

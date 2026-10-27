@@ -271,6 +271,15 @@ class ExternalTrialTests(unittest.TestCase):
             self.assertNotIn(b"CANARY", b"".join(files.values()))
             for path in (Path(temporary) / "result").iterdir():
                 self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            arguments[arguments.index("--output") + 1] = temporary + "/invalid-digest"
+            arguments[arguments.index("--plan-sha256") + 1] = "SYNTHETIC_PRIVATE_ARGUMENT_CANARY"
+            with mock.patch.object(sys, "argv", arguments), redirect_stdout(io.StringIO()), \
+                    redirect_stderr(io.StringIO()), \
+                    mock.patch.object(entry.trial, "identity", return_value={"git_sha": "a" * 40}), \
+                    mock.patch.object(entry.trial, "run", side_effect=ValueError("private")):
+                self.assertEqual(entry.main(), 1)
+            for path in (Path(temporary) / "invalid-digest").iterdir():
+                self.assertNotIn(b"CANARY", path.read_bytes())
 
     def test_full_lifecycle_retains_scored_zero_on_late_failure(self):
         for failure in (None, "terminal", "cleanup"):
