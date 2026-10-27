@@ -9,6 +9,7 @@ import re
 import tau_preflight as tau
 
 SCHEMA = "nib.tau-external-selection-plan/v2"
+SEQUENTIAL_SCHEMA = "nib.tau-external-sequential-plan/v1"
 INPUT_SCHEMA = "nib.tau-external-staged-input/v2"
 TRANSPORT_SCHEMA = "nib.tau-external-staged-transport/v2"
 MAX_ASSERTIONS = 3  # Maximum in the pinned first-five-per-domain smoke selection.
@@ -41,7 +42,7 @@ def budget(inputs, count):
             "within_cap": total <= values["weekly_cap_usd"]}
 
 
-def assemble(producer, domains, trials, seed, tasks, source_files, budget_inputs):
+def assemble(producer, domains, trials, seed, tasks, source_files, budget_inputs, *, aggregate_cap_usd=None):
     tau.require(type(producer) is str and re.fullmatch("[0-9a-f]{40}", producer)
                 and type(domains) is list and 1 <= len(domains) <= 3
                 and all(type(domain) is str and domain in tau.DOMAINS for domain in domains)
@@ -74,8 +75,18 @@ def assemble(producer, domains, trials, seed, tasks, source_files, budget_inputs
                                    "compatibility": "supported-shape" if count is not None and count <= MAX_ASSERTIONS
                                    else "unsupported-assertion-shape"})
     financial = budget(budget_inputs, len(selections))
+    if aggregate_cap_usd is not None:
+        cap = tau.amount(aggregate_cap_usd)
+        tau.require(TRIAL_RESERVATION <= cap <= 10000 and all(domain in ("retail", "telecom") for domain in domains))
+        committed = sum(tau.amount(budget_inputs[name]) for name in BUDGET_KEYS[1:])
+        financial.update(policy="sequential-full-trial-reservations", planned_worst_case_usd=financial["trials_reserved_usd"],
+                         trials_reserved_usd=aggregate_cap_usd, total_reserved_usd=format(committed + cap, "f"),
+                         remaining_usd=format(tau.amount(budget_inputs["weekly_cap_usd"]) - committed - cap, "f"),
+                         within_cap=committed + cap <= tau.amount(budget_inputs["weekly_cap_usd"]))
     unsupported = sum(row["compatibility"] != "supported-shape" for row in selections)
-    return {"schema": SCHEMA, "producer_git_sha": producer, "upstream_revision": tau.REVISION,
+    return {"schema": SCHEMA if aggregate_cap_usd is None else SEQUENTIAL_SCHEMA,
+            **({"aggregate_cap_usd": aggregate_cap_usd} if aggregate_cap_usd is not None else {}),
+            "producer_git_sha": producer, "upstream_revision": tau.REVISION,
             "domains": domains, "trials_per_task": trials, "seed": seed, "trial_seeds": seeds,
             "split": "base", "task_order": "lexicographic-task-id-before-selection",
             "domain_tasks": tasks, "source_files": source_files, "selections": selections,
@@ -85,7 +96,7 @@ def assemble(producer, domains, trials, seed, tasks, source_files, budget_inputs
             "full_benchmark": False, "confidential": False, "live_admission": False}
 
 
-def build(sources, pins, producer, domains, trials, seed, budget_inputs):
+def build(sources, pins, producer, domains, trials, seed, budget_inputs, *, aggregate_cap_usd=None):
     tau.require(pins["revision"] == tau.REVISION and type(domains) is list
                 and all(type(domain) is str and domain in tau.DOMAINS for domain in domains))
     selected_files = {}
@@ -110,13 +121,15 @@ def build(sources, pins, producer, domains, trials, seed, budget_inputs):
                           and all(type(value) is str and 0 < len(value.encode()) <= 16384
                                   for value in assertions) else None)
         tasks[domain] = {"base_count": len(ordered), "task_ids": ordered[:5], "assertion_counts": counts}
-    return assemble(producer, domains, trials, seed, tasks, selected_files, budget_inputs)
+    return assemble(producer, domains, trials, seed, tasks, selected_files, budget_inputs,
+                    aggregate_cap_usd=aggregate_cap_usd)
 
 
 def validate(plan):
-    tau.require(type(plan) is dict)
+    tau.require(type(plan) is dict and plan.get("schema") in (SCHEMA, SEQUENTIAL_SCHEMA))
     expected = assemble(plan["producer_git_sha"], plan["domains"], plan["trials_per_task"], plan["seed"],
-                        plan["domain_tasks"], plan["source_files"], plan["budget"]["inputs"])
+                        plan["domain_tasks"], plan["source_files"], plan["budget"]["inputs"],
+                        aggregate_cap_usd=plan["aggregate_cap_usd"] if plan["schema"] == SEQUENTIAL_SCHEMA else None)
     tau.require(tau.encoded(plan) == tau.encoded(expected))
     return plan
 
@@ -124,7 +137,8 @@ def validate(plan):
 def verify_sources(plan, sources, pins):
     validate(plan)
     rebuilt = build(sources, pins, plan["producer_git_sha"], plan["domains"], plan["trials_per_task"],
-                    plan["seed"], plan["budget"]["inputs"])
+                    plan["seed"], plan["budget"]["inputs"],
+                    aggregate_cap_usd=plan["aggregate_cap_usd"] if plan["schema"] == SEQUENTIAL_SCHEMA else None)
     tau.require(tau.encoded(plan) == tau.encoded(rebuilt))
 
 

@@ -20,7 +20,8 @@ one to four trials per task, and a seed from 0 through 1,000,000. Every selected
 domain retains exactly the first five lexicographically sorted `base` task IDs,
 using the existing task parser. Seeds follow the existing `random.Random(seed)`
 trial-seed policy. Order is domain, task, trial. No hand-picked IDs, replacement
-tasks, reference role, auto-resume, batch executor or automatic retries exist.
+tasks, reference role, auto-resume or automatic retries exist. The separately
+versioned sequential controller below never changes this frozen order.
 
 The staged v2 worker supports zero through three natural-language assertions,
 the complete range in this pinned first-five-per-domain selection. Airline has
@@ -97,6 +98,72 @@ any approved execution, the operator must reconcile all prior reservations,
 unknown usage and resources within the same weekly budget, approve the exact
 plan hash and index once, retain each failed attempt, and avoid duplicate runs.
 Do not run the illustrative budget example as an approval workaround.
+
+## Sequential Cap
+
+The optional `plan --aggregate-cap-usd` creates
+`nib.tau-external-sequential-plan/v1`, not a reinterpretation of a legacy v2
+full-sum plan. It supports retail and telecom only, keeps all five tasks and
+one to four repetitions per task, and requires a cap from $70.044864 to $10,000
+within the same declared weekly commitments. The plan retains both its full
+planned worst case and the sequential cap. Neither is a verified invoice or
+permission to spend. Legacy plan bytes and single-trial defaults are unchanged.
+
+The [sequential controller](../../scripts/record-tau-sequential.py) authenticates
+the pinned source and producer before opening an exclusive journal or reading
+credentials. It durably reserves **the full $70.044864 before each trial's
+preparation and dispatch**, not an expected average. Only the original owned
+receipt, source/selection/payload/endpoint binding, complete known usage,
+matched count/usage pairs, original scoring termination and confirmed cleanup
+can settle that reservation. Every attempted count still retains $2.095152;
+generation uses the existing standard-rate known-usage accounting, not a
+claim about the provider's invoice. Unknown or cancelled billing, malformed
+receipts, cleanup failures and publication failures keep the full pending hold
+and stop. There is no automatic refund, resume, retry or replacement task.
+
+A completed known receipt releases only the unused part of its reservation.
+The next trial still requires another complete $70.044864. Otherwise the
+controller records `incomplete` / `cap-exhausted`, retaining all planned rows,
+the completed count and every original receipt. A score of zero is retained as
+zero, not retried. The journal's hash-linked events and original receipts use
+exclusive files, fsync and private permissions. Partial failed writes are
+preserved; an interrupted journal is not automatically recoverable or proof of
+remaining credit. Separate journals do not coordinate the weekly budget.
+
+The caller supplies one absolute UTC deadline, converted once to a monotonic
+deadline, at most 24 hours. Every trial retains the original 960-second total
+bound and cleanup requirements; preparation has a 600-second bound and the
+controller keeps 30 seconds for terminal publication. It stops before starting
+a trial without this entire time allowance. A sequential payload cannot run
+through the single-trial entry point without its owning reservation journal.
+
+For an independently reviewed later run, pass the canonical selection-plan
+path/hash, pinned source archive, wheelhouse, Docker socket, existing private
+endpoint contract/hash, candidate/simulator key files, vLLM source, tokenizer
+directory/wheel, absolute UTC deadline and a **new** output directory to
+`python3 -I -S -B scripts/record-tau-sequential.py`. The argument names match
+the existing full-task procedure; the controller prepares each payload itself.
+All endpoint, source, tokenizer, budget, observer-coordination and execution
+gates remain. This change does not perform paid requests or mutate serving.
+
+The explicit [offline replay](../../scripts/record-tau-sequential-offline.py)
+freezes 15 original telecom trials under a synthetic one-trial-size cap,
+runs the original network-disabled worker with fixed peers, then checks that
+the controller retains the other 14 planned rows without dispatch. Credential
+reads and HTTPS constructors are blocked. Synthetic constant counts, tool round
+trips and scored zero test integration only, not measured parity or quality:
+
+```sh
+python3 -I -S -B scripts/record-tau-sequential-offline.py \
+  --source-archive "$SOURCE_ARCHIVE" --wheelhouse "$WHEELHOUSE" \
+  --docker-socket "$DOCKER_SOCKET" --output "$NEW_PRIVATE_JOURNAL" \
+  --receipt "$NEW_PRIVATE_RECEIPT"
+```
+
+The [committed original-worker replay](../../evidence/p2/2026-10-27-sequential-tau-offline/README.md)
+passed this offline stopping check. Its
+[preceding local socket-access failure](../../evidence/p2/2026-10-27-sequential-tau-offline-socket-denied/README.md)
+is retained separately, including the full held reservation and original failed receipt.
 
 ## Offline Procedure
 
