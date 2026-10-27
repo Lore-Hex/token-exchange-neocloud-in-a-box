@@ -77,9 +77,15 @@ Use the exact producer checkout, authenticated original inputs in new owned
 directories, and an absolute Go 1.27.2 path. Local path arguments below are role
 placeholders; package arguments and the producer entrypoint match the actual run.
 This executes only the locally compiled metadata helper, never a package binary.
+Set `TMPDIR` to an existing writable absolute directory with no symlink ancestor,
+as required by the shared nofollow publication guard. On macOS, the default
+`/var/folders/...` has the `/var` symlink ancestor and is intentionally rejected
+when publishing compiler source; use the canonical `/private/tmp` path below.
+Preserve any failed receipt and use a new output directory for a rerun; do not
+relax the nofollow guard.
 
 ```sh
-python3 -I -S -B scripts/prepare_network_runtime.py \
+TMPDIR=/private/tmp python3 -I -S -B scripts/prepare_network_runtime.py \
   --metadata "$INPUTS/metadata" --archives "$INPUTS/archives" \
   --go "$ABSOLUTE_GO_1_27_2" --output "$NEW_REPORT" \
   --package systemd --package nftables --package libc6 \

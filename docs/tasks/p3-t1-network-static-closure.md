@@ -88,6 +88,14 @@ receipt, never verified input artifacts. Output directories
 must be new; publication is exclusive, owner-only and fsynced. Failed closure
 receipts and any already-authenticated inventory are retained as failures.
 
+The compiler's temporary directory must also have a canonical absolute path
+without symlink ancestors. Set `TMPDIR` to an existing writable directory that
+satisfies this guard. On macOS use `/private/tmp`, not the default
+`/var/folders/...` beneath the `/var` symlink. Otherwise index checks can pass
+but compiler-source publication intentionally rejects before a compiler receipt
+or inventory is available. Keep that failed receipt and select a new output
+directory for any corrected-environment rerun; nofollow remains unchanged.
+
 Example initial input selection, **not a claim that these six packages close
 the graph**:
 
@@ -97,7 +105,7 @@ python3 -I -S -B scripts/fetch_network_runtime.py \
   --package libsystemd-shared --package libnftables1 --package libedit2 \
   --output "$NEW_INPUTS"
 
-python3 -I -S -B scripts/prepare_network_runtime.py \
+TMPDIR=/private/tmp python3 -I -S -B scripts/prepare_network_runtime.py \
   --metadata "$NEW_INPUTS/metadata" --archives "$NEW_INPUTS/archives" \
   --package systemd --package nftables --package libc6 \
   --package libsystemd-shared --package libnftables1 --package libedit2 \
