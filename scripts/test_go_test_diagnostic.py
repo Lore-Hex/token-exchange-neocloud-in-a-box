@@ -49,6 +49,10 @@ class GoDiagnosticImportTests(unittest.TestCase):
                                       subprocess.CompletedProcess([], 0, raw)):
                 recorder.record(Path(temporary), Path(temporary) / "deny", output)
             report = json.loads((output / "output.log").read_bytes())
+            run = json.loads((output / "run.json").read_bytes())
+            utc = json.loads((recorder.ROOT / "schemas/common.schema.json").read_bytes())["$defs"]["utc"]
+            for field in ("started_utc", "ended_utc"):
+                self.assertRegex(run[field], utc["pattern"])
             for name in names:
                 published = name.endswith(".log")
                 self.assertEqual((output / name).exists(), published)

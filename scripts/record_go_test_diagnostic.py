@@ -80,7 +80,7 @@ def publish(output, artifacts):
 
 
 def record(source, deny, output):
-    started = datetime.now(timezone.utc).isoformat()
+    started = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     revision = committed()
     artifacts, hashes = {}, {}
     for relative, expected in INPUTS.items():
@@ -109,7 +109,7 @@ def record(source, deny, output):
         "schema": "nib.evidence/v1", "phase": "P2", "task": "T3", "git_sha": revision,
         "command": "NIB_BIN=<reviewed-nib> python3 -I " + SCRIPT
                    + " --input <private-input> --deny-file <private-deny> --output <new-evidence>",
-        "started_utc": started, "ended_utc": datetime.now(timezone.utc).isoformat(),
+        "started_utc": started, "ended_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "host": {"provider": "local", "machine": "historical-import", "gpus": "none",
                  "driver": None, "cuda": None},
         "result": "pass", "execution": "software", "hardware_validated": False,
