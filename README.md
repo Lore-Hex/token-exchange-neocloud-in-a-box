@@ -55,6 +55,7 @@ recorded hardware results, not mocks or a live uptime guarantee.
 | Capability | Measured result and scope |
 |---|---|
 | Authenticated OpenAI-compatible API | [17 required provider checks passed](evidence/p2/2026-10-25-selected-public-conformance/README.md), including streaming, usage and rejected-key checks over ordinary public TLS. |
+| Public 1M endpoint | A fresh [public-CA HTTPS smoke](evidence/p2/2026-10-27-selected-public-weekly/README.md) passed health, rejected keys and authenticated streaming after starting the finite seven-day owner. This is not a completed soak or a live uptime guarantee. |
 | Native tools | [Tool call and continuation passed](evidence/p2/2026-10-25-selected-tool-pass/README.md); the later tau2 task below also completed with zero tool errors. |
 | 1M combined context / 384K output | [655,360 input + 393,216 actual output tokens](evidence/p2/2026-10-26-selected-million-pass/README.md), filling 1,048,576 combined tokens in one completed request. |
 | Prefix / KV caching | [All nine retrieval/cache checks passed](evidence/p2/2026-10-26-selected-million-pass/README.md); the warm 1M request reused 1,048,192 tokens, with first content in 1.66 seconds versus 23.64 seconds cold. |
@@ -79,11 +80,13 @@ full-suite scores or a comparison against the original DeepSeek weights. See the
 - **Confidential operation (P3-P5):** end-to-end hardware attestation, the generic
   TrustedRouter verifier, and the fully verified confidential DeepSeek deployment.
   Earlier CC lab results do not establish that complete path.
-- **Production onboarding:** the 1M candidate's catalog is deliberately empty
-  because its 59-minute request deadline exceeds the pinned marketplace contract's
-  15-minute ceiling. Contract, checker and router support must agree before listing;
-  [the finite 1M result](evidence/p2/2026-10-26-selected-million-pass/README.md)
-  does not prove marketplace billing or settlement.
+- **Production onboarding:** the 1M catalog now declares contract `2.1`, including
+  its 59-minute deadline. Contract, checker and gateway updates are merged; rollout
+  and fresh conformance against the published schema remain in progress. The
+  ordinary public endpoint works, but marketplace activation and billing/settlement
+  still need end-to-end verification. Neither the
+  [finite 1M result](evidence/p2/2026-10-26-selected-million-pass/README.md) nor the
+  [public smoke](evidence/p2/2026-10-27-selected-public-weekly/README.md) proves those.
 - **Broader reliability and quality:** full multi-domain tau2, repeated trials,
   original-versus-abliterated comparisons, a completed 24-hour soak and sustained
   mixed-workload testing. Bounded throughput tests are not production SLOs.
