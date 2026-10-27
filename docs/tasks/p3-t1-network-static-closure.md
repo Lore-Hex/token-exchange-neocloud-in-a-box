@@ -1,7 +1,8 @@
 # Restricted Network Static Closure
 
-Status: **implemented and tested with synthetic metadata; actual recursive
-closure is blocked on exact locked inputs**. This follows the
+Status: **restricted static closure passed on actual authenticated inputs**:
+[33 packages, 34 ELF nodes and 77 edges](../../evidence/p3/2026-10-27-network-static-closure/README.md).
+This follows the
 [direct ELF inventory](p3-t1-network-elf-inputs.md), not a Linux runtime proof.
 No P3 acceptance, default/release activation or existing preparation format
 changes. The default network configuration remains deny-all.
@@ -66,7 +67,7 @@ deployability remain unproven. All runtime/activation proof fields remain false.
 
 ## Bounds And Use
 
-Limits: 32 selected Ubuntu packages, 64 MiB compressed archives total, existing
+Limits: 33 selected Ubuntu packages, 64 MiB compressed archives total, existing
 50,000-member/512 MiB virtual-tree bounds, 128 visited ELF objects, 16 MiB per
 ELF, 32 entries per string-valued dynamic tag, 256 headers/sections, 64 KiB
 dynamic table, 1 MiB string table, 64 KiB helper output. Shared archive/index
@@ -87,6 +88,14 @@ receipt, never verified input artifacts. Output directories
 must be new; publication is exclusive, owner-only and fsynced. Failed closure
 receipts and any already-authenticated inventory are retained as failures.
 
+The compiler's temporary directory must also have a canonical absolute path
+without symlink ancestors. Set `TMPDIR` to an existing writable directory that
+satisfies this guard. On macOS use `/private/tmp`, not the default
+`/var/folders/...` beneath the `/var` symlink. Otherwise index checks can pass
+but compiler-source publication intentionally rejects before a compiler receipt
+or inventory is available. Keep that failed receipt and select a new output
+directory for any corrected-environment rerun; nofollow remains unchanged.
+
 Example initial input selection, **not a claim that these six packages close
 the graph**:
 
@@ -96,7 +105,7 @@ python3 -I -S -B scripts/fetch_network_runtime.py \
   --package libsystemd-shared --package libnftables1 --package libedit2 \
   --output "$NEW_INPUTS"
 
-python3 -I -S -B scripts/prepare_network_runtime.py \
+TMPDIR=/private/tmp python3 -I -S -B scripts/prepare_network_runtime.py \
   --metadata "$NEW_INPUTS/metadata" --archives "$NEW_INPUTS/archives" \
   --package systemd --package nftables --package libc6 \
   --package libsystemd-shared --package libnftables1 --package libedit2 \
@@ -107,27 +116,25 @@ Run only from an exact committed checkout. The CLI audits its source closure;
 uncommitted changes reject. Success emits `receipt.json` and `inventory.json`,
 not an image, filesystem installation, service or proof of runtime linkage.
 
-## Current Blocker And Next Step
+## Actual Result And Next Step
 
-As of 2026-10-27, actual closure has **not** been established. The existing
-two pinned executable members are retained, but no verified complete recursive
-library set or exact replayable metadata set is available for this increment.
-One required locked index is `noble-updates-main.xz`, 1397104 bytes, SHA-256
-`a398e4efccd241c15ea24a92e1aedfbb853f9e9100e73de9f6bc6f1d5b2581fa`.
-Its primary by-hash source is
-[Ubuntu's locked index](https://archive.ubuntu.com/ubuntu/dists/noble-updates/main/binary-amd64/by-hash/SHA256/a398e4efccd241c15ea24a92e1aedfbb853f9e9100e73de9f6bc6f1d5b2581fa).
-The bounded recovery attempt failed with curl HTTP error 22, without accepted
-index bytes. A separate dated-snapshot recovery check also yielded no valid
-bytes. These failures do not justify newer indexes or package substitutions.
-The existing snapshot fetch support covers pool DEBs, not metadata fallback;
-this increment does not silently expand that policy.
+The [retained actual-input evidence](../../evidence/p3/2026-10-27-network-static-closure/README.md)
+records both the missing-library failure and the successful complete restricted
+graph. The exact seven-index archive already pinned by the native workflows
+resolved the original index-recovery blocker. The original locked liblzma5 DEB
+was recovered from its official Launchpad publication and matched its original
+127352-byte size and SHA-256, not a replacement version. The subset fetcher's
+URL policy is unchanged; this was an explicit, separately bounded recovery.
 
-Next executable offline step: recover the exact locked indexes and Ubuntu DEBs
-into a new owned directory, replay every selected package row, then run the
-commands above. Use the resulting missing-library report and actual authenticated
-archive contents to extend only the explicit locked package selection. Do not
-infer recursive ELF linkage from `Depends` alone. Unknown/unsupported shapes
-remain blockers. Once a complete graph is reviewed, separately prepare an
+The actual selection requires 33 packages, including `base-files` for the
+authenticated merged-/usr symlinks and `liblzma5` for the final missing library.
+Only the package-count bound increased from 32 to 33. The 64 MiB archive,
+128-object, parser, subprocess and aggregate-time limits remain unchanged.
+The evidence README gives the complete selection and original producer SHA;
+the short six-package example above remains only an initial diagnostic subset.
+Dependencies came from actual ELF metadata, not `Depends` inference.
+
+After independent review of that graph, separately prepare an
 isolated CPU debug guest with the original pinned networkd/nft and synthetic
 veth cases. Preserve the strict firewall and EROFS guards; do not connect that
 guest to a vendor endpoint or turn static preparation into an H100/runtime claim.

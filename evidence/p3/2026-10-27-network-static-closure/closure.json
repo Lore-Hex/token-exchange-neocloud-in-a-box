@@ -1,0 +1,2100 @@
+{
+  "compiler": {
+    "compiler_authenticated": false,
+    "compiler_sha256": "516c1fbb53b5f8f4852f0c3c379d45bcff53a1032e5cd1a9ca1738f03ba07cb1",
+    "helper_sha256": "614d5b568162bd933c2f9d28d2566d8848d40e18544414c42dfea06b4a0a248f",
+    "version": "go1.27.2"
+  },
+  "confidential": false,
+  "deployable": false,
+  "dlopen_nss_verified": false,
+  "git_sha": "e90d78ce905170d2102fe6a8944716956d8e4b7f",
+  "graph": {
+    "edges": [
+      {
+        "from": "usr/lib/systemd/systemd-networkd",
+        "kind": "interpreter",
+        "matched_paths": [
+          "lib64/ld-linux-x86-64.so.2"
+        ],
+        "needed": "/lib64/ld-linux-x86-64.so.2",
+        "to": "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+      },
+      {
+        "from": "usr/lib/systemd/systemd-networkd",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so"
+        ],
+        "needed": "libsystemd-shared-255.so",
+        "to": "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so"
+      },
+      {
+        "from": "usr/lib/systemd/systemd-networkd",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/sbin/nft",
+        "kind": "interpreter",
+        "matched_paths": [
+          "lib64/ld-linux-x86-64.so.2"
+        ],
+        "needed": "/lib64/ld-linux-x86-64.so.2",
+        "to": "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+      },
+      {
+        "from": "usr/sbin/nft",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libnftables.so.1",
+          "lib/x86_64-linux-gnu/libnftables.so.1"
+        ],
+        "needed": "libnftables.so.1",
+        "to": "usr/lib/x86_64-linux-gnu/libnftables.so.1.1.0"
+      },
+      {
+        "from": "usr/sbin/nft",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libedit.so.2",
+          "lib/x86_64-linux-gnu/libedit.so.2"
+        ],
+        "needed": "libedit.so.2",
+        "to": "usr/lib/x86_64-linux-gnu/libedit.so.2.0.72"
+      },
+      {
+        "from": "usr/sbin/nft",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libacl.so.1",
+          "lib/x86_64-linux-gnu/libacl.so.1"
+        ],
+        "needed": "libacl.so.1",
+        "to": "usr/lib/x86_64-linux-gnu/libacl.so.1.1.2302"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libblkid.so.1",
+          "lib/x86_64-linux-gnu/libblkid.so.1"
+        ],
+        "needed": "libblkid.so.1",
+        "to": "usr/lib/x86_64-linux-gnu/libblkid.so.1.1.0"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libcap.so.2",
+          "lib/x86_64-linux-gnu/libcap.so.2"
+        ],
+        "needed": "libcap.so.2",
+        "to": "usr/lib/x86_64-linux-gnu/libcap.so.2.66"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libcrypt.so.1",
+          "lib/x86_64-linux-gnu/libcrypt.so.1"
+        ],
+        "needed": "libcrypt.so.1",
+        "to": "usr/lib/x86_64-linux-gnu/libcrypt.so.1.1.0"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libgcrypt.so.20",
+          "lib/x86_64-linux-gnu/libgcrypt.so.20"
+        ],
+        "needed": "libgcrypt.so.20",
+        "to": "usr/lib/x86_64-linux-gnu/libgcrypt.so.20.4.3"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libkmod.so.2",
+          "lib/x86_64-linux-gnu/libkmod.so.2"
+        ],
+        "needed": "libkmod.so.2",
+        "to": "usr/lib/x86_64-linux-gnu/libkmod.so.2.4.1"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/liblz4.so.1",
+          "lib/x86_64-linux-gnu/liblz4.so.1"
+        ],
+        "needed": "liblz4.so.1",
+        "to": "usr/lib/x86_64-linux-gnu/liblz4.so.1.9.4"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libmount.so.1",
+          "lib/x86_64-linux-gnu/libmount.so.1"
+        ],
+        "needed": "libmount.so.1",
+        "to": "usr/lib/x86_64-linux-gnu/libmount.so.1.1.0"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libcrypto.so.3",
+          "lib/x86_64-linux-gnu/libcrypto.so.3"
+        ],
+        "needed": "libcrypto.so.3",
+        "to": "usr/lib/x86_64-linux-gnu/libcrypto.so.3"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libpam.so.0",
+          "lib/x86_64-linux-gnu/libpam.so.0"
+        ],
+        "needed": "libpam.so.0",
+        "to": "usr/lib/x86_64-linux-gnu/libpam.so.0.85.1"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libseccomp.so.2",
+          "lib/x86_64-linux-gnu/libseccomp.so.2"
+        ],
+        "needed": "libseccomp.so.2",
+        "to": "usr/lib/x86_64-linux-gnu/libseccomp.so.2.5.5"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libselinux.so.1",
+          "lib/x86_64-linux-gnu/libselinux.so.1"
+        ],
+        "needed": "libselinux.so.1",
+        "to": "usr/lib/x86_64-linux-gnu/libselinux.so.1"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/liblzma.so.5",
+          "lib/x86_64-linux-gnu/liblzma.so.5"
+        ],
+        "needed": "liblzma.so.5",
+        "to": "usr/lib/x86_64-linux-gnu/liblzma.so.5.4.5"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libzstd.so.1",
+          "lib/x86_64-linux-gnu/libzstd.so.1"
+        ],
+        "needed": "libzstd.so.1",
+        "to": "usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libm.so.6",
+          "lib/x86_64-linux-gnu/libm.so.6"
+        ],
+        "needed": "libm.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libm.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+          "lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+        ],
+        "needed": "ld-linux-x86-64.so.2",
+        "to": "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libc.so.6",
+        "kind": "interpreter",
+        "matched_paths": [
+          "lib64/ld-linux-x86-64.so.2"
+        ],
+        "needed": "/lib64/ld-linux-x86-64.so.2",
+        "to": "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libc.so.6",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+          "lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+        ],
+        "needed": "ld-linux-x86-64.so.2",
+        "to": "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libnftables.so.1.1.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libmnl.so.0",
+          "lib/x86_64-linux-gnu/libmnl.so.0"
+        ],
+        "needed": "libmnl.so.0",
+        "to": "usr/lib/x86_64-linux-gnu/libmnl.so.0.2.0"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libnftables.so.1.1.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libnftnl.so.11",
+          "lib/x86_64-linux-gnu/libnftnl.so.11"
+        ],
+        "needed": "libnftnl.so.11",
+        "to": "usr/lib/x86_64-linux-gnu/libnftnl.so.11.6.0"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libnftables.so.1.1.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libxtables.so.12",
+          "lib/x86_64-linux-gnu/libxtables.so.12"
+        ],
+        "needed": "libxtables.so.12",
+        "to": "usr/lib/x86_64-linux-gnu/libxtables.so.12.7.0"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libnftables.so.1.1.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libjansson.so.4",
+          "lib/x86_64-linux-gnu/libjansson.so.4"
+        ],
+        "needed": "libjansson.so.4",
+        "to": "usr/lib/x86_64-linux-gnu/libjansson.so.4.14.0"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libnftables.so.1.1.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libgmp.so.10",
+          "lib/x86_64-linux-gnu/libgmp.so.10"
+        ],
+        "needed": "libgmp.so.10",
+        "to": "usr/lib/x86_64-linux-gnu/libgmp.so.10.5.0"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libnftables.so.1.1.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libedit.so.2.0.72",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libtinfo.so.6",
+          "lib/x86_64-linux-gnu/libtinfo.so.6"
+        ],
+        "needed": "libtinfo.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libtinfo.so.6.4"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libedit.so.2.0.72",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libbsd.so.0",
+          "lib/x86_64-linux-gnu/libbsd.so.0"
+        ],
+        "needed": "libbsd.so.0",
+        "to": "usr/lib/x86_64-linux-gnu/libbsd.so.0.12.1"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libedit.so.2.0.72",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libacl.so.1.1.2302",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libblkid.so.1.1.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libcap.so.2.66",
+        "kind": "interpreter",
+        "matched_paths": [
+          "lib64/ld-linux-x86-64.so.2"
+        ],
+        "needed": "/lib64/ld-linux-x86-64.so.2",
+        "to": "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libcap.so.2.66",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libcrypt.so.1.1.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libgcrypt.so.20.4.3",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libgpg-error.so.0",
+          "lib/x86_64-linux-gnu/libgpg-error.so.0"
+        ],
+        "needed": "libgpg-error.so.0",
+        "to": "usr/lib/x86_64-linux-gnu/libgpg-error.so.0.34.0"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libgcrypt.so.20.4.3",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libkmod.so.2.4.1",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libzstd.so.1",
+          "lib/x86_64-linux-gnu/libzstd.so.1"
+        ],
+        "needed": "libzstd.so.1",
+        "to": "usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libkmod.so.2.4.1",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/liblzma.so.5",
+          "lib/x86_64-linux-gnu/liblzma.so.5"
+        ],
+        "needed": "liblzma.so.5",
+        "to": "usr/lib/x86_64-linux-gnu/liblzma.so.5.4.5"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libkmod.so.2.4.1",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libcrypto.so.3",
+          "lib/x86_64-linux-gnu/libcrypto.so.3"
+        ],
+        "needed": "libcrypto.so.3",
+        "to": "usr/lib/x86_64-linux-gnu/libcrypto.so.3"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libkmod.so.2.4.1",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/liblz4.so.1.9.4",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libmount.so.1.1.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libblkid.so.1",
+          "lib/x86_64-linux-gnu/libblkid.so.1"
+        ],
+        "needed": "libblkid.so.1",
+        "to": "usr/lib/x86_64-linux-gnu/libblkid.so.1.1.0"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libmount.so.1.1.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libselinux.so.1",
+          "lib/x86_64-linux-gnu/libselinux.so.1"
+        ],
+        "needed": "libselinux.so.1",
+        "to": "usr/lib/x86_64-linux-gnu/libselinux.so.1"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libmount.so.1.1.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libcrypto.so.3",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libpam.so.0.85.1",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libaudit.so.1",
+          "lib/x86_64-linux-gnu/libaudit.so.1"
+        ],
+        "needed": "libaudit.so.1",
+        "to": "usr/lib/x86_64-linux-gnu/libaudit.so.1.0.0"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libpam.so.0.85.1",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libseccomp.so.2.5.5",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libselinux.so.1",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libpcre2-8.so.0",
+          "lib/x86_64-linux-gnu/libpcre2-8.so.0"
+        ],
+        "needed": "libpcre2-8.so.0",
+        "to": "usr/lib/x86_64-linux-gnu/libpcre2-8.so.0.11.2"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libselinux.so.1",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libselinux.so.1",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+          "lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+        ],
+        "needed": "ld-linux-x86-64.so.2",
+        "to": "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/liblzma.so.5.4.5",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libm.so.6",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libm.so.6",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+          "lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+        ],
+        "needed": "ld-linux-x86-64.so.2",
+        "to": "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libmnl.so.0.2.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libnftnl.so.11.6.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libmnl.so.0",
+          "lib/x86_64-linux-gnu/libmnl.so.0"
+        ],
+        "needed": "libmnl.so.0",
+        "to": "usr/lib/x86_64-linux-gnu/libmnl.so.0.2.0"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libnftnl.so.11.6.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libxtables.so.12.7.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libjansson.so.4.14.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libgmp.so.10.5.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libtinfo.so.6.4",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libbsd.so.0.12.1",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libmd.so.0",
+          "lib/x86_64-linux-gnu/libmd.so.0"
+        ],
+        "needed": "libmd.so.0",
+        "to": "usr/lib/x86_64-linux-gnu/libmd.so.0.1.0"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libbsd.so.0.12.1",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libgpg-error.so.0.34.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libaudit.so.1.0.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libcap-ng.so.0",
+          "lib/x86_64-linux-gnu/libcap-ng.so.0"
+        ],
+        "needed": "libcap-ng.so.0",
+        "to": "usr/lib/x86_64-linux-gnu/libcap-ng.so.0.0.0"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libaudit.so.1.0.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libpcre2-8.so.0.11.2",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libmd.so.0.1.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libcap-ng.so.0.0.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "lib/x86_64-linux-gnu/libc.so.6"
+        ],
+        "needed": "libc.so.6",
+        "to": "usr/lib/x86_64-linux-gnu/libc.so.6"
+      },
+      {
+        "from": "usr/lib/x86_64-linux-gnu/libcap-ng.so.0.0.0",
+        "kind": "library",
+        "matched_paths": [
+          "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+          "lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+        ],
+        "needed": "ld-linux-x86-64.so.2",
+        "to": "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+      }
+    ],
+    "nodes": {
+      "usr/lib/systemd/systemd-networkd": {
+        "bytes": 1669864,
+        "elf": {
+          "interpreter": "/lib64/ld-linux-x86-64.so.2",
+          "needed": [
+            "libsystemd-shared-255.so",
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [
+            "/usr/lib/x86_64-linux-gnu/systemd"
+          ],
+          "soname": []
+        },
+        "sha256": "e4ab77a36ee958f052b0100b60583716904a393159227e1e895469199e1fd8f9",
+        "source": {
+          "archive_member": "usr/lib/systemd/systemd-networkd",
+          "archive_sha256": "ba37e7dc1e33690d94a1063543d27f9b17c013a20791c3315b2423fbf9e7ae7b",
+          "package": "systemd"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2": {
+        "bytes": 236616,
+        "elf": {
+          "interpreter": "",
+          "needed": [],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "ld-linux-x86-64.so.2"
+          ]
+        },
+        "sha256": "c20a2dc8917c755f02b94049356320fe1f62ac7d9f8994731f807d9df39302da",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+          "archive_sha256": "ff5557d99b51f761c4b7c92368b9cc45565eda17df9bf9eb4b134d09825008be",
+          "package": "libc6"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libacl.so.1.1.2302": {
+        "bytes": 38984,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libacl.so.1"
+          ]
+        },
+        "sha256": "1f5247285409ec89990e9fe384d78dfb2ae6ec8e210a2657073babc8d6b7e54f",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libacl.so.1.1.2302",
+          "archive_sha256": "f2bfd3f8f00413d5f1f04fc723063803c56ac0f1e0efae3bc41f2d7276972ec3",
+          "package": "libacl1"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libaudit.so.1.0.0": {
+        "bytes": 133200,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libcap-ng.so.0",
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libaudit.so.1"
+          ]
+        },
+        "sha256": "36b5b7a7f0cb3ef3bddd3501f5c3fce38f200b20804993c0a249171ba7881d17",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libaudit.so.1.0.0",
+          "archive_sha256": "326a55fce45a620f12b98baf581fb037eb0fcea1ab3969c54cf177f51be8abfe",
+          "package": "libaudit1"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libblkid.so.1.1.0": {
+        "bytes": 236592,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libblkid.so.1"
+          ]
+        },
+        "sha256": "9c3860ffab5422410ff9e073d3e82267f00bc68ff1248cbb191640ee2ff045bc",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libblkid.so.1.1.0",
+          "archive_sha256": "3bcf169cd65e2539059b2287924090fc629f9bf90f595fc25465a7efe950ee82",
+          "package": "libblkid1"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libbsd.so.0.12.1": {
+        "bytes": 80888,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libmd.so.0",
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libbsd.so.0"
+          ]
+        },
+        "sha256": "e86cd4f0019f42c2ba5e60602e0edc8694d2948377d98c3654d0f6bddb5254bb",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libbsd.so.0.12.1",
+          "archive_sha256": "f3857b0863ac5cfd4263e9bf6cfb1d4be88d5321e4070d5bc2b62b0949e6c86f",
+          "package": "libbsd0"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libc.so.6": {
+        "bytes": 2129424,
+        "elf": {
+          "interpreter": "/lib64/ld-linux-x86-64.so.2",
+          "needed": [
+            "ld-linux-x86-64.so.2"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libc.so.6"
+          ]
+        },
+        "sha256": "3a15d66867d83762c7f2f1e37359cb8f6c5743edb369c65285cb0b1c4f7498bf",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libc.so.6",
+          "archive_sha256": "ff5557d99b51f761c4b7c92368b9cc45565eda17df9bf9eb4b134d09825008be",
+          "package": "libc6"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libcap-ng.so.0.0.0": {
+        "bytes": 26848,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libc.so.6",
+            "ld-linux-x86-64.so.2"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libcap-ng.so.0"
+          ]
+        },
+        "sha256": "25349c22956c7af94f46e728d7e4c1eba57d0e4a0517f72781fb495d541eeef3",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libcap-ng.so.0.0.0",
+          "archive_sha256": "cf1e9437ac7ddf6539dbe87b68858cbdef84d78c6aac243ab3b6e564a52ed930",
+          "package": "libcap-ng0"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libcap.so.2.66": {
+        "bytes": 51536,
+        "elf": {
+          "interpreter": "/lib64/ld-linux-x86-64.so.2",
+          "needed": [
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libcap.so.2"
+          ]
+        },
+        "sha256": "6ac6abc86ac891c6e13486470e26f1d939f47fda9e6b5d5508a7f5ec881adc84",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libcap.so.2.66",
+          "archive_sha256": "23c627c77c66552a658e62852f244f4946dc543898e0ec5428d5dc6bffde2d6a",
+          "package": "libcap2"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libcrypt.so.1.1.0": {
+        "bytes": 198664,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libcrypt.so.1"
+          ]
+        },
+        "sha256": "1502636e3be8232c9cf801dfb533694aea985d449904f3e1295db26d7b348946",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libcrypt.so.1.1.0",
+          "archive_sha256": "9474785cd6f398512bf8c305c3901dbb111569dccb6f5832002373c0a8ac5832",
+          "package": "libcrypt1"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libcrypto.so.3": {
+        "bytes": 5309400,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libcrypto.so.3"
+          ]
+        },
+        "sha256": "6866ed711dab8927e1bf82bf1cd30e828bdfc34f3cc1e83b1c9eb01ce6c37d9a",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libcrypto.so.3",
+          "archive_sha256": "219f43b1cd836a4da550938db5fda93160d269d39a4edcf1f1ce698a470db797",
+          "package": "libssl3t64"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libedit.so.2.0.72": {
+        "bytes": 220472,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libtinfo.so.6",
+            "libbsd.so.0",
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libedit.so.2"
+          ]
+        },
+        "sha256": "195c607216f8581dbf516346ed38f4c73500cac4b84e18eb0a4fd49931e4cd56",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libedit.so.2.0.72",
+          "archive_sha256": "3afbc8ddf835049dd4d88275b9d13680e4c4cdd59e191cbd63424152cc08e00e",
+          "package": "libedit2"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libgcrypt.so.20.4.3": {
+        "bytes": 1345072,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libgpg-error.so.0",
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libgcrypt.so.20"
+          ]
+        },
+        "sha256": "6ad6d7007ee1ad8319eb18ba9a512cf09dda49396a303774c68b47477020bad4",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libgcrypt.so.20.4.3",
+          "archive_sha256": "957b9eeaa83cf6f2d5d5d76dbb8aa31d3297e6781d8a02fa08dcc897ae650a0b",
+          "package": "libgcrypt20"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libgmp.so.10.5.0": {
+        "bytes": 534896,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libgmp.so.10"
+          ]
+        },
+        "sha256": "0ccdfb6d6f5c039465f6d002cf7e4c072d48ac6a2cffc8dd6c748dec31592804",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libgmp.so.10.5.0",
+          "archive_sha256": "285f8a505dfa8e1b33f357a9d8d3477ad35bf18c0b34771a6df4c25923f3ae0d",
+          "package": "libgmp10"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libgpg-error.so.0.34.0": {
+        "bytes": 149760,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libgpg-error.so.0"
+          ]
+        },
+        "sha256": "6cb18a007bfcb623029f4528a36b46578fea7dc34c2b505b8e6e0d99e6348cd1",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libgpg-error.so.0.34.0",
+          "archive_sha256": "93654ee8180a73a0363f25c51dc673d67cbabcbecd164187b8a2deb54d007aef",
+          "package": "libgpg-error0"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libjansson.so.4.14.0": {
+        "bytes": 64008,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libjansson.so.4"
+          ]
+        },
+        "sha256": "c49935a4b3ac599064281b1f257576087806d0dad7ec46f353bd983b052c5e26",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libjansson.so.4.14.0",
+          "archive_sha256": "0cf79113f5d193ce9af2be2ff4b2c3b30dd4e55a0b6c47f7d28f6c849ff3aa60",
+          "package": "libjansson4"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libkmod.so.2.4.1": {
+        "bytes": 112792,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libzstd.so.1",
+            "liblzma.so.5",
+            "libcrypto.so.3",
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libkmod.so.2"
+          ]
+        },
+        "sha256": "6108903e15200313fd0bb71bb7e17d8fb8d01a01fa7f3dd1649d4f0c6187c8d3",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libkmod.so.2.4.1",
+          "archive_sha256": "a9cbdc424bc0a5c8af3d6445488a48de76df5ff4d76b7dab8aaf88f712358bbc",
+          "package": "libkmod2"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/liblz4.so.1.9.4": {
+        "bytes": 137440,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "liblz4.so.1"
+          ]
+        },
+        "sha256": "40bffd0a098387368b16b992abd5f7cf43c0fa2f05cabe5a6d483719554adfda",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/liblz4.so.1.9.4",
+          "archive_sha256": "319331270d5cc52d5ebffe51c941d7b01b432bc402c2924b557209a64d4ecbad",
+          "package": "liblz4-1"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/liblzma.so.5.4.5": {
+        "bytes": 202904,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "liblzma.so.5"
+          ]
+        },
+        "sha256": "696e868dd0700a19a6d65fc01608ec2d70d3cb91f65710e89180cd2e688f30cb",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/liblzma.so.5.4.5",
+          "archive_sha256": "d2eabd41ca77d2c2dd9d5d4ef478cccb64ffde6279c47cf4699a857d46785a52",
+          "package": "liblzma5"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libm.so.6": {
+        "bytes": 952616,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libc.so.6",
+            "ld-linux-x86-64.so.2"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libm.so.6"
+          ]
+        },
+        "sha256": "fce00b6f25f459cf4ae0b7fae4257909a1a8a86f9149e7c029a5d617baf1ccd0",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libm.so.6",
+          "archive_sha256": "ff5557d99b51f761c4b7c92368b9cc45565eda17df9bf9eb4b134d09825008be",
+          "package": "libc6"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libmd.so.0.1.0": {
+        "bytes": 55536,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libmd.so.0"
+          ]
+        },
+        "sha256": "423e18586b6ea740f4465afd64f7a9a4cb7264ed979c8e7256f9085af5345fef",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libmd.so.0.1.0",
+          "archive_sha256": "e5ba01d3c41f256aaf57ec59aa0554857162e3e7f97cdfbff1ed2c0e8d720ee7",
+          "package": "libmd0"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libmnl.so.0.2.0": {
+        "bytes": 26776,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libmnl.so.0"
+          ]
+        },
+        "sha256": "a166aeee69e4b89b3cdb94e9b4cf1391081c1d141e19d24f1964e76990a18435",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libmnl.so.0.2.0",
+          "archive_sha256": "5170658bf0eaf54a8c7d53061ca6b47a6cf33a83543a75fa521de7046cb7197a",
+          "package": "libmnl0"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libmount.so.1.1.0": {
+        "bytes": 309960,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libblkid.so.1",
+            "libselinux.so.1",
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libmount.so.1"
+          ]
+        },
+        "sha256": "7472255ae5799059b37ddd544788f5665dbd3e1cb78259f52180293039efc2a5",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libmount.so.1.1.0",
+          "archive_sha256": "8f2c25589f187dacfdc5bb6be2af0aee6c2ba7b4d2edd1ca4b26753469f07aae",
+          "package": "libmount1"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libnftables.so.1.1.0": {
+        "bytes": 976016,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libmnl.so.0",
+            "libnftnl.so.11",
+            "libxtables.so.12",
+            "libjansson.so.4",
+            "libgmp.so.10",
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libnftables.so.1"
+          ]
+        },
+        "sha256": "992de9571a44b904f0f55626160bdd60b690227cbffb8b7f962b0950e22bead3",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libnftables.so.1.1.0",
+          "archive_sha256": "fcaee001747a6adaa0cd9337fef437b3aa7a7a6d5246b62fbd4784d3d6a5009e",
+          "package": "libnftables1"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libnftnl.so.11.6.0": {
+        "bytes": 203608,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libmnl.so.0",
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libnftnl.so.11"
+          ]
+        },
+        "sha256": "31de1bbd42e0976d6fbde5cc8b805036189506d092dd0964dc8547b2e2ad57e5",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libnftnl.so.11.6.0",
+          "archive_sha256": "e5bde5c9cbb95082700011f0b7ef2c0a41900b0a9fd7434f6e90448e2a7b4e50",
+          "package": "libnftnl11"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libpam.so.0.85.1": {
+        "bytes": 67888,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libaudit.so.1",
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libpam.so.0"
+          ]
+        },
+        "sha256": "9e1c85dcceeedd56568874afa04c52bbd051fb8bac52c3e1f5feeb1eed14238a",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libpam.so.0.85.1",
+          "archive_sha256": "1d7f54e77f0455ab5e607cd5e78b576801d8efdc66115e02cf3c6e708d093667",
+          "package": "libpam0g"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libpcre2-8.so.0.11.2": {
+        "bytes": 625344,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libpcre2-8.so.0"
+          ]
+        },
+        "sha256": "e00576d71d81d3ba0cfa4903c835a44a8723aac96f72f79ff75200b4cff9071b",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libpcre2-8.so.0.11.2",
+          "archive_sha256": "110a797a57673d3ee497a141cf988199258058c57525799c63194d81822529a0",
+          "package": "libpcre2-8-0"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libseccomp.so.2.5.5": {
+        "bytes": 125360,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libseccomp.so.2"
+          ]
+        },
+        "sha256": "b4d9140a7797ccf3ac14f5d9d579b64f157111662940cb8330c632b11a8cea8e",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libseccomp.so.2.5.5",
+          "archive_sha256": "33fc96f1e008d27c042a3db9bcd16f7f4d49e866f7a3141b758a799328dbdc3f",
+          "package": "libseccomp2"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libselinux.so.1": {
+        "bytes": 174472,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libpcre2-8.so.0",
+            "libc.so.6",
+            "ld-linux-x86-64.so.2"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libselinux.so.1"
+          ]
+        },
+        "sha256": "0ec0843463f90e227b0e138e1f379774f50b5514bd7f5dbd4c8a87aca0aa6670",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libselinux.so.1",
+          "archive_sha256": "6abaa6c26f46ef17764c4a753e0e84de1cdadde5634fd2987621fdc617988d19",
+          "package": "libselinux1"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libtinfo.so.6.4": {
+        "bytes": 208328,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libtinfo.so.6"
+          ]
+        },
+        "sha256": "e6089d7bb95eee5b545f3770dd69095b0bca47d26701cad145af429561d16306",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libtinfo.so.6.4",
+          "archive_sha256": "b67a6df2bdab61d273eabebd208bb6a3fb12618a390a067e1ee305a409ff03d9",
+          "package": "libtinfo6"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libxtables.so.12.7.0": {
+        "bytes": 67656,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libxtables.so.12"
+          ]
+        },
+        "sha256": "e971495b2fcde36e24ed71636f085f8e2e3f5eacdf81e76c8d1cecf496dfd60f",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libxtables.so.12.7.0",
+          "archive_sha256": "c94063499d1b0b336f39607107efb7de95d52a5d4e7e6a9368a5f7308f05b714",
+          "package": "libxtables12"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5": {
+        "bytes": 755864,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libzstd.so.1"
+          ]
+        },
+        "sha256": "0a2128bc10841fb29e76d08d945864dfb0b6a66da5df6df5d8299197439e54bb",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/libzstd.so.1.5.5",
+          "archive_sha256": "dfcf25061e07aad7efd3f4f880ba5ad4d4d09ebe7fc8cc77ab6b8a161d6d4727",
+          "package": "libzstd1"
+        }
+      },
+      "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so": {
+        "bytes": 3755032,
+        "elf": {
+          "interpreter": "",
+          "needed": [
+            "libacl.so.1",
+            "libblkid.so.1",
+            "libcap.so.2",
+            "libcrypt.so.1",
+            "libgcrypt.so.20",
+            "libkmod.so.2",
+            "liblz4.so.1",
+            "libmount.so.1",
+            "libcrypto.so.3",
+            "libpam.so.0",
+            "libseccomp.so.2",
+            "libselinux.so.1",
+            "liblzma.so.5",
+            "libzstd.so.1",
+            "libm.so.6",
+            "libc.so.6",
+            "ld-linux-x86-64.so.2"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": [
+            "libsystemd-shared-255.so"
+          ]
+        },
+        "sha256": "cdc32d0d168e15bcf35707fb8b35a79a0326337a44c1b9306ae97c9f4cde22b6",
+        "source": {
+          "archive_member": "usr/lib/x86_64-linux-gnu/systemd/libsystemd-shared-255.so",
+          "archive_sha256": "20210e06618cfc824b19ebc0e2163d72cd57509d947fa71aad8d53d78b808caa",
+          "package": "libsystemd-shared"
+        }
+      },
+      "usr/sbin/nft": {
+        "bytes": 26856,
+        "elf": {
+          "interpreter": "/lib64/ld-linux-x86-64.so.2",
+          "needed": [
+            "libnftables.so.1",
+            "libedit.so.2",
+            "libc.so.6"
+          ],
+          "rpath": [],
+          "runpath": [],
+          "soname": []
+        },
+        "sha256": "3f1c21553e62716ef1abfcf31f51ff94eb73ff4234a6653bac754a42f936d1c7",
+        "source": {
+          "archive_member": "usr/sbin/nft",
+          "archive_sha256": "d648859fccde3c17b8b9b89993427564f91f394a39306db1f67bd5ea3ac42c6e",
+          "package": "nftables"
+        }
+      }
+    },
+    "resolution_policy": "unique-explicit-virtual-paths-v1"
+  },
+  "hardware_validated": false,
+  "image_modified": false,
+  "indexes": [
+    {
+      "base_url": "https://archive.ubuntu.com/ubuntu/",
+      "bytes": 1401160,
+      "encoding": "xz",
+      "file": "noble-main.xz",
+      "id": "noble-main",
+      "index_path": "main/binary-amd64/Packages.xz",
+      "inrelease_sha256": "cdb2f31d809f589719a53c6ad15f255b27569c4059542ada282aaa21b8e164b0",
+      "inrelease_url": "https://archive.ubuntu.com/ubuntu/dists/noble/InRelease",
+      "release_sha256": "26758a13cecfaff9ff274d31ea9a4633674a999bd130c09f6ecd66a4b8071184",
+      "sha256": "2a6a199e1031a5c279cb346646d594993f35b1c03dd4a82aaa0323980dd92451",
+      "signer_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C"
+    },
+    {
+      "base_url": "https://archive.ubuntu.com/ubuntu/",
+      "bytes": 1397104,
+      "encoding": "xz",
+      "file": "noble-updates-main.xz",
+      "id": "noble-updates-main",
+      "index_path": "main/binary-amd64/Packages.xz",
+      "inrelease_sha256": "4fd8f772d483cb011bf899a9e1a20c38c7dec90fbc21bf5083d4ada6b7d9120b",
+      "inrelease_url": "https://archive.ubuntu.com/ubuntu/dists/noble-updates/InRelease",
+      "release_sha256": "d9f7b934e18de77f3c2a1a53a0946a3e2811939ab350d510bcc8fe6630fdf9bc",
+      "sha256": "a398e4efccd241c15ea24a92e1aedfbb853f9e9100e73de9f6bc6f1d5b2581fa",
+      "signer_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C"
+    },
+    {
+      "base_url": "https://security.ubuntu.com/ubuntu/",
+      "bytes": 1145224,
+      "encoding": "xz",
+      "file": "noble-security-main.xz",
+      "id": "noble-security-main",
+      "index_path": "main/binary-amd64/Packages.xz",
+      "inrelease_sha256": "e00f2d7bfccf4a8b3696a59ea67dfb5cfbfdb7a982a9739422d46c73a2c1ab28",
+      "inrelease_url": "https://security.ubuntu.com/ubuntu/dists/noble-security/InRelease",
+      "release_sha256": "c419294bcad1380bcc2b1384be3a543f77780a3576f7782a76e3ca0b69177f60",
+      "sha256": "56fced0c1afb3913feb985c22a55f8a567d71a2498a1c73d5093c83e4e9c7b0d",
+      "signer_fingerprint": "F6ECB3762474EDA9D21B7022871920D1991BC93C"
+    }
+  ],
+  "inventory_sha256": "468282f9bdd630fa8c647ab4481b226016c79cfb7ad96d1c82c9d16e7c75aa2e",
+  "kernel_network_verified": false,
+  "lock_sha256": "f3162aeab969aba9a99d3dc96ddeb80b7ee808b55b126762710a08269e182de8",
+  "maintainer_scripts_executed": false,
+  "network_activated": false,
+  "package_binaries_executed": false,
+  "packages": [
+    {
+      "Architecture": "amd64",
+      "Breaks": "debian-security-support (<< 2019.04.25), initscripts (<< 2.88dsf-13.3), sendfile (<< 2.1b.20080616-5.2~), ubuntu-server (<< 1.453)",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.34), libcrypt1 (>= 1:4.4.10-10ubuntu3)",
+      "Essential": "yes",
+      "Filename": "pool/main/b/base-files/base-files_13ubuntu10.5_amd64.deb",
+      "Multi-Arch": "foreign",
+      "Package": "base-files",
+      "Pre-Depends": "awk",
+      "Provides": "base, usr-is-merged",
+      "SHA256": "87e8c41e62f61625fb78a982d0bc0a70f40ef8375bc313b154914d1b3759c823",
+      "Size": "73220",
+      "Version": "13ubuntu10.5",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.38)",
+      "Essential": "",
+      "Filename": "pool/main/a/acl/libacl1_2.3.2-1build1.1_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libacl1",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "f2bfd3f8f00413d5f1f04fc723063803c56ac0f1e0efae3bc41f2d7276972ec3",
+      "Size": "16792",
+      "Version": "2.3.2-1build1.1",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libaudit-common (>= 1:3.1.2-2.1ubuntu0.1), libc6 (>= 2.38), libcap-ng0 (>= 0.7.9)",
+      "Essential": "",
+      "Filename": "pool/main/a/audit/libaudit1_3.1.2-2.1ubuntu0.1_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libaudit1",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "326a55fce45a620f12b98baf581fb037eb0fcea1ab3969c54cf177f51be8abfe",
+      "Size": "47082",
+      "Version": "1:3.1.2-2.1ubuntu0.1",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.38)",
+      "Essential": "",
+      "Filename": "pool/main/u/util-linux/libblkid1_2.39.3-9ubuntu6.6_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libblkid1",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "3bcf169cd65e2539059b2287924090fc629f9bf90f595fc25465a7efe950ee82",
+      "Size": "124124",
+      "Version": "2.39.3-9ubuntu6.6",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.38), libmd0 (>= 1.0.3-2)",
+      "Essential": "",
+      "Filename": "pool/main/libb/libbsd/libbsd0_0.12.1-1build1.1_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libbsd0",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "f3857b0863ac5cfd4263e9bf6cfb1d4be88d5321e4070d5bc2b62b0949e6c86f",
+      "Size": "41238",
+      "Version": "0.12.1-1build1.1",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "chrony (<< 4.2-3~), cyrus-imapd (<< 3.6.1-2ubuntu1), fakechroot (<< 2.19-3.5), firefox (<< 91~), firefox-esr (<< 91~), gnumach-image-1.8-486 (<< 2:1.8+git20210923~), gnumach-image-1.8-486-dbg (<< 2:1.8+git20210923~), gnumach-image-1.8-xen-486 (<< 2:1.8+git20210923~), gnumach-image-1.8-xen-486-dbg (<< 2:1.8+git20210923~), hurd (<< 1:0.9.git20220301-2), locales (<< 2.39), locales-all (<< 2.39), nscd (<< 2.39), python3-iptables (<< 1.0.0-2), scipy (<< 1.10.1-10build1), tinydns (<< 1:1.05-14), valgrind (<< 1:3.19.0-1~)",
+      "Conflicts": "",
+      "Depends": "libgcc-s1",
+      "Essential": "",
+      "Filename": "pool/main/g/glibc/libc6_2.39-0ubuntu8.9_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libc6",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "ff5557d99b51f761c4b7c92368b9cc45565eda17df9bf9eb4b134d09825008be",
+      "Size": "3264314",
+      "Version": "2.39-0ubuntu8.9",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.38)",
+      "Essential": "",
+      "Filename": "pool/main/libc/libcap-ng/libcap-ng0_0.8.4-2build2_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libcap-ng0",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "cf1e9437ac7ddf6539dbe87b68858cbdef84d78c6aac243ab3b6e564a52ed930",
+      "Size": "15180",
+      "Version": "0.8.4-2build2",
+      "index": "noble-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.38)",
+      "Essential": "",
+      "Filename": "pool/main/libc/libcap2/libcap2_2.66-5ubuntu2.4_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libcap2",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "23c627c77c66552a658e62852f244f4946dc543898e0ec5428d5dc6bffde2d6a",
+      "Size": "30500",
+      "Version": "1:2.66-5ubuntu2.4",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "libpam0g (<< 1.4.0-10)",
+      "Depends": "libc6 (>= 2.38)",
+      "Essential": "",
+      "Filename": "pool/main/libx/libxcrypt/libcrypt1_4.4.36-4build1_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libcrypt1",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "9474785cd6f398512bf8c305c3901dbb111569dccb6f5832002373c0a8ac5832",
+      "Size": "82302",
+      "Version": "1:4.4.36-4build1",
+      "index": "noble-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libbsd0 (>= 0.1.3), libc6 (>= 2.38), libtinfo6 (>= 6)",
+      "Essential": "",
+      "Filename": "pool/main/libe/libedit/libedit2_3.1-20230828-1build1_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libedit2",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "3afbc8ddf835049dd4d88275b9d13680e4c4cdd59e191cbd63424152cc08e00e",
+      "Size": "97586",
+      "Version": "3.1-20230828-1build1",
+      "index": "noble-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.38), libgpg-error0 (>= 1.27)",
+      "Essential": "",
+      "Filename": "pool/main/libg/libgcrypt20/libgcrypt20_1.10.3-2ubuntu0.2_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libgcrypt20",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "957b9eeaa83cf6f2d5d5d76dbb8aa31d3297e6781d8a02fa08dcc897ae650a0b",
+      "Size": "536494",
+      "Version": "1.10.3-2ubuntu0.2",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "postgresql-pgmp (<< 1.0.3-1)",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.38)",
+      "Essential": "",
+      "Filename": "pool/main/g/gmp/libgmp10_6.3.0+dfsg-2ubuntu6.1_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libgmp10",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "285f8a505dfa8e1b33f357a9d8d3477ad35bf18c0b34771a6df4c25923f3ae0d",
+      "Size": "253460",
+      "Version": "2:6.3.0+dfsg-2ubuntu6.1",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.38)",
+      "Essential": "",
+      "Filename": "pool/main/libg/libgpg-error/libgpg-error0_1.47-3build2.1_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libgpg-error0",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "93654ee8180a73a0363f25c51dc673d67cbabcbecd164187b8a2deb54d007aef",
+      "Size": "70092",
+      "Version": "1.47-3build2.1",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.38)",
+      "Essential": "",
+      "Filename": "pool/main/j/jansson/libjansson4_2.14-2build2_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libjansson4",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "0cf79113f5d193ce9af2be2ff4b2c3b30dd4e55a0b6c47f7d28f6c849ff3aa60",
+      "Size": "32830",
+      "Version": "2.14-2build2",
+      "index": "noble-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.38), liblzma5 (>= 5.4.5-0.2), libssl3t64 (>= 3.0.0), libzstd1 (>= 1.5.5)",
+      "Essential": "",
+      "Filename": "pool/main/k/kmod/libkmod2_31+20240202-2ubuntu7.2_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libkmod2",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "a9cbdc424bc0a5c8af3d6445488a48de76df5ff4d76b7dab8aaf88f712358bbc",
+      "Size": "51830",
+      "Version": "31+20240202-2ubuntu7.2",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "liblz4-1a",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.14)",
+      "Essential": "",
+      "Filename": "pool/main/l/lz4/liblz4-1_1.9.4-1build1.1_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "liblz4-1",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "319331270d5cc52d5ebffe51c941d7b01b432bc402c2924b557209a64d4ecbad",
+      "Size": "63062",
+      "Version": "1.9.4-1build1.1",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "liblzma2 (<< 5.1.1alpha+20110809-3~)",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.34)",
+      "Essential": "",
+      "Filename": "pool/main/x/xz-utils/liblzma5_5.6.1+really5.4.5-1ubuntu0.3_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "liblzma5",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "d2eabd41ca77d2c2dd9d5d4ef478cccb64ffde6279c47cf4699a857d46785a52",
+      "Size": "127352",
+      "Version": "5.6.1+really5.4.5-1ubuntu0.3",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.33)",
+      "Essential": "",
+      "Filename": "pool/main/libm/libmd/libmd0_1.1.0-2build1.1_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libmd0",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "e5ba01d3c41f256aaf57ec59aa0554857162e3e7f97cdfbff1ed2c0e8d720ee7",
+      "Size": "26976",
+      "Version": "1.1.0-2build1.1",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.14)",
+      "Essential": "",
+      "Filename": "pool/main/libm/libmnl/libmnl0_1.0.5-2build1_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libmnl0",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "5170658bf0eaf54a8c7d53061ca6b47a6cf33a83543a75fa521de7046cb7197a",
+      "Size": "12272",
+      "Version": "1.0.5-2build1",
+      "index": "noble-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libblkid1 (>= 2.17.2), libc6 (>= 2.38), libselinux1 (>= 3.1~)",
+      "Essential": "",
+      "Filename": "pool/main/u/util-linux/libmount1_2.39.3-9ubuntu6.6_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libmount1",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "8f2c25589f187dacfdc5bb6be2af0aee6c2ba7b4d2edd1ca4b26753469f07aae",
+      "Size": "134082",
+      "Version": "2.39.3-9ubuntu6.6",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.38), libgmp10 (>= 2:6.3.0+dfsg), libjansson4 (>= 2.14), libmnl0 (>= 1.0.3-4~), libnftnl11 (>= 1.2.6), libxtables12 (>= 1.6.0+snapshot20161117)",
+      "Essential": "",
+      "Filename": "pool/main/n/nftables/libnftables1_1.0.9-1ubuntu0.1_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libnftables1",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "fcaee001747a6adaa0cd9337fef437b3aa7a7a6d5246b62fbd4784d3d6a5009e",
+      "Size": "358574",
+      "Version": "1.0.9-1ubuntu0.1",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.34), libmnl0 (>= 1.0.3-4~)",
+      "Essential": "",
+      "Filename": "pool/main/libn/libnftnl/libnftnl11_1.2.6-2build1_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libnftnl11",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "e5bde5c9cbb95082700011f0b7ef2c0a41900b0a9fd7434f6e90448e2a7b4e50",
+      "Size": "65986",
+      "Version": "1.2.6-2build1",
+      "index": "noble-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "libpam0t64 (<< 1.5.3-5)",
+      "Conflicts": "",
+      "Depends": "libaudit1 (>= 1:2.2.1), libc6 (>= 2.34), debconf (>= 0.5) | debconf-2.0",
+      "Essential": "",
+      "Filename": "pool/main/p/pam/libpam0g_1.5.3-5ubuntu5.7_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libpam0g",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "1d7f54e77f0455ab5e607cd5e78b576801d8efdc66115e02cf3c6e708d093667",
+      "Size": "68124",
+      "Version": "1.5.3-5ubuntu5.7",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.34)",
+      "Essential": "",
+      "Filename": "pool/main/p/pcre2/libpcre2-8-0_10.42-4ubuntu2.1_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libpcre2-8-0",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "110a797a57673d3ee497a141cf988199258058c57525799c63194d81822529a0",
+      "Size": "226662",
+      "Version": "10.42-4ubuntu2.1",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.4)",
+      "Essential": "",
+      "Filename": "pool/main/libs/libseccomp/libseccomp2_2.5.5-1ubuntu3.1_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libseccomp2",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "33fc96f1e008d27c042a3db9bcd16f7f4d49e866f7a3141b758a799328dbdc3f",
+      "Size": "50424",
+      "Version": "2.5.5-1ubuntu3.1",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.38), libpcre2-8-0 (>= 10.22)",
+      "Essential": "",
+      "Filename": "pool/main/libs/libselinux/libselinux1_3.5-2ubuntu2.1_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libselinux1",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "6abaa6c26f46ef17764c4a753e0e84de1cdadde5634fd2987621fdc617988d19",
+      "Size": "79660",
+      "Version": "3.5-2ubuntu2.1",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "libssl3 (<< 3.0.13-0ubuntu3.16)",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.38)",
+      "Essential": "",
+      "Filename": "pool/main/o/openssl/libssl3t64_3.0.13-0ubuntu3.16_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libssl3t64",
+      "Pre-Depends": "",
+      "Provides": "libssl3 (= 3.0.13-0ubuntu3.16)",
+      "SHA256": "219f43b1cd836a4da550938db5fda93160d269d39a4edcf1f1ce698a470db797",
+      "Size": "1945300",
+      "Version": "3.0.13-0ubuntu3.16",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libacl1 (>= 2.2.23), libapparmor1 (>= 2.13), libaudit1 (>= 1:2.2.1), libblkid1 (>= 2.30.2), libc6 (>= 2.39), libcap2 (>= 1:2.10), libcrypt1 (>= 1:4.4.0), libgcrypt20 (>= 1.10.0), libkmod2 (>= 15), liblz4-1 (>= 0.0~r130), liblzma5 (>= 5.1.1alpha+20120614), libmount1 (>= 2.30), libpam0g (>= 0.99.7.1), libseccomp2 (>= 2.4.1), libselinux1 (>= 3.1~), libssl3t64 (>= 3.0.0), libzstd1 (>= 1.5.5)",
+      "Essential": "",
+      "Filename": "pool/main/s/systemd/libsystemd-shared_255.4-1ubuntu8.18_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libsystemd-shared",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "20210e06618cfc824b19ebc0e2163d72cd57509d947fa71aad8d53d78b808caa",
+      "Size": "2077180",
+      "Version": "255.4-1ubuntu8.18",
+      "index": "noble-security-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "tmux (<< 3.3a-4)",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.34)",
+      "Essential": "",
+      "Filename": "pool/main/n/ncurses/libtinfo6_6.4+20240113-1ubuntu2.2_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libtinfo6",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "b67a6df2bdab61d273eabebd208bb6a3fb12618a390a067e1ee305a409ff03d9",
+      "Size": "108086",
+      "Version": "6.4+20240113-1ubuntu2.2",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.34)",
+      "Essential": "",
+      "Filename": "pool/main/i/iptables/libxtables12_1.8.10-3ubuntu2_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libxtables12",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "c94063499d1b0b336f39607107efb7de95d52a5d4e7e6a9368a5f7308f05b714",
+      "Size": "35704",
+      "Version": "1.8.10-3ubuntu2",
+      "index": "noble-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libc6 (>= 2.34)",
+      "Essential": "",
+      "Filename": "pool/main/libz/libzstd/libzstd1_1.5.5+dfsg2-2build1.1_amd64.deb",
+      "Multi-Arch": "same",
+      "Package": "libzstd1",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "dfcf25061e07aad7efd3f4f880ba5ad4d4d09ebe7fc8cc77ab6b8a161d6d4727",
+      "Size": "299472",
+      "Version": "1.5.5+dfsg2-2build1.1",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "",
+      "Conflicts": "",
+      "Depends": "libnftables1 (= 1.0.9-1ubuntu0.1), libc6 (>= 2.34), libedit2 (>= 3.1-20130611-0)",
+      "Essential": "",
+      "Filename": "pool/main/n/nftables/nftables_1.0.9-1ubuntu0.1_amd64.deb",
+      "Multi-Arch": "",
+      "Package": "nftables",
+      "Pre-Depends": "",
+      "Provides": "",
+      "SHA256": "d648859fccde3c17b8b9b89993427564f91f394a39306db1f67bd5ea3ac42c6e",
+      "Size": "69842",
+      "Version": "1.0.9-1ubuntu0.1",
+      "index": "noble-updates-main"
+    },
+    {
+      "Architecture": "amd64",
+      "Breaks": "dracut (<< 059-5), less (<< 563), sicherboot (<< 0.1.6), systemd-repart (<< 250.2-3~)",
+      "Conflicts": "consolekit, libpam-ck-connector, opensysusers, systemd-shim",
+      "Depends": "libacl1 (>= 2.2.23), libapparmor1 (>= 2.13), libaudit1 (>= 1:2.2.1), libcryptsetup12 (>= 2:2.4), libfdisk1 (>= 2.33), libkmod2 (>= 15), libpam0g (>= 0.99.7.1), libseccomp2 (>= 2.3.1), libsystemd-shared (= 255.4-1ubuntu8.18), libsystemd0 (= 255.4-1ubuntu8.18), systemd-dev (>= 255.4-1ubuntu8.18), mount",
+      "Essential": "",
+      "Filename": "pool/main/s/systemd/systemd_255.4-1ubuntu8.18_amd64.deb",
+      "Multi-Arch": "foreign",
+      "Package": "systemd",
+      "Pre-Depends": "libblkid1 (>= 2.30.2), libc6 (>= 2.39), libcap2 (>= 1:2.10), libgcrypt20 (>= 1.10.0), liblz4-1 (>= 0.0~r122), liblzma5 (>= 5.1.1alpha+20120614), libmount1 (>= 2.30), libselinux1 (>= 3.1~), libssl3t64 (>= 3.0.0), libzstd1 (>= 1.5.5)",
+      "Provides": "systemd-repart (= 255.4-1ubuntu8.18), systemd-sysusers (= 255.4-1ubuntu8.18), systemd-tmpfiles (= 255.4-1ubuntu8.18)",
+      "SHA256": "ba37e7dc1e33690d94a1063543d27f9b17c013a20791c3315b2423fbf9e7ae7b",
+      "Size": "3474856",
+      "Version": "255.4-1ubuntu8.18",
+      "index": "noble-security-main"
+    }
+  ],
+  "result": "pass",
+  "runtime_linkage_validated": false,
+  "schema": "nib.network-static-closure/v1",
+  "scope": "restricted-offline-static-graph-only",
+  "source_hashes": {
+    "cmd/nib-elf-metadata/main.go": "1872b09953dfc81f1879aa15af06a3a850c4a0595c68796af346e65825ce12b6",
+    "go.mod": "fd45c98e6c7131050170af2354a7dbad585e155590c4e26a753dd685bdf3a50b",
+    "host/simulate-guest-apt.py": "ed27b795459a710ce56457645be24ba6526c57662fde0641c4415865c277c38c",
+    "image/inputs/apt-tools-ubuntu2404.json": "d50d82e2f4e622a7263fdbe1dae0e5fc6b6ffa6806cf215144f0bcd31a97f6f2",
+    "image/inputs/guest-runtime-ubuntu2404.json": "f3162aeab969aba9a99d3dc96ddeb80b7ee808b55b126762710a08269e182de8",
+    "image/inputs/r595-ubuntu2404.json": "ea8a93155131f15d460f6b3c147063e672e718d027366ab6c53c4264066a8883",
+    "internal/elfmeta/metadata.go": "975c922145ccffa6eeec494c44288b005c0307a26932261826c8ea3b3495c64a",
+    "scripts/e2e/snapshot.py": "e73a5a1e3ddb7a6e7b20afce39f7c080a0317d78340f224b2bd95f705bccb59c",
+    "scripts/guest_apt_simulation.py": "88c2857ad32e1936d301f4d49f9c2a4ad627ef6377a276de438f8c2260fb5ad7",
+    "scripts/guest_package_inputs.py": "fd8f2e391fd36c2f329c2d271506b4c830fc24219a5d00b86ad25c248bdf2010",
+    "scripts/prepare_guest_packages.py": "9bfbbd8a2b3cc45a0d96863d76212492c9f2ca868acfd5b7fa7613c9f2c0d6e2",
+    "scripts/prepare_guest_tools.py": "11433727d836353032f2d079e990758b1c1f69c98802135aff39e3dfd376da47",
+    "scripts/prepare_network_runtime.py": "f2c8dece691be48a0e01562b8eef92e600d2b5582f4a5edc6f9f153092482330"
+  },
+  "static_graph_closed": true,
+  "symbol_versions_verified": false
+}

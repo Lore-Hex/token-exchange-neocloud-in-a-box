@@ -169,6 +169,14 @@ class ClosureTests(unittest.TestCase):
 
 
 class InputTests(unittest.TestCase):
+    ACTUAL_PACKAGES = (
+        "base-files", "libacl1", "libaudit1", "libblkid1", "libbsd0", "libc6", "libcap-ng0",
+        "libcap2", "libcrypt1", "libedit2", "libgcrypt20", "libgmp10", "libgpg-error0",
+        "libjansson4", "libkmod2", "liblz4-1", "liblzma5", "libmd0", "libmnl0", "libmount1",
+        "libnftables1", "libnftnl11", "libpam0g", "libpcre2-8-0", "libseccomp2", "libselinux1",
+        "libssl3t64", "libsystemd-shared", "libtinfo6", "libxtables12", "libzstd1", "nftables", "systemd",
+    )
+
     def setUp(self):
         self.lock = json.loads((ROOT / p.LOCK).read_bytes())
         self.names = ["systemd", "nftables", "libc6"]
@@ -191,6 +199,31 @@ class InputTests(unittest.TestCase):
             self.assertEqual(items["archives/" + row["SHA256"] + ".deb"], full["repo/pool/" + p.base.package_name(row)])
         self.assertTrue(all("nvidia" not in url for url, _, _ in items.values()))
         self.assertLessEqual(sum(size for _, size, _ in items.values()), 96 << 20)
+
+    def test_actual_33_package_selection_and_exact_upper_boundary(self):
+        names = list(self.ACTUAL_PACKAGES)
+        self.assertEqual(p.MAX_PACKAGES, 33)
+        rows, items = fetch.plan(self.lock, names)
+        self.assertEqual([row["Package"] for row in rows], names)
+        self.assertEqual(len(items), 36)
+        self.assertEqual(sum(int(row["Size"]) for row in rows), 13960658)
+        self.assertEqual(len(p.selection(self.lock, [name for name in names if name != "liblzma5"])), 32)
+        with self.assertRaises(ValueError):
+            p.selection(self.lock, names + ["libapparmor1"])
+        with self.assertRaises(ValueError):
+            fetch.plan(self.lock, names + ["libapparmor1"])
+
+    def test_actual_selection_preserves_byte_object_and_exact_input_limits(self):
+        self.assertEqual((p.MAX_ARCHIVES, p.MAX_OBJECTS), (64 << 20, 128))
+        bad = copy.deepcopy(self.lock)
+        next(row for row in bad["packages"] if row["Package"] == "liblzma5")["Size"] = str(64 << 20)
+        with self.assertRaises(ValueError):
+            p.selection(bad, list(self.ACTUAL_PACKAGES))
+        rows = p.selection(self.lock, list(self.ACTUAL_PACKAGES))
+        lzma_row = next(row for row in rows if row["Package"] == "liblzma5")
+        self.assertEqual((lzma_row["Version"], lzma_row["Size"], lzma_row["SHA256"]),
+                         ("5.6.1+really5.4.5-1ubuntu0.3", "127352",
+                          "d2eabd41ca77d2c2dd9d5d4ef478cccb64ffde6279c47cf4699a857d46785a52"))
 
     def fixture_indexes(self, directory):
         for index in self.lock["indexes"]:
