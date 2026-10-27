@@ -44,7 +44,12 @@ The [original tau2 retail task 2](evidence/p2/2026-10-26-tau-external-retail-pas
 completed with reward **1.0**, 14 agent calls, five simulator calls, one evaluator
 call and zero tool errors. The
 [50-case GSM8K calibration](evidence/p2/2026-10-26-quality-gsm8k-50/README.md)
-scored **50/50** with zero request errors. These selected-case results use the
+scored **50/50** with zero request errors. A
+[200-case MMLU-Pro calibration](evidence/p2/2026-10-27-quality-mmlu-pro-200/README.md)
+scored **171/200 (85.5%)**, counting one output-cap truncation as incorrect.
+The [200-prompt IFEval calibration](evidence/p2/2026-10-27-quality-ifeval-200/README.md)
+scored **87.0% strict / 90.5% loose**, with all requests completed.
+These selected-case results use the
 abliterated checkpoint, not the original DeepSeek weights; they are not a full
 tau2 score, matched-reference quality qualification, or confidential attestation.
 See the [reproducible calibration procedure](docs/tasks/p2-t3-retained-quality.md).
@@ -194,9 +199,10 @@ Software preparation now includes an explicit
 [full original retail-task-2 trial with external support](docs/tasks/p2-t4-tau-external-full-task.md),
 reusing the pinned scorer and preserving actual task reward. The separate
 [first-lookup mode](docs/tasks/p2-t4-tau-external-simulator.md) remains unchanged.
-Neither external mode has live-run evidence; the full-task path requires a
-separately admitted 32K/2048 candidate and execution approval. No full benchmark
-or selected-checkpoint quality claim follows from this preparation.
+The [full-task path now has a passing live trial](evidence/p2/2026-10-26-tau-external-retail-pass/README.md)
+on the retained node with the 32K/2048 request budget and an external simulator.
+The first-lookup mode remains preparation only. One successful retail task is
+not the full benchmark or matched-reference selected-checkpoint qualification.
 
 The earlier [selected tau diagnostic](evidence/p2/2026-10-25-selected-tau-email-relation-0429/README.md)
 failed at the retail customer-email lookup. A bounded boolean records that the

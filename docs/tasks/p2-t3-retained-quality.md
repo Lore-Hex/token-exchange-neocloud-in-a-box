@@ -37,8 +37,10 @@ one retail trial the full tau2 benchmark.
 `scripts/record-quality-calibration.py` uses the exact prompt formatters and
 deterministic scorers in
 [TrustedRouter benchmarks at 92c1f4d](https://github.com/Lore-Hex/trustedrouter-benchmarks/tree/92c1f4dea58e32fa772f8ee77b69cd9d7cf67bac).
-It verifies the tracked benchmark source and records the dataset hash before
-inference. GSM8K and IFEval select the first N cases; MMLU-Pro uses the pinned
+It verifies the immutable benchmark commit and records the dataset hash before
+inference. The import loader compiles those verified source bytes directly;
+cached bytecode and untracked benchmark modules cannot replace the scorer.
+GSM8K and IFEval select the first N cases; MMLU-Pro uses the pinned
 loader's proportional stride. These are selected-case calibrations, not official
 full-suite headline scores. Failures and skipped cases remain in the denominator.
 
@@ -59,3 +61,23 @@ publishes a content-free standard evidence pair. Its `pass` means every selected
 case was evaluated; answer accuracy is reported separately. It rechecks the
 immutable benchmark commit's source tree before publishing a result, validates
 suite-specific scores and usage, and retains failed cases in the denominator.
+Published results retain each request's transmission marker and reconcile
+known and unknown usage totals. A completed answer must have HTTP 200, a stop
+finish reason and usage within the declared request limits. Truncated responses
+receive no credit. CLI validation failures do not echo arbitrary input values.
+
+## October 26-27 results
+
+| Calibration | Measured result | Scope |
+|---|---|---|
+| tau2 | Reward 1.0; zero tool errors | One original retail task, external simulator and evaluator |
+| GSM8K | 50/50 correct | First 50 test cases |
+| MMLU-Pro | 171/200 correct | 200 proportionally selected cases; one truncation counted wrong |
+| IFEval | 174/200 strict; 181/200 loose | First 200 prompts; all requests evaluated |
+
+The [README status](../../README.md#status) links the committed receipts.
+The 450 calibration requests and 20 tau generation calls had known token usage.
+These establish functional and bounded correctness results, not full tau2
+pass^k scores, original-versus-abliterated parity, confidential operation or
+production reliability. Further qualification still requires those separate
+tests and the plan's admission gates.
