@@ -53,6 +53,7 @@ def main():
     planning.add_argument("--domains", nargs="+", choices=("airline", "retail", "telecom"), required=True)
     planning.add_argument("--trials", type=int, required=True)
     planning.add_argument("--seed", type=int, required=True)
+    planning.add_argument("--aggregate-cap-usd")
     for name in ("weekly-cap-usd", "gpu-committed-usd", "cpu-disk-reserved-usd", "other-committed-usd"):
         planning.add_argument("--" + name, required=True)
     prepare = commands.add_parser("prepare")
@@ -88,14 +89,16 @@ def main():
             plan = trial.selection_plan(args.source_archive, args.domains, args.trials, args.seed,
                 {name: getattr(args, name) for name in ("weekly_cap_usd", "gpu_committed_usd",
                                                        "cpu_disk_reserved_usd", "other_committed_usd")},
-                time.monotonic() + 600)
+                time.monotonic() + 600,
+                **({"aggregate_cap_usd": args.aggregate_cap_usd} if args.aggregate_cap_usd is not None else {}))
             digest = trial.tau.digest(trial.tau.encoded(plan))
             envelope = trial.evidence_record(plan["producer_git_sha"], digest, started,
                                              {"result": plan["result"], "ended_utc": trial.now()})
             envelope.update(command="python3 -I -S -B scripts/record-tau-external.py plan --source-archive PRIVATE "
                 "--output PRIVATE --domains " + " ".join(plan["domains"]) + " --trials " + str(args.trials)
                 + " --seed " + str(args.seed) + " " + " ".join("--" + name.replace("_", "-") + " " + value
-                    for name, value in plan["budget"]["inputs"].items()),
+                    for name, value in plan["budget"]["inputs"].items())
+                + (" --aggregate-cap-usd " + args.aggregate_cap_usd if args.aggregate_cap_usd is not None else ""),
                 host={"provider": "local", "machine": "offline-source-preflight", "gpus": "none", "driver": None, "cuda": None},
                 notes="Source-bound staged selection and declared cost reservations only. No upstream execution, "
                       "endpoint calls, spending authorization or quality claim. output.log retains the complete plan.")
