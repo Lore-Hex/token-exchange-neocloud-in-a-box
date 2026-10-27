@@ -240,12 +240,15 @@ class MigrationTests(unittest.TestCase):
         events, saved = self.transaction(True)
         self.assertEqual(events, ["inspect", "baseline.json", "install", "apply", "result.json"])
         self.assertTrue(saved["result.json"]["applied"])
+        self.assertTrue(saved["result.json"]["persistent_policy_verified"])
+        self.assertFalse(saved["result.json"]["effective_unit_mask_verified"])
         events, saved = self.transaction(False)
         self.assertEqual(events, ["inspect", "baseline.json", "result.json"])
         self.assertFalse(saved["result.json"]["applied"])
         self.assertFalse(saved["result.json"]["zdr"])
         self.assertFalse(saved["result.json"]["core_policy_verified"])
         self.assertFalse(saved["result.json"]["persistent_policy_verified"])
+        self.assertFalse(saved["result.json"]["effective_unit_mask_verified"])
 
     def test_baseline_write_failure_blocks_mutation_and_postwrite_failure_retained(self):
         events, saved = self.transaction(True, "baseline")
@@ -254,6 +257,7 @@ class MigrationTests(unittest.TestCase):
         events, saved = self.transaction(True, "install")
         self.assertEqual(events, ["inspect", "baseline.json", "install", "result.json"])
         self.assertEqual(saved["result.json"]["result"], "fail")
+        self.assertFalse(saved["result.json"]["effective_unit_mask_verified"])
         self.assertNotIn("PRIVATE_CANARY", json.dumps(saved))
 
     def test_immutable_private_receipts(self):
@@ -270,12 +274,17 @@ class MigrationTests(unittest.TestCase):
             for path in root.iterdir():
                 self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
-    def test_install_exact_file_and_mask_without_stop(self):
+    def test_install_exact_file_and_disk_mask_without_manager_reload_or_state_claim(self):
         commands = mock.Mock()
-        commands.call.return_value = b"masked\n"
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             root = Path(directory).resolve()
             config = root / "policy.conf"
+            allowed = [["systemctl", "mask", "--no-reload", "apport.service"],
+                       ["/usr/lib/systemd/systemd-sysctl", str(config)]]
+            def call(command, **kwargs):
+                self.assertIn(command, allowed)
+                return b""
+            commands.call.side_effect = call
             stack.enter_context(mock.patch.object(host, "CONFIG", config))
             stack.enter_context(mock.patch.object(host, "MASK", root / "apport.service"))
             stack.enter_context(mock.patch.object(host, "config_bytes", side_effect=lambda:
@@ -286,10 +295,7 @@ class MigrationTests(unittest.TestCase):
             host.install(commands)
             self.assertEqual(config.read_bytes(), core.CONFIG)
             checked.assert_called_once()
-            self.assertEqual([call.args[0] for call in commands.call.call_args_list], [
-                ["systemctl", "mask", "--no-reload", "apport.service"], ["systemctl", "daemon-reload"],
-                ["systemctl", "show", "--property=LoadState", "--value", "apport.service"],
-                ["/usr/lib/systemd/systemd-sysctl", str(config)]])
+            self.assertEqual([call.args[0] for call in commands.call.call_args_list], allowed)
 
     def test_later_sysctl_file_rejected(self):
         context = mock.MagicMock()

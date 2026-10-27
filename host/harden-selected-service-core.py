@@ -150,9 +150,9 @@ def install(commands):
     require(mask_state() == "masked")
     with network.tau_runtime.directory(MASK.parent) as fd:
         os.fsync(fd)
-    commands.call(["systemctl", "daemon-reload"], limit=4096)
-    require(commands.call(["systemctl", "show", "--property=LoadState", "--value", "apport.service"],
-                          limit=128).strip() == b"masked")
+    # Keep the persistent mask without reloading the live manager: a global
+    # reload can change running containers' cgroups and revoke GPU access.
+    # Filesystem verification does not prove the manager has loaded this mask.
     # This explicit file exercises systemd's empty-assignment parser; no --system
     # and no unrelated sysctls. Its writer emits a newline even for an empty value.
     commands.call(["/usr/lib/systemd/systemd-sysctl", str(CONFIG)], limit=4096)
@@ -173,6 +173,7 @@ def execute(state, receipt, commands, apply):
     receipt.save("baseline.json", before)
     result = {"schema": before["schema"], "result": "fail", "applied": False, "apply_requested": apply,
               "core_policy_verified": False, "persistent_policy_verified": False,
+              "effective_unit_mask_verified": False,
               "zdr": False, "confidential": False, "restart_performed": False}
     try:
         require(binding(commands, state, daemon) == selected)
