@@ -39,6 +39,16 @@ onboarding steps; running the toolkit does not automatically list a provider.
 
 ## Status
 
+**Live correctness calibration now runs against the retained ordinary-TLS node.**
+The [original tau2 retail task 2](evidence/p2/2026-10-26-tau-external-retail-pass/README.md)
+completed with reward **1.0**, 14 agent calls, five simulator calls, one evaluator
+call and zero tool errors. The
+[50-case GSM8K calibration](evidence/p2/2026-10-26-quality-gsm8k-50/README.md)
+scored **50/50** with zero request errors. These selected-case results use the
+abliterated checkpoint, not the original DeepSeek weights; they are not a full
+tau2 score, matched-reference quality qualification, or confidential attestation.
+See the [reproducible calibration procedure](docs/tasks/p2-t3-retained-quality.md).
+
 The [1M-context / 384K-output candidate](docs/tasks/p2-t3-million-context.md)
 **passed its finite C1 trial on ordinary 8xB300**
 ([original results](evidence/p2/2026-10-26-selected-million-pass/README.md)):
