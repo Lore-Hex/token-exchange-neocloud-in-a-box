@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import platform
 import re
 import statistics
 import subprocess
@@ -49,6 +50,13 @@ def timestamp(value):
         return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     except Exception:
         raise ValueError("Invalid calibration timestamp") from None
+
+
+def summary_host():
+    system = {"Darwin": "darwin", "Linux": "linux", "Windows": "windows"}.get(platform.system(), "unknown")
+    arch = {"arm64": "arm64", "aarch64": "arm64", "x86_64": "amd64", "AMD64": "amd64"}.get(platform.machine(), "unknown")
+    return {"provider": "local", "machine": "calibration-summarizer-" + system + "-" + arch,
+            "gpus": "not-inspected", "driver": None, "cuda": None}
 
 
 def report(raw):
@@ -136,13 +144,14 @@ def main():
     trial.require(calibration.source(args.trbench_root, record["provenance"]["trbench_revision"])
                   == record["provenance"]["trbench_tree_sha256"])
     root = Path(__file__).resolve().parents[1]
-    revision = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], timeout=10).decode().strip()
-    committed = subprocess.check_output(["git", "-C", str(root), "show", revision + ":scripts/" + Path(__file__).name], timeout=10)
+    revision = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], timeout=10, stderr=subprocess.DEVNULL).decode().strip()
+    committed = subprocess.check_output(["git", "-C", str(root), "show", revision + ":scripts/" + Path(__file__).name], timeout=10, stderr=subprocess.DEVNULL)
     trial.require(committed == Path(__file__).read_bytes())
     envelope = trial.evidence_record(revision, record["source_receipt_sha256"], record["started_utc"], record)
-    envelope.update(command="python3 -I -B scripts/summarize-quality-calibration.py --input PRIVATE --output EVIDENCE --trbench-root PRIVATE",
+    envelope.update(host=summary_host(), command="python3 -I -B scripts/summarize-quality-calibration.py --input PRIVATE --output EVIDENCE --trbench-root PRIVATE",
         notes="Scored selected cases using pinned TrustedRouter formatters and graders against a retained ordinary-TLS "
               "GPU endpoint. Pass means every selected case was evaluated, not every answer correct. "
+              "Host describes the report-producing process, not the inference endpoint. "
               "No full-suite, matched-reference, public-listing or confidential qualification.")
     trial.publish_evidence(args.output, {"run.json": trial.tau.encoded(envelope), "output.log": trial.tau.encoded(record)})
     print(json.dumps({key: record[key] for key in ("suite", "expected", "evaluated", "correct", "prompt_strict", "prompt_loose")}))

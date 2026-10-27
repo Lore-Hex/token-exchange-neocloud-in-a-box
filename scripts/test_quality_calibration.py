@@ -140,6 +140,27 @@ class CalibrationTests(unittest.TestCase):
             self.assertNotEqual(proc.returncode, 0)
             self.assertNotIn(canary.encode(), proc.stdout + proc.stderr)
 
+    def test_git_diagnostics_never_echo_input(self):
+        code = ("import importlib.util,pathlib; "
+                "s=importlib.util.spec_from_file_location('quality', 'scripts/record-quality-calibration.py'); "
+                "q=importlib.util.module_from_spec(s); s.loader.exec_module(q); "
+                "q.source(pathlib.Path('/SYNTHETIC_PRIVATE_PATH_CANARY'),q.REVISION)")
+        # The test driver suppresses its own traceback; only child Git could
+        # emit the raw path even with the production CLI exception wrapper.
+        code = code.replace("q.source(pathlib", "\ntry: q.source(pathlib") + "\nexcept Exception: pass"
+        proc = subprocess.run([sys.executable, "-I", "-B", "-c", code],
+                              cwd=quality.ROOT, capture_output=True, timeout=10)
+        self.assertEqual(proc.returncode, 0)
+        self.assertNotIn(b"CANARY", proc.stdout + proc.stderr)
+
+    def test_summary_host_does_not_invent_a_container(self):
+        with mock.patch.object(summary.platform, "system", return_value="Darwin"), \
+             mock.patch.object(summary.platform, "machine", return_value="arm64"):
+            self.assertEqual(summary.summary_host()["machine"], "calibration-summarizer-darwin-arm64")
+        with mock.patch.object(summary.platform, "system", return_value="PRIVATE_CANARY"), \
+             mock.patch.object(summary.platform, "machine", return_value="PRIVATE_CANARY"):
+            self.assertNotIn("CANARY", json.dumps(summary.summary_host()))
+
     def test_pinned_source_enumeration_cannot_use_empty_index(self):
         with mock.patch.object(quality.subprocess, "check_output", side_effect=[b"a" * 40, b""]) as git:
             with self.assertRaises(ValueError):

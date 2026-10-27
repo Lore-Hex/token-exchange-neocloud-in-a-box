@@ -35,16 +35,16 @@ def digest(raw):
 
 
 def source(root, revision, modules=None):
-    head = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], timeout=10).decode().strip()
+    head = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], timeout=10, stderr=subprocess.DEVNULL).decode().strip()
     worker.require(head == revision)
     names = subprocess.check_output(["git", "-C", str(root), "ls-tree", "-r", "--name-only", revision,
-                                     "--", "trbench", "uv.lock"], timeout=10).decode().splitlines()
+                                     "--", "trbench", "uv.lock"], timeout=10, stderr=subprocess.DEVNULL).decode().splitlines()
     worker.require({"uv.lock", "trbench/__init__.py", "trbench/evals/gsm8k/score.py",
                     "trbench/evals/mmlu_pro/score.py", "trbench/evals/ifeval/vendor/evaluation_lib.py"} <= set(names))
     hashes = {}
     for name in names:
         path = root / name
-        committed = subprocess.check_output(["git", "-C", str(root), "show", revision + ":" + name], timeout=10)
+        committed = subprocess.check_output(["git", "-C", str(root), "show", revision + ":" + name], timeout=10, stderr=subprocess.DEVNULL)
         worker.require(path.is_file() and not path.is_symlink() and path.read_bytes() == committed)
         hashes[name] = digest(committed)
         if modules is not None and name.startswith("trbench/") and name.endswith(".py"):
@@ -221,11 +221,11 @@ def main():
             port=contract["port"], certificate_pem=pem, certificate_sha256=contract["certificate_sha256"])
         counter = tau_external_tokenizer.Counter(args.vllm_source, args.tokenizer, args.tokenizer_wheel, context_tokens=32768)
         key = tau_live_identity.private_read(args.candidate_key, deadline).rstrip(b"\n")
-        revision = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], timeout=10).decode().strip()
+        revision = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], timeout=10, stderr=subprocess.DEVNULL).decode().strip()
         for name in ("record-quality-calibration.py", "bounded_https.py", "tau_external_tokenizer.py",
                      "tau_live_identity.py", "tau_trial_worker.py", "tau_selected_policy.py",
                      "engine_tokenizer_parity.py"):
-            committed = subprocess.check_output(["git", "-C", str(ROOT), "show", revision + ":scripts/" + name], timeout=10)
+            committed = subprocess.check_output(["git", "-C", str(ROOT), "show", revision + ":scripts/" + name], timeout=10, stderr=subprocess.DEVNULL)
             worker.require(committed == (ROOT / "scripts" / name).read_bytes())
         fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         results = []
