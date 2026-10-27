@@ -555,6 +555,19 @@ class OfflineRecorderTests(unittest.TestCase):
                     self.assertEqual(recorder.main(arguments), 1)
                 self.assertEqual(path.read_bytes(), raw)
 
+    def test_packaging_preserves_original_producer_and_receipt_bytes(self):
+        recorder = selections.runner.load("scripts/record-tau-sequential-offline.py")
+        value = {"schema": "nib.tau-sequential-offline/v1", "result": "fail", "producer_git_sha": "a" * 40,
+                 "command_line": "fixed offline command", "started_utc": "2026-10-27T00:00:00Z",
+                 "ended_utc": "2026-10-27T00:01:00Z"}
+        raw = tau.encoded(value)
+        wrapped = recorder.evidence_record(value)
+        self.assertEqual(tau.encoded(value), raw)
+        self.assertEqual(wrapped["git_sha"], "a" * 40)
+        self.assertEqual(wrapped["result"], "fail")
+        self.assertIs(wrapped["hardware_validated"], False)
+        with self.assertRaises(ValueError): recorder.evidence_record({**value, "schema": "unknown"})
+
 
 if __name__ == "__main__":
     unittest.main()

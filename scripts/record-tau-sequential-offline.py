@@ -106,6 +106,18 @@ def replay(args, progress):
             original_task_reward=record["trial"]["trial"]["reward"])
 
 
+def evidence_record(receipt):
+    if receipt["schema"] != "nib.tau-sequential-offline/v1" or receipt["result"] not in ("pass", "fail"):
+        raise ValueError("offline receipt rejected")
+    return {"schema": "nib.evidence/v1", "phase": "P2", "task": "T3", "git_sha": receipt["producer_git_sha"],
+        "command": receipt["command_line"], "started_utc": receipt["started_utc"], "ended_utc": receipt["ended_utc"],
+        "result": receipt["result"], "execution": "software", "hardware_validated": False,
+        "host": {"provider": "local", "machine": "network-disabled-sequential-replay", "gpus": "none", "driver": None, "cuda": None},
+        "notes": "Original pinned telecom worker and serial controller; fixed peers and synthetic counts only. "
+                 "Not quality, measured parity, billing proof, live admission or full tau. "
+                 "Original failed and successful receipts and journals retained without rewriting producer bytes."}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("source-archive", "wheelhouse", "docker-socket", "output", "receipt"):
