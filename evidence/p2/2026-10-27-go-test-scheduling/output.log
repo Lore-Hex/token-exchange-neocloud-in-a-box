@@ -42,7 +42,7 @@
     }
   },
   "hardware_validated": false,
-  "importer_revision": "248d45b5556328de1bc6418482bf91f01ac61e63",
+  "importer_revision": "6c66486bffd09a70b755df1d57e7d586b081e4a4",
   "new_test_execution": false,
   "observation_exit_codes": [
     1,

@@ -1,8 +1,8 @@
 {
   "command": "NIB_BIN=<reviewed-nib> python3 -I scripts/record_go_test_diagnostic.py --input <private-input> --deny-file <private-deny> --output <new-evidence>",
-  "ended_utc": "2026-10-27T18:18:28.644941+00:00",
+  "ended_utc": "2026-10-27T18:20:28Z",
   "execution": "software",
-  "git_sha": "248d45b5556328de1bc6418482bf91f01ac61e63",
+  "git_sha": "6c66486bffd09a70b755df1d57e7d586b081e4a4",
   "hardware_validated": false,
   "host": {
     "cuda": null,
@@ -15,6 +15,6 @@
   "phase": "P2",
   "result": "pass",
   "schema": "nib.evidence/v1",
-  "started_utc": "2026-10-27T18:18:28.085485+00:00",
+  "started_utc": "2026-10-27T18:20:28Z",
   "task": "T3"
 }

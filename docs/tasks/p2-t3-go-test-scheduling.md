@@ -49,6 +49,11 @@ failure's exact stage remains unknown. No retry-until-green was performed.
 
 [Imported evidence](../../evidence/p2/2026-10-27-go-test-scheduling/run.json)
 retains the original failed full gate and both filtered observations.
+The first scheduling-fix gate stopped before Python tests because the import
+used UTC offsets rather than the evidence schema's `Z` timestamps. Its rejected
+record and failure log remain as `schema-rejected-import.json` and
+`schema-failure.log`; the committed recorder now uses the schema's format.
+The seven focused regressions include that exact schema pattern.
 
 `scripts/record_go_test_diagnostic.py` imports only the exact retained inputs,
 scrubbing them through the existing `scripts/scrub-secrets.sh`. It never runs
