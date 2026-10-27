@@ -76,6 +76,9 @@ recorded hardware results, not mocks or a live uptime guarantee.
 These are selected-case calibrations of the abliterated checkpoint, not official
 full-suite scores or a comparison against the original DeepSeek weights. See the
 [reproduction procedure](docs/tasks/p2-t3-retained-quality.md).
+The code-scored runner supports an explicitly bound public HTTPS endpoint or
+the existing test-certificate pin; it never disables TLS verification or calls
+an external judge. See [public HTTPS calibration](docs/tasks/p2-t3-retained-quality.md#public-https-calibration).
 
 ### Still To Finish
 
