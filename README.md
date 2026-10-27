@@ -90,6 +90,8 @@ full-suite scores or a comparison against the original DeepSeek weights. See the
 - **Broader reliability and quality:** full multi-domain tau2, repeated trials,
   original-versus-abliterated comparisons, a completed 24-hour soak and sustained
   mixed-workload testing. Bounded throughput tests are not production SLOs.
+  A [bounded ordinary-serving soak runner](docs/tasks/p2-t4-ordinary-soak.md) is
+  implemented and tested against fakes; no live 24-hour result is claimed.
 - **Remaining plan scope:** the combined 1M/high-concurrency profile, GLM deployment,
   signed confidential releases and the turnkey operator/fleet workflow. See
   [PLAN.md](PLAN.md) for the unchanged phase exit criteria.
