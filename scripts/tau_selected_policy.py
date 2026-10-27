@@ -39,7 +39,7 @@ def is_external_trial(value):
 
 
 def is_staged(value):
-    return type(value) is dict and value.get("schema") == "nib.tau-external-staged-input/v1"
+    return type(value) is dict and value.get("schema") == "nib.tau-external-staged-input/v2"
 
 
 def staged():

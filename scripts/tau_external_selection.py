@@ -8,9 +8,10 @@ import re
 
 import tau_preflight as tau
 
-SCHEMA = "nib.tau-external-selection-plan/v1"
-INPUT_SCHEMA = "nib.tau-external-staged-input/v1"
-TRANSPORT_SCHEMA = "nib.tau-external-staged-transport/v1"
+SCHEMA = "nib.tau-external-selection-plan/v2"
+INPUT_SCHEMA = "nib.tau-external-staged-input/v2"
+TRANSPORT_SCHEMA = "nib.tau-external-staged-transport/v2"
+MAX_ASSERTIONS = 3  # Maximum in the pinned first-five-per-domain smoke selection.
 COUNT_RESERVATION = Decimal("2.095152")
 TRIAL_RESERVATION = COUNT_RESERVATION * 32 + Decimal("3.00")
 BUDGET_KEYS = ("weekly_cap_usd", "gpu_committed_usd", "cpu_disk_reserved_usd", "other_committed_usd")
@@ -70,7 +71,8 @@ def assemble(producer, domains, trials, seed, tasks, source_files, budget_inputs
             for trial, trial_seed in enumerate(seeds):
                 selections.append({"selection": {"domain": domain, "task_id": task_id, "trial": trial,
                                                   "seed": trial_seed, "role": "candidate"},
-                                   "compatibility": "supported-shape" if count == 1 else "unsupported-assertion-shape"})
+                                   "compatibility": "supported-shape" if count is not None and count <= MAX_ASSERTIONS
+                                   else "unsupported-assertion-shape"})
     financial = budget(budget_inputs, len(selections))
     unsupported = sum(row["compatibility"] != "supported-shape" for row in selections)
     return {"schema": SCHEMA, "producer_git_sha": producer, "upstream_revision": tau.REVISION,
@@ -102,9 +104,11 @@ def build(sources, pins, producer, domains, trials, seed, budget_inputs):
         for task_id in ordered[:5]:
             criteria = rows[task_id].get("evaluation_criteria")
             assertions = criteria.get("nl_assertions") if type(criteria) is dict else None
-            counts.append(0 if assertions is None else len(assertions)
+            counts.append(None if criteria is not None and type(criteria) is not dict else
+                          0 if assertions is None else len(assertions)
                           if type(assertions) is list and len(assertions) <= 20000
-                          and all(type(value) is str for value in assertions) else None)
+                          and all(type(value) is str and 0 < len(value.encode()) <= 16384
+                                  for value in assertions) else None)
         tasks[domain] = {"base_count": len(ordered), "task_ids": ordered[:5], "assertion_counts": counts}
     return assemble(producer, domains, trials, seed, tasks, selected_files, budget_inputs)
 
@@ -136,3 +140,15 @@ def selected(stage):
 def binding(stage):
     selected(stage)
     return {"sha256": tau.digest(tau.encoded(stage["plan"])), "index": stage["index"]}
+
+
+def assertion_count(stage):
+    row = selected(stage)
+    tasks = stage["plan"]["domain_tasks"][row["domain"]]
+    return tasks["assertion_counts"][tasks["task_ids"].index(row["task_id"])]
+
+
+def validate_assertions(stage, assertions):
+    tau.require(type(assertions) is list and len(assertions) == assertion_count(stage)
+                and all(type(value) is str and 0 < len(value.encode()) <= 16384 for value in assertions)
+                and len(tau.encoded(assertions)) <= 65536)

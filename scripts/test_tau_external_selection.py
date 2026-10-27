@@ -32,7 +32,7 @@ def fixtures(domains=None, trials=1, inputs=None, unsupported=False):
         tasks = [{"id": str(n), "evaluation_criteria": {"nl_assertions": ["SYNTHETIC_ASSERTION_CANARY"]}}
                  for n in (9, 2, 1, 0, 11, 10)]
         if unsupported:
-            tasks[3]["evaluation_criteria"]["nl_assertions"] = []
+            tasks[3]["evaluation_criteria"]["nl_assertions"] = ["synthetic"] * 4
         name, splits = selection.source_names([domain])
         sources[name] = tau.encoded({"tasks": tasks})
         sources[splits] = tau.encoded({"base": [row["id"] for row in tasks]})
@@ -331,7 +331,7 @@ class SelectionTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     runner.prepare(*args, **kwargs, stage=bad)
 
-    def test_worker_keeps_single_assertion_guard_and_does_not_repair(self):
+    def test_worker_rejects_assertion_count_different_from_frozen_task(self):
         config = configuration(stage(domains=["telecom"]))
         for assertions in ([], ["synthetic", "second"]):
             channel = full.termination.Channel()

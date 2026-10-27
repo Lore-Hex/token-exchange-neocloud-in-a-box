@@ -22,15 +22,44 @@ using the existing task parser. Seeds follow the existing `random.Random(seed)`
 trial-seed policy. Order is domain, task, trial. No hand-picked IDs, replacement
 tasks, reference role, auto-resume, batch executor or automatic retries exist.
 
-The retained selected worker requires exactly one natural-language assertion.
-The plan records zero, multiple or malformed assertion shapes as
-`unsupported-assertion-shape`, retains their rows and reserves their costs. They
-cannot be prepared for execution. Other supported-shape rows may be prepared
+The staged v2 worker supports zero through three natural-language assertions,
+the complete range in this pinned first-five-per-domain selection. Airline has
+counts `1, 1, 1, 3, 2`; retail and telecom each have five zero-assertion tasks.
+The original upstream evaluator skips its LLM judge for zero assertions and
+retains the task's other reward checks. Multiple assertions use the original
+single judge call, with every ordered result required. No assertion, reward
+basis or prompt is added or removed. The original retail-task-2 and CPU/GPU-owner
+paths keep their one-assertion guard.
+
+More than three, malformed or oversized assertion shapes remain
+`unsupported-assertion-shape`; the plan retains their rows and reserves their
+costs. They cannot be prepared for execution. Other supported-shape rows may be prepared
 even when the overall plan records unsupported rows; this is not full staged
 coverage. A shape check is not a claim that a domain or trajectory will work.
 Original unsupported tools, trajectories, token overflow, upstream exceptions
 and scored failures remain failures in the existing content-free receipts.
 Do not repair prompts, swap tasks, rewrite tool results, or retry failures.
+
+The plan, input, transport and outer result use v2 schemas so an old plan cannot
+silently gain broader support. Both parent and worker require the actual pinned
+task's assertion count to match the source-bound plan. Results include the
+non-content assertion count; a zero-assertion result requires zero judge calls,
+not invented judge usage. Existing usage, original task reward and lifecycle
+checks remain mandatory. Assertions are bounded to 16,384 UTF-8 bytes each and
+65,536 serialized bytes in total. This is a smoke-selection boundary, not
+unlimited evaluator support.
+
+The original grading behavior is verified from the authenticated
+[pinned evaluator](https://github.com/sierra-research/tau2-bench/blob/fc0055dc4e0a316c3f83133267fbd6faaa770992/src/tau2/evaluator/evaluator_nl_assertions.py)
+without inference:
+
+```sh
+python3 scripts/test_tau_staged_assertions.py --source-archive "$SOURCE_ARCHIVE"
+```
+
+This audit checks all 15 selected task shapes and exercises original zero and
+multiple-assertion reward logic with synthetic judge results. It is not a
+measured task score, benchmark execution or spending approval.
 
 ## Aggregate Reservation
 
