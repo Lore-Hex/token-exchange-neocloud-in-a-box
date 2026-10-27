@@ -155,11 +155,19 @@ def privacy_requests(port, tls=None):
     request(port, "/v1/chat/completions", body=CANARY.encode(), headers=headers, tls=tls)
 
 
-def upstream_unavailable(port, tls=None):
+def upstream_unavailable(port, tls=None, *, summary):
     body = json.dumps({"model": "nibfake-unavailable", "stream": True,
                        "messages": [{"role": "user", "content": CANARY}]}).encode()
     status, headers, data = request(port, "/v1/chat/completions", body=body,
                                     headers={"Content-Type": "application/json"}, tls=tls)
+    # Preserve only fixed classifications, including on the original failure.
+    retry_after = headers.get("Retry-After")
+    summary["upstream_unavailable"] = {
+        "http_status": status if type(status) is int and 100 <= status <= 599 else None,
+        "retry_after": "expected_7" if retry_after == "7" else "absent" if retry_after is None else "other",
+        "sse_data_prefix_present": b"data:" in data,
+        "tls": tls is not None,
+    }
     require(status == 503 and headers.get("Retry-After") == "7" and b"data:" not in data,
             "upstream-503-retry-after")
 
@@ -357,7 +365,7 @@ def full_node(stack, temp, processes, summary):
     verify(args, success=True)
     summary["mutations"] = mutations
     privacy_requests(18443, tls)
-    upstream_unavailable(18443, tls)
+    upstream_unavailable(18443, tls, summary=summary)
     request_ids(tls)
     admission(tls)
     summary["admission"] = "pass"
@@ -385,7 +393,7 @@ def main():
                 summary["catalog_negative"] = provider_check("http://127.0.0.1:18000", catalog=catalog + "/invalid-catalog.v2.json",
                                                              tier=1, reject_catalog=True)
                 privacy_requests(18000)
-                upstream_unavailable(18000)
+                upstream_unavailable(18000, summary=summary)
             else:
                 tls = full_node(stack, temp, processes, summary)
             (fixture / "weights.txt").write_bytes(b"corrupted!")

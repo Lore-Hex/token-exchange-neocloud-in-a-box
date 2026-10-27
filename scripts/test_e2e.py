@@ -128,6 +128,58 @@ class E2EPolicyTest(unittest.TestCase):
             self.assertEqual(exercise.request(18000, "/health")[0], 200)
             connection.return_value.close.assert_called_once()
 
+    def test_upstream_unavailable_records_expected_observation_without_retries(self):
+        for tls in (None, object()):
+            with self.subTest(tls=tls is not None):
+                summary = {"existing": "retained"}
+                with patch.object(exercise, "request", return_value=(
+                        503, {"Retry-After": "7", "X-Private": exercise.CANARY},
+                        exercise.CANARY.encode())) as request:
+                    exercise.upstream_unavailable(18443, tls, summary=summary)
+                request.assert_called_once()
+                self.assertEqual(summary, {
+                    "existing": "retained",
+                    "upstream_unavailable": {
+                        "http_status": 503, "retry_after": "expected_7",
+                        "sse_data_prefix_present": False, "tls": tls is not None,
+                    },
+                })
+                self.assertNotIn(exercise.CANARY, json.dumps(summary))
+
+    def test_upstream_unavailable_preserves_failure_details_without_content(self):
+        cases = (
+            (429, {"Retry-After": "1"}, b"", 429, "other", False),
+            (503, {}, b"", 503, "absent", False),
+            (200, {"Retry-After": "7"}, b"", 200, "expected_7", False),
+            (503, {"Retry-After": "7"}, b"data:", 503, "expected_7", True),
+            (503, {"Retry-After": exercise.CANARY}, b"", 503, "other", False),
+            (exercise.CANARY, {}, b"", None, "absent", False),
+            (True, {}, b"", None, "absent", False),
+            (600, {}, b"", None, "absent", False),
+        )
+        for status, headers, body, expected_status, retry_after, sse in cases:
+            with self.subTest(status=status, retry_after=retry_after, sse=sse):
+                summary = {}
+                with patch.object(exercise, "request", return_value=(
+                        status, {**headers, "X-Private": exercise.CANARY},
+                        body + exercise.CANARY.encode())) as request:
+                    with self.assertRaisesRegex(exercise.CheckFailure, "^upstream-503-retry-after$"):
+                        exercise.upstream_unavailable(18000, summary=summary)
+                request.assert_called_once()
+                self.assertEqual(summary["upstream_unavailable"], {
+                    "http_status": expected_status, "retry_after": retry_after,
+                    "sse_data_prefix_present": sse, "tls": False,
+                })
+                self.assertNotIn(exercise.CANARY, json.dumps(summary))
+
+    def test_upstream_unavailable_transport_error_has_no_invented_observation(self):
+        summary = {}
+        with patch.object(exercise, "request", side_effect=OSError("private")) as request:
+            with self.assertRaises(OSError):
+                exercise.upstream_unavailable(18000, summary=summary)
+        request.assert_called_once()
+        self.assertEqual(summary, {})
+
     def test_slow_rejection_requires_actual_socket_close(self):
         for closed in (True, False):
             conn = Mock()
