@@ -228,6 +228,15 @@ diagnostic correction keeps that existing content-free output in the Actions
 log, without changing pins, bounds, retries, cleanup or proof claims. No retry
 or guest success is implied.
 
+The [second attempt](../../evidence/p3/2026-10-27-debug-kernel-fetch-timeout/README.md)
+retained the typed diagnostic: the exact locked kernel modules-extra archive
+timed out at the Ubuntu snapshot on all three existing bounded attempts. Build
+and QEMU were skipped. Only that exact URL/size/SHA identity now selects the
+lock-declared original Ubuntu source, whose bytes were recovered unchanged;
+all other archives retain their prior source. No deadline, retry, checksum,
+signature, byte bound or workflow activation changes. This is a download-source
+correction, not a successful guest proof or authorization for another dispatch.
+
 The next slice must reconcile the actual image's original networkd
 configuration/drop-ins/generators and credentials, authenticate its original
 executables, and install/read back the unchanged strict nft policy **before**

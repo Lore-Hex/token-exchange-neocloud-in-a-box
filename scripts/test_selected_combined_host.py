@@ -91,7 +91,19 @@ class HostTests(unittest.TestCase):
             if fault == "watchdog-reap-cancelled":
                 smoke.subprocess.Popen.return_value.wait.side_effect = OSError("PRIVATE_CANARY")
                 fixture.recorder.snapshot.cleanup_process_group.side_effect = KeyboardInterrupt("PRIVATE_CANARY")
-            return host.execute(self.args)
+            if fault == "host-core":
+                smoke.core_limits.check_host.side_effect = ValueError("PRIVATE_CANARY")
+            if fault == "container-core":
+                container = fixture.container
+                def unsafe_container(command):
+                    value = container(command)
+                    value["HostConfig"]["Ulimits"] = []
+                    return value
+                stack.enter_context(mock.patch.object(fixture, "container", side_effect=unsafe_container))
+            result = host.execute(self.args)
+            if fault != "source":
+                smoke.core_limits.check_host.assert_called_once_with()
+            return result
 
     def test_one_owned_lifetime_original_capture_and_host_replay(self):
         row = self.execute()
@@ -105,9 +117,24 @@ class HostTests(unittest.TestCase):
         self.assertEqual(len([c for c in self.fixture.commands if c[2] == "start"]), 1)
         command = create[0]
         self.assertEqual(command[command.index("--network") + 1], "none")
+        self.assertEqual(command[command.index("--ulimit") + 1], "core=0:0")
         self.assertEqual(command[command.index(self.fixture.build["image_id"]) + 1], "--combined-qualification")
         self.assertEqual(command[command.index("--original-hard-wall") + 1], str(self.fixture.clock.wall + 10000))
         self.assertEqual(command[command.index("--hard-stop-at") + 1], self.fixture.clock.timestamp(8560))
+
+    def test_core_preflight_and_inspected_limits_reject_before_start(self):
+        for fault in ("host-core", "container-core"):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as root:
+                self.args.receipt_directory = root
+                row = self.execute(fault)
+                self.assertEqual(row["result"], "fail")
+                self.assertFalse(any(c[2] == "start" for c in self.fixture.commands))
+                self.assertEqual(any(c[2] == "create" for c in self.fixture.commands), fault == "container-core")
+                self.assertIsNone(self.fixture.info)
+                self.assertFalse((Path(root) / "capture.jsonl").exists())
+                stored = receipt.decode((Path(root) / "host.json").read_bytes(), receipt.MAX_CAPTURE + 16384)
+                self.assertEqual(stored["preflight_pass"], fault != "host-core")
+                self.assertNotIn("PRIVATE_CANARY", receipt.encoded(stored).decode())
 
     def test_failure_after_payload_never_passes_but_preserves_original_and_cleanup(self):
         for fault in ("attach-after-payload", "interrupt-after-payload", "exit-signal-after-payload",

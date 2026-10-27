@@ -32,6 +32,7 @@ import selected_service_inference as inference
 import selected_service_conformance as conformance
 import selected_service_protocol as protocol
 import selected_service_tool as tool
+import selected_core_limits as core_limits
 
 service = process.service
 require, digest = service.require, process.digest
@@ -158,7 +159,7 @@ def container_command(name, token, build, base, weights, inputs, args, stop_at):
         "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "1024",
         "--memory", "512g", "--memory-swap", "512g", "--cpus", "64",
         "--ipc", "private", "--shm-size", "2g", "--cgroupns", "private", "--restart", "no",
-        "--log-driver", "none", "--no-healthcheck", "--user", "65532:65532", "--workdir", "/"]
+        "--log-driver", "none", "--ulimit", "core=0:0", "--no-healthcheck", "--user", "65532:65532", "--workdir", "/"]
     for target, options in TMPFS.items():
         command += ["--tmpfs", target + ":" + options]
     for source, target in ((weights, "/model"), (inputs, "/run/nib-inputs")):
@@ -206,6 +207,7 @@ def check_container_runtime(info, identifier, name, token, build, image, command
         and host["CgroupnsMode"] == "private" and host["Memory"] == host["MemorySwap"] == service.MEMORY_BYTES
         and host["NanoCpus"] == 64000000000 and host["PidsLimit"] == 1024
         and host["RestartPolicy"]["Name"] == "no" and host["LogConfig"]["Type"] == "none"
+        and host.get("Ulimits") == [{"Name": "core", "Hard": 0, "Soft": 0}]
         and set(host["SecurityOpt"]) in ({"no-new-privileges"}, {"no-new-privileges=true"})
         and host["Tmpfs"] == TMPFS, "runtime-limits")
     devices = host["DeviceRequests"]
@@ -561,6 +563,9 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
                 and not getattr(args, "long_qualification", False), "contract")
     else:
         require(receipt_path is None, "contract")
+    result.update(preflight_pass=False, reason="runtime-limits")
+    core_limits.check_host()
+    result["preflight_pass"] = True
     weights = private_path(args.weights)
     deadline = min(time.monotonic() + SECONDS, contract.startup_deadline)
     with service.identity.worker.alarm(deadline):
