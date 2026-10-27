@@ -35,6 +35,9 @@ and deployment configuration outside this repository.
 No local customer accounts, balances, invoices, payment processor or settlement
 database. Basic health and content-free lifecycle logs are enough to operate the
 pilot; usage travels in API responses, not a second billing ledger.
+The 1M profile supports an [explicit cache-read price](docs/operators/trustedrouter.md#cache-read-pricing);
+omission preserves the existing tariff. Live discounts and settlement still need
+operator-specific verification.
 
 Start with the [TrustedRouter operator guide](docs/operators/trustedrouter.md).
 It distinguishes the [small Qwen pilot](docs/operators/qwen-pilot.md), which
