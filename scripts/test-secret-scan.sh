@@ -162,10 +162,23 @@ write_receipt_field() {
 
 # The source-derived prefix and controls are compact JSON; never exempt the
 # entire line, which could also contain an unrelated secret candidate.
-for trial_set in preflight-missing-source simulator-seed-failure retail-pass; do
+for trial_set in preflight-missing-source simulator-seed-failure retail-pass sequential-opened sequential-settled sequential-trial sequential-failed-opened sequential-failed-trial; do
   while IFS='|' read -r field known; do
     format=compact
     target="$tmp/external/evidence/p2/2026-10-26-tau-external-$trial_set/output.log"
+    case "$trial_set" in
+      sequential-opened|sequential-settled|sequential-trial)
+        relative=event-000.json
+        [[ "$trial_set" != sequential-settled ]] || relative=receipt-00.json
+        [[ "$trial_set" != sequential-trial ]] || relative=trial-00/output.log
+        target="$tmp/external/evidence/p2/2026-10-27-sequential-tau-offline/journal/$relative"
+        ;;
+      sequential-failed-opened|sequential-failed-trial)
+        relative=event-000.json
+        [[ "$trial_set" != sequential-failed-trial ]] || relative=trial-00/output.log
+        target="$tmp/external/evidence/p2/2026-10-27-sequential-tau-offline-socket-denied/journal/$relative"
+        ;;
+    esac
     mkdir -p "$(dirname "$target")"
     write_receipt_field "$target" "$field" "$known"
     expect_receipt_scan "$target" 0
