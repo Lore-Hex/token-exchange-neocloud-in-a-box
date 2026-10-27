@@ -25,7 +25,7 @@ import (
 )
 
 const SchemaURL = "https://trustedrouter.com/providers/marketplace/catalog.v2.schema.json"
-const SchemaSHA256 = "d4d06605dd62dd471955af41b1ac88dd51bf1927e1127d3b3526693fcd7b0f47"
+const SchemaSHA256 = "927350ccda756319f30f129c486286213b4f3ff4bb7b8f6dda27b939c55d35d8"
 const pricingSchemaURL = "https://schemas.neocloud.invalid/nib/catalog-pricing.schema.json"
 
 //go:embed catalog.v2.schema.json pricing.schema.json

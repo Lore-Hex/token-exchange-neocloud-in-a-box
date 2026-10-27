@@ -22,11 +22,15 @@ func TestMillionProfileLimits(t *testing.T) {
 	if h.proxy.Transport.(*http.Transport).ResponseHeaderTimeout != 3540*time.Second || h.ShutdownGrace() != 3550*time.Second {
 		t.Fatal("million transport deadlines disagree")
 	}
-	if catalog.Validate(h.catalog) != nil || !bytes.Contains(h.catalog, []byte(`"data":[]`)) {
-		t.Fatal("unqualified million profile must have a valid, empty catalog")
+	if catalog.Validate(h.catalog) != nil {
+		t.Fatal("qualified million profile must satisfy the pinned schema")
 	}
-	if bytes.Contains(h.catalog, []byte(selectedModel)) || bytes.Contains(h.catalog, []byte(`"completion_timeout_seconds"`)) {
-		t.Fatal("million profile advertised an unsupported marketplace declaration")
+	for _, want := range []string{`"contract_version":"2.1"`, `"completion_timeout_seconds":3540`,
+		`"context_length":1048576`, `"max_output_tokens":393216`, `"tools":true`, `"reasoning":true`,
+		`"prompt_caching":true`, `"structured_output":false`, `"cached_input":null`, selectedModel} {
+		if !bytes.Contains(h.catalog, []byte(want)) {
+			t.Fatalf("million catalog lost qualified fact %s", want)
+		}
 	}
 	for _, item := range []struct {
 		fields string
@@ -62,11 +66,7 @@ func TestAllClosedProfileCatalogsSatisfyPinnedSchema(t *testing.T) {
 			if json.Unmarshal(h.catalog, &got) != nil {
 				t.Fatal("invalid catalog JSON")
 			}
-			want := 1
-			if name == ProfileSelectedMillion {
-				want = 0
-			}
-			if len(got.Data) != want {
+			if len(got.Data) != 1 {
 				t.Fatal("catalog visibility differs from the closed profile")
 			}
 		})

@@ -36,21 +36,22 @@ class GeneratedCatalogTests(unittest.TestCase):
             capture_output=True, check=True, timeout=120)
         cls.catalogs = json.loads(result.stdout)
 
-    def test_all_closed_profiles_emit_schema_valid_catalogs(self):
+    def test_legacy_profiles_remain_compatible_with_pinned_checker(self):
         self.assertEqual(set(self.catalogs), set(LIMITS) | {MILLION})
         for profile, document in self.catalogs.items():
             with self.subTest(profile=profile):
+                if profile == MILLION:
+                    continue
                 parsed = conformance.catalog_payload(self.checker, json.dumps(document).encode())
                 self.assertEqual(parsed, document)
-                if profile == MILLION:
-                    self.assertEqual(parsed["data"], [])
-                else:
-                    self.assertEqual(len(parsed["data"]), 1)
-                    model = parsed["data"][0]
-                    self.assertEqual((model["context_length"], model["max_output_tokens"]), LIMITS[profile])
-                    self.assertLessEqual(model["reliability"]["completion_timeout_seconds"], 900)
+                self.assertEqual(len(parsed["data"]), 1)
+                model = parsed["data"][0]
+                self.assertEqual((model["context_length"], model["max_output_tokens"]), LIMITS[profile])
+                self.assertLessEqual(model["reliability"]["completion_timeout_seconds"], 900)
 
-    def test_unlisted_candidate_cannot_pass_selected_service_conformance(self):
+    def test_v21_cannot_pass_historical_v20_conformance(self):
+        self.assertEqual(self.catalogs[MILLION]["contract_version"], "2.1")
+        self.assertEqual(len(self.catalogs[MILLION]["data"]), 1)
         raw = json.dumps(self.catalogs[MILLION]).encode()
         with self.assertRaises(conformance.inference.Rejected) as caught:
             conformance.validate_catalog(self.checker, raw, None, 0)
