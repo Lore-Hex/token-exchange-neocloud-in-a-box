@@ -169,7 +169,7 @@ for trial_set in preflight-missing-source simulator-seed-failure retail-pass seq
     case "$trial_set" in
       sequential-opened|sequential-settled|sequential-trial)
         relative=event-000.json
-        [[ "$trial_set" != sequential-settled ]] || relative=receipt-00.json
+        [[ "$trial_set" != sequential-settled ]] || relative="receipt-00.json"
         [[ "$trial_set" != sequential-trial ]] || relative=trial-00/output.log
         target="$tmp/external/evidence/p2/2026-10-27-sequential-tau-offline/journal/$relative"
         ;;

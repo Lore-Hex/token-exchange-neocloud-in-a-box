@@ -298,6 +298,81 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(tau.json_value((self.path / "result.json").read_bytes()), result)
         self.assertNotIn("CANARY", tau.encoded(result).decode())
 
+    def test_settlement_event_fsync_failure_retains_receipt_and_full_hold(self):
+        for failure_call in (3, 4):
+            with self.subTest(failure_call=failure_call), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory).resolve() / "journal"
+                journal = aggregate.Journal(path, self.value, CONTRACT, TOOLKIT)
+                self.addCleanup(journal.close)
+                record = self.claim(journal)
+                raw = tau.encoded(record)
+                original_fsync, calls = aggregate.os.fsync, []
+
+                def fail_settlement_event(fd):
+                    calls.append(fd)
+                    # The receipt's file and directory syncs must succeed first.
+                    if len(calls) == failure_call:
+                        raise OSError("PRIVATE_CANARY")
+                    return original_fsync(fd)
+
+                with mock.patch.object(aggregate.os, "fsync", side_effect=fail_settlement_event):
+                    with self.assertRaises(OSError):
+                        journal.settle(record, raw)
+                retained = (path / "event-003.json").read_bytes()
+                self.assertEqual(tau.json_value(retained)["kind"], "settled")
+                self.assertEqual((path / "receipt-00.json").read_bytes(), raw)
+                self.assertEqual(journal.index, 0)
+                self.assertEqual(journal.spent, Decimal(0))
+                self.assertIsNotNone(journal.pending)
+                with self.assertRaises(ValueError):
+                    journal.reserve()
+                result = journal.stop("failed", stage="settlement")
+                self.assertEqual(result["held_trial_usd"], "70.044864")
+                self.assertEqual(result["charged_reservation_usd"], "0")
+                self.assertIs(result["journal_complete"], False)
+                self.assertEqual(result["result"], "incomplete")
+                self.assertEqual((path / "event-003.json").read_bytes(), retained)
+                self.assertEqual((path / "receipt-00.json").read_bytes(), raw)
+                self.assertEqual(tau.json_value((path / "result.json").read_bytes()), result)
+                self.assertNotIn("CANARY", tau.encoded(result).decode())
+
+    def test_terminal_event_fsync_failure_never_publishes_success_or_reopens(self):
+        for failure_call in (1, 2):
+            with self.subTest(failure_call=failure_call), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory).resolve() / "journal"
+                journal = aggregate.Journal(path, self.value, CONTRACT, TOOLKIT)
+                self.addCleanup(journal.close)
+                for _ in self.value["selections"]:
+                    record = self.claim(journal)
+                    journal.settle(record, tau.encoded(record))
+                event_path = path / f"event-{journal.events:03d}.json"
+                original_fsync, calls = aggregate.os.fsync, []
+
+                def fail_terminal_event(fd):
+                    calls.append(fd)
+                    if len(calls) == failure_call:
+                        raise OSError("PRIVATE_CANARY")
+                    return original_fsync(fd)
+
+                with mock.patch.object(aggregate.os, "fsync", side_effect=fail_terminal_event):
+                    with self.assertRaises(OSError):
+                        journal.stop("complete")
+                retained = event_path.read_bytes()
+                result = tau.json_value((path / "result.json").read_bytes())
+                self.assertEqual(result["result"], "incomplete")
+                self.assertEqual(result["stop_reason"], "failed")
+                self.assertIs(result["journal_complete"], False)
+                self.assertEqual(result["completed_trials"], len(self.value["selections"]))
+                self.assertEqual(result["held_trial_usd"], "0")
+                self.assertEqual(Decimal(result["charged_reservation_usd"]), journal.spent)
+                with self.assertRaises(ValueError):
+                    journal.reserve()
+                with self.assertRaises(ValueError):
+                    journal.stop("failed")
+                self.assertEqual(event_path.read_bytes(), retained)
+                self.assertEqual(tau.json_value((path / "result.json").read_bytes()), result)
+                self.assertNotIn("CANARY", tau.encoded(result).decode())
+
     def test_wrong_claim_or_duplicate_dispatch_is_rejected(self):
         journal = self.journal()
         record, sha = receipt(self.value)
