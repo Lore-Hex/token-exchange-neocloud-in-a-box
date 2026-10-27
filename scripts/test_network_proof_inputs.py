@@ -24,9 +24,10 @@ def bundle():
     return proof.prepare("ab" * 20, sources(), {"synthetic": True}, {"synthetic": True})
 
 
-def archive(members):
+def archive(members, revision=proof.static.SYSTEMD):
     stream = io.BytesIO()
-    with tarfile.open(fileobj=stream, mode="w", format=tarfile.USTAR_FORMAT) as target:
+    with tarfile.open(fileobj=stream, mode="w", format=tarfile.PAX_FORMAT,
+                      pax_headers={"comment": revision}) as target:
         for name, data in members:
             member = tarfile.TarInfo("systemd-stable-255.4/" + name)
             member.size = len(data)
@@ -95,6 +96,15 @@ class InputTests(unittest.TestCase):
                     mock.patch.object(proof, "SOURCE_ARCHIVE", (len(raw), proof.base.digest(raw))), \
                     mock.patch.object(proof.base, "read", return_value=raw), self.assertRaises(ValueError):
                 proof.primary_sources(Path("/synthetic"))
+
+    def test_primary_pax_revision_is_exact_not_a_general_metadata_exception(self):
+        members = {name: b"synthetic " + name.encode() for name in proof.PRIMARY}
+        pins = {p: (len(b), proof.base.digest(b)) for p, b in members.items()}
+        raw = archive(list(members.items()), revision="wrong")
+        with mock.patch.object(proof, "PRIMARY", pins), \
+                mock.patch.object(proof, "SOURCE_ARCHIVE", (len(raw), proof.base.digest(raw))), \
+                mock.patch.object(proof.base, "read", return_value=raw), self.assertRaises(ValueError):
+            proof.primary_sources(Path("/synthetic"))
 
     def package_fixture(self):
         raw = b"synthetic authenticated package"

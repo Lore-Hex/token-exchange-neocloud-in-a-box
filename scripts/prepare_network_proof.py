@@ -100,7 +100,7 @@ def primary_sources(path):
                 continue
             size, sha = PRIMARY[name]
             require(name not in result and member.isfile() and not member.issparse()
-                    and not member.pax_headers and member.size == size)
+                    and member.pax_headers == {"comment": static.SYSTEMD} and member.size == size)
             with archive.extractfile(member) as stream:
                 data = stream.read(size + 1)
             require(len(data) == size and base.digest(data) == sha)
