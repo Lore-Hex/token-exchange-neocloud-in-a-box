@@ -1,13 +1,18 @@
 # token-exchange-neocloud-in-a-box
 
-Open-source software to run a small **confidential GPU inference cloud**: an
-8-GPU server whose model runs inside an Intel TDX confidential VM, with the GPUs
-in NVIDIA confidential-computing mode, served from an OpenAI-compatible endpoint
-whose TLS key is bound to hardware attestation. Nodes can be verified by anyone
-and listed on [TrustedRouter](https://trustedrouter.com/providers/marketplace),
-and their tokens can be traded on the NY Token Exchange.
+Open-source software for running GPU inference and selling it through
+[TrustedRouter](https://trustedrouter.com/providers/marketplace), without
+building a separate customer billing system.
 
-The first two nodes are planned to serve
+**Real DeepSeek inference works on eight B300 GPUs.** The ordinary-TLS serving
+path has passed authenticated API, streaming, tool-calling, long-context, cache
+and selected benchmark checks. See the [measured results](#status) below.
+
+The full project targets **confidential GPU inference**: a model inside an Intel
+TDX VM, GPUs in NVIDIA confidential-computing mode, and an endpoint whose TLS
+key is bound to independently verified hardware attestation. That complete
+confidential path is still being built; ordinary TLS is not confidential compute.
+The planned confidential nodes target
 [DeepSeek-V4.1-Flash-1017](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017)
 and [GLM-5.3](https://huggingface.co/zai-org/GLM-5.3) on HGX 8×B200 servers.
 
@@ -39,20 +44,67 @@ onboarding steps; running the toolkit does not automatically list a provider.
 
 ## Status
 
-**Live correctness calibration now runs against the retained ordinary-TLS node.**
-The [original tau2 retail task 2](evidence/p2/2026-10-26-tau-external-retail-pass/README.md)
-completed with reward **1.0**, 14 agent calls, five simulator calls, one evaluator
-call and zero tool errors. The
-[50-case GSM8K calibration](evidence/p2/2026-10-26-quality-gsm8k-50/README.md)
-scored **50/50** with zero request errors. A
-[200-case MMLU-Pro calibration](evidence/p2/2026-10-27-quality-mmlu-pro-200/README.md)
-scored **171/200 (85.5%)**, counting one output-cap truncation as incorrect.
-The [200-prompt IFEval calibration](evidence/p2/2026-10-27-quality-ifeval-200/README.md)
-scored **87.0% strict / 90.5% loose**, with all requests completed.
-These selected-case results use the
-abliterated checkpoint, not the original DeepSeek weights; they are not a full
-tau2 score, matched-reference quality qualification, or confidential attestation.
-See the [reproducible calibration procedure](docs/tasks/p2-t3-retained-quality.md).
+**Working real-model inference; confidential production deployment is unfinished.**
+Status through October 27, 2026. The results below use the selected
+`dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8` abliterated checkpoint on
+ordinary eight-B300 hardware, with GPU confidential mode disabled. These are
+recorded hardware results, not mocks or a live uptime guarantee.
+
+### Verified Functionality
+
+| Capability | Measured result and scope |
+|---|---|
+| Authenticated OpenAI-compatible API | [17 required provider checks passed](evidence/p2/2026-10-25-selected-public-conformance/README.md), including streaming, usage and rejected-key checks over ordinary public TLS. |
+| Native tools | [Tool call and continuation passed](evidence/p2/2026-10-25-selected-tool-pass/README.md); the later tau2 task below also completed with zero tool errors. |
+| 1M combined context / 384K output | [655,360 input + 393,216 actual output tokens](evidence/p2/2026-10-26-selected-million-pass/README.md), filling 1,048,576 combined tokens in one completed request. |
+| Prefix / KV caching | [All nine retrieval/cache checks passed](evidence/p2/2026-10-26-selected-million-pass/README.md); the warm 1M request reused 1,048,192 tokens, with first content in 1.66 seconds versus 23.64 seconds cold. |
+| Long-output throughput | The [long-output request](evidence/p2/2026-10-26-selected-million-pass/README.md) averaged 143.44 output tokens/second across the whole request, including prefill. |
+| Concurrent throughput | A [separate bounded-wave experiment](evidence/p2/2026-10-26-selected-batch32/README.md) reached 4,432.11 aggregate output tokens/second at C64. This is not the 1M profile: the combined long-context/high-concurrency configuration remains unimplemented. |
+
+### Quality Calibration
+
+| Benchmark | Result | Coverage |
+|---|---|---|
+| [tau2](evidence/p2/2026-10-26-tau-external-retail-pass/README.md) | Reward **1.0**, zero tool errors | One original retail task; 14 agent, five simulator and one evaluator calls |
+| [GSM8K](evidence/p2/2026-10-26-quality-gsm8k-50/README.md) | **50/50** | First 50 cases |
+| [MMLU-Pro](evidence/p2/2026-10-27-quality-mmlu-pro-200/README.md) | **171/200 (85.5%)** | 200 proportionally selected cases; one output-cap truncation counted wrong |
+| [IFEval](evidence/p2/2026-10-27-quality-ifeval-200/README.md) | **87.0% strict / 90.5% loose** | First 200 prompts; all requests completed |
+
+These are selected-case calibrations of the abliterated checkpoint, not official
+full-suite scores or a comparison against the original DeepSeek weights. See the
+[reproduction procedure](docs/tasks/p2-t3-retained-quality.md).
+
+### Still To Finish
+
+- **Confidential operation (P3-P5):** end-to-end hardware attestation, the generic
+  TrustedRouter verifier, and the fully verified confidential DeepSeek deployment.
+  Earlier CC lab results do not establish that complete path.
+- **Production onboarding:** the 1M candidate's catalog is deliberately empty
+  because its 59-minute request deadline exceeds the pinned marketplace contract's
+  15-minute ceiling. Contract, checker and router support must agree before listing;
+  [the finite 1M result](evidence/p2/2026-10-26-selected-million-pass/README.md)
+  does not prove marketplace billing or settlement.
+- **Broader reliability and quality:** full multi-domain tau2, repeated trials,
+  original-versus-abliterated comparisons, a completed 24-hour soak and sustained
+  mixed-workload testing. Bounded throughput tests are not production SLOs.
+- **Remaining plan scope:** the combined 1M/high-concurrency profile, GLM deployment,
+  signed confidential releases and the turnkey operator/fleet workflow. See
+  [PLAN.md](PLAN.md) for the unchanged phase exit criteria.
+
+For reproduction, start with the [operator guide](docs/operators/trustedrouter.md),
+[1M profile runbook](docs/tasks/p2-t3-million-context.md) and
+[quality runner](docs/tasks/p2-t3-retained-quality.md). These are reviewed runbooks,
+not a one-command confidential installer.
+
+### Detailed Evidence History
+
+<details>
+<summary>Earlier experiments, preserved failures and component-level progress</summary>
+
+The records below retain the scope of each individual run. An earlier failed or
+blocked experiment is not the current status of every serving path; later passes
+do not retroactively change its result. The status summary above describes the
+latest verified capabilities.
 
 The [1M-context / 384K-output candidate](docs/tasks/p2-t3-million-context.md)
 **passed its finite C1 trial on ordinary 8xB300**
@@ -89,7 +141,7 @@ still records its long-output timeout and unknown final usage. This finite C1
 pass does not establish sustained capacity, general quality, a production cache
 discount, broad cache isolation or confidential inference; defaults are unchanged.
 
-Pre-alpha. **No fully verified confidential inference service yet.** Real
+**Earlier confidential-lab work, separate from the ordinary-TLS service.** Real
 8xB200 and 8xB300 lab checks and complete DeepSeek weight downloads have run. Fresh
 eight-GPU appraisal and readiness readback have passed. DeepSeek generated real
 responses in two earlier smoke runs, passing seven of eight cases. After a
@@ -188,7 +240,7 @@ Cleanup was confirmed. GPU CC was disabled; outer FAIL/BLOCKED records remain
 unchanged. These are not a capacity sweep, full tau result, quality acceptance
 or confidential qualification.
 
-The latest [natural customer-resolution diagnostic](evidence/p2/2026-10-25-selected-customer-resolution-1117/README.md)
+The October 25 [natural customer-resolution diagnostic](evidence/p2/2026-10-25-selected-customer-resolution-1117/README.md)
 used the pinned, unqualified Qwen3-1.7B simulator and stopped at its first email
 lookup with `lookup_error` and unknown customer match. Ten measured requests
 completed; reward remains null and cleanup was confirmed. No exception-origin
@@ -239,7 +291,7 @@ with no owner exits recorded. This is not inference or a quality result.
 | Component | State |
 |---|---|
 | Plan, sizing, phase definitions | written ([PLAN.md](PLAN.md)) |
-| CLI skeleton and repository checks | implemented; no serving runtime ([development](docs/development.md)) |
+| CLI skeleton and repository checks | implemented; the CLI is not yet a turnkey serving installer ([development](docs/development.md)) |
 | Model packs (pinned revisions and checksums) | source-audited drafts; not deployable confidential profiles ([model packs](models/README.md)) |
 | Pinned weight staging | real DeepSeek download completed: 83 files, 510,311,045,295 bytes, exact-set/hash verification PASS and cleanup confirmed; no model execution implied ([evidence](evidence/p2/2026-10-20-weight-stage-verified/run.json), [checkpoint](docs/tasks/p2-t3-verified-weights-checkpoint.md)) |
 | Engine candidate overlay preparation | offline committed-source context and installed-wheel checks tested with fake files; BLOCKED, no image build, ABI or hardware validation ([scope and limits](docs/tasks/p0-t4-engine-overlay.md)) |
@@ -269,7 +321,7 @@ with no owner exits recorded. This is not inference or a quality result.
 | GPU-free end-to-end node | tested against fakes locally and in CI; independently reviewed and merged in [PR #10](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/pull/10) ([evidence](evidence/p1/2026-10-19-combined-node-v4/run.json), [results](evidence/p1/2026-10-19-combined-node-v4/result.json)) |
 | Local real-model provider pilot | Qwen3-0.6B CPU inference through standard TLS: 17 conformance checks, auth, usage, upstream failure and cleanup pass on native macOS and an offline Linux/amd64 container; not public or confidential ([native](evidence/p3/2026-10-19-qwen-native-regression-1/run.json), [Linux](evidence/p3/2026-10-19-qwen-linux-4/run.json), [runbook](docs/operators/qwen-pilot.md)) |
 | Provider-configurable Qwen service | Real Linux model: operator metadata, all 18 provider checks, Catalog v2 and declared retirement pass; active streaming response finishes through shutdown; no public cloud or billing claim ([evidence](evidence/p3/2026-10-19-provider-neutral-linux/run.json), [results](evidence/p3/2026-10-19-provider-neutral-linux/output.log), [runbook](docs/operators/qwen-service.md)) |
-| Model bring-up and benchmarks | eight fixed functional cases and ten requests pass. A separate streaming baseline completes all eight measured requests at concurrency one: 10.628 output tokens/second, median TTFT 286.824 ms; no load sweep, quality/tau or confidential qualification ([functional evidence](docs/tasks/p2-t3-functional-pass.md), [original stream evidence and limits](evidence/p2/2026-10-23-stream-600s-complete/README.md)) |
+| Earlier model bring-up and baseline | eight fixed functional cases and ten requests pass. The October 23 streaming baseline completes all eight measured requests at concurrency one: 10.628 output tokens/second, median TTFT 286.824 ms; that run does not establish load, quality/tau or confidential qualification. Later selected-checkpoint results are in the status summary above ([functional evidence](docs/tasks/p2-t3-functional-pass.md), [original stream evidence and limits](evidence/p2/2026-10-23-stream-600s-complete/README.md)) |
 | Private provider checker | real DeepSeek private API: all 17 mandatory upstream 0.1.8 checks pass across tiers 1-4; declared catalog deliberately skipped, owned identity and cleanup confirmed. API conformance only; overall FAIL/BLOCKED, no tau/quality, public-service or confidential qualification ([original evidence and limits](evidence/p2/2026-10-22-provider-conformance-pass/README.md)) |
 | Tau evaluation preparation | actual scripted upstream trial passed with confirmed cleanup. [Original evidence and limits](docs/tasks/p2-t3-tau-integration-evidence.md); synthetic replies and usage, not live-model quality or tau acceptance |
 | CPU tau prompt/parser compatibility | original fixed task 2 probe passes with real Qwen support models: simulator 382 prompt / 24 output tokens, evaluator 281 / 88; bound release and cleanup confirmed. Target is scripted: no DeepSeek, full tau, quality or confidential claim ([original evidence and limits](evidence/p2/2026-10-22-tau-cpu-prompt-fit-pass/README.md)) |
@@ -279,7 +331,7 @@ with no owner exits recorded. This is not inference or a quality result.
 | CPU-only startup diagnosis | exact-image application passes all five stages; serving imports now reach checkpoint 13 with clean guard state, then device autodetection rejects the GPU-free environment. Overall pre-serve run remains FAIL; cleanup confirmed; no inference/GPU/confidentiality acceptance ([latest run](evidence/p2/2026-10-20-cpu-opencv-runtime-9115b95/run.json), [root cause and limits](docs/tasks/p2-t3-opencv-native-loader.md#exact-image-result), [earlier Botocore observation](evidence/p2/2026-10-20-cpu-native-39467970211-1/README.md)) |
 | GPU appraisal and gated readiness | fresh eight-device appraisal PASS; nonce, measurements, certificates/revocation, secure boot, debug-disabled and local identity checks passed; readiness 0 to 1 readback and NVML shutdown verified. Not full hardware/runtime/confidential qualification ([success](evidence/p2/2026-10-20-gpu-appraisal-121447763215/run.json), [prior failure](evidence/p2/2026-10-20-gpu-appraisal-120201396352/run.json), [checkpoint](docs/tasks/p2-t3-appraisal-checkpoint.md)) |
 | Bounded DeepSeek CC functional lab | TP4 on four B300s and TP4 x DP2 on eight B300s passed all eight fixed cases and ten requests, including two-turn tools; cleanup confirmed. Overall candidate remains blocked, without confidential-service or quality qualification ([eight-GPU evidence](evidence/p2/2026-10-22-b300-dp2-functional-pass/run.json), [limits](docs/tasks/p2-t3-dp2-functional-pass.md)) |
-| Confidential pipeline on a 1-GPU TDX VM | not started (P3) |
+| Confidential pipeline on a 1-GPU TDX VM | not validated end to end (P3); preparatory image/build/CPU-boot work is recorded above |
 | TrustedRouter generic verifier | not started (P4) |
 | Bare-metal 8×B200 confidential node | not started (P5) |
 
@@ -293,6 +345,8 @@ network, API secrets or GPU access; container and image removal are verified.
 This is software integration evidence, not confidential inference or hardware
 validation. See the [P1.T3 task record](docs/tasks/p1-t3-container-e2e.md).
 
+</details>
+
 ## Start contributing
 
 ```sh
@@ -301,9 +355,10 @@ make build
 ./build/nib --help
 ```
 
-See [development instructions](docs/development.md) for prerequisites. This is
-not yet a deployable node; hardware validation and independent attestation are
-required before any confidential route can be listed on
+See [development instructions](docs/development.md) for prerequisites. Real-model
+inference is covered by the runbooks and evidence above. Deployment of a
+confidential route additionally requires the remaining hardware validation,
+independent attestation and onboarding gates before listing on
 [NY Token Exchange](https://nytokenexchange.com).
 
 ## Related projects
