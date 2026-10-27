@@ -100,6 +100,24 @@ known and unknown usage totals. A completed answer must have HTTP 200, a stop
 finish reason and usage within the declared request limits. Truncated responses
 receive no credit. CLI validation failures do not echo arbitrary input values.
 
+### Cache usage accounting
+
+New receipts use `nib.quality-calibration/v2`; their numeric evidence summaries
+use `nib.quality-calibration-summary/v2`. Each item retains
+`cached_prompt_tokens` from the response's `usage.prompt_tokens_details.cached_tokens`.
+Missing or null cache details/counts remain `null` (unknown); an explicit integer
+zero means the provider reported no cache hits. Known counts must be integers
+between zero and the measured prompt count. Malformed cache accounting rejects
+the response but preserves already validated total input/output usage.
+
+Both receipts and summaries reconcile `known_cached_prompt_tokens` and
+`unknown_cache_usage_requests`. The latter counts only transmitted requests with
+unknown cache usage, including requests with no usable total usage. Unsent cases
+are not charged as unknown requests. Historical v1 evidence retains its original
+format without invented cache counts. These are reported token counts, not
+measured cache savings, invoice reconciliation or proof of a customer discount.
+Request payloads, scoring, failure denominators and execution limits are unchanged.
+
 ## October 26-27 results
 
 | Calibration | Measured result | Scope |

@@ -62,8 +62,9 @@ def summary_host():
 def report(raw):
     rows = [json.loads(line) for line in raw.splitlines()]
     manifest, summary = rows[0], rows[-1]
-    trial.require(manifest["schema"] == "nib.quality-calibration/v1" and summary["kind"] == "summary"
+    trial.require(manifest["schema"] in ("nib.quality-calibration/v1", "nib.quality-calibration/v2") and summary["kind"] == "summary"
                   and manifest["suite"] in ("gsm8k", "mmlu_pro", "ifeval"))
+    cache_accounting = manifest["schema"] == "nib.quality-calibration/v2"
     items = rows[1:-1]
     expected = manifest["expected"]
     trial.require(type(expected) is int and expected in (20, 50, 200) and len(items) <= expected)
@@ -75,6 +76,11 @@ def report(raw):
         usage = row["usage"]
         trial.require(usage is None or type(usage) is dict and set(usage) == {"prompt_tokens", "completion_tokens"}
                       and all(type(value) is int and 0 <= value < 2**31 for value in usage.values()))
+        if cache_accounting:
+            trial.require("cached_prompt_tokens" in row)
+            cached = row["cached_prompt_tokens"]
+            trial.require(cached is None or type(cached) is int and usage is not None
+                          and 0 <= cached <= usage["prompt_tokens"])
         trial.require(row["status"] not in ("evaluated", "truncated") or score and usage is not None)
         trial.require(row["status"] != "truncated" or not any(score.get(key, 0) for key in
                       ("correct", "prompt_strict", "prompt_loose", "instruction_strict", "instruction_loose")))
@@ -91,13 +97,15 @@ def report(raw):
         # measured HTTP response proves transmission; failures cannot infer it.
         started = row.get("generation_started")
         if "generation_started" not in row:
-            trial.require(completed)
+            trial.require(not cache_accounting and completed)
             started = True
         trial.require(type(started) is bool and (started or usage is None and http_status is None)
                       and (not completed or started))
         clean.append({"index": index, "status": row["status"], "score": score, "usage": usage,
                       "generation_started": started, "http_status": http_status, "finish_reason": finish,
                       "elapsed_seconds": number(row["elapsed_seconds"])})
+        if cache_accounting:
+            clean[-1]["cached_prompt_tokens"] = cached
     evaluated = sum(row["status"] == "evaluated" for row in clean)
     totals = {"expected": expected, "attempted": len(clean), "evaluated": evaluated,
               "missing": expected - len(clean), "errors": len(clean) - evaluated,
@@ -105,11 +113,15 @@ def report(raw):
               "known_completion_tokens": sum((row["usage"] or {}).get("completion_tokens", 0) for row in clean),
               "generation_requests": sum(row["generation_started"] for row in clean),
               "unknown_usage_requests": sum(row["generation_started"] and row["usage"] is None for row in clean)}
+    if cache_accounting:
+        totals.update(
+            known_cached_prompt_tokens=sum(row["cached_prompt_tokens"] or 0 for row in clean),
+            unknown_cache_usage_requests=sum(row["generation_started"] and row["cached_prompt_tokens"] is None for row in clean))
     for key, value in totals.items():
         if key == "generation_requests" and key not in summary:
-            trial.require(all("generation_started" not in row for row in items))
+            trial.require(not cache_accounting and all("generation_started" not in row for row in items))
         else:
-            trial.require(type(summary[key]) is int and summary[key] == value)
+            trial.require(key in summary and type(summary[key]) is int and summary[key] == value)
     median = statistics.median(row["elapsed_seconds"] for row in clean) if clean else None
     trial.require(summary["latency_median_seconds"] == median)
     started_utc, ended_utc = timestamp(manifest["started_at"]), timestamp(summary["ended_at"])
@@ -120,7 +132,7 @@ def report(raw):
         ("git_sha", "trbench_revision") else 64), value) for key, value in hashes.items()))
     tls_mode = manifest.get("candidate_tls_mode", "unrecorded")
     trial.require(tls_mode in ("pinned", "system-roots", "unrecorded"))
-    return {"schema": "nib.quality-calibration-summary/v1", "provenance": hashes,
+    return {"schema": "nib.quality-calibration-summary/v2" if cache_accounting else "nib.quality-calibration-summary/v1", "provenance": hashes,
             "candidate_tls_mode": tls_mode,
             "source_receipt_sha256": hashlib.sha256(raw).hexdigest(), "suite": manifest["suite"],
             **totals, "latency_median_seconds": median, "items": clean,

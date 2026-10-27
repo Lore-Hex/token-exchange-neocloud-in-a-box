@@ -82,6 +82,8 @@ full-suite scores or a comparison against the original DeepSeek weights. See the
 The code-scored runner supports an explicitly bound public HTTPS endpoint or
 the existing test-certificate pin; it never disables TLS verification or calls
 an external judge. See [public HTTPS calibration](docs/tasks/p2-t3-retained-quality.md#public-https-calibration).
+New numerical receipts distinguish reported cache hits from unreported cache
+usage; they do not infer discounts or rewrite historical benchmark evidence.
 
 ### Still To Finish
 

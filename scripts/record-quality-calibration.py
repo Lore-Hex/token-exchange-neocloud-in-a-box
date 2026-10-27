@@ -158,11 +158,22 @@ def cases(suite, root, count):
 def measured_usage(raw):
     worker.require(type(raw) is dict)
     usage = raw.get("usage", {})
+    worker.require(type(usage) is dict)
     incoming, outgoing = usage.get("prompt_tokens"), usage.get("completion_tokens")
     worker.require(type(incoming) is int and type(outgoing) is int and 0 <= incoming < 2**31
                    and 0 <= outgoing < 2**31 and type(usage.get("total_tokens")) is int
                    and usage["total_tokens"] == incoming + outgoing)
     return {"prompt_tokens": incoming, "completion_tokens": outgoing}
+
+
+def measured_cached_tokens(raw, prompt_tokens):
+    details = raw["usage"].get("prompt_tokens_details")
+    if details is None:
+        return None
+    worker.require(type(details) is dict)
+    cached = details.get("cached_tokens")
+    worker.require(cached is None or type(cached) is int and 0 <= cached <= prompt_tokens)
+    return cached
 
 
 def numeric_reply(raw, expected_prompt):
@@ -188,7 +199,7 @@ def evaluate(index, item, prompt, grade, counter, http, key, deadline, row=None)
     if row is None:
         row = {}
     row.update(kind="item", index=index, status="infrastructure_error", stage="render",
-               usage=None, score=None, http_status=None, generation_started=False)
+               usage=None, cached_prompt_tokens=None, score=None, http_status=None, generation_started=False)
     before = time.monotonic()
     http.last_status = None
     try:
@@ -204,6 +215,8 @@ def evaluate(index, item, prompt, grade, counter, http, key, deadline, row=None)
                               before_send=lambda: row.update(generation_started=True))
             row["stage"] = "response-validation"
             row["usage"] = measured_usage(reply)
+            # Keep measured totals even when optional cache accounting is malformed.
+            row["cached_prompt_tokens"] = measured_cached_tokens(reply, row["usage"]["prompt_tokens"])
             text, finish, _ = numeric_reply(reply, incoming)
             row.update(finish_reason=finish, stage="grade")
             # Truncation never receives credit, but known token usage is retained.
@@ -256,7 +269,7 @@ def main():
         fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         results = []
         with os.fdopen(fd, "wb") as stream:
-            write(stream, {"kind": "manifest", "schema": "nib.quality-calibration/v1", "git_sha": revision,
+            write(stream, {"kind": "manifest", "schema": "nib.quality-calibration/v2", "git_sha": revision,
                 "trbench_revision": REVISION, "trbench_tree_sha256": tree_sha, "dataset_sha256": dataset_sha,
                 "suite": args.suite, "expected": args.count, "started_at": started,
                 "sampling": "proportional-stride" if args.suite == "mmlu_pro" else "first-n",
@@ -277,7 +290,8 @@ def main():
                     if cancelled or time.monotonic() >= deadline:
                         break
                     row = {"kind": "item", "index": index, "status": "cancelled", "stage": "not-started",
-                           "usage": None, "score": None, "http_status": None, "generation_started": False,
+                           "usage": None, "cached_prompt_tokens": None, "score": None,
+                           "http_status": None, "generation_started": False,
                            "elapsed_seconds": 0.0}
                     try:
                         results.append(row)
@@ -300,8 +314,10 @@ def main():
                     "missing": args.count - len(results), "ended_at": datetime.now(timezone.utc).isoformat(),
                     "known_prompt_tokens": sum((row["usage"] or {}).get("prompt_tokens", 0) for row in results),
                     "known_completion_tokens": sum((row["usage"] or {}).get("completion_tokens", 0) for row in results),
+                    "known_cached_prompt_tokens": sum(row["cached_prompt_tokens"] or 0 for row in results),
                     "generation_requests": sum(row["generation_started"] for row in results),
                     "unknown_usage_requests": sum(row["generation_started"] and row["usage"] is None for row in results),
+                    "unknown_cache_usage_requests": sum(row["generation_started"] and row["cached_prompt_tokens"] is None for row in results),
                     "latency_median_seconds": statistics.median(row["elapsed_seconds"] for row in results) if results else None})
                 for sig, handler in prior.items():
                     signal.signal(sig, handler)
