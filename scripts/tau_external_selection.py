@@ -17,7 +17,9 @@ BUDGET_KEYS = ("weekly_cap_usd", "gpu_committed_usd", "cpu_disk_reserved_usd", "
 
 
 def source_names(domains):
-    tau.require(type(domains) is list and all(type(domain) is str and domain in tau.DOMAINS for domain in domains))
+    tau.require(type(domains) is list and 1 <= len(domains) <= 3
+                and all(type(domain) is str and domain in tau.DOMAINS for domain in domains)
+                and domains == [domain for domain in tau.DOMAINS if domain in domains])
     return ["data/tau2/domains/" + domain + "/" + name for domain in domains
             for name in ("tasks.json", "split_tasks.json")]
 
