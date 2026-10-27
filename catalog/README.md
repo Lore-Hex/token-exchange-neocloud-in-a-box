@@ -75,10 +75,12 @@ contract `2.1` allows completion deadlines up to 3600 seconds; `2.0` retains its
 900-second ceiling. The generator's synthetic `2.0` output is byte-identical.
 
 The million-token serving profile declares `2.1` and its actual 3540-second
-deadline. Its tools, reasoning and cache capabilities were qualified in the
+deadline. Its tool and cache capabilities were qualified in the
 [million-context proof](../evidence/p2/2026-10-26-selected-million-pass/README.md)
 and [quality calibration](../evidence/p2/2026-10-26-tau-external-retail-pass/README.md).
-It claims neither confidential inference nor a cache-price discount. The older
+Cached input is priced at the regular input rate, so no discount is claimed.
+Reasoning remains unadvertised: those qualification runs disabled reasoning.
+No confidential inference is claimed. The older
 `0.1.8` offline checker payload remains pinned for reproducible historical `2.0`
 proofs; fresh `2.1` qualification requires the updated provider checker schema.
 These schema changes alone do not publish or qualify a live endpoint.
