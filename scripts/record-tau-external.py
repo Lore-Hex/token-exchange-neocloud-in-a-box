@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Prepare offline or run ONE bounded lookup; explicit --full-task runs task 2."""
+"""Plan/prepare offline or run ONE explicitly selected bounded external trial."""
 
 import sys
 
@@ -47,6 +47,14 @@ class Parser(argparse.ArgumentParser):
 def main():
     parser = Parser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    planning = commands.add_parser("plan")
+    planning.add_argument("--source-archive", type=Path, required=True)
+    planning.add_argument("--output", type=Path, required=True)
+    planning.add_argument("--domains", nargs="+", choices=("airline", "retail", "telecom"), required=True)
+    planning.add_argument("--trials", type=int, required=True)
+    planning.add_argument("--seed", type=int, required=True)
+    for name in ("weekly-cap-usd", "gpu-committed-usd", "cpu-disk-reserved-usd", "other-committed-usd"):
+        planning.add_argument("--" + name, required=True)
     prepare = commands.add_parser("prepare")
     prepare.add_argument("--source-archive", type=Path, required=True)
     prepare.add_argument("--wheelhouse", type=Path, required=True)
@@ -54,6 +62,9 @@ def main():
     run = commands.add_parser("run")
     for command in (prepare, run):
         command.add_argument("--full-task", action="store_true")
+        command.add_argument("--selection-plan-sha256")
+        command.add_argument("--selection-index", type=int)
+    prepare.add_argument("--selection-plan", type=Path)
     for name in ("payload", "docker-socket", "contract", "candidate-key", "simulator-key", "vllm-source",
                  "tokenizer", "tokenizer-wheel", "output"):
         run.add_argument("--" + name, type=Path, required=True)
@@ -72,11 +83,37 @@ def main():
     for sig in prior:
         signal.signal(sig, cancel)
     try:
+        if args.command == "plan":
+            plan = trial.selection_plan(args.source_archive, args.domains, args.trials, args.seed,
+                {name: getattr(args, name) for name in ("weekly_cap_usd", "gpu_committed_usd",
+                                                       "cpu_disk_reserved_usd", "other_committed_usd")},
+                time.monotonic() + 600)
+            digest = trial.tau.digest(trial.tau.encoded(plan))
+            envelope = trial.evidence_record(plan["producer_git_sha"], digest, started,
+                                             {"result": plan["result"], "ended_utc": trial.now()})
+            envelope.update(command="python3 -I -S -B scripts/record-tau-external.py plan --source-archive PRIVATE "
+                "--output PRIVATE --domains " + " ".join(plan["domains"]) + " --trials " + str(args.trials)
+                + " --seed " + str(args.seed) + " " + " ".join("--" + name.replace("_", "-") + " " + value
+                    for name, value in plan["budget"]["inputs"].items()),
+                host={"provider": "local", "machine": "offline-source-preflight", "gpus": "none", "driver": None, "cuda": None},
+                notes="Source-bound staged selection and declared cost reservations only. No upstream execution, "
+                      "endpoint calls, spending authorization or quality claim. output.log retains the complete plan.")
+            trial.publish_evidence(args.output, {"run.json": trial.tau.encoded(envelope), "output.log": trial.tau.encoded(plan)})
+            print(trial.tau.encoded({"result": plan["result"], "selection_plan_sha256": digest}).decode(), end="")
+            return 0 if plan["result"] == "pass" else 1
+        staged = args.selection_plan_sha256 is not None or args.selection_index is not None
+        trial.require(not staged or args.full_task and args.selection_plan_sha256 is not None
+                      and type(args.selection_index) is int and 0 <= args.selection_index < 60)
+        if staged:
+            trial.tau.sha(args.selection_plan_sha256)
         if args.command == "prepare":
+            trial.require((args.selection_plan is not None) == staged)
+            stage = trial.read_stage(args.selection_plan, args.selection_plan_sha256, args.selection_index,
+                                     time.monotonic() + 60) if staged else None
             files, plan = trial.prepare(args.source_archive, args.wheelhouse, None, None, None,
                 time.monotonic() + 600, parent_pipe=True, selected_operational=True,
                 customer_resolution=not args.full_task, external_simulator=True,
-                **({"full_task": True} if args.full_task else {}))
+                **({"full_task": True} if args.full_task else {}), **({"stage": stage} if staged else {}))
             trial.publish(args.output, files)
             print(trial.tau.encoded({"plan_sha256": trial.tau.digest(trial.tau.encoded(plan)),
                                     "source_git_sha": plan["producer"]["git_sha"]}).decode(), end="")
@@ -93,7 +130,8 @@ def main():
             parent_pipe=True, external_inputs={"deadline": deadline, "arguments": (
                 args.contract, args.contract_sha256, args.candidate_key, args.simulator_key,
                 args.vllm_source, args.tokenizer, args.tokenizer_wheel),
-                **({"full_task": True} if args.full_task else {})})
+                **({"full_task": True} if args.full_task else {}),
+                **({"stage_binding": {"sha256": args.selection_plan_sha256, "index": args.selection_index}} if staged else {})})
         print(trial.tau.encoded({"result": record["result"], "cleanup": record["cleanup"]}).decode(), end="")
         return 0 if record["result"] == "pass" else 1
     except BaseException:

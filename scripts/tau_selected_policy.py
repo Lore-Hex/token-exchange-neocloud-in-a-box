@@ -31,17 +31,33 @@ def is_resolution(value):
 
 
 def is_external(value):
-    return type(value) is dict and value.get("schema") in (EXTERNAL_SCHEMA, EXTERNAL_TRIAL_SCHEMA)
+    return type(value) is dict and (value.get("schema") in (EXTERNAL_SCHEMA, EXTERNAL_TRIAL_SCHEMA) or is_staged(value))
 
 
 def is_external_trial(value):
-    return type(value) is dict and value.get("schema") == EXTERNAL_TRIAL_SCHEMA
+    return type(value) is dict and (value.get("schema") == EXTERNAL_TRIAL_SCHEMA or is_staged(value))
 
 
-def configuration(*, customer_resolution=False, external_simulator=False, full_task=False):
+def is_staged(value):
+    return type(value) is dict and value.get("schema") == "nib.tau-external-staged-input/v1"
+
+
+def staged():
+    # Legacy isolated CPU/GPU owners do not load the external plan closure.
+    import tau_external_selection
+    return tau_external_selection
+
+
+def external_transport(value):
+    return (staged().TRANSPORT_SCHEMA if is_staged(value) else
+            EXTERNAL_TRIAL_TRANSPORT if is_external_trial(value) else EXTERNAL_TRANSPORT)
+
+
+def configuration(*, customer_resolution=False, external_simulator=False, full_task=False, stage=None):
     tau.require(type(customer_resolution) is bool)
     tau.require(type(full_task) is bool and (not full_task or external_simulator and not customer_resolution))
     tau.require(type(external_simulator) is bool and (not external_simulator or customer_resolution or full_task))
+    tau.require(stage is None or full_task)
     value = {"schema": SCHEMA, "upstream_revision": tau.REVISION,
             "selection": dict(support.SELECTION), "model_profile": models.select("uncensored"),
             "support": support.configuration()["support"], "generation": dict(support.GENERATION),
@@ -72,13 +88,17 @@ def configuration(*, customer_resolution=False, external_simulator=False, full_t
         value["limits"] = {**LIMITS, "input_tokens_per_request": 32768,
                            "output_tokens_per_request": 2048, "total_tokens": 32 * (32768 + 2048),
                            "cost_usd": "3.00"}
+    if stage is not None:
+        value.update(schema=staged().INPUT_SCHEMA, selection=staged().selected(stage),
+                     stage=tau.json_value(tau.encoded(stage)))
     return value
 
 
 def validate(value, sha=None):
     tau.require(tau.encoded(value) == tau.encoded(configuration(customer_resolution=is_resolution(value),
                                                               external_simulator=is_external(value),
-                                                              full_task=is_external_trial(value))))
+                                                              full_task=is_external_trial(value),
+                                                              stage=value.get("stage") if is_staged(value) else None)))
     if sha is not None:
         tau.sha(sha)
         tau.require(tau.digest(tau.encoded(value)) == sha)
@@ -100,8 +120,7 @@ def transport_manifest(value, sha):
     if type(value) is dict and is_external(value.get("input")):
         validate(value["input"])
         tau.require(set(value) == {"schema", "input", "settings", "framing", "binding_sha256"}
-                    and value["schema"] == (EXTERNAL_TRIAL_TRANSPORT if is_external_trial(value["input"])
-                                            else EXTERNAL_TRANSPORT) and tau.digest(tau.encoded(value)) == sha
+                    and value["schema"] == external_transport(value["input"]) and tau.digest(tau.encoded(value)) == sha
                     and value["settings"] == settings(value["input"])
                     and set(value["framing"]) == set(value["input"]["contexts"]))
         tau.sha(value["binding_sha256"])

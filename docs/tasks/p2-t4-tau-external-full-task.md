@@ -9,6 +9,11 @@ the [retained-node guide](p2-t3-retained-quality.md).
 This is one bounded original retail task 2, seed 42,
 not the whole benchmark, a reference-checkpoint comparison or quality acceptance.
 
+An opt-in [staged selection preflight](p2-t3-tau-external-selection.md) can bind
+other original task/domain/trial rows without changing this default. Its
+aggregate reservations and separate run-approval gate are mandatory; no staged
+live result is claimed.
+
 ## Original task and evaluator
 
 The source archive and all task/runtime files remain pinned to tau revision

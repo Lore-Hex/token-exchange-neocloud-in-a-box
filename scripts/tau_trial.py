@@ -74,7 +74,7 @@ def load(name, expected=None, *, modules=None):
     return module
 
 
-SELECTED_PARENT_MODULES = ("deepseek_model_profile", "tau_support_probe", "tau_selected_policy",
+SELECTED_PARENT_MODULES = ("deepseek_model_profile", "tau_support_probe", "tau_external_selection", "tau_selected_policy",
     "tau_local_vllm", "tau_local_llama", "engine_tokenizer_parity", "tau_llama_identity",
     "tau_live_identity", "tau_cpu_parity", "tau_owner_channel", "tau_selected_session")
 EXTERNAL_PARENT_MODULES = ("bounded_https", "tau_external_tokenizer", "tau_external")
@@ -157,7 +157,7 @@ def check_probe_image(image):
 
 def selected_policy(toolkit):
     modules = {"tau_preflight": tau}
-    for name in ("deepseek_model_profile", "tau_support_probe", "tau_selected_policy"):
+    for name in ("deepseek_model_profile", "tau_support_probe", "tau_external_selection", "tau_selected_policy"):
         path = "scripts/" + name + ".py"
         modules[name] = load(path, toolkit["files"][path], modules=modules)
     return modules["tau_selected_policy"]
@@ -206,7 +206,7 @@ def identity(deadline, parent_pipe=False, *, live_local=False, support_probe=Fal
     if external_simulator:
         names += tuple("scripts/" + name + ".py" for name in EXTERNAL_PARENT_MODULES)
         names += ("scripts/record-tau-external.py", "scripts/test_tau_external.py", "scripts/test_bounded_https.py",
-                  "scripts/test_tau_external_trial.py")
+                  "scripts/test_tau_external_trial.py", "scripts/test_tau_external_selection.py")
     result = tau.committed_identity(deadline)
     for start in range(0, len(names), 4):
         item = tau.committed_identity(deadline, extra_files=names[start:start + 4])
@@ -248,12 +248,40 @@ def add_wheel(files, owners, raw, package, expected, deadline):
     require(len(files) <= worker.MAX_FILES and sum(map(len, files.values())) <= worker.MAX_PAYLOAD)
 
 
+def selection_plan(archive_path, domains, trials, seed, budget_inputs, deadline):
+    toolkit = identity(deadline, True, selected_operational=True, external_simulator=True)
+    policy = selected_policy(toolkit)
+    pins_raw = runtime.read_file(ROOT / tau.PINS, 1 << 20, deadline)
+    require(tau.digest(pins_raw) == tau.PINS_SHA)
+    pins = tau.json_value(pins_raw)
+    archive = runtime.read_file(archive_path, runtime.ARCHIVE_LIMIT, deadline)
+    source_rows, sources = runtime.source_inputs(archive, pins, deadline)
+    catalog = runtime.read_file(ROOT / runtime.CATALOG, 1 << 20, deadline)
+    require(tau.digest(catalog) == runtime.CATALOG_SHA
+            and runtime.make_catalog(source_rows, sources) == tau.json_value(catalog))
+    plan = policy.staged().build(sources, pins, toolkit["git_sha"], domains, trials, seed, budget_inputs)
+    require(time.monotonic() < deadline)
+    return plan
+
+
+def read_stage(path, sha, index, deadline):
+    tau.sha(sha)
+    raw = runtime.read_file(path, 1 << 20, deadline)
+    require(tau.digest(raw) == sha)
+    stage = {"plan": tau.json_value(raw), "index": index}
+    require(tau.encoded(stage["plan"]) == raw)
+    # The complete configuration validates shape, budget and index before any
+    # endpoint secrets, socket inspection or Docker command can be reached.
+    return stage
+
+
 def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, deadline, *, parent_pipe=False,
             live_binding=None, support_probe=False, agent_prefix=False, selected_operational=False, identity_followup=False,
-            identity_followup_17b=False, customer_resolution=False, external_simulator=False, full_task=False):
+            identity_followup_17b=False, customer_resolution=False, external_simulator=False, full_task=False, stage=None):
     require(type(customer_resolution) is bool and (not customer_resolution or selected_operational))
     require(type(full_task) is bool and (not full_task or external_simulator and not customer_resolution))
     require(type(external_simulator) is bool and (not external_simulator or customer_resolution or full_task))
+    require(stage is None or full_task)
     require(type(identity_followup) is bool and type(identity_followup_17b) is bool
             and not (identity_followup and identity_followup_17b)
             and (not (identity_followup or identity_followup_17b) or support_probe and not agent_prefix))
@@ -276,10 +304,11 @@ def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, de
                                         **({"identity_followup_17b": True} if identity_followup_17b else {}),
                                         **({"customer_resolution": True} if customer_resolution else {}),
                                         **({"external_simulator": True} if external_simulator else {}),
-                                        **({"full_task": True} if full_task else {}))
+                                        **({"full_task": True} if full_task else {}),
+                                        **({"stage": stage} if stage is not None else {}))
         manifest_sha = tau.digest(tau.encoded(manifest))
         source_policy = policy.support if selected_operational else policy
-        chosen = dict(source_policy.SELECTION)
+        chosen = dict(manifest["selection"])
     else:
         raw = runtime.read_file(manifest_path, 1 << 20, deadline)
         manifest = tau.json_value(raw)
@@ -292,7 +321,11 @@ def prepare(archive_path, wheelhouse, manifest_path, manifest_sha, selection, de
     source_rows, sources = runtime.source_inputs(archive, pins, deadline)
     require(runtime.make_catalog(source_rows, sources) == catalog)
     if support_probe or selected_operational:
-        require(source_policy.source_selection(sources) == chosen)
+        if stage is not None:
+            require(stage["plan"]["producer_git_sha"] == toolkit["git_sha"])
+            policy.staged().verify_sources(stage["plan"], sources, pins)
+        else:
+            require(source_policy.source_selection(sources) == chosen)
         if identity_followup or identity_followup_17b or customer_resolution:
             load("scripts/tau_cpu_identity.py").fixture(sources, pins)
     else:
@@ -416,13 +449,19 @@ def validate_plan(payload, sha, toolkit, deadline, *, parent_pipe=False, live_lo
                           modules={"tau_preflight": tau})
         policy.validate(manifest, plan["manifest_sha256"])
         require(not agent_prefix or manifest["schema"] == policy.SCHEMA)
-        prefix = "data/tau2/domains/retail/"
-        sources = {prefix + name: runtime.read_file(payload / "upstream" / prefix / name, 16 << 20, deadline)
-                   for name in ("tasks.json", "split_tasks.json")}
+        staged = selected_operational and policy.is_staged(manifest)
+        names = (policy.staged().source_names(manifest["stage"]["plan"]["domains"]) if staged else
+                 ["data/tau2/domains/retail/" + name for name in ("tasks.json", "split_tasks.json")])
+        sources = {name: runtime.read_file(payload / "upstream" / name, 16 << 20, deadline) for name in names}
         for name, raw in sources.items():
             require(tau.digest(raw) == pins["files"][name]["sha256"] and len(raw) == pins["files"][name]["bytes"])
         source_policy = policy.support if selected_operational else policy
-        require(tau.encoded(selection) == tau.encoded(source_policy.source_selection(sources)))
+        if staged:
+            require(manifest["stage"]["plan"]["producer_git_sha"] == toolkit["git_sha"])
+            policy.staged().verify_sources(manifest["stage"]["plan"], sources, pins)
+            require(tau.encoded(selection) == tau.encoded(manifest["selection"]))
+        else:
+            require(tau.encoded(selection) == tau.encoded(source_policy.source_selection(sources)))
     else:
         aggregate.validate_manifest(manifest, plan["manifest_sha256"], pins)
         require(selection == select(manifest, selection["domain"], selection["task_id"],
@@ -539,6 +578,7 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
     live_local = live_deployment is not None
     external_simulator = external_inputs is not None
     full_task = False
+    stage_binding = None
     require(not (external_simulator and selected_owners is not None))
     selected_operational = selected_owners is not None or external_simulator
     selected_mode(selected_operational, parent_pipe, live_local, support_probe is not None, agent_prefix)
@@ -547,8 +587,11 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
     if external_simulator:
         require(type(external_inputs) is dict)
         full_task = external_inputs.get("full_task", False)
+        stage_binding = external_inputs.get("stage_binding")
         require(type(full_task) is bool and set(external_inputs) == {"arguments", "deadline"}
                     | ({"full_task"} if full_task else set())
+                    | ({"stage_binding"} if stage_binding is not None else set())
+                and (stage_binding is None or full_task)
                 and type(external_inputs["arguments"]) is tuple and len(external_inputs["arguments"]) == 7
                 and type(external_inputs["deadline"]) in (int, float)
                 and 60 < external_inputs["deadline"] - time.monotonic() <= 960)
@@ -574,6 +617,9 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
     if external_simulator:
         driver = parent_driver(toolkit, selected_operational=True, external_simulator=True)
         require(driver.policy.is_external(manifest) and driver.policy.is_external_trial(manifest) == full_task)
+        require(driver.policy.is_staged(manifest) == (stage_binding is not None))
+        if stage_binding is not None:
+            require(tau.encoded(stage_binding) == tau.encoded(driver.policy.staged().binding(manifest["stage"])))
     elif selected_operational:
         driver = parent_driver(toolkit, selected_operational=True)
         require(not driver.policy.is_external(manifest))
@@ -630,7 +676,8 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
                 stage = "external-preflight"
                 with worker.alarm(min(deadline, operation_deadline - 60)):
                     external = driver.Runtime(*external_inputs["arguments"], external_inputs["deadline"],
-                                              **({"full_task": True} if full_task else {}))
+                                              **({"full_task": True} if full_task else {}),
+                                              **({"stage": manifest["stage"]} if stage_binding is not None else {}))
                 require(tau.encoded(external.manifest["input"]) == tau.encoded(manifest))
             inspection = {"parent_pipe": parent_pipe, **({"support_probe": True} if classic else {}),
                           **({"selected_operational": True} if selected_operational else {})}
@@ -744,6 +791,8 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
         if full_task:
             record.update(selection=dict(manifest["selection"]), evaluation=dict(manifest["evaluation"]),
                           full_benchmark=False)
+        if stage_binding is not None:
+            record.update(schema="nib.tau-external-staged-run/v1", stage_binding=stage_binding)
         publish_evidence(destination, external_evidence_files(record))
         return record
     if selected_operational:
