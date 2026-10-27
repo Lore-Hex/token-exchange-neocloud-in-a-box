@@ -229,10 +229,11 @@ class Endpoint:
 
 class Runtime:
     def __init__(self, contract_path, contract_sha, candidate_key, simulator_key, source, tokenizer, wheel, deadline,
-                 *, full_task=False):
+                 *, full_task=False, stage=None):
         require(type(full_task) is bool)
         self.counter, self.endpoints = None, {}
-        config = policy.configuration(customer_resolution=not full_task, external_simulator=True, full_task=full_task)
+        config = policy.configuration(customer_resolution=not full_task, external_simulator=True, full_task=full_task,
+                                      **({"stage": stage} if stage is not None else {}))
         context, output = config["contexts"]["candidate"], config["generation"]["max_tokens"]
         raw = private.private_read(contract_path, deadline)
         require(worker.digest(raw) == contract_sha)
@@ -270,7 +271,7 @@ class Runtime:
             self.endpoints = {"candidate": Endpoint("candidate", candidate_http, keys[0], self.counter, **options),
                              **{role: Endpoint(role, bounded_https.HTTPS("api.openai.com", (COUNT, CHAT if pinned else RESPONSES)),
                                                keys[1], support_chat=pinned, **options) for role in config["support"]}}
-            self.manifest = {"schema": policy.EXTERNAL_TRIAL_TRANSPORT if full_task else policy.EXTERNAL_TRANSPORT,
+            self.manifest = {"schema": policy.external_transport(config),
                 "input": config, "settings": policy.settings(config),
                 "binding_sha256": contract_sha, "framing": {role: {
                     "reasoning_effort": "none", "parallel_tool_calls": False, "context_tokens": context,
@@ -306,8 +307,9 @@ class Session(local.CountedSession):
                 self.bridge.counts["agent"] + self.bridge.counts["simulator"]))
             sequence, result = super().accept_result({key: value for key, value in packet.items()
                                                      if key != "upstream_termination"}, deadline)
-            result.update(schema="nib.tau-external-retail-trial/v1", upstream_termination=upstream,
-                          selection=dict(policy.support.SELECTION))
+            staged = policy.is_staged(self.manifest["input"])
+            result.update(schema="nib.tau-external-staged-trial/v1" if staged else "nib.tau-external-retail-trial/v1",
+                          upstream_termination=upstream, selection=dict(self.manifest["input"]["selection"]))
             return sequence, result
         require(type(packet) is dict and packet.get("upstream_termination", False) is None)
         resolution = policy.resolution_result(packet["customer_resolution"], completed=packet.get("status") == "evaluated")
@@ -318,7 +320,7 @@ class Session(local.CountedSession):
 
 
 def accepted(value):
-    if value.get("schema") == "nib.tau-external-full-task/v1":
+    if value.get("schema") in ("nib.tau-external-full-task/v1", "nib.tau-external-staged/v1"):
         row = value["trial"]
         # Lifecycle success is independent of reward. Zero remains a scored
         # failure of this task, not a transport failure or invented null reward.
@@ -422,6 +424,8 @@ def run_process(command, environment, payload, plan, runtime, deadline):
             "cost_basis": "standard-token-price-reservations-not-invoice",
             "quality_eligible": False, "confidential": False, "live_admission": False}
     if full_task:
-        result.update(selection=dict(policy.support.SELECTION),
+        result.update(selection=dict(runtime.manifest["input"]["selection"]),
                       evaluation=dict(runtime.manifest["input"]["evaluation"]), full_benchmark=False)
+    if policy.is_staged(runtime.manifest["input"]):
+        result.update(schema="nib.tau-external-staged/v1", stage_binding=policy.staged().binding(runtime.manifest["input"]["stage"]))
     return result

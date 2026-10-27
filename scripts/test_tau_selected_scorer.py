@@ -17,7 +17,7 @@ import test_tau_trial as trial
 
 runner, worker, tau = trial.runner, trial.worker, trial.tau
 SOURCES = (runner.WORKER, "scripts/deepseek_model_profile.py", "scripts/tau_support_probe.py",
-           "scripts/tau_selected_policy.py", "scripts/tau_cpu_support_models.json")
+           "scripts/tau_external_selection.py", "scripts/tau_selected_policy.py", "scripts/tau_cpu_support_models.json")
 
 
 def fixture():

@@ -683,7 +683,7 @@ def run_upstream(root, manifest, selection, bridge, *, selected_operational=Fals
         bridge.upstream_termination = None
         import tau_selected_policy as policy
         policy.validate(manifest)
-        require(encoded(selection) == encoded(policy.support.SELECTION)
+        require(encoded(selection) == encoded(manifest["selection"] if policy.is_staged(manifest) else policy.support.SELECTION)
                 and policy.LIMITS["trial_seconds"] == SELECTED_TRIAL_SECONDS
                 and policy.LIMITS["run_seconds"] == SELECTED_RUN_SECONDS)
         settings, seconds = policy.settings(manifest), SELECTED_TRIAL_SECONDS
@@ -822,18 +822,25 @@ def main():
                 sys.modules["tau_support_probe"] = policy
                 if selected_operational:
                     sys.modules["deepseek_model_profile"] = load(root, "scripts/deepseek_model_profile.py")
+                    sys.modules["tau_external_selection"] = load(root, "scripts/tau_external_selection.py")
                     policy = load(root, "scripts/tau_selected_policy.py")
                     sys.modules["tau_selected_policy"] = policy
                 policy.validate(manifest, contract["manifest_sha256"])
                 source_policy = policy.support if selected_operational else policy
                 if selected_operational:
-                    prefix = "data/tau2/domains/retail/"
-                    sources = {prefix + name: read(root / "upstream" / prefix / name, 16 << 20)
-                               for name in ("tasks.json", "split_tasks.json")}
+                    staged = policy.is_staged(manifest)
+                    names = (policy.staged().source_names(manifest["stage"]["plan"]["domains"]) if staged else
+                             ["data/tau2/domains/retail/" + name for name in ("tasks.json", "split_tasks.json")])
+                    sources = {name: read(root / "upstream" / name, 16 << 20) for name in names}
                     for name, raw in sources.items():
                         require(digest(raw) == pins["files"][name]["sha256"]
                                 and len(raw) == pins["files"][name]["bytes"])
-                    require(encoded(contract["selection"]) == encoded(source_policy.source_selection(sources)))
+                    if staged:
+                        require(manifest["stage"]["plan"]["producer_git_sha"] == contract["producer"]["git_sha"])
+                        policy.staged().verify_sources(manifest["stage"]["plan"], sources, pins)
+                        require(encoded(contract["selection"]) == encoded(manifest["selection"]))
+                    else:
+                        require(encoded(contract["selection"]) == encoded(source_policy.source_selection(sources)))
                 else:
                     require(contract["selection"] == source_policy.SELECTION)
             else:
