@@ -11,6 +11,10 @@ on:
         description: Compose the fixed deny-all guest network gate and require its success before the root probe
         type: boolean
         default: false
+      debug_topology:
+        description: Require guest_network and test one down-only private veth pair after the original root check
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -25,6 +29,17 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 35
     steps:
+      - name: Reject incompatible debug profiles before fetching inputs
+        id: profile
+        timeout-minutes: 1
+        env:
+          GUEST_NETWORK: ${{ inputs.guest_network }}
+          DEBUG_TOPOLOGY: ${{ inputs.debug_topology }}
+        run: |
+          case "$GUEST_NETWORK:$DEBUG_TOPOLOGY" in
+            false:false|true:false|true:true) ;;
+            *) exit 1 ;;
+          esac
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           persist-credentials: false
@@ -79,9 +94,14 @@ jobs:
         timeout-minutes: 18
         env:
           GUEST_NETWORK: ${{ inputs.guest_network }}
+          DEBUG_TOPOLOGY: ${{ inputs.debug_topology }}
         run: |
-          network_args=()
-          case "$GUEST_NETWORK" in true) network_args=(--guest-network) ;; false) ;; *) exit 1 ;; esac
+          case "$GUEST_NETWORK:$DEBUG_TOPOLOGY" in
+            false:false) network_args=() ;;
+            true:false) network_args=(--guest-network) ;;
+            true:true) network_args=(--guest-network --debug-topology) ;;
+            *) exit 1 ;;
+          esac
           compiler="$(readlink -f "$(command -v go)")"
           result="$(sudo -- /usr/bin/python3.10 -I -S -B host/run-debug-boot.py \
             --downloads "$PWD/build/native-install/inputs" \
@@ -92,7 +112,7 @@ jobs:
           test "$result" = pass
       - name: Discard native export if debug worker never started
         id: unused_export
-        if: ${{ always() && steps.debug.outcome == 'skipped' }}
+        if: ${{ always() && steps.profile.outcome == 'success' && steps.debug.outcome == 'skipped' }}
         timeout-minutes: 5
         env:
           BUILD_RESULT: ${{ steps.build.outcome }}
