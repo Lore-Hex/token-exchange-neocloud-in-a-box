@@ -1,9 +1,12 @@
 # One original retail task with external support
 
-P2.T4 software preparation only. The explicit `--full-task` mode extends the
+The explicit P2.T4 `--full-task` mode extends the
 [external first-lookup transport](p2-t4-tau-external-simulator.md); the default
 lookup mode, selected-owner paths and current live endpoint are unchanged.
-It has not run inference. This is one bounded original retail task 2, seed 42,
+The [October 26 live trial](../../evidence/p2/2026-10-26-tau-external-retail-pass/README.md)
+completed with reward 1.0 using the retained v2 endpoint contract described in
+the [retained-node guide](p2-t3-retained-quality.md).
+This is one bounded original retail task 2, seed 42,
 not the whole benchmark, a reference-checkpoint comparison or quality acceptance.
 
 ## Original task and evaluator
@@ -47,18 +50,20 @@ container failure preserves an already validated reward while the outer run fail
   the retained 60-second cleanup reserve. One frozen UTC/monotonic deadline.
 - All three roles have a 32,768-token context and 2,048-token output ceiling.
   Actual prompt plus reserved output must fit. The candidate requires the
-  reviewed `quality32k-eager` service contract from
+  reviewed `quality32k-eager` request contract from
   [PR402](https://github.com/Lore-Hex/token-exchange-neocloud-in-a-box/pull/402),
-  not the current 8K/256 contract. Merge, source-bound image preparation,
-  readiness and conformance remain separate gates before any live use.
+  not the earlier 8K/256 contract. The v2 contract separately names the actual
+  `long1m-graphs` serving profile. Source-bound preparation, readiness and
+  conformance remain required for each new endpoint admission.
 - Existing candidate limits still apply: 16 tools, 128 messages and 64 KiB
   encoded request. No truncation, summary, schema repair, tool filtering or
   argument rewrite makes an oversized request pass. The two existing null/name
   projections only remove equivalent upstream aliases. Full-history fit is
   checked per request, not claimed for every possible trajectory.
 - The same verified native tokenizer and pinned vLLM rendering count candidate
-  requests. Simulator and evaluator use the fixed OpenAI Responses endpoint and
-  exact input-token endpoint with identical model/input/truncation fields.
+  requests. The legacy v1 simulator/evaluator contract uses Responses; v2 uses
+  Chat Completions to preserve the original simulator seed. Both use the fixed
+  OpenAI input-token endpoint and require exact count/actual-usage agreement.
   They share **32 total counting attempts**, including failed attempts.
 - No redirects, credential forwarding, SDK retries, fallback models or proxy
   environment. System-root TLS verification precedes credentials. Existing
@@ -93,7 +98,7 @@ python3 -I -S -B scripts/record-tau-external.py prepare --full-task \
   --output "$NEW_PRIVATE_PREPARATION"
 ```
 
-The private contract uses `nib.tau-external-trial-endpoint/v1`. It has the
+The original private contract uses `nib.tau-external-trial-endpoint/v1`. It has the
 lookup contract's exact fields, but `context_tokens=32768`, `output_tokens=2048`,
 and prices for all three roles. It additionally requires
 `candidate_profile=quality32k-eager` and `evaluator=gpt-4.1-2025-04-14`.
@@ -101,6 +106,9 @@ The simulator is the same snapshot. Candidate model is the exact selected
 canonical ID; destination remains a single explicit hostname/global IPv4/443.
 Conformance digest and retirement cutoff are required operator assertions,
 not remote process attestation. No current endpoint is upgraded by this file.
+For the validated retained-node path, use the v2 certificate-pinned contract
+in the [retained-node guide](p2-t3-retained-quality.md); do not reuse v1 for the
+seeded support-model calls.
 
 Only after independent review, full gates and separate explicit execution
 approval may the operator run:
@@ -143,6 +151,7 @@ python3 -B scripts/test_tau_external_trial.py \
 
 The full local/hosted suites, final independent review, deployment contract,
 real API/tokenizer compatibility, approved credentials and budget, and an
-original completed trial receipt are distinct remaining gates. A single
+original completed trial receipt are distinct gates. The linked live receipt
+records the completed execution and cleanup, not permanent admission. A single
 task's reward cannot establish selected-checkpoint aggregate quality or the
 original model-revision reference gate.
