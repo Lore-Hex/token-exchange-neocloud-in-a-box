@@ -85,8 +85,30 @@ class Simulator(external.Endpoint):
         return TOKENS
 
 
+class SourcePeer(Peer):
+    """Exercise the real bridge with fixture replies, checking both wire forms."""
+    def __init__(self, role, assertions, tools):
+        super().__init__(role, assertions)
+        self.tools, self.counted = tools, None
+
+    def post(self, route, body, key, deadline, *, before_send=None):
+        if self.role == "simulator":
+            if route == external.COUNT:
+                self.counted = worker.decode(worker.encoded(body))
+                self.pair = {"count": self.counted}
+            elif route == external.CHAT:
+                original = {key: value for key, value in body.items() if key not in ("store", "service_tier")}
+                original["reasoning_effort"] = "none"
+                pair = catalog.projection.project(original, self.tools)
+                require(pair["count"] == self.counted and pair["chat"] == body)
+                self.pair = pair
+                self.counted = None
+        return super().post(route, body, key, deadline, before_send=before_send)
+
+
 class Offline:
-    def __init__(self, stage, archive, assertions, deadline):
+    def __init__(self, stage, archive, assertions, deadline, *, source_bound=False):
+        require(type(source_bound) is bool)
         self.contract = catalog.bind(stage, archive, deadline)
         catalog.selection.validate_assertions(stage, assertions)
         config = policy.configuration(full_task=True, external_simulator=True, stage=stage)
@@ -94,6 +116,13 @@ class Offline:
         self.endpoints = {"simulator": Simulator(self.contract, archive, assertions, budget),
             **{role: external.Endpoint(role, Peer(role, assertions), b"", Counter(), full_task=True,
                 count_budget=budget, support_chat=True) for role in ("candidate", "evaluator")}}
+        if source_bound:
+            support = external.source_support()
+            source = support.Source(archive, stage, deadline)
+            admission = support.Admission(config)
+            self.endpoints = {role: support.Endpoint(role, SourcePeer(role, assertions, source.tools), b"", Counter(),
+                full_task=True, count_budget=budget, support_chat=True, source=source, admission=admission)
+                for role in ("candidate", "simulator", "evaluator")}
         self.manifest = {"schema": policy.external_transport(config), "input": config,
             "settings": policy.settings(config), "binding_sha256": worker.digest(worker.encoded(self.contract)),
             "framing": {role: {"reasoning_effort": "none", "parallel_tool_calls": False,

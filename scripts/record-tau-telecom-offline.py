@@ -86,7 +86,8 @@ def record(args, result, progress):
         payload = destination / "payload"
         trial.validate_plan(payload, sha, toolkit, deadline, parent_pipe=True, selected_operational=True)
         assertions = offline.external.pipe.selected_assertions(payload, plan["selection"])
-        held = offline.Offline(stage, args.source_archive, assertions, deadline)
+        held = offline.Offline(stage, args.source_archive, assertions, deadline,
+                               **({"source_bound": True} if getattr(args, "source_bound_support", False) else {}))
         def docker(args, limit=65536):
             require(time.monotonic() < deadline - 60)
             return trial.probe.capture([*prefix, *args], timeout=min(30, deadline - 60 - time.monotonic()), limit=limit, env=env)
@@ -143,6 +144,9 @@ def host(args):
         "started_utc": datetime.now(timezone.utc).isoformat(),
         "command_line": "python3 -I -S -B scripts/record-tau-telecom-offline.py --source-archive PRIVATE "
                         "--wheelhouse PRIVATE --docker-socket PRIVATE --index " + str(args.index) + " --receipt PRIVATE"}
+    if getattr(args, "source_bound_support", False):
+        result.update(source_bound_support_transport=True,
+                      command_line=result["command_line"] + " --source-bound-support")
     try:
         require(sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode)
         require(all(path.is_absolute() for path in (args.source_archive, args.wheelhouse, args.docker_socket, args.receipt)))
@@ -182,6 +186,7 @@ def main(argv=None):
     for name in ("source-archive", "wheelhouse", "docker-socket", "receipt"):
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--index", type=int, default=0)
+    parser.add_argument("--source-bound-support", action="store_true")
     args = parser.parse_args(argv)
     previous = {kind: signal.getsignal(kind) for kind in (signal.SIGTERM, signal.SIGINT)}
     requested = False

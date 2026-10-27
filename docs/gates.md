@@ -55,6 +55,12 @@ The full confidential-node hardware qualification and run gates remain pending.
 TrustedRouter owns customer billing/payments; operators still need approval and
 a budget for their own hardware and infrastructure costs.
 
+The [source-bound tau support transport](tasks/p2-t3-source-bound-support.md)
+still needs per-run approval, reconciled commitments and held charges, verified
+counting terms, and an exact source/endpoint/plan/index ceiling before any paid
+count or generation. Offline replay does not satisfy those gates or authorize
+a sequential aggregate-cap plan.
+
 The [P2.T1 Terraform skeleton](../platforms/gcp/terraform/README.md) is software
 only, tested with a mock provider. G-GCP-PROJECT, G-GCP-QUOTA and per-run G-RUN
 remain required before any real deployment. No billing link, IAM grant, quota

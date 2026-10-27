@@ -26,6 +26,15 @@ FAILURES.update({(b"" if stage == "INITRD_STAGE" else INITRD)
                  for stage in FAILURE_STAGES})
 RECORDS = (EXPECTED, *FAILURES)
 MAX_PROOF_BYTES = max(map(len, RECORDS))
+TOPOLOGY_PROFILE = "debug-topology/v1"
+TOPOLOGY_EXPECTED = INITRD + b"NIB_DEBUG_TOPOLOGY_V1 PASS\n"
+TOPOLOGY_FAILURES = {b"NIB_DEBUG_TOPOLOGY_V1 STAGE\n": "INITRD_STAGE",
+                     INITRD + b"NIB_DEBUG_TOPOLOGY_V1 ROOT\n": "TOPOLOGY_ROOT",
+                     INITRD + b"NIB_DEBUG_TOPOLOGY_V1 DEADLINE\n": "DEADLINE"}
+TOPOLOGY_DIAGNOSTICS = {INITRD + f"NIB_DEBUG_TOPOLOGY_V1 F {stage:02d} {cleaned}\n".encode("ascii"):
+                        {"stage": stage, "owned_cleanup": bool(cleaned)}
+                        for stage in range(1, 11) for cleaned in range(2)}
+TOPOLOGY_RECORDS = (TOPOLOGY_EXPECTED, *TOPOLOGY_FAILURES, *TOPOLOGY_DIAGNOSTICS)
 ROOT_READ_PREFIX = INITRD + b"NIB_DEBUG_BOOT_V1 R "
 ROOT_READ_REASONS = {1: "size", 2: "deadline", 3: "short-read", 4: "io",
                      5: "extra-data", 6: "eof", 7: "late-eof", 8: "close"}
@@ -170,8 +179,10 @@ def network_frame(raw):
                   "exit_status": status, "stage": stage}
 
 
-def receive(listener, stop, deadline, state):
+def receive(listener, stop, deadline, state, topology=False):
     """Only fixed protocol prefixes are retained; never report arbitrary bytes."""
+    require(type(topology) is bool and max(map(len, TOPOLOGY_RECORDS)) <= MAX_PROOF_BYTES)
+    expected, records = (TOPOLOGY_EXPECTED, TOPOLOGY_RECORDS) if topology else (EXPECTED, RECORDS)
     connection = None
     raw = b""
     eof = False
@@ -199,19 +210,25 @@ def receive(listener, stop, deadline, state):
                 continue
             if not chunk:
                 eof = True
-                state["complete"] = raw == EXPECTED
-                if raw not in RECORDS and root_read_frame(raw)[1] is None and network_frame(raw)[1] is None:
+                state["complete"] = raw == expected
+                if raw not in records and (topology or root_read_frame(raw)[1] is None) and network_frame(raw)[1] is None:
                     state["protocol_error"] = "incomplete"
                 break
             raw += chunk
-            root_prefix, root_read = root_read_frame(raw)
+            root_prefix, root_read = (False, None) if topology else root_read_frame(raw)
             network_prefix, network = network_frame(raw)
-            if not any(record.startswith(raw) for record in RECORDS) and not root_prefix and not network_prefix:
+            if not any(record.startswith(raw) for record in records) and not root_prefix and not network_prefix:
                 state["protocol_error"] = "invalid-frame"
                 raise ValueError("debug-proof-rejected")
             state["initrd"] = raw.startswith(INITRD)
-            state["root"] = raw == EXPECTED
-            if raw in FAILURES:
+            state["root"] = raw == expected
+            if topology:
+                state["topology_down_only"] = raw == expected
+                if raw in TOPOLOGY_FAILURES:
+                    state["guest_failure"] = TOPOLOGY_FAILURES[raw]
+                if raw in TOPOLOGY_DIAGNOSTICS:
+                    state.update(guest_failure="TOPOLOGY", topology_failure=TOPOLOGY_DIAGNOSTICS[raw])
+            elif raw in FAILURES:
                 state["guest_failure"] = FAILURES[raw]
             if root_read is not None:
                 state.update(guest_failure="ROOT_READ", root_read=root_read)
@@ -226,14 +243,15 @@ def receive(listener, stop, deadline, state):
             connection.close()
 
 
-def trial(execute, state, terminal):
+def trial(execute, state, terminal, topology=False):
     stop = threading.Event()
     result, cleaned = None, False
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
         listener.bind(str(SOCKET))
         listener.listen(1)
         listener.settimeout(0.1)
-        thread = threading.Thread(target=receive, args=(listener, stop, time.monotonic() + TIMEOUT + 1, state))
+        thread = threading.Thread(target=receive, args=(listener, stop, time.monotonic() + TIMEOUT + 1, state),
+                                  kwargs={"topology": topology})
         thread.start()
         try:
             result = execute(command(), env=environment(), timeout=TIMEOUT,
@@ -252,6 +270,16 @@ def trial(execute, state, terminal):
     require(cleaned and result is not None and result.returncode == 0
             and not result.stdout and not result.stderr and state["complete"])
     return state
+
+
+def input_profile(config):
+    require(type(config) is dict)
+    if config.get("schema") == "nib.debug-qemu-input/v1":
+        require("profile" not in config)
+        return False
+    require(config.get("schema") == "nib.debug-qemu-input/v2" and config.get("profile") == TOPOLOGY_PROFILE
+            and set(config) == {"schema", "profile", "runtime_members", "debug_uki"})
+    return True
 
 
 def main():
@@ -284,19 +312,26 @@ def main():
         resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
         resource.setrlimit(resource.RLIMIT_FSIZE, (256 << 20, 256 << 20))
         config = json.loads(boot.read(Path("/nib/qemu-input.json"), 65536), object_pairs_hook=boot.unique_object)
-        require(config["schema"] == "nib.debug-qemu-input/v1")
+        topology = input_profile(config)
+        if topology:
+            report.update(schema="nib.debug-topology-qemu/v1", profile=TOPOLOGY_PROFILE, topology_down_only_verified=False)
+            report["proof"]["topology_down_only"] = False
         for path, expected in config["runtime_members"].items():
             require(path in (QEMU, LOADER, CODE, VARS))
             require(boot.identity(boot.read(Path(path), 32 << 20)) == expected)
         require(set(config["runtime_members"]) == {QEMU, LOADER, CODE, VARS})
         require(boot.identity(boot.read(Path("/input/debug.efi"), boot.MAX_IMAGE)) == config["debug_uki"])
+        if topology:
+            report["debug_uki"] = config["debug_uki"]
         boot.write(Path("/work/OVMF_VARS.fd"), boot.read(Path(VARS), 1 << 20))
         report["stage"] = "startup"
         processes = module("snapshot")
         startups(processes.execute_process_group, report["startup_checks"])
         report["stage"] = "boot"
-        trial(processes.execute_process_group, report["proof"], report["terminal"])
+        trial(processes.execute_process_group, report["proof"], report["terminal"], topology)
         report.update(result="pass", stage="complete", boot_verified=True)
+        if topology:
+            report["topology_down_only_verified"] = True
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
         report["result"] = "fail"
     finally:

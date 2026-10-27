@@ -77,13 +77,14 @@ def load(name, expected=None, *, modules=None):
 SELECTED_PARENT_MODULES = ("deepseek_model_profile", "tau_support_probe", "tau_external_selection", "tau_selected_policy",
     "tau_local_vllm", "tau_local_llama", "engine_tokenizer_parity", "tau_llama_identity",
     "tau_live_identity", "tau_cpu_parity", "tau_owner_channel", "tau_selected_session")
-EXTERNAL_PARENT_MODULES = ("bounded_https", "tau_external_tokenizer", "tau_external")
+EXTERNAL_PARENT_MODULES = ("bounded_https", "tau_external_tokenizer", "tau_external", "tau_telecom_projection",
+                          "tau_telecom_catalog", "tau_external_support")
 
 
 def parent_driver(toolkit, *, live_local=False, selected_operational=False, external_simulator=False):
     # Compile the exact verified closure, never timestamp-valid .pyc files or
     # preexisting same-name modules from an ambient import path.
-    modules = {}
+    modules = {"tau_runtime": runtime}
     require(type(selected_operational) is bool and not (selected_operational and live_local))
     names = ("tau_preflight", "tau_trial_worker", "tau_aggregate", "tau_transport")
     if live_local:
@@ -206,7 +207,8 @@ def identity(deadline, parent_pipe=False, *, live_local=False, support_probe=Fal
     if external_simulator:
         names += tuple("scripts/" + name + ".py" for name in EXTERNAL_PARENT_MODULES)
         names += ("scripts/record-tau-external.py", "scripts/test_tau_external.py", "scripts/test_bounded_https.py",
-                  "scripts/test_tau_external_trial.py", "scripts/test_tau_external_selection.py")
+                  "scripts/test_tau_external_trial.py", "scripts/test_tau_external_selection.py",
+                  "scripts/test_tau_external_support.py", "bench/tau-telecom-catalog.json")
     result = tau.committed_identity(deadline)
     for start in range(0, len(names), 4):
         item = tau.committed_identity(deadline, extra_files=names[start:start + 4])
@@ -579,6 +581,7 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
     external_simulator = external_inputs is not None
     full_task = False
     stage_binding = None
+    support_source = None
     require(not (external_simulator and selected_owners is not None))
     selected_operational = selected_owners is not None or external_simulator
     selected_mode(selected_operational, parent_pipe, live_local, support_probe is not None, agent_prefix)
@@ -588,10 +591,13 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
         require(type(external_inputs) is dict)
         full_task = external_inputs.get("full_task", False)
         stage_binding = external_inputs.get("stage_binding")
+        support_source = external_inputs.get("support_source")
         require(type(full_task) is bool and set(external_inputs) == {"arguments", "deadline"}
                     | ({"full_task"} if full_task else set())
                     | ({"stage_binding"} if stage_binding is not None else set())
+                    | ({"support_source"} if support_source is not None else set())
                 and (stage_binding is None or full_task)
+                and (support_source is None or full_task and type(support_source) is type(Path()) and support_source.is_absolute())
                 and type(external_inputs["arguments"]) is tuple and len(external_inputs["arguments"]) == 7
                 and type(external_inputs["deadline"]) in (int, float)
                 and 60 < external_inputs["deadline"] - time.monotonic() <= 960)
@@ -677,7 +683,8 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
                 with worker.alarm(min(deadline, operation_deadline - 60)):
                     external = driver.Runtime(*external_inputs["arguments"], external_inputs["deadline"],
                                               **({"full_task": True} if full_task else {}),
-                                              **({"stage": manifest["stage"]} if stage_binding is not None else {}))
+                                              **({"stage": manifest["stage"]} if stage_binding is not None else {}),
+                                              **({"support_source": support_source} if support_source is not None else {}))
                 require(tau.encoded(external.manifest["input"]) == tau.encoded(manifest))
             inspection = {"parent_pipe": parent_pipe, **({"support_probe": True} if classic else {}),
                           **({"selected_operational": True} if selected_operational else {})}
