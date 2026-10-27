@@ -2,6 +2,8 @@
 package elfmeta
 
 import (
+	"bytes"
+	"compress/zlib"
 	"debug/elf"
 	"encoding/binary"
 	"reflect"
@@ -61,6 +63,49 @@ func TestLibraryWithoutInterpreter(t *testing.T) {
 	if err != nil || m.Interpreter != "" || !reflect.DeepEqual(m.Soname, []string{"liba.so.1"}) ||
 		!reflect.DeepEqual(m.Needed, []string{"libc.so.6"}) || len(m.Rpath)+len(m.Runpath) != 0 {
 		t.Fatalf("unexpected metadata: %+v %v", m, err)
+	}
+}
+
+func TestLegacyCompressedStringTableRejectsBeforeExpansion(t *testing.T) {
+	b := fixture()
+	plain := append([]byte("\x00liba.so.1\x00libc.so.6\x00"), make([]byte, 1024)...)
+	var payload bytes.Buffer
+	payload.WriteString("ZLIB")
+	if err := binary.Write(&payload, binary.BigEndian, uint64(len(plain))); err != nil {
+		t.Fatal(err)
+	}
+	z := zlib.NewWriter(&payload)
+	if _, err := z.Write(plain); err != nil {
+		t.Fatal(err)
+	}
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	copy(b[256:], payload.Bytes())
+	binary.LittleEndian.PutUint64(b[384+56:], uint64(payload.Len()))
+	binary.LittleEndian.PutUint64(b[896+32:], uint64(payload.Len()))
+	names := []byte("\x00.zdebug_str\x00.shstrtab\x00")
+	copy(b[640:], names)
+	binary.LittleEndian.PutUint16(b[60:], 4)
+	binary.LittleEndian.PutUint16(b[62:], 3)
+	binary.LittleEndian.PutUint32(b[896:], 1)
+	binary.LittleEndian.PutUint32(b[960:], uint32(bytes.Index(names, []byte(".shstrtab"))))
+	binary.LittleEndian.PutUint32(b[964:], uint32(elf.SHT_STRTAB))
+	for at, value := range map[int]uint64{976: 640, 984: 640, 992: uint64(len(names))} {
+		binary.LittleEndian.PutUint64(b[at:], value)
+	}
+	// Confirm this exercises Go's implicit legacy decoder, not invalid headers.
+	f, err := elf.NewFile(bytes.NewReader(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	needed, err := f.DynString(elf.DT_NEEDED)
+	if err != nil || !reflect.DeepEqual(needed, []string{"libc.so.6"}) || f.Sections[2].Flags&elf.SHF_COMPRESSED != 0 {
+		t.Fatal("legacy compression fixture did not exercise implicit decoding")
+	}
+	if _, err := Read(b); err != ErrRejected {
+		t.Fatal("accepted decompressed strings in place of the raw loader bytes")
 	}
 }
 

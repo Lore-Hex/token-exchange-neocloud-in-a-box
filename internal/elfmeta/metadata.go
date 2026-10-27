@@ -7,6 +7,7 @@ import (
 	"debug/elf"
 	"encoding/binary"
 	"errors"
+	"strings"
 )
 
 const MaxBytes = 16 << 20
@@ -98,6 +99,11 @@ func Read(raw []byte) (Metadata, error) {
 	}
 	var section *elf.Section
 	for _, s := range f.Sections {
+		// debug/elf also decompresses legacy .zdebug sections without the flag.
+		// Reject before Data/DynString can substitute an expanded loader view.
+		if strings.HasPrefix(s.Name, ".zdebug") {
+			return r, ErrRejected
+		}
 		if s.Type == elf.SHT_DYNAMIC {
 			if section != nil {
 				return r, ErrRejected

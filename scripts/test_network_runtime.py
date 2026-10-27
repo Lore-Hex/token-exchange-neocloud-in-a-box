@@ -318,6 +318,33 @@ class InputTests(unittest.TestCase):
             self.assertFalse(report["static_graph_closed"])
             self.assertEqual({f.name for f in output.iterdir()}, {"receipt.json"})
 
+    def test_postfetch_validation_errors_publish_only_redacted_failed_receipt(self):
+        for failure in (ValueError("DO NOT LOG"), OSError("DO NOT LOG"), lzma.LZMAError("DO NOT LOG")):
+            with self.subTest(failure=type(failure)), tempfile.TemporaryDirectory() as temp:
+                output = Path(temp).resolve() / "output"
+                sources = {fetch.prep.LOCK: (ROOT / p.LOCK).read_bytes(), fetch.prep.SCRIPT: fetch.PREP_SOURCE}
+                args = ["fetch", "--output", str(output), "--package", "systemd", "--package", "nftables"]
+                owned = []
+                def validate(lock, rows, directory):
+                    owned.append(directory.parent.parent)
+                    self.assertTrue((directory / "synthetic.xz").exists())
+                    raise failure
+                with mock.patch.object(fetch.sys, "argv", args), \
+                     mock.patch.object(fetch.fetcher, "committed", return_value=("a" * 40, sources)), \
+                     mock.patch.object(fetch.fetcher, "fetch_parallel", return_value={"metadata/synthetic.xz": b"unverified input"}), \
+                     mock.patch.object(fetch.prep, "metadata_check", side_effect=validate):
+                    self.assertEqual(fetch.main(), 1)
+                self.assertTrue(owned and all(not d.exists() for d in owned))
+                self.assertEqual({f.name for f in output.iterdir()}, {"receipt.json"})
+                raw = (output / "receipt.json").read_bytes()
+                report = json.loads(raw)
+                self.assertNotIn(b"DO NOT LOG", raw)
+                self.assertNotIn(b"unverified input", raw)
+                self.assertEqual(report["failure"], {"category": "postfetch-validation-rejected"})
+                self.assertEqual(report["result"], "fail")
+                self.assertFalse(report["static_graph_closed"])
+                self.assertEqual((output / "receipt.json").stat().st_mode & 0o777, 0o600)
+
     def test_failed_preparation_is_private_immutable_and_never_success(self):
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp).resolve()

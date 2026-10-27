@@ -8,6 +8,7 @@ if __name__ == "__main__" and not (sys.flags.isolated and sys.flags.no_site and 
 
 import argparse
 import json
+import lzma
 from pathlib import Path
 import runpy
 import tempfile
@@ -56,6 +57,11 @@ def main():
     except fetcher.FetchFailure as error:
         files = {}
         report["failure"] = error.report
+    except (OSError, ValueError, KeyError, TypeError, EOFError, UnicodeError, lzma.LZMAError):
+        # Successful transport does not authenticate a package row. Never publish
+        # those bytes after validation/staging failure or expose parser details.
+        files = {}
+        report["failure"] = {"category": "postfetch-validation-rejected"}
     files["receipt.json"] = base.encoded(report)
     base.publish(args.output, files)
     base.verify(args.output, files)

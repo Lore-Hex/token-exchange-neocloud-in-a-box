@@ -27,7 +27,7 @@ receipt. No package executable or runtime tree is published.
 
 The shared [ELF reader](../../internal/elfmeta/metadata.go) uses Go 1.27.2's
 standard `debug/elf` implementation. It bounds headers/tables before parsing,
-rejects compressed or extended section shapes, binds the dynamic/string
+rejects flagged and legacy `.zdebug` compression or extended section shapes, binds the dynamic/string
 sections to file-backed load segments, and checks dynamic termination and
 string-offset parity. Alternative filter/audit dependencies and `NODEFLIB`
 reject. The original two-executable command retains its exact hash admission,
@@ -81,8 +81,9 @@ compiled stdlib helper runs; vendor binaries, host `ldd` and loaders never run.
 The optional [subset fetcher](../../scripts/fetch_network_runtime.py) reuses the
 reviewed fixed URL plan, four-transfer/600-second aggregate limit, exact hash
 checks, fixed HTTPS curl arguments and bounded transport-only retry policy.
-It adds no URLs, fallback flags or version discovery. Failed transfers produce
-a private failed receipt, never verified input artifacts. Output directories
+It adds no URLs, fallback flags or version discovery. Failed transfers and
+post-fetch metadata/staging validation failures produce a redacted private failed
+receipt, never verified input artifacts. Output directories
 must be new; publication is exclusive, owner-only and fsynced. Failed closure
 receipts and any already-authenticated inventory are retained as failures.
 
