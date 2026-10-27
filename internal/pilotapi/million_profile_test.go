@@ -27,7 +27,7 @@ func TestMillionProfileLimits(t *testing.T) {
 	}
 	for _, want := range []string{`"contract_version":"2.1"`, `"completion_timeout_seconds":3540`,
 		`"context_length":1048576`, `"max_output_tokens":393216`, `"tools":true`, `"reasoning":false`,
-		`"prompt_caching":true`, `"structured_output":false`, `"cached_input":"0.65"`, selectedModel} {
+		`"prompt_caching":true`, `"structured_output":false`, `"cached_input":"0.10"`, selectedModel} {
 		if !bytes.Contains(h.catalog, []byte(want)) {
 			t.Fatalf("million catalog lost qualified fact %s", want)
 		}
