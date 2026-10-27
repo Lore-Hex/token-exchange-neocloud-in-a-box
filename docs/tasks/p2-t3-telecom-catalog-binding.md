@@ -51,6 +51,10 @@ results from projection remain private in memory.
 The content-free receipt records the source commit, working-tree state, exact
 runtime/source identities, catalog digests, timestamps and owned cleanup.
 Successful extraction does not authenticate request history or task execution.
+The [recorded extraction](../../evidence/p2/2026-10-27-telecom-catalog/run.json)
+was produced from clean implementation commit `f7bb2cb2a4751181942c6451c2b398899376d2bd`;
+the [raw content-free output](../../evidence/p2/2026-10-27-telecom-catalog/output.log)
+records the same identities. Three local extractions were byte-identical.
 
 ## New staged contract
 
