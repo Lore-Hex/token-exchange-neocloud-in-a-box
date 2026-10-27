@@ -29,6 +29,11 @@ GUEST = tuple("guest/debugboot/" + p for p in (
     "probe.go", "query_unix.go", "stage_unix.go", "run_linux.go", "cmd/nib-debug-boot/main_linux.go",
     "nib-debug-boot.service", "nib-debug-boot.target", "nib-debug-boot-stage.service", "10-nib-debug-boot.conf",
     "nib-debug-network-failure.service", "90-nib-debug-network-failure.conf"))
+TOPOLOGY_PROFILE = "debug-topology/v1"
+TOPOLOGY_GUEST = (
+    "guest/debugboot/topology_linux.go", "guest/debugboot/topology_stage_unix.go",
+    "guest/debugboot/cmd/nib-debug-topology/main_linux.go", "guest/debugboot/nib-debug-topology.service",
+    "guest/debugtopology/topology.go", "guest/debugtopology/wire.go", "guest/debugtopology/run_linux.go")
 EXTRA = (SCRIPT, ROOT_LAUNCHER, "scripts/debug_boot_uki.py", "scripts/debug_boot_qemu.py",
          "scripts/fetch_debug_boot_runtime.py", runtime.SCRIPT, runtime.LOCK, validator.SCRIPT, "go.mod", "go.sum", *GUEST)
 STAGE = ROOT / "build/debug-boot/private"
@@ -52,13 +57,32 @@ def workflow_source(revision):
     return raw
 
 
-def committed(guest_network=False):
+def topology_options(guest_network, debug_topology):
+    require(type(guest_network) is bool and type(debug_topology) is bool
+            and (not debug_topology or guest_network))
+    return {**({"guest_network": True} if guest_network else {}),
+            **({"debug_topology": True} if debug_topology else {})}
+
+
+def debug_identity(revision, sources, debug_topology=False):
+    require(type(debug_topology) is bool)
+    value = native.source_identity(revision, sources)
+    if debug_topology:
+        require(set(sources) == set((*tools.FILES, *EXTRA, *TOPOLOGY_GUEST, WORKFLOW)))
+        value["profile"] = TOPOLOGY_PROFILE
+    return value
+
+
+def committed(guest_network=False, debug_topology=False):
+    topology_options(guest_network, debug_topology)
     revision, sources = native.committed_sources(True, True, True, True,
         **({"guest_network": True} if guest_network else {}))
-    other, debug = tools.committed(EXTRA)
+    other, debug = tools.committed(EXTRA + (TOPOLOGY_GUEST if debug_topology else ()))
     require(other == revision and debug[SCRIPT] == SELF and debug[runtime.SCRIPT] == RUNTIME_SOURCE
             and debug[validator.SCRIPT] == VALIDATOR_SOURCE)
     debug[WORKFLOW] = workflow_source(revision)
+    if debug_topology:
+        debug_identity(revision, debug, True)
     return revision, sources, debug
 
 
@@ -80,13 +104,15 @@ def safe_directory(path):
         return info
 
 
-def initrd_units(debug, guest_network):
+def initrd_units(debug, guest_network, debug_topology=False):
+    topology_options(guest_network, debug_topology)
     units = {name: debug["guest/debugboot/" + name] for name in ("nib-debug-boot-stage.service", "10-nib-debug-boot.conf")}
     if guest_network:
         name = "nib-debug-boot-stage.service"
         command = b"ExecStart=/usr/libexec/nib-debug-boot --stage-initrd\n"
         require(units[name].count(command) == 1)
-        units[name] = units[name].replace(command, b"ExecStart=/usr/libexec/nib-debug-boot --stage-initrd-network\n")
+        flag = b"--stage-initrd-topology" if debug_topology else b"--stage-initrd-network"
+        units[name] = units[name].replace(command, b"ExecStart=/usr/libexec/nib-debug-boot " + flag + b"\n")
     return units
 
 
@@ -112,15 +138,15 @@ def prepare_tools(downloads, directory, revision, sources, export):
     return receipt
 
 
-def compile_probe(go, directory, sources):
+def compile_probe(go, directory, sources, debug_topology=False):
     """Build only the audited stdlib guest source; observe the host compiler.
 
     The compiler version is pinned; its hash is a host observation, not a
     vendor attestation. The exact resulting ELF is bound to the debug UKI.
     """
-    require(go.is_absolute())
+    require(go.is_absolute() and type(debug_topology) is bool)
     compiler = base.read(go, 64 << 20)
-    source = {p: sources[p] for p in ("go.mod", "go.sum", *GUEST)}
+    source = {p: sources[p] for p in ("go.mod", "go.sum", *GUEST, *(TOPOLOGY_GUEST if debug_topology else ()))}
     base.publish(directory / "source", source)
     for leaf in ("cache", "modules", "tmp"):
         (directory / leaf).mkdir(mode=0o700)
@@ -136,11 +162,14 @@ def compile_probe(go, directory, sources):
         return result.stdout
     version = call(["env", "GOVERSION"])
     require(version == b"go1.27.2\n")
-    package = "./guest/debugboot/cmd/nib-debug-boot"
-    imports = call(["list", "-deps", "-tags=nibdebugboot", "-f", "{{if not .Standard}}{{.ImportPath}}{{end}}", package])
+    name = "nib-debug-topology" if debug_topology else "nib-debug-boot"
+    tag = "nibdebugtopology" if debug_topology else "nibdebugboot"
+    package = "./guest/debugboot/cmd/" + name
+    imports = call(["list", "-deps", "-tags=" + tag, "-f", "{{if not .Standard}}{{.ImportPath}}{{end}}", package])
     prefix = b"github.com/Lore-Hex/token-exchange-neocloud-in-a-box/guest/debugboot"
-    require(imports.split() == [prefix, prefix + b"/cmd/nib-debug-boot"])
-    require(call(["build", "-trimpath", "-buildvcs=false", "-tags=nibdebugboot", "-ldflags=-buildid=",
+    expected = ([prefix.replace(b"/debugboot", b"/debugtopology")] if debug_topology else [])
+    require(imports.split() == [*expected, prefix, prefix + b"/cmd/" + name.encode("ascii")])
+    require(call(["build", "-trimpath", "-buildvcs=false", "-tags=" + tag, "-ldflags=-buildid=",
                   "-o", str(directory / "probe"), package]) == b"")
     raw = base.read(directory / "probe", 8 << 20)
     require(raw[:7] == b"\x7fELF\x02\x01\x01" and base.read(go, 64 << 20) == compiler)
@@ -177,10 +206,13 @@ def execute_worker(command, output, name, timeout):
     return value, result is not None and result.returncode == 0 and not result.stdout and not result.stderr
 
 
-def run(downloads, archive, runtime_inputs, go, revision, sources, debug, guest_network=False):
+def run(downloads, archive, runtime_inputs, go, revision, sources, debug, guest_network=False, debug_topology=False):
+    topology_options(guest_network, debug_topology)
     report = {"schema": "nib.debug-boot/v1", "result": "fail", "stage": "source",
-              "source": native.source_identity(revision, sources, guest_network), "debug_source": native.source_identity(revision, debug),
+              "source": native.source_identity(revision, sources, guest_network), "debug_source": debug_identity(revision, debug, debug_topology),
               "boot_verified": False, "confidentiality_verified": False, "private_work_removed": False}
+    if debug_topology:
+        report.update(schema="nib.debug-topology-boot/v1", profile=TOPOLOGY_PROFILE, topology_down_only_verified=False)
     export, _publication = native.export_helpers(sources)
     _, bundle = export.paths(EVIDENCE)
     try:
@@ -216,7 +248,7 @@ def run(downloads, archive, runtime_inputs, go, revision, sources, debug, guest_
         report["stage"] = "probe-build"
         build = STAGE / "compile"
         build.mkdir(mode=0o700)
-        probe, report["compiler"] = compile_probe(go, build, debug)
+        probe, report["compiler"] = compile_probe(go, build, debug, **({"debug_topology": True} if debug_topology else {}))
         # Pinned toolchain and source artifacts are recorded; no release trust claim.
         report["stage"] = "assembly"
         pin = json.loads(sources[native.mkosi.EXTRA[1]])
@@ -235,10 +267,12 @@ def run(downloads, archive, runtime_inputs, go, revision, sources, debug, guest_
             "ownership.py": sources[native.probe.OWNERSHIP], "ownership-input.json": base.encoded(mapped),
             "confinement.py": sources[native.probe.CONFINEMENT],
             "debug-uki.py": debug["scripts/debug_boot_uki.py"], "debug-qemu.py": debug["scripts/debug_boot_qemu.py"]}
-        units = initrd_units(debug, guest_network)
+        units = initrd_units(debug, guest_network, debug_topology)
         payload_files.update(units)
         config = {"schema": "nib.debug-uki-input/v1", "root_hash": manifest["root_hash"], "original": original_boot,
                   "probe": report["compiler"]["probe"], "units": {name: {"bytes": len(raw), "sha256": base.digest(raw)} for name, raw in units.items()}}
+        if debug_topology:
+            config.update(schema="nib.debug-uki-input/v2", profile=TOPOLOGY_PROFILE)
         payload_files["debug-input.json"] = base.encoded(config)
         payload = STAGE / "payload"
         base.publish(payload, payload_files)
@@ -249,8 +283,12 @@ def run(downloads, archive, runtime_inputs, go, revision, sources, debug, guest_
         require(ok and value is not None and value["result"] == "pass" and value["root_hash"] == manifest["root_hash"]
                 and value["original_uki"] == manifest["files"]["nib.efi"] and value["probe"] == config["probe"]
                 and value["signed"] is False and value["confidentiality_verified"] is False)
+        if debug_topology:
+            require(value.get("schema") == "nib.debug-topology-uki/v1" and value.get("profile") == TOPOLOGY_PROFILE)
         export.copy(output / "debug.efi", inputs / "debug.efi", value["uki"]["image"], 256 << 20, time.monotonic() + 120, base.directory)
         qemu_config = {"schema": "nib.debug-qemu-input/v1", "runtime_members": runtime_members, "debug_uki": value["uki"]["image"]}
+        if debug_topology:
+            qemu_config.update(schema="nib.debug-qemu-input/v2", profile=TOPOLOGY_PROFILE)
         qemu_payload = STAGE / "qemu-payload"
         base.publish(qemu_payload, {**payload_files, "qemu-input.json": base.encoded(qemu_config)})
         qemu_output = STAGE / "observed"
@@ -261,9 +299,16 @@ def run(downloads, archive, runtime_inputs, go, revision, sources, debug, guest_
         report["qemu"] = value
         require(ok and value is not None and value["result"] == "pass" and value["stage"] == "complete"
                 and value["boot_verified"] is True and value["confidentiality_verified"] is False)
+        if debug_topology:
+            require(value.get("schema") == "nib.debug-topology-qemu/v1" and value.get("profile") == TOPOLOGY_PROFILE
+                    and value.get("topology_down_only_verified") is True
+                    and value.get("debug_uki") == qemu_config["debug_uki"]
+                    and type(value.get("proof")) is dict and value["proof"].get("topology_down_only") is True)
         for name, expected in manifest["files"].items():
             export.transfer(inputs / name, expected, export.FILES[name], time.monotonic() + 120, base.directory)
         report.update(result="pass", stage="complete", boot_verified=True)
+        if debug_topology:
+            report["topology_down_only_verified"] = True
     except (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.SubprocessError):
         report["result"] = "fail"
     # The independent root wrapper kills the cgroup and removes this owned tree
@@ -272,22 +317,25 @@ def run(downloads, archive, runtime_inputs, go, revision, sources, debug, guest_
 
 
 def main():
-    if sys.argv[1:] in (["--source-only"], ["--source-only", "--guest-network"]):
+    if sys.argv[1:] in (["--source-only"], ["--source-only", "--guest-network"],
+                        ["--source-only", "--guest-network", "--debug-topology"]):
         guest_network = "--guest-network" in sys.argv[1:]
+        debug_topology = "--debug-topology" in sys.argv[1:]
         native.probe.native.preflight()
-        revision, sources, debug = committed(**({"guest_network": True} if guest_network else {}))
+        revision, sources, debug = committed(**topology_options(guest_network, debug_topology))
         print(json.dumps({"schema": "nib.debug-producer/v1", "source": native.source_identity(revision, sources, guest_network),
-                          "debug_source": native.source_identity(revision, debug)}, sort_keys=True))
+                          "debug_source": debug_identity(revision, debug, debug_topology)}, sort_keys=True))
         return 0
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("downloads", "archive", "runtime-inputs", "go"):
         parser.add_argument("--" + name, type=Path, required=True)
     parser.add_argument("--guest-network", action="store_true")
+    parser.add_argument("--debug-topology", action="store_true")
     args = parser.parse_args()
+    network_options = topology_options(args.guest_network, args.debug_topology)
     preflight()
     safe_directory(STAGE)
     require(all(path.is_absolute() and ".." not in path.parts for path in (args.downloads, args.archive, args.runtime_inputs, args.go)))
-    network_options = {"guest_network": True} if args.guest_network else {}
     revision, sources, debug = committed(**network_options)
     report = run(args.downloads, args.archive, args.runtime_inputs, args.go, revision, sources, debug, **network_options)
     with base.directory(RESULT.parent) as fd:
