@@ -40,11 +40,11 @@ def projected(body, *, full_task=False):
     return result
 
 
-def candidate_request(body, *, full_task=False):
+def _chat_request(body, *, full_task, model, max_tools):
     result = projected(body, full_task=full_task)
-    require(result["model"] == policy.PUBLIC_MODEL)
+    require(result["model"] == model)
     tools = result.get("tools")
-    require(tools is None or type(tools) is list and 0 < len(tools) <= 16)
+    require(tools is None or type(tools) is list and 0 < len(tools) <= max_tools)
     names, seen, pending = set(), set(), set()
     for tool in tools or []:
         require(set(tool) == {"type", "function"} and tool["type"] == "function")
@@ -83,6 +83,10 @@ def candidate_request(body, *, full_task=False):
     require(not pending)
     worker.bounded_json(result, 65536)
     return result
+
+
+def candidate_request(body, *, full_task=False):
+    return _chat_request(body, full_task=full_task, model=policy.PUBLIC_MODEL, max_tools=16)
 
 
 def simulator_request(body, *, full_task=False, support_chat=False):
