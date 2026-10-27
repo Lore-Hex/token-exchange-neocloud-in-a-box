@@ -55,17 +55,21 @@ Failures and cancellation also produce an exclusive content-free receipt with
 and cleanup status. Existing receipts are never overwritten or followed through
 symlinks. No upstream exception text appears in a receipt or CLI diagnostic.
 Successful extraction does not authenticate request history or task execution.
-The [recorded extraction](../../evidence/p2/2026-10-27-telecom-catalog/run.json)
+The [recorded extraction](../../evidence/p2/2026-10-27-telecom-catalog/receipt.json)
 was produced from clean implementation commit `f7bb2cb2a4751181942c6451c2b398899376d2bd`;
 the [raw content-free output](../../evidence/p2/2026-10-27-telecom-catalog/output.log)
 records the same identities. Three local extractions were byte-identical.
-The [failure-receipt implementation reproduction](../../evidence/p2/2026-10-27-telecom-catalog-receiptfix/run.json)
+The [failure-receipt implementation reproduction](../../evidence/p2/2026-10-27-telecom-catalog-receiptfix/receipt.json)
 from clean commit `1dcdbb52c529c658401de8fddd0881cfdde81f18` also matched the
 catalog byte-for-byte, with owned container removal confirmed. A separate
-[deliberately missing-source run](../../evidence/p2/2026-10-27-telecom-catalog-rejected-source/run.json)
+[deliberately missing-source run](../../evidence/p2/2026-10-27-telecom-catalog-rejected-source/receipt.json)
 exited 1 and retained `source_verification` failure provenance, false completion
 and authentication, and `not_created` cleanup. It created no catalog or
 container. These local software checks are not live parity or budget evidence.
+The original receipts are retained byte-for-byte as `receipt.json`, with raw
+CLI output in `output.log`. The recorder's pure `evidence_record` packager derives
+a repository-standard `nib.evidence/v1` envelope for `run.json`, retaining the
+original execution's producer and result. Packaging is not a new extraction.
 
 ## New staged contract
 

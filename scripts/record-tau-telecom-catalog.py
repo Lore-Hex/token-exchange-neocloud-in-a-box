@@ -10,6 +10,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import stat
@@ -208,6 +209,26 @@ def record(archive, wheelhouse, socket, output, *, progress=None):
 
 def isolated():
     return sys.flags.isolated and sys.flags.no_site and sys.dont_write_bytecode
+
+
+def evidence_record(receipt):
+    require(receipt["schema"] == "nib.tau-telecom-catalog-extraction/v1"
+            and receipt["result"] in ("pass", "fail")
+            and re.fullmatch(r"[0-9a-f]{40}", receipt["producer_git_sha"] or "")
+            and receipt["producer_git_sha"] != "0" * 40)
+    def timestamp(value):
+        parsed = datetime.fromisoformat(value)
+        require(parsed.tzinfo is not None)
+        return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {"schema": "nib.evidence/v1", "phase": "P2", "task": "T3",
+            "git_sha": receipt["producer_git_sha"], "command": receipt["command_line"],
+            "started_utc": timestamp(receipt["started_utc"]), "ended_utc": timestamp(receipt["ended_utc"]),
+            "result": receipt["result"], "execution": "software", "hardware_validated": False,
+            "host": {"provider": "local", "machine": "offline-catalog-recorder",
+                     "gpus": "none", "driver": None, "cuda": None},
+            "notes": "Packaging of the original unmodified receipt.json; its producer, result and timestamps are retained. "
+                     "Public source-catalog extraction only. No paid calls, live admission, parity, quality or confidential claim. "
+                     "See receipt.json and output.log for source identities and cleanup status."}
 
 
 def host(args):

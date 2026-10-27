@@ -183,6 +183,24 @@ class CatalogTests(unittest.TestCase):
 
 
 class RecorderTests(unittest.TestCase):
+    def test_evidence_envelope_preserves_original_producer_and_failure(self):
+        for outcome in ("pass", "fail"):
+            report = {"schema": "nib.tau-telecom-catalog-extraction/v1", "result": outcome,
+                      "producer_git_sha": "a" * 40, "command_line": "fixed command",
+                      "started_utc": "2026-10-27T09:00:00.123456+00:00", "ended_utc": "2026-10-27T09:00:01+00:00"}
+            raw = tau.encoded(report)
+            envelope = recorder.evidence_record(report)
+            self.assertEqual(tau.encoded(report), raw)
+            self.assertEqual(envelope["schema"], "nib.evidence/v1")
+            self.assertEqual((envelope["git_sha"], envelope["result"]), ("a" * 40, outcome))
+            self.assertEqual((envelope["started_utc"], envelope["ended_utc"]),
+                             ("2026-10-27T09:00:00Z", "2026-10-27T09:00:01Z"))
+            self.assertEqual(envelope["execution"], "software")
+            self.assertFalse(envelope["hardware_validated"])
+            for invalid in (None, "HEAD", "a" * 39, "0" * 40):
+                with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                    recorder.evidence_record({**report, "producer_git_sha": invalid})
+
     def test_entrypoint_is_exact_and_all_existing_isolation_checks_apply(self):
         trial, path, sha = containers.runner, Path("/private/payload"), "b" * 64
         argv = recorder.command(trial, "fixed", path, sha)
