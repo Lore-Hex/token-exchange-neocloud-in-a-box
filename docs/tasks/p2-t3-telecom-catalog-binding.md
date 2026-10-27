@@ -59,6 +59,13 @@ The [recorded extraction](../../evidence/p2/2026-10-27-telecom-catalog/run.json)
 was produced from clean implementation commit `f7bb2cb2a4751181942c6451c2b398899376d2bd`;
 the [raw content-free output](../../evidence/p2/2026-10-27-telecom-catalog/output.log)
 records the same identities. Three local extractions were byte-identical.
+The [failure-receipt implementation reproduction](../../evidence/p2/2026-10-27-telecom-catalog-receiptfix/run.json)
+from clean commit `1dcdbb52c529c658401de8fddd0881cfdde81f18` also matched the
+catalog byte-for-byte, with owned container removal confirmed. A separate
+[deliberately missing-source run](../../evidence/p2/2026-10-27-telecom-catalog-rejected-source/run.json)
+exited 1 and retained `source_verification` failure provenance, false completion
+and authentication, and `not_created` cleanup. It created no catalog or
+container. These local software checks are not live parity or budget evidence.
 
 ## New staged contract
 
@@ -94,6 +101,9 @@ complete source reader, binds its catalog, then projects a synthetic tool
 history into both requests. Unit tests also cover tampered catalogs/contracts,
 selection rebinding, failed source checks, expired deadlines, retained private
 semantics, unchanged live rejection, and exact container entrypoint/isolation.
+Failure tests exercise the CLI signal handlers, start and cleanup errors,
+pre-container failures, available provenance, repeated cancellation during
+cleanup, and preservation of existing or concurrently created receipts.
 Synthetic budget inputs in tests are not operational commitment evidence.
 
 Future owner integration must carry this binding across the existing verified
