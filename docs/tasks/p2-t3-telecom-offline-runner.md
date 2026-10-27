@@ -64,8 +64,16 @@ Original failed receipts must remain alongside later successful evidence.
 
 ## Remaining gates
 
-Real-source execution evidence and complete local/E2E checks are pending for this
-implementation head. Independent final-head review and hosted CI are required
+The initial committed producer `74b980a38bdca8435a890a306204af1cd7ba1ded`
+failed before container creation. Its original receipt and output are retained in
+`evidence/p2/2026-10-27-telecom-offline-initial-rejected/`. The pinned telecom
+`tasks.json` contains 2,285 rows, whereas `tau_pipe_driver.selected_assertions`
+requires at most 1,024. The exact source archive authenticated successfully;
+the original worker did not run. No source filtering or guard bypass was used.
+
+The shared reader remains untouched pending approval for a source-bound
+compatibility correction. Passing real-source execution and complete local/E2E
+checks are still pending. Independent final-head review and hosted CI are required
 before merge. Live count/generation parity, reconciled budget approval, source-
 bound live support, a competent candidate and full multi-domain matched-reference
 evaluation remain separate gates. This slice does not satisfy P2.T3 quality.
