@@ -35,7 +35,7 @@ def execute(args):
     smoke = smoke_module()
     result = smoke.report()
     result.update(schema="nib.selected-combined-host/v1", execution_profile=combined.plan.PROFILE,
-                  input_cleanup_confirmed=False)
+                  input_cleanup_confirmed=False, cancelled=False)
     directory = Path(args.receipt_directory)
     with receipt.tau_runtime.directory(directory) as fd:
         with os.scandir(fd) as entries:

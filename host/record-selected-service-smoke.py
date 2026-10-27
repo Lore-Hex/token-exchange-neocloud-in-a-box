@@ -588,6 +588,9 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
         join["execution_profile"] = contract.execution_profile
     monitor, identifier, attempted, finished, accepted = None, None, False, False, False
     reader, writer = os.pipe()
+    def retain_cancellation(exc):
+        if combined is not None and isinstance(exc, (KeyboardInterrupt, SystemExit, Cancelled)):
+            result["cancelled"] = True
     def captured(raw):
         if combined is None:
             return lifecycle(raw, **join)
@@ -661,28 +664,31 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
         result["runtime_started"] = True
         result["lifecycle"] = owner_result
         accepted = True
-    except BaseException:
-        pass
+    except BaseException as exc:
+        retain_cancellation(exc)
     finally:
         os.close(reader)
         if attempted:
             try:
                 docker.cleanup(name, token, build["image_id"], identifier if finished else None)
                 result["cleanup"] = "confirmed" if finished else "create-completion-unknown"
-            except BaseException:
+            except BaseException as exc:
+                retain_cancellation(exc)
                 result["cleanup"] = "unconfirmed"
         os.close(writer)
         if monitor is not None:
             try:
                 monitor.wait(timeout=max(0, docker.remaining() - CLIENT_REAP))
                 require(monitor.returncode == 0, "owner-failed")
-            except BaseException:
+            except BaseException as exc:
+                retain_cancellation(exc)
                 result["cleanup"] = "unconfirmed"
                 try:
                     recorder.snapshot.cleanup_process_group(monitor)
-                except BaseException:
-                    pass
-        if accepted and result["cleanup"] == "confirmed" and docker.remaining() > 0:
+                except BaseException as exc:
+                    retain_cancellation(exc)
+        if accepted and result["cleanup"] == "confirmed" and docker.remaining() > 0 \
+                and (combined is None or result.get("cancelled", False) is False):
             result.update(result="pass", status="PASS", reason="completed")
 
 

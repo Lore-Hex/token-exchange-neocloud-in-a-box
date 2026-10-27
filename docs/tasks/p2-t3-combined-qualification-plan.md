@@ -250,4 +250,10 @@ exercise live combined capacity collection. The owner tests additionally drive
 the actual long and scaling control flow through one fake lifetime; verify
 source/engine forgery rejection, cancellation and partial unknown accounting,
 maximum original receipts, failed payload publication, host/watchdog cleanup,
-and private replay. These remain software tests, not tau2 quality or GPU proof.
+and private replay. Boundary tests use the real all-role checkpoint around fake
+OS process observations, reject engine/guard/TLS identity drift after either
+stage, retain raw metrics after parse/identity/source failure, and preserve
+cancellation during attach or cleanup. Startup and per-role cleanup failures
+must still attempt the remaining owned cleanup; a successful child payload
+cannot override host capture/publication failure or forged cleanup receipts.
+These remain software tests, not tau2 quality or GPU proof.

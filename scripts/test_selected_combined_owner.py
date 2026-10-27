@@ -91,17 +91,33 @@ class OwnerTests(unittest.TestCase):
                 131072, service.MEMORY_BYTES, 0, owner.BASE_PROFILE)
             supervisor.owner = concrete
             run.workload = workload()
-            def checkpoint(actual, identities, deadline):
-                actual.checkpoint(deadline)
-                self.assertEqual(actual.owner.identities, identities)
-            stack.enter_context(mock.patch.object(long.inference, "checkpoint", side_effect=checkpoint))
+            # Only the OS process lookup is synthetic; exercise the real
+            # all-role identity and supervisor checkpoints around each stage.
+            stack.enter_context(mock.patch.object(concrete, "bound",
+                side_effect=lambda role, child, deadline: dict(concrete.identities[role])))
             stack.enter_context(mock.patch.object(owner.capacity, "verify_sources"))
             stack.enter_context(redirect_stdout(io.StringIO()))
             yield supervisor, run, fake, clock, shutdown
 
-    def execute(self, fault=None):
+    def execute(self, fault=None, *, cleanup_fault=None):
         with self.fixture() as (supervisor, run, fake, clock, shutdown):
             events = []
+            if cleanup_fault is not None:
+                method, target, outcome = cleanup_fault
+                original = getattr(supervisor.owner, method)
+                def cleanup(*args):
+                    value = original(*args)
+                    if target is None or args[0] == target:
+                        if outcome == "exception":
+                            raise OSError("PRIVATE_CANARY")
+                        if outcome == "cancelled":
+                            shutdown.stopped = True
+                            raise KeyboardInterrupt("PRIVATE_CANARY")
+                        if outcome == "late":
+                            clock.advance(max(0, args[-1] - clock.monotonic()) + 1)
+                        return False
+                    return value
+                setattr(supervisor.owner, method, cleanup)
             short_report = scaled(long.digest(supervisor.owner.identities["engine"]),
                                   failure="lost" if fault == "short-partial-exception" else None)
             def long_stage(actual, **options):
@@ -119,6 +135,8 @@ class OwnerTests(unittest.TestCase):
                     fake.mounts_changed = True
                 if fault == "identity":
                     supervisor.owner.identities["engine"]["start_ticks"] += 1
+                if fault and fault.startswith("long-identity-"):
+                    supervisor.owner.identities[fault.removeprefix("long-identity-")]["start_ticks"] += 1
                 if fault == "deadline":
                     clock.advance(6000)
                 return row
@@ -128,9 +146,27 @@ class OwnerTests(unittest.TestCase):
                 if fault == "short-cancelled":
                     row.update(completed=False, stop_reason="cancelled")
                     shutdown.stopped = True
+                if fault == "short-returned-cancelled":
+                    row.update(completed=False, stop_reason="cancelled")
+                if fault and fault.startswith("short-identity-"):
+                    supervisor.owner.identities[fault.removeprefix("short-identity-")]["start_ticks"] += 1
+                if fault and fault.startswith("metrics-"):
+                    def probe(*_args, **_kwargs):
+                        if fault == "metrics-identity":
+                            supervisor.owner.identities["tls"]["start_ticks"] += 1
+                        if fault == "metrics-source":
+                            fake.mounts_changed = True
+                        if fault == "metrics-cancelled":
+                            shutdown.stopped = True
+                        return b"invalid synthetic metrics" if fault == "metrics-malformed" else capacity_fixture.metrics()
+                    with mock.patch.object(owner.capacity.capacity, "_probe_raw", side_effect=probe):
+                        run.probe(service.identity.Endpoint(8000, {"process": run.identities["engine"]}),
+                                  service.MODEL, run.deadline("throughput"))
                 if fault == "reap":
-                    fake.reap = lambda *_: False
-                    supervisor.owner.reap = fake.reap
+                    def unconfirmed_reap(*args):
+                        fake.reap(*args)
+                        return False
+                    supervisor.owner.reap = unconfirmed_reap
                 for index in range(1 if fault == "short-partial-exception" else 4):
                     run.row["components"]["capacity-" + str(index)] = receipt.component(
                         "capacity-" + str(index), capacity_fixture.metrics())
@@ -146,6 +182,10 @@ class OwnerTests(unittest.TestCase):
             value = run.finish(lifecycle, shutdown)
             self.assertNotIn("PRIVATE_CANARY", receipt.encoded(value).decode())
             self.assertEqual(len([event for event in fake.events if event == ("start", "engine")]), 1)
+            self.assertEqual([e for e in fake.events if e[0] == "reap"],
+                             [("reap", role) for role in reversed(service.ROLES)])
+            self.assertEqual(fake.events[-1], ("reap-unregistered", None))
+            self.assertTrue(all(child.poll() is not None for child in fake.children.values()))
             return value, events
 
     def test_one_engine_long_then_scaling_cleanup_and_original_replay(self):
@@ -168,13 +208,81 @@ class OwnerTests(unittest.TestCase):
                     self.assertEqual(row["requests_with_unknown_usage"], 1)
 
     def test_short_cancel_and_failed_reap_never_pass_or_erase_usage(self):
-        for fault in ("short-cancelled", "reap"):
+        for fault in ("short-cancelled", "short-returned-cancelled", "reap"):
             with self.subTest(fault=fault):
                 row, events = self.execute(fault)
                 self.assertEqual(events, ["long", "throughput"])
                 self.assertEqual(row["result"], "fail")
                 self.assertGreater(row["known_prompt_tokens"], 0)
                 self.assertIn("scaling", row["components"])
+                if "cancelled" in fault:
+                    self.assertTrue(row["cancelled"])
+
+    def test_all_role_identity_drift_after_long_or_scaling_fails_closed(self):
+        for stage in ("long", "short"):
+            for role in service.ROLES:
+                with self.subTest(stage=stage, role=role):
+                    row, events = self.execute(stage + "-identity-" + role)
+                    self.assertEqual(events, ["long"] if stage == "long" else ["long", "throughput"])
+                    self.assertEqual(row["result"], "fail")
+                    self.assertFalse(row["terminal_identity_verified"])
+                    self.assertTrue(row["cleanup_confirmed"])
+                    self.assertGreater(row["known_prompt_tokens"], 0)
+                    self.assertEqual("scaling" in row["components"], stage == "short")
+
+    def test_metric_original_survives_parse_identity_source_or_cancellation_failure(self):
+        for fault in ("metrics-malformed", "metrics-identity", "metrics-source", "metrics-cancelled"):
+            with self.subTest(fault=fault):
+                row, events = self.execute(fault)
+                self.assertEqual(events, ["long", "throughput"])
+                self.assertEqual(row["result"], "fail")
+                self.assertFalse(row["terminal_identity_verified"])
+                self.assertTrue(row["cleanup_confirmed"])
+                self.assertNotIn("scaling", row["components"])
+                raw = receipt.original("capacity-0", row["components"]["capacity-0"])
+                self.assertEqual(raw, b"invalid synthetic metrics" if fault == "metrics-malformed"
+                                 else capacity_fixture.metrics())
+                self.assertEqual(row["cancelled"], fault == "metrics-cancelled")
+
+    def test_cleanup_failure_attempts_remaining_roles_and_preserves_completed_usage(self):
+        operations = [("drain", "tls"), ("drain", "guard")]
+        operations += [("reap", role) for role in service.ROLES] + [("reap_unregistered", None)]
+        for method, role in operations:
+            for outcome in ("false", "exception", "cancelled", "late"):
+                with self.subTest(method=method, role=role, outcome=outcome):
+                    row, events = self.execute(cleanup_fault=(method, role, outcome))
+                    self.assertEqual(events, ["long", "throughput"])
+                    self.assertEqual(row["result"], "fail")
+                    self.assertTrue(row["terminal_identity_verified"])
+                    self.assertEqual(row["cancelled"], outcome == "cancelled")
+                    self.assertEqual(row["failure"], "cancelled" if outcome == "cancelled" else "cleanup")
+                    self.assertEqual(row["cleanup_confirmed"], method == "drain")
+                    self.assertGreater(row["known_prompt_tokens"], 0)
+                    self.assertGreater(row["known_output_tokens"], 0)
+                    self.assertEqual(row["requests_with_unknown_usage"], 0)
+
+    def test_registered_startup_failure_reaps_without_running_either_stage(self):
+        for role in service.ROLES:
+            for cancellation in (False, True):
+                with self.subTest(role=role, cancellation=cancellation), self.fixture() as (supervisor, run, fake, _, shutdown):
+                    run.row.update(stage="startup", failure="startup")
+                    original = supervisor.owner.start
+                    def start(current, *args):
+                        original(current, *args)
+                        if current == role:
+                            raise KeyboardInterrupt("PRIVATE_CANARY") if cancellation else OSError("PRIVATE_CANARY")
+                    with mock.patch.object(supervisor.owner, "start", side_effect=start), \
+                            mock.patch.object(long, "run_owned") as long_stage, mock.patch.object(scaling, "run") as short_stage:
+                        row = run.finish(supervisor.run(combined=run), shutdown)
+                    long_stage.assert_not_called()
+                    short_stage.assert_not_called()
+                    self.assertEqual(row["result"], "fail")
+                    self.assertEqual(row["cancelled"], cancellation)
+                    self.assertTrue(row["cleanup_confirmed"])
+                    self.assertEqual(set(row["components"]), {"lifecycle"})
+                    self.assertEqual(row["known_prompt_tokens"], 0)
+                    self.assertEqual(row["requests_with_unknown_usage"], 0)
+                    self.assertTrue(all(child.poll() is not None for child in fake.children.values()))
 
     def test_exact_owner_source_profile_and_mode_before_spawn(self):
         with self.fixture() as (supervisor, run, fake, _, _):
@@ -324,6 +432,27 @@ class ReceiptTests(unittest.TestCase):
             inner[key] = "d" * 64
             row["components"][name] = receipt.component(name, receipt.encoded(inner))
             with self.subTest(name=name, key=key), self.assertRaises(ValueError):
+                receipt.validate(receipt.encoded(row), SHA)
+
+    def test_rehashed_metric_and_terminal_cleanup_substitutions_cannot_replay_success(self):
+        for fault in ("capacity", "reaped", "drained", "cancelled", "not-ready", "extended-lifetime"):
+            row = copy.deepcopy(self.valid)
+            if fault == "capacity":
+                row["components"]["capacity-3"] = receipt.component("capacity-3", capacity_fixture.metrics(131072, "1.0"))
+            else:
+                lifecycle = receipt.decode(receipt.original("lifecycle", row["components"]["lifecycle"]), 16384)
+                if fault in ("reaped", "drained"):
+                    lifecycle["cleanup"][0][fault] = False
+                if fault == "cancelled":
+                    lifecycle.update(status="cancelled", reason="cancelled")
+                if fault == "not-ready":
+                    lifecycle["ready"] = False
+                if fault == "extended-lifetime":
+                    for key in ("hard_stop_at", "admission_stop_at"):
+                        stamp = receipt.datetime.datetime.strptime(lifecycle["lifetime"][key], "%Y-%m-%dT%H:%M:%SZ")
+                        lifecycle["lifetime"][key] = (stamp + receipt.datetime.timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                row["components"]["lifecycle"] = receipt.component("lifecycle", receipt.encoded(lifecycle))
+            with self.subTest(fault=fault), self.assertRaises(ValueError):
                 receipt.validate(receipt.encoded(row), SHA)
 
     def test_maximum_component_is_retained_without_truncation(self):

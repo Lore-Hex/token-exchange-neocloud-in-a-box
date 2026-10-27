@@ -64,6 +64,10 @@ class HostTests(unittest.TestCase):
             kwargs["stdout_file"].write(self.raw)
             if fault == "attach-after-payload":
                 raise subprocess.TimeoutExpired(command, 1)
+            if fault == "interrupt-after-payload":
+                raise KeyboardInterrupt("PRIVATE_CANARY")
+            if fault == "exit-signal-after-payload":
+                raise SystemExit("PRIVATE_CANARY")
             fixture.info["State"].update(Status="exited", Running=False)
             if fault == "exit-after-payload":
                 fixture.info["State"]["ExitCode"] = 1
@@ -80,6 +84,13 @@ class HostTests(unittest.TestCase):
                 closure["context/service/scripts/synthetic.py"] = b"other source"
             stack.enter_context(mock.patch.object(smoke.image_builder, "validated_files", return_value=({}, closure, {})))
             stack.enter_context(mock.patch.object(fixture.recorder.snapshot, "execute_process_group", side_effect=attach))
+            if fault == "cleanup-cancelled":
+                stack.enter_context(mock.patch.object(smoke.Docker, "cleanup", side_effect=KeyboardInterrupt("PRIVATE_CANARY")))
+            if fault == "watchdog-cancelled":
+                smoke.subprocess.Popen.return_value.wait.side_effect = SystemExit("PRIVATE_CANARY")
+            if fault == "watchdog-reap-cancelled":
+                smoke.subprocess.Popen.return_value.wait.side_effect = OSError("PRIVATE_CANARY")
+                fixture.recorder.snapshot.cleanup_process_group.side_effect = KeyboardInterrupt("PRIVATE_CANARY")
             return host.execute(self.args)
 
     def test_one_owned_lifetime_original_capture_and_host_replay(self):
@@ -99,7 +110,8 @@ class HostTests(unittest.TestCase):
         self.assertEqual(command[command.index("--hard-stop-at") + 1], self.fixture.clock.timestamp(8560))
 
     def test_failure_after_payload_never_passes_but_preserves_original_and_cleanup(self):
-        for fault in ("attach-after-payload", "exit-after-payload", "cleanup", "watchdog", "input-cleanup"):
+        for fault in ("attach-after-payload", "interrupt-after-payload", "exit-signal-after-payload",
+                      "exit-after-payload", "cleanup", "watchdog", "input-cleanup"):
             with self.subTest(fault=fault), tempfile.TemporaryDirectory() as root:
                 self.args.receipt_directory = root
                 row = self.execute(fault)
@@ -107,11 +119,61 @@ class HostTests(unittest.TestCase):
                 self.assertEqual((Path(root) / "capture.jsonl").read_bytes(), self.raw)
                 stored = receipt.decode((Path(root) / "host.json").read_bytes(), receipt.MAX_CAPTURE + 16384)
                 self.assertNotIn("PRIVATE_CANARY", receipt.encoded(stored).decode())
-                if fault == "attach-after-payload":
+                if fault in ("attach-after-payload", "interrupt-after-payload", "exit-signal-after-payload"):
                     self.assertFalse(stored["capture_complete"])
                     with self.assertRaises(ValueError): receipt.replay_directory(root, SHA)
                 else:
                     self.assertEqual(receipt.replay_directory(root, SHA)["result"], "fail")
+                if fault in ("interrupt-after-payload", "exit-signal-after-payload"):
+                    self.assertTrue(stored["cancelled"])
+
+    def test_final_host_publication_failure_keeps_capture_but_cannot_replay_success(self):
+        retain = receipt.retain
+        def fail_host(path, *args):
+            if path.name == "host.json":
+                raise OSError("PRIVATE_CANARY")
+            return retain(path, *args)
+        with mock.patch.object(receipt, "retain", side_effect=fail_host), self.assertRaises(OSError):
+            self.execute()
+        self.assertIsNone(self.fixture.info)
+        self.assertEqual((self.directory / "capture.jsonl").read_bytes(), self.raw)
+        self.assertFalse((self.directory / "host.json").exists())
+        with self.assertRaises(OSError):
+            receipt.replay_directory(self.directory, SHA)
+
+    def test_cleanup_cancellation_after_valid_payload_is_retained_and_never_passes(self):
+        for fault in ("cleanup-cancelled", "watchdog-cancelled", "watchdog-reap-cancelled"):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as root:
+                self.args.receipt_directory = root
+                row = self.execute(fault)
+                self.assertEqual(row["result"], "fail")
+                self.assertEqual((Path(root) / "capture.jsonl").read_bytes(), self.raw)
+                stored = receipt.decode((Path(root) / "host.json").read_bytes(), receipt.MAX_CAPTURE + 16384)
+                self.assertTrue(stored["cancelled"])
+                self.assertTrue(stored["capture_complete"])
+                self.assertEqual(stored["cleanup"], "unconfirmed")
+                self.assertEqual(stored["lifecycle"]["result"], "pass")
+                self.assertEqual(receipt.replay_directory(root, SHA)["result"], "fail")
+
+    def test_capture_fsync_failure_keeps_original_and_failed_host(self):
+        fsync = receipt.os.fsync
+        calls = 0
+        def fail_capture(fd):
+            nonlocal calls
+            calls += 1
+            # Intent file and parent sync precede the first capture sync.
+            if calls == 3:
+                raise OSError("PRIVATE_CANARY")
+            return fsync(fd)
+        with mock.patch.object(receipt.os, "fsync", side_effect=fail_capture):
+            row = self.execute()
+        self.assertEqual(row["result"], "fail")
+        self.assertIsNone(self.fixture.info)
+        self.assertEqual((self.directory / "capture.jsonl").read_bytes(), self.raw)
+        stored = receipt.decode((self.directory / "host.json").read_bytes(), receipt.MAX_CAPTURE + 16384)
+        self.assertEqual(stored["result"], "fail")
+        self.assertNotIn("PRIVATE_CANARY", receipt.encoded(stored).decode())
+        with self.assertRaises(ValueError): receipt.replay_directory(self.directory, SHA)
 
     def test_source_mismatch_no_create_and_existing_originals_not_overwritten(self):
         row = self.execute("source")
