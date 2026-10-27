@@ -237,9 +237,13 @@ class ProcessTests(unittest.TestCase):
             self.assertTrue(value["eof"])
 
     @contextmanager
-    def http_server(self, *, hang=False):
+    def http_server(self, *, hang=False, participants=8):
+        self.assertIn(participants, (8, 16))
         seen, release = [], threading.Event()
-        barrier = threading.Barrier(8)
+        barrier = threading.Barrier(participants)
+        class Server(ThreadingHTTPServer):
+            # All released clients may connect before the accept thread runs.
+            request_queue_size = participants
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
             def log_message(self, *_):
@@ -266,7 +270,7 @@ class ProcessTests(unittest.TestCase):
                         release.wait()
                 except (threading.BrokenBarrierError, BrokenPipeError, ConnectionResetError):
                     pass
-        httpd = ThreadingHTTPServer((c8.stream.HOST, c8.stream.PORT), Handler)
+        httpd = Server((c8.stream.HOST, c8.stream.PORT), Handler)
         thread = threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.01})
         thread.start()
         try:
