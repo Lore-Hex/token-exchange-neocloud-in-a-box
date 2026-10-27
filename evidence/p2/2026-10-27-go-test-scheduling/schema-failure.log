@@ -1,0 +1,9 @@
+./build/staticcheck ./...
+uv run --project tools --frozen yamllint --strict .github .yamllint.yaml
+Using CPython 3.12.13
+Creating virtual environment at: tools/.venv
+Installed 5 packages in 7ms
+go run ./cmd/nib lint
+evidence/p2/2026-10-27-go-test-scheduling/run.json: /ended_utc: schema pattern failed; /ended_utc: schema type failed; /started_utc: schema pattern failed; /started_utc: schema type failed
+exit status 1
+make: *** [schema-lint] Error 1

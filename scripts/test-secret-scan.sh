@@ -162,7 +162,7 @@ write_receipt_field() {
 
 # The source-derived prefix and controls are compact JSON; never exempt the
 # entire line, which could also contain an unrelated secret candidate.
-for trial_set in preflight-missing-source simulator-seed-failure retail-pass sequential-opened sequential-settled sequential-trial sequential-failed-opened sequential-failed-trial; do
+for trial_set in preflight-missing-source simulator-seed-failure retail-pass sequential-opened sequential-settled sequential-trial sequential-failed-opened sequential-failed-trial airline-pass-opened airline-pass-settled airline-pass-trial airline-reward-expectation-opened airline-reward-expectation-settled airline-reward-expectation-trial airline-socket-failure-opened airline-socket-failure-trial; do
   while IFS='|' read -r field known; do
     format=compact
     target="$tmp/external/evidence/p2/2026-10-26-tau-external-$trial_set/output.log"
@@ -178,6 +178,15 @@ for trial_set in preflight-missing-source simulator-seed-failure retail-pass seq
         [[ "$trial_set" != sequential-failed-trial ]] || relative=trial-00/output.log
         target="$tmp/external/evidence/p2/2026-10-27-sequential-tau-offline-socket-denied/journal/$relative"
         ;;
+      airline-*)
+        outcome=${trial_set#airline-}
+        outcome=${outcome%-*}
+        relative=event-000.json
+        [[ "$trial_set" != *-settled ]] || relative="receipt-04.json"
+        [[ "$trial_set" != *-trial ]] || relative=trial-04/output.log
+        [[ "$trial_set" != airline-socket-failure-trial ]] || relative=trial-00/output.log
+        target="$tmp/external/evidence/p2/2026-10-27-airline-offline-$outcome/journal/$relative"
+        ;;
     esac
     mkdir -p "$(dirname "$target")"
     write_receipt_field "$target" "$field" "$known"
@@ -188,6 +197,18 @@ for trial_set in preflight-missing-source simulator-seed-failure retail-pass seq
     expect_receipt_scan "$target" 42
     write_receipt_field "$tmp/external/other.log" "$field" "$known"
     expect_receipt_scan "$tmp/external/other.log" 42
+    if [[ "$trial_set" == airline-* ]]; then
+      case "$trial_set" in
+        *-settled) outside="receipt-05.json" ;;
+        airline-socket-failure-trial) outside=trial-01/output.log ;;
+        *-trial) outside=trial-05/output.log ;;
+        *) outside=event-001.json ;;
+      esac
+      outside_target="$tmp/external/evidence/p2/2026-10-27-airline-offline-$outcome/journal/$outside"
+      mkdir -p "$(dirname "$outside_target")"
+      write_receipt_field "$outside_target" "$field" "$known"
+      expect_receipt_scan "$outside_target" 42
+    fi
     printf '{"%s":"%s","api_key":"%s"}\n' "$field" "$known" "$unknown" > "$target"
     expect_receipt_scan "$target" 42
   done <<'EXTERNAL_HASHES'
