@@ -87,6 +87,7 @@ class SmokeTests(unittest.TestCase):
                 "CapDrop": ["ALL"], "IpcMode": "private", "ShmSize": 2 << 30, "CgroupnsMode": "private",
                 "Memory": 512 << 30, "MemorySwap": 512 << 30, "NanoCpus": 64000000000, "PidsLimit": 1024,
                 "RestartPolicy": {"Name": "no"}, "LogConfig": {"Type": "none"},
+                "Ulimits": [{"Name": "core", "Hard": 0, "Soft": 0}],
                 "SecurityOpt": ["no-new-privileges"], "Tmpfs": dict(smoke.TMPFS),
                 "DeviceRequests": [{"DeviceIDs": list(map(str, range(8))), "Capabilities": [["gpu"]],
                                     "Count": 0, "Driver": "nvidia"}]},
@@ -129,6 +130,13 @@ class SmokeTests(unittest.TestCase):
         validate = lambda row: smoke.check_container(row, info["Id"], self.name, self.token, self.build,
             self.image, command, self.args.weights, "/private/stage")
         validate(info)
+        self.assertEqual(command[command.index("--ulimit") + 1], "core=0:0")
+        for limits in (None, [], [{"Name": "core", "Hard": -1, "Soft": 0}],
+                       [{"Name": "core", "Hard": 0, "Soft": 1}], info["HostConfig"]["Ulimits"] * 2):
+            row = copy.deepcopy(info)
+            row["HostConfig"]["Ulimits"] = limits
+            with self.subTest(limits=limits), self.assertRaises(ValueError):
+                validate(row)
         self.assertNotIn("--publish", command)
         self.assertNotIn("--init", command)
         self.assertNotIn("--rm", command)
@@ -262,6 +270,7 @@ class SmokeTests(unittest.TestCase):
             stack.enter_context(mock.patch.object(smoke.time, "time", self.clock.time))
             stack.enter_context(mock.patch.object(smoke.time, "monotonic", self.clock.monotonic))
             stack.enter_context(mock.patch.object(smoke, "weights_view"))
+            stack.enter_context(mock.patch.object(smoke.core_limits, "check_host"))
             stack.enter_context(mock.patch.object(smoke.service.identity.worker, "alarm", side_effect=lambda _: nullcontext()))
             stack.enter_context(mock.patch.object(smoke.subprocess, "Popen", return_value=monitor))
             stack.enter_context(mock.patch.object(self.recorder, "call", side_effect=call))
