@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Offline candidate composition and deadline arithmetic, NOT a runnable profile.
+"""Pure candidate composition and fixed deadline arithmetic.
 
-No owner, transport, CLI, receipt or execution-profile registration. A plan is
-not authorization or evidence; owner integration must independently bind source,
-process identity, stage results and cleanup before this candidate can run.
+This module performs no I/O or admission. The separate selected_combined_owner
+binds these calculations to source, process identity, stage results and cleanup;
+its private CLI is not a public execution-profile registration or authorization.
 """
 
 from dataclasses import dataclass, replace
@@ -43,12 +43,7 @@ def candidate_arguments(baseline, *, execution_profile):
     """
     profile(execution_profile)
     require(type(baseline) is list and all(type(item) is str for item in baseline))
-    long = tuning.arguments(baseline, tuning.LONG_GRAPHS_PROFILE)
-    batch = tuning.arguments(baseline, tuning.SCALING_PROFILE)
-    for flag in ("--max-num-seqs", "--compilation-config"):
-        require(long.count(flag) == batch.count(flag) == 1)
-        long[long.index(flag) + 1] = batch[batch.index(flag) + 1]
-    return long
+    return tuning.combined_arguments(baseline)
 
 
 def stage_budgets(preparation_seconds):
@@ -65,7 +60,7 @@ class DeadlinePlan:
 
     Stage ends are fixed at creation. An observation can only shorten the
     original cutoff; it cannot move unused time to a later stage or renew it.
-    These are planning ceilings, not stage admission or an executing owner.
+    The executing owner enforces these ceilings; this value alone admits nothing.
     """
     preparation_seconds: int
     started_monotonic: float

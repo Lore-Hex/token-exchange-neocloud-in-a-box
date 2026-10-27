@@ -87,9 +87,18 @@ def canonical_arguments(contract):
 
 def selected_engine_entry():
     # The names below are the source-bound lab helpers in the composed launcher.
-    require(len(sys.argv) == 3 and sys.argv[2] == "selected-service-engine")
+    require(len(sys.argv) == 3 and sys.argv[2] in ("selected-service-engine", "selected-combined-engine"))
     contract, _, modules, application, _ = lab_context(sys.argv[1])
     arguments = canonical_arguments(contract)
+    if sys.argv[2] == "selected-combined-engine":
+        require(contract["execution_profile"] == LONG_GRAPHS_PROFILE)
+        tuning = tuning_module(contract)
+        tuning.verify_sources(read_source, contract["paths"][-1])
+        plan = json.loads(read_source(ROOT + "/launch-plan.json"))
+        baseline = lab_args(plan, 2, model=contract["model_profile"]["served_model_name"])
+        require(tuning.arguments(baseline, LONG_GRAPHS_PROFILE) == contract["arguments"])
+        arguments = tuning.combined_arguments(baseline)
+        arguments[arguments.index("--served-model-name") + 1] = SERVICE_MODEL
     recheck_sources(modules[0], application, contract["paths"])
     initialize_cache()
 
@@ -121,7 +130,7 @@ def compose_launcher(base, adapter):
     return prefix + b"\n" + adapter + b'''\n
 if __name__ == "__main__":
     try:
-        if len(sys.argv) == 3 and sys.argv[2] == "selected-service-engine":
+        if len(sys.argv) == 3 and sys.argv[2] in ("selected-service-engine", "selected-combined-engine"):
             selected_engine_entry()
         else:
             lab_entry()

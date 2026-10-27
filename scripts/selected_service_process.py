@@ -211,6 +211,8 @@ class ProcessOwner:
         self.processes, self.commands, self.identities = {}, {}, {}
         self.trust = service.pilot.tls_client_context(inputs.root / "cert.pem")
         self.env = service.pilot.pilot.controlled_env(inputs.root / "control")
+        self.combined = None
+        self.weights_verified = False
 
     def check_mounts(self, deadline):
         return self.prepared.check(deadline)
@@ -222,34 +224,46 @@ class ProcessOwner:
         self.processes[role], self.commands[role] = child, command
         return child
 
+    def verify_weights(self, deadline):
+        # Full existing manifest checker, not an asserted prepared=true bit.
+        validator = self.spawn("weights", [str(PAYLOAD / "nib"), "model", "check-local",
+            "--workers", "8", str(PAYLOAD / "pack"), "/model"], self.env)
+        valid = False
+        try:
+            while True:
+                require(not self.shutdown.is_set(), "cancelled")
+                remaining = deadline - time.monotonic() - service.REAP_SECONDS
+                require(remaining > 0, "deadline")
+                try:
+                    valid = validator.wait(timeout=min(.1, remaining)) == 0
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+        finally:
+            absent = self.reap("weights", validator, min(deadline, time.monotonic() + service.REAP_SECONDS))
+        require(valid and absent, "model")
+        self.check_mounts(deadline)
+        self.weights_verified = True
+
     def start(self, role, contract, inputs, register, deadline):
         require(self.prepared.lab["execution_profile"] == contract.execution_profile, "runtime-limits")
         if service.ordinary_profile(contract.lifetime_profile):
             service.progress("weights" if role == "engine" else role + "-starting", contract,
                              self.prepared.receipt_sha256)
         if role == "engine":
-            # Full existing manifest checker, not an asserted prepared=true bit.
-            validator = self.spawn("weights", [str(PAYLOAD / "nib"), "model", "check-local",
-                "--workers", "8", str(PAYLOAD / "pack"), "/model"], self.env)
-            valid = False
-            try:
-                while True:
-                    require(not self.shutdown.is_set(), "cancelled")
-                    remaining = deadline - time.monotonic() - service.REAP_SECONDS
-                    require(remaining > 0, "deadline")
-                    try:
-                        valid = validator.wait(timeout=min(.1, remaining)) == 0
-                        break
-                    except subprocess.TimeoutExpired:
-                        continue
-            finally:
-                absent = self.reap("weights", validator, min(deadline, time.monotonic() + service.REAP_SECONDS))
-            require(valid and absent, "model")
-            self.check_mounts(deadline)
+            if self.combined is None:
+                self.verify_weights(deadline)
+            else:
+                self.combined.bind_owner(self, contract)
+                require(self.weights_verified, "model")
+                self.check_mounts(deadline)
             if service.ordinary_profile(contract.lifetime_profile):
                 service.progress("engine-starting", contract, self.prepared.receipt_sha256)
             command = [self.prepared.interpreter, "-I", "-S", "-B", str(PAYLOAD / "launch.py"),
                        self.prepared.lab_sha, "selected-service-engine"]
+            if self.combined is not None:
+                self.combined.bind_owner(self, contract)
+                command[-1] = "selected-combined-engine"
             env = self.prepared.lab["environment"]
         elif role == "guard":
             command = [str(ROOT / "bin/nib-pilot-api"), *contract.guard_arguments(inputs)]
@@ -456,6 +470,10 @@ class ProcessOwner:
 
 
 def main(argv=None):
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments[:1] == ["--prepared-sha256"] and arguments[2:3] == ["--combined-qualification"]:
+        import selected_combined_owner
+        return selected_combined_owner.main(arguments[:2] + arguments[3:])
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prepared-sha256", required=True)
     parser.add_argument("--provider-config", type=Path, required=True)

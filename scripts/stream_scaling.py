@@ -26,8 +26,13 @@ STOPS = ("complete", "deadline", "cancelled", "warmup-failed", "collector-failed
          "capacity-failed", "identity-failed", "insufficient-duration", "request-cap", "cache-mismatch")
 
 
-def spawn():
-    return subprocess.Popen(["/opt/nib/python", "scaling-collector"], stdin=subprocess.PIPE,
+def spawn(prepared_sha256=None):
+    command = ["/opt/nib/python", "scaling-collector"]
+    if prepared_sha256 is not None:
+        binding.sha(prepared_sha256)
+        command = ["/usr/bin/python3.12", "-I", "-S", "-B",
+                   "/opt/nib-service/scripts/selected_combined_worker.py", prepared_sha256, "collect"]
+    return subprocess.Popen(command, stdin=subprocess.PIPE,
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True)
 
 
@@ -38,7 +43,7 @@ def salt(nonce, condition, request, index):
     return hashlib.sha256((nonce + ":" + condition + ":" + str(request)).encode()).hexdigest()
 
 
-def child(model):
+def child(model, *, selected_model=False):
     require(threading.current_thread() is threading.main_thread())
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, c8.cancelled)
@@ -58,7 +63,8 @@ def child(model):
             and value["epoch"] <= time.monotonic() < value["deadline"]
             and value["deadline"] - value["epoch"] <= SECONDS)
     messages = cohort.messages(value["index"], value["padding"])
-    client = stream.OwnedStreamHTTP(stream.identity.Endpoint(stream.PORT, {"process": process}), model=model)
+    client = stream.OwnedStreamHTTP(stream.identity.Endpoint(stream.PORT, {"process": process}),
+                                  model=model, selected_model=selected_model)
     require(os.write(1, c8.READY) == len(c8.READY))
     require(sys.stdin.buffer.read(1) == c8.GO and sys.stdin.buffer.read(1) == b"")
     started = time.monotonic()
@@ -69,7 +75,8 @@ def child(model):
     require(os.write(1, raw) == len(raw))
 
 
-def wave(endpoint, workload, record, *, concurrency, deadline, admission_end, epoch, model, nonce, condition, offset):
+def wave(endpoint, workload, record, *, concurrency, deadline, admission_end, epoch, model, nonce, condition, offset,
+         prepared_sha256=None):
     """The legacy C8 pipe framing/reap protocol; no inherited owner descriptors."""
     workers, stop, reaped = [], "collector-failed", False
     start = time.monotonic()
@@ -79,7 +86,8 @@ def wave(endpoint, workload, record, *, concurrency, deadline, admission_end, ep
             setup = min(admission_end, time.monotonic() + c8.START_SECONDS)
             for slot in range(concurrency):
                 require(time.monotonic() < setup)
-                row = c8.start_collector(workers, slot, factory=spawn)
+                factory = spawn if prepared_sha256 is None else lambda: spawn(prepared_sha256)
+                row = c8.start_collector(workers, slot, factory=factory)
                 process = row["process"]
                 os.set_blocking(process.stdout.fileno(), False)
                 os.set_blocking(process.stdin.fileno(), False)
@@ -193,13 +201,25 @@ def totals(row):
         collectors_reaped=all(p["collectors_reaped"] for p in row["plateaus"]))
 
 
-def run(endpoint, workload, *, deadline, gpu_count, cohort_seconds, model, condition):
+def run(endpoint, workload, *, deadline, gpu_count, cohort_seconds, model, condition, combined=None):
     require(threading.current_thread() is threading.main_thread() and type(endpoint) is stream.identity.Endpoint
             and type(workload) is cohort.Workload and type(gpu_count) is int and gpu_count == 8
             and type(cohort_seconds) is int and cohort_seconds == SECONDS
             and condition in CONDITIONS and meter.number(deadline))
     workload.validate()
+    policy = capacity
+    prepared_sha256 = None
+    if combined is not None:
+        import selected_combined_owner
+        require(type(combined) is selected_combined_owner.Run and model == stream.SELECTED_MODEL
+                and combined.supervisor is not None and combined.used
+                and endpoint.expected == combined.identities["engine"])
+        policy, prepared_sha256 = combined, combined.prepared_sha256
     row, epoch = empty(model, workload, condition), time.monotonic()
+    if combined is not None:
+        row.update(schema="nib.selected-combined-scaling/v1", prepared_sha256=prepared_sha256,
+                   engine_identity_sha256=binding.digest(endpoint.expected))
+        combined.scaling_row = row
     deadline = min(deadline, epoch + SECONDS)
     nonce = os.urandom(32).hex()
     handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
@@ -209,11 +229,11 @@ def run(endpoint, workload, *, deadline, gpu_count, cohort_seconds, model, condi
             signal.signal(sig, c8.cancelled)
         require(deadline - time.monotonic() > stream.REQUEST_SECONDS + PLATEAU_RESERVE)
         row["stop_reason"] = "capacity-failed"
-        row["capacity"] = capacity.probe(endpoint, model, deadline - c8.CLEANUP_SECONDS)
-        capacity.stable(row["capacity"], row["capacity"])
+        row["capacity"] = policy.probe(endpoint, model, deadline - c8.CLEANUP_SECONDS)
+        policy.stable(row["capacity"], row["capacity"])
         row["stop_reason"] = "warmup-failed"
         warmup_start = time.monotonic()
-        row["warmup"] = stream.OwnedStreamHTTP(endpoint, model=model).collect(
+        row["warmup"] = stream.OwnedStreamHTTP(endpoint, model=model, **({"selected_model": True} if combined else {})).collect(
             cohort.messages(0, workload.cases[0][0]), prompt_tokens=cohort.PROMPT_TOKENS,
             max_output_tokens=cohort.OUTPUT_TOKENS, deadline=deadline - c8.CLEANUP_SECONDS,
             cache_salt=salt(nonce, condition, 0, 0)).metadata()
@@ -243,9 +263,10 @@ def run(endpoint, workload, *, deadline, gpu_count, cohort_seconds, model, condi
                          "dispatch_unknown_requests": concurrency}
                     p["waves"].append(w)
                     row["stop_reason"] = "collector-failed"
+                    options = {"prepared_sha256": prepared_sha256} if combined else {}
                     wave(endpoint, workload, w, concurrency=concurrency, deadline=deadline,
                          admission_end=start + ADMISSION_SECONDS, epoch=epoch, model=model,
-                         nonce=nonce, condition=condition, offset=offset)
+                         nonce=nonce, condition=condition, offset=offset, **options)
                     offset += concurrency
                     row["stop_reason"] = w["stop_reason"]
                     require(w["stop_reason"] == "complete")
@@ -253,8 +274,8 @@ def run(endpoint, workload, *, deadline, gpu_count, cohort_seconds, model, condi
                     require(all(s["cached_prompt_tokens"] == 0 for s in w["samples"]))
                     row["stop_reason"] = "collector-failed"
                 row["stop_reason"] = "capacity-failed"
-                p["capacity_after"] = capacity.probe(endpoint, model, deadline - c8.CLEANUP_SECONDS)
-                capacity.stable(row["capacity"], p["capacity_after"])
+                p["capacity_after"] = policy.probe(endpoint, model, deadline - c8.CLEANUP_SECONDS)
+                policy.stable(row["capacity"], p["capacity_after"])
                 p["end"] = time.monotonic() - epoch
                 summarize(p)
                 row["stop_reason"] = "insufficient-duration"
@@ -296,9 +317,26 @@ def run(endpoint, workload, *, deadline, gpu_count, cohort_seconds, model, condi
 
 
 def validate(row, contract, loaded_cohort, model, condition):
+    return _validate(row, contract, loaded_cohort, model, condition, combined=False)
+
+
+def validate_combined(row):
+    return _validate(row, {}, cohort, stream.SELECTED_MODEL, "isolated", combined=True)
+
+
+def _validate(row, contract, loaded_cohort, model, condition, *, combined):
     require(type(row) is dict)
+    policy = capacity
+    if combined:
+        import selected_combined_capacity
+        policy = selected_combined_capacity
     work = binding.workload(row.get("workload"), loaded_cohort)
     template = empty(model, work, condition)
+    if combined:
+        for key in ("prepared_sha256", "engine_identity_sha256"):
+            binding.sha(row.get(key))
+        template.update(schema="nib.selected-combined-scaling/v1",
+            prepared_sha256=row["prepared_sha256"], engine_identity_sha256=row["engine_identity_sha256"])
     variable = {"warmup", "capacity", "plateaus", "elapsed_seconds", "completed", "stop_reason",
                 "known_prompt_tokens", "known_output_tokens", "requests_with_unknown_usage",
                 "started_requests", "dispatch_unknown_requests", "not_run_requests", "collectors_reaped"}
@@ -309,7 +347,7 @@ def validate(row, contract, loaded_cohort, model, condition):
             and type(row["completed"]) is bool and type(row["collectors_reaped"]) is bool
             and row["stop_reason"] in STOPS and row["completed"] == (row["stop_reason"] == "complete"))
     if row["capacity"] is not None:
-        capacity.stable(row["capacity"], row["capacity"])
+        policy.stable(row["capacity"], row["capacity"])
     if row["warmup"] is not None:
         binding.validate_sample(row["warmup"], loaded_cohort)
         require(row["warmup"]["elapsed_seconds"] <= row["elapsed_seconds"])
@@ -364,9 +402,9 @@ def validate(row, contract, loaded_cohort, model, condition):
         summarize(expected)
         require(binding.digest(expected) == binding.digest(p))
         if p["capacity_after"] is not None:
-            capacity.stable(p["capacity_after"], p["capacity_after"])
+            policy.stable(p["capacity_after"], p["capacity_after"])
         if p["stop_reason"] == "complete":
-            capacity.stable(row["capacity"], p["capacity_after"])
+            policy.stable(row["capacity"], p["capacity_after"])
             require(p["capacity_after"] is not None and p["end"] >= p["admission_end"]
                     and p["measured"] is not None and p["measured"]["wall_seconds"] >= MIN_MEASURED_SECONDS
                     and p["peak_in_flight"] == p["concurrency"] and p["collectors_reaped"]
