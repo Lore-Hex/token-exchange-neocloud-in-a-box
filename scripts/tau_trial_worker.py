@@ -697,7 +697,10 @@ def run_upstream(root, manifest, selection, bridge, *, selected_operational=Fals
     task = get_tasks(selection["domain"], task_split_name="base",
                      task_ids=[selection["task_id"]], num_tasks=1)[0]
     bridge.assertions = list(task.evaluation_criteria.nl_assertions or []) if task.evaluation_criteria else []
-    require(not selected_operational or len(bridge.assertions) == 1)
+    if selected_operational and policy.is_staged(manifest):
+        policy.staged().validate_assertions(manifest["stage"], bridge.assertions)
+    else:
+        require(not selected_operational or len(bridge.assertions) == 1)
     config = text_config(selection, settings, seconds)
     try:
         with observe_selected_tools() if selected_operational else contextlib.nullcontext() as observer:

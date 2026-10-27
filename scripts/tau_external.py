@@ -294,6 +294,8 @@ class Runtime:
 class Session(local.CountedSession):
     def __init__(self, channel, runtime, *, assertions, clock=time.monotonic):
         frozen = runtime.manifest
+        if policy.is_staged(frozen["input"]):
+            policy.staged().validate_assertions(frozen["input"]["stage"], assertions)
         super().__init__(channel, frozen, worker.digest(worker.encoded(frozen)), "candidate", [],
                          assertions=assertions, clock=clock, selected_operational=True)
         self.endpoints = dict(runtime.endpoints)
@@ -320,8 +322,12 @@ class Session(local.CountedSession):
 
 
 def accepted(value):
-    if value.get("schema") in ("nib.tau-external-full-task/v1", "nib.tau-external-staged/v1"):
+    if value.get("schema") in ("nib.tau-external-full-task/v1", "nib.tau-external-staged/v2"):
         row = value["trial"]
+        staged = value["schema"] == "nib.tau-external-staged/v2"
+        count = value.get("nl_assertion_count") if staged else 1
+        if type(count) is not int or not 0 <= count <= (policy.staged().MAX_ASSERTIONS if staged else 1):
+            return False
         # Lifecycle success is independent of reward. Zero remains a scored
         # failure of this task, not a transport failure or invented null reward.
         return (value["scorer_protocol_completed"] is True and value["attach_cleanup"] == "reaped"
@@ -329,8 +335,9 @@ def accepted(value):
                 and row["reward"] in ("0.0", "1.0") and row.get("usage") is not None
                 and row.get("upstream_termination", {}).get("reason") in ("user_stop", "agent_stop")
                 and set(value["endpoints"]) == {"candidate", "simulator", "evaluator"}
-                and all(item["generation_attempts"] > 0 and item["unknown_responses"] == 0
-                        for item in value["endpoints"].values()))
+                and all((item["generation_attempts"] == 0 if name == "evaluator" and count == 0
+                         else item["generation_attempts"] > 0) and item["unknown_responses"] == 0
+                        for name, item in value["endpoints"].items()))
     return (value["scorer_protocol_completed"] is True and value["attach_cleanup"] == "reaped"
             and value["scorer_exit_code"] == 0 and value["trial"]["status"] == "evaluated"
             and value["trial"]["reward"] is None and value["trial"].get("customer_resolution", {}).get("outcome") == "resolved"
@@ -427,5 +434,6 @@ def run_process(command, environment, payload, plan, runtime, deadline):
         result.update(selection=dict(runtime.manifest["input"]["selection"]),
                       evaluation=dict(runtime.manifest["input"]["evaluation"]), full_benchmark=False)
     if policy.is_staged(runtime.manifest["input"]):
-        result.update(schema="nib.tau-external-staged/v1", stage_binding=policy.staged().binding(runtime.manifest["input"]["stage"]))
+        result.update(schema="nib.tau-external-staged/v2", stage_binding=policy.staged().binding(runtime.manifest["input"]["stage"]),
+                      nl_assertion_count=policy.staged().assertion_count(runtime.manifest["input"]["stage"]))
     return result
