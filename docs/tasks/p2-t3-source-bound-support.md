@@ -17,17 +17,25 @@ existing certificate-pinned v2 endpoint contract. Before tokenizer creation,
 credentials or HTTP-client construction, it authenticates the entire original
 tau archive, source tree, per-file pins and selected plan. Only the existing
 retail task 2 diagnostic or the unchanged first-five staged retail/telecom
-selection is supported. Airline remains outside this opt-in.
+selection is supported by the original plan versions. Airline requires the
+explicit [sequential v2 plan and owning journal](p2-t3-tau-external-selection.md#sequential-cap);
+old full-sum and sequential v1 airline plans remain rejected.
 
 For telecom, the exact committed 30-tool catalog is required; reordered,
 modified or foreign tools fail before counting. Chat retains the original
 seed, tool schemas, arguments, results and history. The paired Responses count
 contains the same input semantics, including every tool schema and tool-call
 result. Explicit non-strict schemas prevent Responses defaults from changing
-the original optional properties. Retail simulator/evaluator requests retain
+the original optional properties. Retail and airline simulator/evaluator requests retain
 the existing text projection. The original evaluator's assertion count is
 source-bound; the zero-assertion staged tasks cannot generate an invented judge
 call. No task, original reward criterion or user-tool implementation changes.
+
+The pinned [airline environment](https://github.com/sierra-research/tau2-bench/blob/fc0055dc4e0a316c3f83133267fbd6faaa770992/src/tau2/domains/airline/environment.py)
+supplies agent tools but no user tools. Its simulator therefore uses the existing
+text projection, not the telecom tool projection. All five task definitions and
+their one-to-three ordered assertions are authenticated from the same pinned
+archive before any transport is constructed.
 
 Primary pinned sources at `fc0055dc4e0a316c3f83133267fbd6faaa770992`:
 [simulator](https://github.com/sierra-research/tau2-bench/blob/fc0055dc4e0a316c3f83133267fbd6faaa770992/src/tau2/user/user_simulator.py),

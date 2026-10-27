@@ -29,7 +29,8 @@ class Source:
         if stage is not None:
             catalog.selection.verify_sources(stage["plan"], sources, pins)
             selection = catalog.selection.selected(stage)
-        require(selection["domain"] in ("retail", "telecom"))
+        require(selection["domain"] in ("retail", "telecom") or selection["domain"] == "airline"
+                and stage is not None and stage["plan"]["schema"] == catalog.selection.AIRLINE_SEQUENTIAL_SCHEMA)
         rows = runtime.tau.json_value(sources["data/tau2/domains/" + selection["domain"] + "/tasks.json"])
         rows = rows["tasks"] if type(rows) is dict else rows
         matches = [row for row in rows if row["id"] == selection["task_id"]]

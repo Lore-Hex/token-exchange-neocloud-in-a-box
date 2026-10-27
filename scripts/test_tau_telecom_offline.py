@@ -44,6 +44,44 @@ def following(body, response):
 
 
 class OfflineTests(unittest.TestCase):
+    def test_airline_agent_tool_and_plain_simulator_and_multi_assertion_judge(self):
+        deadline = time.monotonic() + 10
+        assertions = ["First synthetic assertion", "Second synthetic assertion", "Third synthetic assertion"]
+        candidate = offline.AirlinePeer("candidate", assertions)
+        wire = {"model": external.policy.PUBLIC_MODEL, "messages": [], "tools": [{"function": {"name": "calculate"}}]}
+        first = candidate.post(external.CHAT, wire, b"", deadline, before_send=lambda: None)
+        body = following(wire, first)
+        body["messages"][-1]["content"] = "2.0"
+        candidate.post(external.CHAT, body, b"", deadline, before_send=lambda: None)
+        self.assertEqual(candidate.tool_round_trips, 1)
+        simulator = offline.AirlinePeer("simulator", assertions)
+        chat = {"model": external.policy.EXTERNAL_MODEL, "messages": [{"role": "user", "content": "Synthetic request"}]}
+        for expected in ("Please help with my request.", "###STOP###"):
+            simulator.post(external.COUNT, {"model": chat["model"], "input": chat["messages"], "truncation": "disabled"}, b"", deadline)
+            response = simulator.post(external.CHAT, chat, b"", deadline, before_send=lambda: None)
+            self.assertEqual(response["choices"][0]["message"]["content"], expected)
+        self.assertEqual(simulator.tool_round_trips, 0)
+        evaluator = offline.AirlinePeer("evaluator", assertions)
+        result = evaluator.post(external.CHAT, chat, b"", deadline, before_send=lambda: None)
+        judgments = worker.decode(result["choices"][0]["message"]["content"].encode())["results"]
+        self.assertEqual([row["expectedOutcome"] for row in judgments], assertions)
+        self.assertTrue(all(row["metExpectation"] is False for row in judgments))
+
+    def test_airline_plain_simulator_cannot_omit_count_or_change_input(self):
+        chat = {"model": external.policy.EXTERNAL_MODEL, "messages": [{"role": "user", "content": "Synthetic request"}]}
+        for mutation in ("no-count", "input", "tools", "key"):
+            peer = offline.AirlinePeer("simulator", [])
+            deadline = time.monotonic() + 10
+            if mutation != "no-count":
+                peer.post(external.COUNT, {"model": chat["model"], "input": chat["messages"], "truncation": "disabled"}, b"", deadline)
+            changed = copy.deepcopy(chat)
+            if mutation == "input": changed["messages"][-1]["content"] += "changed"
+            if mutation == "tools": changed["tools"] = []
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                peer.post(external.CHAT, changed, b"PRIVATE_KEY_CANARY" if mutation == "key" else b"", deadline,
+                          before_send=lambda: None)
+            self.assertEqual(peer.steps, 0)
+
     def test_authenticated_pair_and_real_accounting_without_http(self):
         with fixtures.bound_fixture() as contract, mock.patch.object(external.bounded_https, "HTTPS") as http:
             held = offline.Offline(contract["stage"], ARCHIVE, [], time.monotonic() + 30)

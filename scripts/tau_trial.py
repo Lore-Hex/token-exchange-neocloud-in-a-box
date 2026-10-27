@@ -667,8 +667,7 @@ def run(payload, sha, destination, socket, *, parent_pipe=False, live_deployment
         require(driver.policy.is_staged(manifest) == (stage_binding is not None))
         if stage_binding is not None:
             require(tau.encoded(stage_binding) == tau.encoded(driver.policy.staged().binding(manifest["stage"])))
-        sequential = (stage_binding is not None
-                      and manifest["stage"]["plan"]["schema"] == driver.policy.staged().SEQUENTIAL_SCHEMA)
+        sequential = stage_binding is not None and driver.policy.staged().is_sequential(manifest["stage"]["plan"])
         require(sequential == (aggregate_owner is not None))
         if sequential:
             aggregate_owner.claim(manifest, sha, toolkit, external_inputs)

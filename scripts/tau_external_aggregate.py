@@ -98,7 +98,7 @@ class Journal:
     """Exclusive new run only. No recovery, retry, mutable balance file or resume."""
     def __init__(self, destination, plan, contract_sha, toolkit):
         selection.validate(plan)
-        require(plan["schema"] == selection.SEQUENTIAL_SCHEMA and plan["result"] == "pass"
+        require(selection.is_sequential(plan) and plan["result"] == "pass"
                 and plan["producer_git_sha"] == toolkit["git_sha"])
         tau.sha(contract_sha)
         self.plan = tau.json_value(tau.encoded(plan))

@@ -102,8 +102,10 @@ Do not run the illustrative budget example as an approval workaround.
 ## Sequential Cap
 
 The optional `plan --aggregate-cap-usd` creates
-`nib.tau-external-sequential-plan/v1`, not a reinterpretation of a legacy v2
-full-sum plan. It supports retail and telecom only, keeps all five tasks and
+`nib.tau-external-sequential-plan/v1` for retail/telecom, or
+`nib.tau-external-sequential-plan/v2` when the plan includes airline. These are
+not reinterpretations of a legacy v2 full-sum plan. Old sequential v1 plans
+still reject airline, and retail/telecom plan bytes are unchanged. Each keeps all five tasks and
 one to four repetitions per task, and requires a cap from $70.044864 to $10,000
 within the same declared weekly commitments. The plan retains both its full
 planned worst case and the sequential cap. Neither is a verified invoice or
@@ -164,6 +166,15 @@ The [committed original-worker replay](../../evidence/p2/2026-10-27-sequential-t
 passed this offline stopping check. Its
 [preceding local socket-access failure](../../evidence/p2/2026-10-27-sequential-tau-offline-socket-denied/README.md)
 is retained separately, including the full held reservation and original failed receipt.
+
+Add `--domain airline` for a separate offline replay of the five frozen airline
+tasks, one trial each, under a synthetic $200 cap. It checks the original
+assertion counts **1, 1, 1, 3, 2**, an actual agent `calculate` tool round trip,
+the text-only user simulator, and each original ordered multi-assertion judge.
+Every scripted reward remains zero. Original source and scorer, budgeting,
+usage reconciliation and container cleanup remain mandatory. This mode is
+not a live-model benchmark, an invoice, a repeated-trial score or permission
+to spend. The default telecom replay is unchanged.
 
 ## Offline Procedure
 

@@ -10,12 +10,17 @@ import tau_preflight as tau
 
 SCHEMA = "nib.tau-external-selection-plan/v2"
 SEQUENTIAL_SCHEMA = "nib.tau-external-sequential-plan/v1"
+AIRLINE_SEQUENTIAL_SCHEMA = "nib.tau-external-sequential-plan/v2"
 INPUT_SCHEMA = "nib.tau-external-staged-input/v2"
 TRANSPORT_SCHEMA = "nib.tau-external-staged-transport/v2"
 MAX_ASSERTIONS = 3  # Maximum in the pinned first-five-per-domain smoke selection.
 COUNT_RESERVATION = Decimal("2.095152")
 TRIAL_RESERVATION = COUNT_RESERVATION * 32 + Decimal("3.00")
 BUDGET_KEYS = ("weekly_cap_usd", "gpu_committed_usd", "cpu_disk_reserved_usd", "other_committed_usd")
+
+
+def is_sequential(plan):
+    return type(plan) is dict and plan.get("schema") in (SEQUENTIAL_SCHEMA, AIRLINE_SEQUENTIAL_SCHEMA)
 
 
 def source_names(domains):
@@ -77,14 +82,15 @@ def assemble(producer, domains, trials, seed, tasks, source_files, budget_inputs
     financial = budget(budget_inputs, len(selections))
     if aggregate_cap_usd is not None:
         cap = tau.amount(aggregate_cap_usd)
-        tau.require(TRIAL_RESERVATION <= cap <= 10000 and all(domain in ("retail", "telecom") for domain in domains))
+        tau.require(TRIAL_RESERVATION <= cap <= 10000)
         committed = sum(tau.amount(budget_inputs[name]) for name in BUDGET_KEYS[1:])
         financial.update(policy="sequential-full-trial-reservations", planned_worst_case_usd=financial["trials_reserved_usd"],
                          trials_reserved_usd=aggregate_cap_usd, total_reserved_usd=format(committed + cap, "f"),
                          remaining_usd=format(tau.amount(budget_inputs["weekly_cap_usd"]) - committed - cap, "f"),
                          within_cap=committed + cap <= tau.amount(budget_inputs["weekly_cap_usd"]))
     unsupported = sum(row["compatibility"] != "supported-shape" for row in selections)
-    return {"schema": SCHEMA if aggregate_cap_usd is None else SEQUENTIAL_SCHEMA,
+    schema = AIRLINE_SEQUENTIAL_SCHEMA if "airline" in domains else SEQUENTIAL_SCHEMA
+    return {"schema": SCHEMA if aggregate_cap_usd is None else schema,
             **({"aggregate_cap_usd": aggregate_cap_usd} if aggregate_cap_usd is not None else {}),
             "producer_git_sha": producer, "upstream_revision": tau.REVISION,
             "domains": domains, "trials_per_task": trials, "seed": seed, "trial_seeds": seeds,
@@ -126,10 +132,10 @@ def build(sources, pins, producer, domains, trials, seed, budget_inputs, *, aggr
 
 
 def validate(plan):
-    tau.require(type(plan) is dict and plan.get("schema") in (SCHEMA, SEQUENTIAL_SCHEMA))
+    tau.require(type(plan) is dict and (plan.get("schema") == SCHEMA or is_sequential(plan)))
     expected = assemble(plan["producer_git_sha"], plan["domains"], plan["trials_per_task"], plan["seed"],
                         plan["domain_tasks"], plan["source_files"], plan["budget"]["inputs"],
-                        aggregate_cap_usd=plan["aggregate_cap_usd"] if plan["schema"] == SEQUENTIAL_SCHEMA else None)
+                        aggregate_cap_usd=plan["aggregate_cap_usd"] if is_sequential(plan) else None)
     tau.require(tau.encoded(plan) == tau.encoded(expected))
     return plan
 
@@ -138,7 +144,7 @@ def verify_sources(plan, sources, pins):
     validate(plan)
     rebuilt = build(sources, pins, plan["producer_git_sha"], plan["domains"], plan["trials_per_task"],
                     plan["seed"], plan["budget"]["inputs"],
-                    aggregate_cap_usd=plan["aggregate_cap_usd"] if plan["schema"] == SEQUENTIAL_SCHEMA else None)
+                    aggregate_cap_usd=plan["aggregate_cap_usd"] if is_sequential(plan) else None)
     tau.require(tau.encoded(plan) == tau.encoded(rebuilt))
 
 

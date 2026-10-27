@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Scripted peers for the original telecom worker. No network or live factory."""
+"""Scripted original-worker peers. No network or live factory."""
 
 import time
 
@@ -38,6 +38,12 @@ class Peer:
             self.pair = None
         before_send()
         self.steps += 1
+        message = self.message(body)
+        return {"model": body["model"], "service_tier": "default",
+                "choices": [{"message": message, "finish_reason": "tool_calls" if "tool_calls" in message else "stop"}],
+                "usage": {"prompt_tokens": TOKENS, "completion_tokens": 1, "total_tokens": TOKENS + 1}}
+
+    def message(self, body):
         message = {"role": "assistant", "content": None}
         if self.role in ("candidate", "simulator") and self.steps == 1:
             name = "check_status_bar" if self.role == "simulator" else "get_customer_by_name"
@@ -59,9 +65,57 @@ class Peer:
                 for item in self.assertions]}).decode()
         else:
             require(False)
-        return {"model": body["model"], "service_tier": "default",
-                "choices": [{"message": message, "finish_reason": "tool_calls" if "tool_calls" in message else "stop"}],
-                "usage": {"prompt_tokens": TOKENS, "completion_tokens": 1, "total_tokens": TOKENS + 1}}
+        return message
+
+
+class AirlinePeer(Peer):
+    """Pinned airline has agent tools but no user tools; exercise that asymmetry."""
+    def post(self, route, body, key, deadline, *, before_send=None):
+        if self.role == "simulator":
+            if route == external.COUNT:
+                self.pair = {"count": worker.decode(worker.encoded(body))}
+            elif route == external.CHAT:
+                require("tools" not in body and self.pair is not None and self.pair["count"] ==
+                        {"model": body["model"], "input": body["messages"], "truncation": "disabled"})
+                self.pair["chat"] = body
+        return super().post(route, body, key, deadline, before_send=before_send)
+
+    def message(self, body):
+        if self.role == "evaluator":
+            return super().message(body)
+        message = {"role": "assistant", "content": None}
+        if self.role == "candidate" and self.steps == 1:
+            require("calculate" in {tool["function"]["name"] for tool in body["tools"]})
+            message["tool_calls"] = [{"id": "offline_candidate", "type": "function",
+                "function": {"name": "calculate", "arguments": '{"expression":"1+1"}'}}]
+        elif self.role == "candidate" and self.steps == 2:
+            last = body["messages"][-1]
+            require(last["role"] == "tool" and last["tool_call_id"] == "offline_candidate"
+                    and last["content"] == "2.0")
+            self.tool_round_trips += 1
+            message["content"] = "I cannot complete this request."
+        elif self.role == "simulator" and self.steps in (1, 2):
+            message["content"] = "Please help with my request." if self.steps == 1 else "###STOP###"
+        else:
+            require(False)
+        return message
+
+
+def source_assertions(stage, archive_path, deadline):
+    runtime = external.source_support().runtime
+    raw = runtime.read_file(runtime.ROOT / runtime.tau.PINS, 1 << 20, deadline)
+    require(runtime.digest(raw) == runtime.tau.PINS_SHA)
+    pins = runtime.tau.json_value(raw)
+    _, sources = runtime.source_inputs(runtime.read_file(archive_path, runtime.ARCHIVE_LIMIT, deadline), pins, deadline)
+    catalog.selection.verify_sources(stage["plan"], sources, pins)
+    selected = catalog.selection.selected(stage)
+    rows = runtime.tau.json_value(sources["data/tau2/domains/" + selected["domain"] + "/tasks.json"])
+    rows = rows["tasks"] if type(rows) is dict else rows
+    matches = [row for row in rows if row["id"] == selected["task_id"]]
+    require(len(matches) == 1)
+    assertions = (matches[0].get("evaluation_criteria") or {}).get("nl_assertions") or []
+    catalog.selection.validate_assertions(stage, assertions)
+    return assertions
 
 
 class Simulator(external.Endpoint):
@@ -109,20 +163,26 @@ class SourcePeer(Peer):
 class Offline:
     def __init__(self, stage, archive, assertions, deadline, *, source_bound=False):
         require(type(source_bound) is bool)
-        self.contract = catalog.bind(stage, archive, deadline)
+        self.domain = catalog.selection.selected(stage)["domain"]
+        require(self.domain == "telecom" or self.domain == "airline" and source_bound)
+        self.contract = catalog.bind(stage, archive, deadline) if self.domain == "telecom" else None
         catalog.selection.validate_assertions(stage, assertions)
         config = policy.configuration(full_task=True, external_simulator=True, stage=stage)
         budget = external.CountBudget()
-        self.endpoints = {"simulator": Simulator(self.contract, archive, assertions, budget),
-            **{role: external.Endpoint(role, Peer(role, assertions), b"", Counter(), full_task=True,
-                count_budget=budget, support_chat=True) for role in ("candidate", "evaluator")}}
         if source_bound:
             support = external.source_support()
             source = support.Source(archive, stage, deadline)
+            if self.domain == "airline":
+                self.contract = source.binding
             admission = support.Admission(config)
-            self.endpoints = {role: support.Endpoint(role, SourcePeer(role, assertions, source.tools), b"", Counter(),
+            self.endpoints = {role: support.Endpoint(role,
+                SourcePeer(role, assertions, source.tools) if self.domain == "telecom" else AirlinePeer(role, assertions), b"", Counter(),
                 full_task=True, count_budget=budget, support_chat=True, source=source, admission=admission)
                 for role in ("candidate", "simulator", "evaluator")}
+        else:
+            self.endpoints = {"simulator": Simulator(self.contract, archive, assertions, budget),
+                **{role: external.Endpoint(role, Peer(role, assertions), b"", Counter(), full_task=True,
+                    count_budget=budget, support_chat=True) for role in ("candidate", "evaluator")}}
         self.manifest = {"schema": policy.external_transport(config), "input": config,
             "settings": policy.settings(config), "binding_sha256": worker.digest(worker.encoded(self.contract)),
             "framing": {role: {"reasoning_effort": "none", "parallel_tool_calls": False,
@@ -137,7 +197,8 @@ class Offline:
 
     def accepted(self, result):
         return (external.accepted(result) and result["trial"]["upstream_termination"]["tool_errors"] == 0
-                and all(self.endpoints[role].http.tool_round_trips == 1 for role in ("candidate", "simulator")))
+                and self.endpoints["candidate"].http.tool_round_trips == 1
+                and self.endpoints["simulator"].http.tool_round_trips == (1 if self.domain == "telecom" else 0))
 
     def close(self):
         for endpoint in self.endpoints.values():
