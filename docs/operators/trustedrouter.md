@@ -33,8 +33,9 @@ running owner's deadline in place.
 
 Publish only the capacity qualified for that profile. The separate short-prompt
 C64 experiment does not permit raising the 1M service above C1. Prefix-cache
-support also does not imply a discount: the selected 1M catalog prices cached
-input at the regular input rate until separate pricing is agreed.
+support also does not imply a discount: by default the selected 1M catalog
+prices cached input at the regular input rate. An agreed discount must be
+configured explicitly as described below.
 
 ## 1. Configure Your Endpoint
 
@@ -63,6 +64,36 @@ your TLS certificate/key and a dedicated inference API-key file. Follow the
 capacity and retirement controls. The prices are your proposed/agreed supply
 rates, not permission to bill customers locally. Do not use sample rates as
 commercial defaults.
+
+### Cache-Read Pricing
+
+For the selected `long1m-graphs` owner only, the prepared-runtime entrypoint
+`scripts/selected_service_process.py` accepts optional `--cached-input-price`.
+It forwards the exact decimal string to the API guard, which publishes it as
+`pricing.cached_input` in `GET /v1/models`, in USD per million cached input
+tokens. The guard's corresponding profile is `selected-deepseek-million`.
+
+Omitting the flag preserves existing catalog bytes and guard arguments: cache
+reads on the 1M profile cost the ordinary input rate, and profiles without a
+qualified cache declaration still publish `null`. An explicit rate must be
+nonnegative, no greater than the input rate, and use at most six integer and
+six fractional digits. Explicit `0` is allowed; an empty value, exponent,
+duplicate flag, negative value or unsupported profile is rejected. No missing
+or invalid rate is silently interpreted as free. Prices are frozen at startup;
+there is no live tariff-update or lease-renewal endpoint.
+
+This changes only the declared cache-read tariff. It does not enable caching,
+share caches between customers, alter token counts or charge a cache-write fee.
+Use actual engine `prompt_tokens_details.cached_tokens`, a subset of total
+prompt tokens, rather than charging the cached subset again at the full input
+price. TrustedRouter remains responsible for settlement.
+
+Before changing a live tariff, agree the rate and qualify representative cold
+and warm workloads, not just first-token latency. Coordinate the replacement
+owner and catalog refresh, then verify streaming and non-streaming cache usage
+and exact customer-ledger charges. Do not interrupt an active observer or infer
+margin from cache-hit counts. This option has software tests, not a new live
+discount, performance, settlement or profitability result.
 
 Use an isolated operator-owned project and runtime identity. Do not connect the
 node to TrustedRouter's internal networks, databases, secret stores or payment

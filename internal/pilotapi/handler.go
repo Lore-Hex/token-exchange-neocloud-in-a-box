@@ -30,15 +30,16 @@ var apiKeyPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{64,256}$`)
 
 // Catalog requires explicit prices; absent or malformed prices never become free.
 func Catalog(provider ProviderConfig, inputPrice, outputPrice string, retirement time.Time) ([]byte, error) {
-	return qwenProfile().catalog(provider, inputPrice, outputPrice, retirement)
+	return qwenProfile().catalog(provider, Pricing{Input: inputPrice, Output: outputPrice}, retirement)
 }
 
-func (p serviceProfile) catalog(provider ProviderConfig, inputPrice, outputPrice string, retirement time.Time) ([]byte, error) {
+func (p serviceProfile) catalog(provider ProviderConfig, pricing Pricing, retirement time.Time) ([]byte, error) {
 	if err := provider.Validate(); err != nil {
 		return nil, err
 	}
-	if !pricePattern.MatchString(inputPrice) || !pricePattern.MatchString(outputPrice) {
-		return nil, errors.New("explicit decimal input and output prices required")
+	cachedInput, err := pricing.cachedInput(p)
+	if err != nil {
+		return nil, err
 	}
 	var retirementAt any
 	if !retirement.IsZero() {
@@ -46,14 +47,12 @@ func (p serviceProfile) catalog(provider ProviderConfig, inputPrice, outputPrice
 	}
 	owner, _, _ := strings.Cut(p.model, "/")
 	version := "2.0"
-	var cachedInput any
 	capabilities := map[string]bool{"streaming": true, "tools": false, "structured_output": false, "reasoning": false, "prompt_caching": false}
 	if p.context == 1048576 {
 		// Explicit v2.1 preserves the v2.0 900-second ceiling. These capabilities
 		// were qualified on the million-token profile; older declarations stay fixed.
 		version = "2.1"
 		capabilities["tools"], capabilities["prompt_caching"] = true, true
-		cachedInput = inputPrice // Cache support does not imply a billing discount.
 	}
 	document := map[string]any{
 		"object": "list", "contract_version": version,
@@ -69,8 +68,8 @@ func (p serviceProfile) catalog(provider ProviderConfig, inputPrice, outputPrice
 			"type": "chat", "context_length": p.context, "max_output_tokens": p.maxOutput,
 			"endpoints": []string{"chat/completions"}, "input_modalities": []string{"text"}, "output_modalities": []string{"text"},
 			"capabilities": capabilities,
-			"pricing": map[string]any{"currency": "USD", "unit": "per_1m_tokens", "input": inputPrice,
-				"output": outputPrice, "cached_input": cachedInput, "cache_write": nil, "minimum_request": "0"},
+			"pricing": map[string]any{"currency": "USD", "unit": "per_1m_tokens", "input": pricing.Input,
+				"output": pricing.Output, "cached_input": cachedInput, "cache_write": nil, "minimum_request": "0"},
 			"lifecycle": map[string]any{"status": "active", "deprecation_at": nil, "retirement_at": retirementAt, "replacement_model_id": nil},
 			"reliability": map[string]any{"first_token_timeout_seconds": 30, "completion_timeout_seconds": int(p.requestTimeout() / time.Second),
 				"stream_idle_timeout_seconds": 30, "capacity_scope": "model"},
@@ -110,6 +109,12 @@ func NewWithProfile(profileName string, provider ProviderConfig, key, inputPrice
 // NewWithLifetime opts the qualified million-token service into one bounded
 // weekly lease. It does not renew leases or change any request/cleanup limits.
 func NewWithLifetime(profileName string, provider ProviderConfig, key, inputPrice, outputPrice, retirementAt, lifetime string) (*Handler, error) {
+	return NewWithPricing(profileName, provider, key, Pricing{Input: inputPrice, Output: outputPrice}, retirementAt, lifetime)
+}
+
+// NewWithPricing freezes the operator's explicit tariff into the startup
+// catalog. It does not change usage, cache isolation, admission or billing.
+func NewWithPricing(profileName string, provider ProviderConfig, key string, pricing Pricing, retirementAt, lifetime string) (*Handler, error) {
 	limit := 24 * time.Hour
 	switch lifetime {
 	case "ordinary-24h":
@@ -132,7 +137,7 @@ func NewWithLifetime(profileName string, provider ProviderConfig, key, inputPric
 	if err != nil {
 		return nil, err
 	}
-	catalog, err := profile.catalog(provider, inputPrice, outputPrice, retirement)
+	catalog, err := profile.catalog(provider, pricing, retirement)
 	if err != nil {
 		return nil, err
 	}

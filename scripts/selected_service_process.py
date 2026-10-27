@@ -483,6 +483,7 @@ def main(argv=None):
     parser.add_argument("--hostname", required=True)
     parser.add_argument("--input-price", required=True)
     parser.add_argument("--output-price", required=True)
+    parser.add_argument("--cached-input-price", action="append")
     parser.add_argument("--hard-stop-at", required=True)
     parser.add_argument("--lifetime-profile", default=service.SMOKE_PROFILE)
     parser.add_argument("--execution-profile", default=engine_entry.EAGER_PROFILE)
@@ -503,9 +504,11 @@ def main(argv=None):
                 if re.fullmatch("[0-9a-f]{64}", args.prepared_sha256) else None)
         print(json.dumps(row, sort_keys=True))
     try:
+        require(args.cached_input_price is None or len(args.cached_input_price) == 1, "price")
         contract = service.Contract.begin(args.hard_stop_at, input_price=args.input_price,
             output_price=args.output_price, lifetime_profile=args.lifetime_profile,
-            execution_profile=args.execution_profile)
+            execution_profile=args.execution_profile,
+            **({"cached_input_price": args.cached_input_price[0]} if args.cached_input_price is not None else {}))
         service.qualification_options(args.long_qualification, contract.lifetime_profile,
             contract.execution_profile, smoke=any((args.inference_smoke, args.conformance_smoke,
                                                    args.protocol_smoke, args.tool_smoke)))

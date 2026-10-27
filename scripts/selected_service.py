@@ -7,6 +7,7 @@ The runnable entrypoint is selected_service_process.py.
 
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from decimal import Decimal
 import datetime
 import hashlib
 import json
@@ -153,6 +154,7 @@ class Contract:
     output_price: str
     lifetime_profile: str = SMOKE_PROFILE
     execution_profile: str = engine_entry.EAGER_PROFILE
+    cached_input_price: str | None = None
     model: str = field(default=MODEL, init=False)
     revision: str = field(default=models.select("uncensored")["hf_revision"], init=False)
     manifest_sha256: str = field(default=models.select("uncensored")["manifest_sha256"], init=False)
@@ -163,6 +165,11 @@ class Contract:
     swap_bytes: int = field(default=SWAP_BYTES, init=False)
 
     def __post_init__(self):
+        if self.cached_input_price is not None:
+            require(self.execution_profile == engine_entry.MILLION_PROFILE, "price")
+            for price in (self.input_price, self.cached_input_price):
+                require(type(price) is str and re.fullmatch(r"(0|[1-9][0-9]{0,5})(\.[0-9]{1,6})?", price), "price")
+            require(Decimal(self.cached_input_price) <= Decimal(self.input_price), "price")
         for name, value in self.execution.items():
             if name in ("context_tokens", "max_output_tokens", "max_inflight"):
                 object.__setattr__(self, name, value)
@@ -185,7 +192,7 @@ class Contract:
 
     @classmethod
     def begin(cls, hard_stop_at, *, input_price, output_price, lifetime_profile=SMOKE_PROFILE,
-              execution_profile=engine_entry.EAGER_PROFILE):
+              execution_profile=engine_entry.EAGER_PROFILE, cached_input_price=None):
         # Capture before snapshots/preparation. Neither startup nor restart may
         # replace the original absolute cutoff with a new duration.
         limit = lifetime_seconds(lifetime_profile)
@@ -202,7 +209,7 @@ class Contract:
             require(type(price) is str and re.fullmatch(r"(0|[1-9][0-9]{0,5})(\.[0-9]{1,6})?", price), "price")
         return cls(hard_stop_at, wall, monotonic,
                    min(time.monotonic() + engine_lab.STARTUP_SECONDS, monotonic - reserve),
-                   input_price, output_price, lifetime_profile, execution_profile)
+                   input_price, output_price, lifetime_profile, execution_profile, cached_input_price)
 
     @property
     def admission_stop_at(self):
@@ -219,7 +226,8 @@ class Contract:
                 "--provider-config", str(inputs.root / "provider.json"),
                 "--input-price", self.input_price, "--output-price", self.output_price,
                 "--retirement-at", self.admission_stop_at, "--public")
-        return arguments + (("--lifetime-profile", WEEKLY_PROFILE) if self.lifetime_profile == WEEKLY_PROFILE else ())
+        arguments += (("--lifetime-profile", WEEKLY_PROFILE) if self.lifetime_profile == WEEKLY_PROFILE else ())
+        return arguments + (("--cached-input-price", self.cached_input_price) if self.cached_input_price is not None else ())
 
 
 class Inputs:

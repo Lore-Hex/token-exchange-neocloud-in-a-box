@@ -26,6 +26,14 @@ func configuredHandler(arguments []string) (*pilotapi.Handler, error) {
 	providerFile := flags.String("provider-config", "", "required operator metadata JSON file")
 	inputPrice := flags.String("input-price", "", "USD per million input tokens")
 	outputPrice := flags.String("output-price", "", "USD per million output tokens")
+	var cachedInputPrice *string
+	flags.Func("cached-input-price", "optional USD per million cached input tokens (million profile only)", func(value string) error {
+		if cachedInputPrice != nil {
+			return errors.New("cache price may be specified only once")
+		}
+		cachedInputPrice = &value
+		return nil
+	})
 	retirement := flags.String("retirement-at", "", "fixed UTC retirement for a public pilot")
 	public := flags.Bool("public", false, "require public operator metadata and retirement (listener stays loopback)")
 	lifetime := flags.String("lifetime-profile", "ordinary-24h", "closed serving lease: ordinary-24h or ordinary-7d")
@@ -51,7 +59,8 @@ func configuredHandler(arguments []string) (*pilotapi.Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	return pilotapi.NewWithLifetime(*profile, provider, strings.TrimSuffix(string(key), "\n"), *inputPrice, *outputPrice, *retirement, *lifetime)
+	pricing := pilotapi.Pricing{Input: *inputPrice, Output: *outputPrice, CachedInput: cachedInputPrice}
+	return pilotapi.NewWithPricing(*profile, provider, strings.TrimSuffix(string(key), "\n"), pricing, *retirement, *lifetime)
 }
 
 func run() int {
