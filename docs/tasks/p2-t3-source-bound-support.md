@@ -110,3 +110,11 @@ TMPDIR=/private/tmp python3 -I -S -B scripts/record-tau-telecom-offline.py \
 That replay retains the original scorer/tools and exercises real parent
 transport code, but its 100-token fixture counts are not measured parity and
 its scripted reward is not model quality. It has no key or live HTTP factory.
+
+The [retained index-0 replay](../../evidence/p2/2026-10-27-source-bound-support-offline/run.json)
+at producer `4c9a2ef2fb4c3fc46296ae7b4fef1a67bf6ae93b` completed both original
+tool round trips, zero tool errors and owned-container cleanup. The original
+receipt and output bytes are retained. Its three simulator count/usage pairs
+are synthetic 100-token fixtures, and its original reward is 0.0; neither is
+live parity or model-quality evidence. The selected task has zero NL assertions,
+so this replay did not generate an evaluator request.
