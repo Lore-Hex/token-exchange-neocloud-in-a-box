@@ -765,7 +765,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('test "$result" = pass', debug["run"])
         self.assertNotIn("always()", debug.get("if", ""))
         cleanup = next(s for s in steps if s.get("id") == "unused_export")
-        self.assertEqual(cleanup["if"], "${{ always() && steps.debug.outcome == 'skipped' }}")
+        self.assertEqual(cleanup["if"], "${{ always() && steps.profile.outcome == 'success' && steps.debug.outcome == 'skipped' }}")
         uploads = [s for s in steps if s.get("uses", "").startswith("actions/upload-artifact@")]
         self.assertEqual(len(uploads), 2)
         self.assertEqual(uploads[0]["with"]["path"].splitlines(), ["build/debug-boot/metadata/" + n + ".json"

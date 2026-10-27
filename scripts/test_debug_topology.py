@@ -52,8 +52,10 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(host.topology_options(True, True), {"guest_network": True, "debug_topology": True})
         for args in ((False, True), (1, True), (True, 1)):
             with self.assertRaises(ValueError): host.topology_options(*args)
-        workflow = (ROOT / host.WORKFLOW).read_bytes()
-        self.assertNotIn(b"topology", workflow)
+        workflow = legacy.yaml.safe_load((ROOT / host.WORKFLOW).read_bytes())
+        option = workflow[True]["workflow_dispatch"]["inputs"]["debug_topology"]
+        self.assertEqual(option["type"], "boolean")
+        self.assertIs(option["default"], False)
         self.assertEqual(qemu.TIMEOUT, 180)
         self.assertEqual(wrapper.TIMEOUT, 900)
         self.assertEqual(qemu.MAX_PROOF_BYTES, 62)
