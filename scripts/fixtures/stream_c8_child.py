@@ -32,6 +32,13 @@ if mode in ("malformed", "oversized", "nested", "no-ready"):
              else b"PRIVATE_CANARY" if mode == "malformed" else b"x" * 5000)
 else:
     if mode.startswith("http"):
+        if mode == "http-connected":
+            original_connect = c8.stream.OwnedStreamHTTP.connect
+            def connect(self, *args, **kwargs):
+                original_connect(self, *args, **kwargs)
+                # Empty test-only receipt after the real connect/peer check.
+                (Path(sys.argv[5]) / str(os.getpid())).touch()
+            c8.stream.OwnedStreamHTTP.connect = connect
         if mode == "http-usage":
             original_feed = c8.meter.StreamMeasurement.feed
             def feed(self, *args, **kwargs):
