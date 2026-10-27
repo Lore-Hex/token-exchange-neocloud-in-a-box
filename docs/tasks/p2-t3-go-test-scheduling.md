@@ -64,6 +64,9 @@ NIB_BIN=/absolute/path/to/reviewed/nib python3 -I scripts/record_go_test_diagnos
 
 The input directory contains `original-failed-full-check.log` and the retained
 `full-breadth-once/` artifacts. Source and destination hashes are recorded.
+The full before/after source listings remain private; their verified identical
+digests are included in `output.log`. All diagnostic logs remain complete after
+scrubbing. No secret-scanner exceptions are added for source-file hashes.
 Private paths in this example are placeholders, not operator information.
 Focused regression: `python3 -m unittest discover -s scripts -p 'test_go_test_*.py'`.
 Required later gates remain independent exact-head review, full `make check`,

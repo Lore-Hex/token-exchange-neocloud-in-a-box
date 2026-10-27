@@ -90,8 +90,13 @@ def record(source, deny, output):
             env={**ENV, "NIB_BIN": os.environ["NIB_BIN"]}, capture_output=True,
             check=True, timeout=10).stdout
         name = Path(relative).name
-        artifacts[name] = scrubbed
-        hashes[name] = {"input_sha256": expected, "scrubbed_sha256": digest(scrubbed)}
+        # Keep full source listings private; their exact before/after digests
+        # bind the closure without publishing unrelated credential-named hashes.
+        published = name not in ("source-before.json", "source-after.json")
+        if published:
+            artifacts[name] = scrubbed
+        hashes[name] = {"input_sha256": expected, "scrubbed_sha256": digest(scrubbed),
+                        "published": published}
     if committed() != revision:
         raise ValueError("importer changed")
     artifacts["output.log"] = encoded({
