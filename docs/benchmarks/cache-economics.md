@@ -91,6 +91,34 @@ Related: [long-context cache tests](../tasks/p2-t3-long-context-cache.md),
 [quality calibration](../tasks/p2-t3-retained-quality.md), and
 [published cache-read prices](../operators/trustedrouter.md#cache-read-pricing).
 
+## External Streaming Collector
+
+`scripts/stream_https.py` provides the transport component for a future bounded
+public-HTTPS cache experiment. It reuses `bounded_https.HTTPS` for verified TLS
+to one explicitly supplied address and `stream_transport.StreamResponse` plus
+`stream_measurement` for strict HTTP/SSE termination and numeric measurements.
+The existing JSON-only collector and the running service are unchanged.
+
+The closed selected-model text request requires a 64-hex namespace, final usage,
+greedy non-reasoning decoding, no tools, at most 131,072 input and 8,192 output
+tokens, a 2 MiB request, and a 119-second absolute deadline. There is one POST,
+no redirect or retry, and no proxy-environment handling. The caller's mandatory
+`before_send` callback runs after TLS verification but before authenticated
+bytes; a failed durable intent propagates and prevents sending. A possibly
+partial send counts as an attempt even when usage is unknown. Already measured
+usage survives late framing/count/cache errors. Missing cache usage stays
+unknown. No prompt, completion or credential is returned or logged.
+
+This library is **not an executable experiment or execution approval**. A
+separately reviewed caller must verify the source, live owner, endpoint contract
+and tokenizer, create the cold/warm/negative namespaces, enforce aggregate
+request/token/time/budget caps, and persist/reconcile intents and numerical
+receipts. Report unknown work, errors, actual decode length and the entire
+observation window. The input count is supplied by that caller, not independently
+tokenized by the transport. No cache-isolation, billing, quality, hardware,
+confidentiality or sustainable-price qualification follows from a successful
+stream. Synthetic in-memory tests are not a live TLS or GPU benchmark.
+
 ## Read-Only Cache Counters
 
 `scripts/cache_counters.py` summarizes an existing private DP2 `/metrics`
