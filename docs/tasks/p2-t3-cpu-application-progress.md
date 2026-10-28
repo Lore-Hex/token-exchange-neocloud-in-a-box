@@ -116,3 +116,38 @@ Native repetition remains on hold until independent final-head review and full
 local/hosted gates, followed by explicit run authorization. No deadline increase,
 inventory removal, resource expansion, tau execution, quality result or
 confidentiality claim follows from this implementation.
+
+## October 28 Native Observation
+
+The [original run](../../evidence/p2/2026-10-28-cpu-native-40784522221-1/run.json)
+and [output](../../evidence/p2/2026-10-28-cpu-native-40784522221-1/output.log)
+come from producer `80c4976541539d4eff69f1d2dc9d962dacdaf9ee`, on the
+standard Linux/amd64 GitHub-hosted runner with no GPU. Both tokenizer options
+were false. Offline validation at that exact producer reports
+`record_valid=true`, `entry_pass=false`; the original overall result is **fail**
+and cleanup is confirmed. The workflow's acceptance step also failed. Do not
+relocate this evidence to a later producer or change its result.
+
+Layout took 10,085 ms and application took 561,212 ms, totaling 571,297 ms
+within the existing 720-second deadline. All eight full inventories completed,
+with 1,493,068 completed reads accounting for 153,174,600,786 bytes, 2,879
+bytecode removals and 65 source writes across five stages. Process CPU time
+through the terminal application sample was 279,354 ms. These are software
+verification operations, not model weights, inference tokens or GPU throughput.
+
+The terminal sample reports 8,589,934,592 bytes of peak cgroup memory, equal to
+the 8 GiB limit, 50,278 `memory.events.max` events, zero OOM/OOM-kill events,
+and 130,200,252,416 `io.rbytes`. File reclaim/refault counters rose. These
+observations do not establish that memory pressure caused previous failures,
+nor justify expanding memory, bypassing inventories or resetting deadlines.
+
+Entry then exited 1 after 26,062 ms at checkpoint 13, with all ten bootstrap
+state mismatches false and the pattern adapter applied. The terminal exception
+fingerprint is the same pinned
+[device-detection branch](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/config/device.py#L55)
+documented in the [earlier native observation](p2-t3-opencv-native-loader.md#exact-image-result):
+source SHA-256 `ac7d153000e76d6d6b554fa26eb947c51c62c4295f40fabe13294bc35ba3c066`,
+line 55. The frame list is truncated, so it is not a complete traceback.
+This is consistent with intentionally exposing no accelerator; no CUDA platform
+was spoofed. Full entry, GPU ABI, image-build success, model loading, conformance,
+quality, caching and confidential deployment remain unproven by this run.

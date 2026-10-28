@@ -1,0 +1,20 @@
+{
+  "command": "python3 -I -S scripts/record-engine-cpu-entry.py --slug cpu-native-40784522221-1 --host-kind github-actions",
+  "ended_utc": "2026-10-28T23:21:09Z",
+  "execution": "software",
+  "git_sha": "80c4976541539d4eff69f1d2dc9d962dacdaf9ee",
+  "hardware_validated": false,
+  "host": {
+    "cuda": null,
+    "driver": null,
+    "gpus": "none",
+    "machine": "linux-amd64-software-runner",
+    "provider": "github-actions"
+  },
+  "notes": "CPU-only pre-serve diagnostic, not the P0 deny-all import sandbox. No model/weights/GPU runtime/ports/network/credentials; serve.cmd and worker routes never invoked. Imports may probe absent CUDA or compile dependencies; cache is bounded noexec. A failure is not proof of the earlier GPU startup cause; a pass is not GPU/ABI/inference qualification. Candidate BLOCKED; confidential=false. Docker/OS/interpreter trusted. Payload SHA-256: 161029e40ce3d20eb5bca63b0842f8f8b15ca56904b0adc207458c730261f417",
+  "phase": "P2",
+  "result": "fail",
+  "schema": "nib.evidence/v1",
+  "started_utc": "2026-10-28T23:10:58Z",
+  "task": "T3"
+}
