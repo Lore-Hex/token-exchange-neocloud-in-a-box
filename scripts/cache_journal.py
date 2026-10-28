@@ -42,12 +42,13 @@ def measurement(value, prompt, output, attempted):
             meter.integer(incoming, probe.stream.MAX_PROMPT) and
             meter.integer(outgoing, output) and outgoing > 0)
     require(cached is None or incoming is not None and meter.integer(cached, incoming))
+    require(incoming is None or value["finish_reason"] is not None)
     if value["status"] == "completed":
         require(attempted and incoming == prompt and outgoing is not None
                 and value["output_events"] > 0 and value["ttft_seconds"] is not None
                 and value["finish_reason"] is not None)
     else:
-        require(value["ttft_seconds"] is None and
+        require(value["ttft_seconds"] is None and value["first_content_seconds"] is None and
                 value["mean_output_token_interval_estimate_seconds"] is None)
     if not attempted:
         require(incoming is outgoing is cached is None and value["output_events"] == 0

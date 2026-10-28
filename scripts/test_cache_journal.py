@@ -54,6 +54,7 @@ class JournalTests(unittest.TestCase):
             value["cached_prompt_tokens"] = None
             if unknown_totals:
                 value.update(status="transport-error", ttft_seconds=None,
+                             first_content_seconds=None,
                              mean_output_token_interval_estimate_seconds=None,
                              prompt_tokens=None, completion_tokens=None)
             report = self.audit(rows)
@@ -64,6 +65,7 @@ class JournalTests(unittest.TestCase):
     def test_late_failure_keeps_totals_above_prepared_prompt_count(self):
         rows = self.records()[:3]
         rows[-1]["measurement"].update(status="protocol-error", ttft_seconds=None,
+                                        first_content_seconds=None,
                                         mean_output_token_interval_estimate_seconds=None,
                                         prompt_tokens=4096, cached_prompt_tokens=128)
         report = self.audit(rows)
@@ -71,6 +73,17 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(report["known_cached_prompt_tokens"], 128)
         self.assertEqual(report["prompt_count_mismatches"], 1)
         self.assertEqual(report["completed_result_records"], 0)
+
+    def test_failed_measurement_enforces_producer_invariants(self):
+        rows = self.records()[:3]
+        rows[-1]["measurement"] = fixtures.ProbeTests().sample(status="protocol-error").metadata()
+        report = self.audit(rows)
+        self.assertEqual(report["known_prompt_tokens"], 2048)
+        self.assertEqual(report["unknown_usage_requests"], 0)
+        for name, value in (("finish_reason", None), ("first_content_seconds", .1)):
+            altered = copy.deepcopy(rows)
+            altered[-1]["measurement"][name] = value
+            with self.subTest(name=name), self.assertRaises(ValueError): self.audit(altered)
 
     def test_presend_failure_has_no_intent_or_usage(self):
         rows = self.records()[:3]
@@ -108,6 +121,7 @@ class JournalTests(unittest.TestCase):
 
     def test_stopping_results_cannot_be_followed_by_another_request(self):
         for change in ({"status": "timeout", "ttft_seconds": None,
+                        "first_content_seconds": None,
                         "mean_output_token_interval_estimate_seconds": None}, {"cached_prompt_tokens": None},
                        {"cached_prompt_tokens": 128}):
             rows = self.records()[:4]
