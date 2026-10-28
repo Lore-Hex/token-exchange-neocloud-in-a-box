@@ -42,7 +42,7 @@ def tokenizer_runtime(expected, deadline, *, execution_profile=None):
     exec(compile(source, lab.__file__, "exec"), lab.__dict__)
     contract, _, modules, application, _ = lab.lab_context(receipt["lab_sha256"])
     process.engine_entry.canonical_arguments(contract)
-    require(contract["execution_profile"] in process.engine_entry.LONG_CONTEXT_PROFILES
+    require(contract["execution_profile"] in process.engine_entry.SELECTED_LONG_CONTEXT_PROFILES
             and (execution_profile is None and contract["execution_profile"] in process.engine_entry.LONG_PROFILES
                  or execution_profile == contract["execution_profile"] == process.engine_entry.MILLION_PROFILE)
             and contract["model_profile"] == service.models.select("uncensored"), "identity")

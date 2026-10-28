@@ -79,14 +79,14 @@ def ordinary_profile(profile):
 
 def request_seconds(execution_profile):
     engine_entry.execution_limits(execution_profile)
-    if execution_profile == engine_entry.MILLION_PROFILE:
+    if execution_profile in engine_entry.MILLION_PROFILES:
         return 3540  # Keep request + TLS drain grace below the pinned shim's 1h cap.
     return 900 if execution_profile in engine_entry.LONG_PROFILES else 120
 
 
 def request_bytes(execution_profile):
     engine_entry.execution_limits(execution_profile)
-    if execution_profile == engine_entry.MILLION_PROFILE:
+    if execution_profile in engine_entry.MILLION_PROFILES:
         return 16 << 20
     return 4 << 20 if execution_profile in engine_entry.LONG_PROFILES else 65536
 
@@ -105,6 +105,10 @@ def cleanup_reserve(execution_profile):
 
 
 def qualification_options(enabled, lifetime_profile, execution_profile, *, smoke=False):
+    # Existing embedded qualification/smoke receipts identify the selected
+    # checkpoint. Official service requires separately bound external tests.
+    require(execution_profile != engine_entry.ORIGINAL_MILLION_PROFILE
+            or not enabled and not smoke, "contract")
     require(type(enabled) is bool and (not enabled or lifetime_profile == ORDINARY_PROFILE
             and execution_profile in engine_entry.LONG_CONTEXT_PROFILES and not smoke), "contract")
 
@@ -165,8 +169,12 @@ class Contract:
     swap_bytes: int = field(default=SWAP_BYTES, init=False)
 
     def __post_init__(self):
+        profile = models.select(engine_entry.model_profile_name(self.execution_profile))
+        object.__setattr__(self, "model", engine_entry.service_model(self.execution_profile))
+        object.__setattr__(self, "revision", profile["hf_revision"])
+        object.__setattr__(self, "manifest_sha256", profile["manifest_sha256"])
         if self.cached_input_price is not None:
-            require(self.execution_profile == engine_entry.MILLION_PROFILE, "price")
+            require(self.execution_profile in engine_entry.MILLION_PROFILES, "price")
             for price in (self.input_price, self.cached_input_price):
                 require(type(price) is str and re.fullmatch(r"(0|[1-9][0-9]{0,5})(\.[0-9]{1,6})?", price), "price")
             require(Decimal(self.cached_input_price) <= Decimal(self.input_price), "price")
@@ -197,7 +205,7 @@ class Contract:
         # replace the original absolute cutoff with a new duration.
         limit = lifetime_seconds(lifetime_profile)
         engine_entry.execution_limits(execution_profile)
-        require(lifetime_profile != WEEKLY_PROFILE or execution_profile == engine_entry.MILLION_PROFILE, "lifetime")
+        require(lifetime_profile != WEEKLY_PROFILE or execution_profile in engine_entry.MILLION_PROFILES, "lifetime")
         try:
             options = {"max_seconds": limit} if lifetime_profile == WEEKLY_PROFILE else {}
             wall, monotonic = pilot.retirement_deadline(hard_stop_at, public=True, **options)
@@ -311,7 +319,8 @@ class EngineReady:
         row = correctness.strict_json(self.models_json)
         require(type(row) is dict and type(row.get("data")) is list
                 and all(type(item) is dict for item in row["data"])
-                and [item.get("id") for item in row["data"]] == [MODEL], "model")
+                and [item.get("id") for item in row["data"]] ==
+                    [engine_entry.service_model(self.execution_profile)], "model")
         # Pinned vLLM's ModelCard exposes the configured maximum, not a
         # caller-declared catalog limit. See the task note's primary source.
         require(type(row["data"][0].get("max_model_len")) is int
