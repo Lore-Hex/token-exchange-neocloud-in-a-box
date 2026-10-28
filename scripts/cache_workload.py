@@ -80,7 +80,7 @@ def main(argv=None):
                       deadline=time.monotonic() + PREPARE_SECONDS)
         print(json.dumps(row, sort_keys=True, separators=(",", ":")))
         return 0
-    except (Exception, KeyboardInterrupt):
+    except (Exception, KeyboardInterrupt, worker.Abort):
         print("cache workload preparation rejected", file=sys.stderr)
         return 1
 

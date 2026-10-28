@@ -88,6 +88,20 @@ class CacheWorkloadTests(unittest.TestCase):
                     workload.tokenizer.Counter("source", "model", "wheel", context_tokens=context)
             read.assert_not_called()
 
+    def test_mid_preparation_timeout_is_closed_and_redacted(self):
+        counter = types.SimpleNamespace(binding="a" * 64,
+            tokens=mock.Mock(side_effect=workload.worker.Abort("timeout")), close=mock.Mock())
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
+                mock.patch.object(workload.tokenizer, "Counter", return_value=counter):
+            result = workload.main(["--vllm-source", "PRIVATE_PATH", "--tokenizer", "model",
+                                    "--tokenizer-wheel", "wheel"])
+        self.assertEqual(result, 1)
+        counter.tokens.assert_called_once()
+        counter.close.assert_called_once_with()
+        self.assertEqual(out.getvalue(), "")
+        self.assertEqual(err.getvalue(), "cache workload preparation rejected\n")
+
     def test_existing_default_and_explicit_contexts_are_preserved(self):
         for kwargs, expected in (({}, 8192), ({"context_tokens": 32768}, 32768),
                                  ({"context_tokens": 262144}, 262144)):
