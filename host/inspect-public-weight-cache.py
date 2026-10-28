@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import stat
 import sys
 import time
 import types
@@ -39,17 +40,58 @@ def cache_helper():
     return module
 
 
+def mount_id(fd):
+    # mnt_id identifies the mount of this open file, including bind mounts.
+    # https://man7.org/linux/man-pages/man5/proc_pid_fdinfo.5.html (2026-10-28)
+    with open(f"/proc/self/fdinfo/{fd}", "rb") as stream:
+        raw = stream.read(4097)
+    matches = re.findall(rb"^mnt_id:\s*([0-9]+)$", raw, re.MULTILINE)
+    require(len(raw) <= 4096 and len(matches) == 1 and int(matches[0]) > 0)
+    return int(matches[0])
+
+
+def hash_file(cache, root, row, deadline, expected_mount):
+    digest, size, name = row
+    path = root / name
+    with cache.directory(path.parent) as parent:
+        require(mount_id(parent) == expected_mount)
+        fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        with os.fdopen(fd, "rb") as stream:
+            info = os.fstat(fd)
+            require(mount_id(fd) == expected_mount and stat.S_ISREG(info.st_mode)
+                    and info.st_nlink == 1 and info.st_size == size and time.monotonic() < deadline)
+            # The existing outer supervisor bounds blocking NFS reads too.
+            require(hashlib.file_digest(stream, "sha256").hexdigest() == digest
+                    and time.monotonic() < deadline
+                    and cache.file_identity(info) == cache.file_identity(os.fstat(fd))
+                    == cache.file_identity(os.stat(path.name, dir_fd=parent, follow_symlinks=False)))
+            return cache.file_identity(info)
+
+
 def inspect_pack(cache, export, mount, rows, deadline):
     cache.verify_mount(export, mount, readonly=True)
     root = mount / "deepseek-v4.1-flash-1017"
-    with cache.directory(root) as fd:
+    with cache.directory(mount) as mounted, cache.directory(root) as fd:
+        expected_mount = mount_id(mounted)
+        # Resolve the open descriptor's mount, not just a second path lookup.
+        # https://man7.org/linux/man-pages/man8/findmnt.8.html (--id, 2026-10-28)
+        found = json.loads(cache.command(["findmnt", "--json", "--id", str(expected_mount),
+                          "--output", "SOURCE,TARGET,FSTYPE,OPTIONS"]), object_pairs_hook=cache.unique)
+        require(type(found) is dict and len(found["filesystems"]) == 1)
+        fs = found["filesystems"][0]
+        require(fs["source"] == export and fs["target"] == str(mount) and fs["fstype"] in ("nfs", "nfs4")
+                and {"ro", "nodev", "nosuid", "noexec"} <= set(fs["options"].split(","))
+                and not {"rw", "dev", "suid", "exec"} & set(fs["options"].split(",")))
+        require(mount_id(fd) == expected_mount)
         before = cache.file_identity(os.fstat(fd))
         initial = cache.strict_inventory(root, rows)
         for row in rows:
-            require(cache.check_file(root, row, deadline, stable=True) == initial[row[2]])
+            require(hash_file(cache, root, row, deadline, expected_mount) == initial[row[2]])
         require(cache.strict_inventory(root, rows) == initial
                 and cache.file_identity(os.fstat(fd)) == before
                 and cache.file_identity(os.stat(root, follow_symlinks=False)) == before)
+        with cache.directory(mount) as current:
+            require(mount_id(current) == expected_mount)
     cache.verify_mount(export, mount, readonly=True)
     require(time.monotonic() < deadline)
     return {"files": len(rows), "verified_bytes": sum(row[1] for row in rows)}
@@ -107,7 +149,8 @@ def inspect_report(export, mount, output, producer, seconds):
                 nonlocal cancelled
                 if not cancelled:
                     cancelled = True
-                    raise cache.Cancelled("inspection-cancelled")
+                    if report["result"] != "pass":
+                        raise cache.Cancelled("inspection-cancelled")
 
             handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
             persist()
@@ -130,16 +173,22 @@ def inspect_report(export, mount, output, producer, seconds):
                 report.update(result="pass", cleanup="worker-completed", worker_exit_confirmed=True,
                               files=83, verified_bytes=profile["total_bytes"], pack_verified=True)
             except (cache.Cancelled, InterruptedError):
-                report["failure"] = "cancelled"
+                report.update(result="fail", failure="cancelled", pack_verified=False,
+                              files=0, verified_bytes=0, worker_exit_confirmed=False, cleanup="unproven")
             except Exception as error:
                 kinds = {"probe-timeout": "timeout", "probe-output-limit": "output-limit",
                          "probe-command-failed": "worker-failed", "probe-cleanup-timeout": "cleanup-unproven",
                          "probe-cleanup-failed": "cleanup-unproven"}
-                report["failure"] = kinds.get(error.args[0] if error.args and type(error.args[0]) is str else "", "rejected")
+                report.update(result="fail", pack_verified=False, files=0, verified_bytes=0,
+                              worker_exit_confirmed=False, cleanup="unproven", failure=kinds.get(
+                                  error.args[0] if error.args and type(error.args[0]) is str else "", "rejected"))
             finally:
                 for sig in handlers:
                     signal.signal(sig, signal.SIG_IGN)
                 try:
+                    if cancelled:
+                        report.update(result="fail", failure="cancelled", pack_verified=False,
+                                      files=0, verified_bytes=0, worker_exit_confirmed=False, cleanup="unproven")
                     report["ended_utc"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
                     persist()
                 finally:
@@ -151,7 +200,10 @@ def inspect_report(export, mount, output, producer, seconds):
 def main(argv=None):
     require(sys.platform == "linux" and os.getuid() == 0 and sys.flags.isolated
             and sys.flags.no_site and sys.dont_write_bytecode)
-    parser = argparse.ArgumentParser(description=__doc__)
+    class QuietParser(argparse.ArgumentParser):
+        def error(self, message):
+            raise ValueError("public-cache-inspection-arguments-rejected")
+    parser = QuietParser(description=__doc__)
     parser.add_argument("--export", required=True)
     parser.add_argument("--mount", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)

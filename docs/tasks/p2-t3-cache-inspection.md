@@ -5,8 +5,12 @@ hardware, throughput or serving result is established by this change.
 
 The official checkpoint can be checked without allocating another full local
 copy. `host/inspect-public-weight-cache.py` reuses the hash-pinned public cache
-helper's manifest, exact inventory, stable file hashing, mount readback and
-bounded process supervisor. It only accepts the complete pinned original
+helper's manifest, exact inventory, file identity checks, mount readback and
+bounded process supervisor. Each hashed file and its parent must have the
+approved open mount's Linux `mnt_id`; nested bind mounts are rejected even
+when they contain byte-identical files. See
+[proc_pid_fdinfo(5)](https://man7.org/linux/man-pages/man5/proc_pid_fdinfo.5.html).
+It only accepts the complete pinned original
 83-file pack. It does not mount, unmount, restore, copy, delete, change
 permissions or start inference.
 
@@ -48,7 +52,7 @@ fresh conformance/quality/cache tests and rollback gates remain separate.
 `python3 -m unittest discover -s scripts -p test_public_weight_cache_inspection.py`
 uses only synthetic files and mocked kernel mount readback/supervision. Tests
 cover correct hashes, corrupt or unexpected files, symlinks, hardlinks, FIFOs,
-mutation during checking, wrong/read-write mounts, timeout, failed cleanup,
-cancellation, mixed checkpoint acknowledgments, duplicate JSON keys, exact
+mutation during checking, wrong/read-write/nested mounts, timeout, failed cleanup,
+late cancellation, private CLI errors, mixed checkpoint acknowledgments, duplicate JSON keys, exact
 worker source, durable intent and receipt collisions. This is not a real NFS
 hash run or a complete failure-injection test of the existing supervisor.

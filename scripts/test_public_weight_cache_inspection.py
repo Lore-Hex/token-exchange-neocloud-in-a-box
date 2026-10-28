@@ -35,10 +35,16 @@ class InspectionTests(unittest.TestCase):
         self.export = "nfs.example.test:/public"
         self.output = self.root / "receipt.json"
         self.profile = self.cache.profiles()[0]
+        command = mock.patch.object(self.cache, "command", return_value=json.dumps({"filesystems": [{
+            "source": self.export, "target": str(self.mount), "fstype": "nfs4",
+            "options": "ro,nosuid,nodev,noexec"}]}).encode())
+        command.start()
+        self.addCleanup(command.stop)
 
     def inspect(self, deadline=None):
-        return inspection.inspect_pack(self.cache, self.export, self.mount, self.rows,
-                                       time.monotonic() + 10 if deadline is None else deadline)
+        with mock.patch.object(inspection, "mount_id", return_value=17):
+            return inspection.inspect_pack(self.cache, self.export, self.mount, self.rows,
+                                           time.monotonic() + 10 if deadline is None else deadline)
 
     def test_complete_pack_uses_stable_hashes_without_copy_or_mount(self):
         before = {p.name: p.read_bytes() for p in self.pack.iterdir()}
@@ -70,14 +76,14 @@ class InspectionTests(unittest.TestCase):
                     self.inspect(time.monotonic() - 1 if mode == "deadline" else None)
 
     def test_changes_after_hash_and_changed_mount_fail(self):
-        original = self.cache.check_file
-        def changed(root, row, deadline, **kwargs):
-            result = original(root, row, deadline, **kwargs)
+        original = inspection.hash_file
+        def changed(cache, root, row, deadline, expected_mount):
+            result = original(cache, root, row, deadline, expected_mount)
             if row == self.rows[-1]:
                 (self.pack / "config.json").write_bytes(b"changed")
             return result
         with mock.patch.object(self.cache, "verify_mount"), \
-                mock.patch.object(self.cache, "check_file", side_effect=changed), self.assertRaises(ValueError):
+                mock.patch.object(inspection, "hash_file", side_effect=changed), self.assertRaises(ValueError):
             self.inspect()
         self.setUp()
         with mock.patch.object(self.cache, "verify_mount", side_effect=[None, ValueError("changed")]), \
@@ -92,9 +98,34 @@ class InspectionTests(unittest.TestCase):
             with self.subTest(options=options, export=export):
                 fs = {"source": export, "target": str(self.mount), "fstype": "nfs4", "options": options}
                 with mock.patch.object(self.cache, "command", return_value=json.dumps({"filesystems": [fs]}).encode()), \
-                        mock.patch.object(self.cache, "check_file") as check, self.assertRaises(ValueError):
+                        mock.patch.object(inspection, "hash_file") as check, self.assertRaises(ValueError):
                     self.inspect()
                 check.assert_not_called()
+
+    def test_nested_mounts_on_pack_parent_or_file_never_pass(self):
+        for ids in ([17, 18], [17, 17, 18], [17, 17, 17, 18]):
+            with self.subTest(ids=ids), mock.patch.object(self.cache, "verify_mount"), \
+                    mock.patch.object(inspection, "mount_id", side_effect=ids), \
+                    mock.patch.object(inspection.hashlib, "file_digest") as digest, self.assertRaises(ValueError):
+                inspection.inspect_pack(self.cache, self.export, self.mount, self.rows, time.monotonic() + 10)
+            digest.assert_not_called()
+
+    def test_open_mount_id_must_resolve_to_the_approved_export(self):
+        with mock.patch.object(self.cache, "verify_mount"), mock.patch.object(self.cache, "command", return_value=json.dumps({
+                "filesystems": [{"source": "nfs.example.test:/other", "target": str(self.mount),
+                                 "fstype": "nfs4", "options": "ro,nosuid,nodev,noexec"}]}).encode()) as command, \
+                self.assertRaises(ValueError):
+            self.inspect()
+        self.assertEqual(command.call_args.args[0], ["findmnt", "--json", "--id", "17", "--output",
+                                                   "SOURCE,TARGET,FSTYPE,OPTIONS"])
+
+    def test_mount_id_is_bounded_and_rejects_missing_or_duplicate_ids(self):
+        for raw in (b"mnt_id: 17\n", b"mnt_id:\t17\nino: 20\n"):
+            with mock.patch("builtins.open", return_value=io.BytesIO(raw)):
+                self.assertEqual(inspection.mount_id(4), 17)
+        for raw in (b"mnt_id: 0\n", b"", b"mnt_id: 17\nmnt_id: 17\n", b"x" * 4097):
+            with mock.patch("builtins.open", return_value=io.BytesIO(raw)), self.assertRaises(ValueError):
+                inspection.mount_id(4)
 
     def success(self, **changes):
         return json.dumps({"schema": "nib.public-weight-cache-inspection-worker/v1", "model_profile": self.profile,
@@ -168,6 +199,37 @@ class InspectionTests(unittest.TestCase):
         self.output.symlink_to(self.root / "missing")
         with self.assertRaises(FileExistsError): self.report(capture)
         capture.assert_not_called()
+
+    def test_late_cancellation_clears_success_and_cli_errors_are_private(self):
+        transition = max(index for index, line in enumerate(Path(inspection.__file__).read_text().splitlines(), 1)
+                         if line.strip() == "for sig in handlers:")
+        delivered = []
+        def trace(frame, event, _):
+            if frame.f_code is inspection.inspect_report.__code__ and event == "line" and frame.f_lineno == transition:
+                sys.settrace(None)
+                inspection.signal.getsignal(inspection.signal.SIGINT)(inspection.signal.SIGINT, None)
+                delivered.append(True)
+            return trace
+        previous = sys.gettrace()
+        try:
+            sys.settrace(trace)
+            self.assertEqual(self.report(mock.Mock(return_value=self.success())), 1)
+        finally:
+            sys.settrace(previous)
+        self.assertEqual(delivered, [True])
+        result = json.loads(self.output.read_bytes())
+        self.assertEqual((result["result"], result["failure"], result["verified_bytes"]), ("fail", "cancelled", 0))
+        self.assertFalse(result["pack_verified"])
+        fake_sys = types.SimpleNamespace(**vars(sys))
+        fake_sys.platform = "linux"
+        fake_sys.flags = types.SimpleNamespace(isolated=True, no_site=True)
+        fake_sys.dont_write_bytecode = True
+        for argv in (["--timeout", "private-canary"], ["--unexpected-private-canary"]):
+            stderr = io.StringIO()
+            with mock.patch.object(inspection, "sys", fake_sys), mock.patch.object(inspection.os, "getuid", return_value=0), \
+                    mock.patch("sys.stderr", stderr), self.assertRaisesRegex(ValueError, "arguments-rejected"):
+                inspection.main(argv)
+            self.assertEqual(stderr.getvalue(), "")
 
     def test_worker_uses_only_pinned_manifest_and_original_identity(self):
         fake_sys = types.SimpleNamespace(**vars(sys))
