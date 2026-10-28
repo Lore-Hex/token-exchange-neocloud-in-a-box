@@ -45,7 +45,7 @@ SIX_TEST = "scripts/test_botocore_six.py"
 PACK = "models/deepseek-v4.1-flash-1017/1"
 MODEL_PROFILE = "scripts/deepseek_model_profile.py"
 TUNING = "scripts/deepseek_tuning.py"
-MODEL_PROFILE_SHA = "11475b07991fb510704d64143fcd9a0084327e586699604f14f88436960b754a"
+MODEL_PROFILE_SHA = "aba5b55574e6b1c959b4e2c017973b6ec0025d3a0081a0427a00bdc5a9f37c5f"
 SUPPORT = ("scripts/record-engine-image.py", "scripts/prepare-engine-overlay.py",
            "scripts/check-engine-candidate.py", "scripts/engine_overlay.py",
            "scripts/engine_image_diagnostic.py", "scripts/engine_python_descriptor.py", "scripts/e2e/snapshot.py")
@@ -120,15 +120,21 @@ def ordinary_uncensored_target(family, security, replicas, model_profile):
             and replicas == 2 and model_profile == "uncensored")
 
 
+def ordinary_original_target(family, security, replicas, model_profile):
+    return (family == "B300" and security == "nonconfidential" and type(replicas) is int
+            and replicas == 2 and model_profile == "original")
+
+
 def model_target(family, security, replicas, model_profile):
     return (correctness_target(family, security, replicas, model_profile)
-            or ordinary_uncensored_target(family, security, replicas, model_profile))
+            or ordinary_uncensored_target(family, security, replicas, model_profile)
+            or ordinary_original_target(family, security, replicas, model_profile))
 
 
 def tuning_measurement_options(parity, materialization, observation, cohort, profile, provider, execution_profile=None):
     options = (parity, materialization, observation, cohort)
     require(provider is None and all(type(value) is bool for value in options))
-    if execution_profile in ("tau8k-eager", "quality32k-eager", "long128k-eager", "long128k-graphs", "long1m-graphs"):
+    if execution_profile in ("tau8k-eager", "quality32k-eager", "long128k-eager", "long128k-graphs", "long1m-graphs", "original-long1m-graphs"):
         require(parity and materialization and observation and not cohort and profile is None)
     else:
         require(all(options) or not any(options) and profile is None)
@@ -194,7 +200,7 @@ def validate_model_profile(contract, path):
         require("provider-session.py" in contract["sources"])
         load("selected_provider_session", Path(path) / "payload/provider-session.py",
              contract["sources"]["provider-session.py"]).enabled(contract)
-    module.validate_manifest("uncensored", read(Path(path) / "payload/pack/files.sha256"))
+    module.validate_manifest(identity["name"], read(Path(path) / "payload/pack/files.sha256"))
     arguments = contract["arguments"]
     require(arguments.count("--served-model-name") == 1
             and arguments[arguments.index("--served-model-name") + 1] == identity["served_model_name"])
@@ -208,7 +214,9 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
     require(type(model_profile) is str and model_profile in ("original", "uncensored"))
     identity = None
     pack = PACK
-    if model_profile != "original":
+    original = ordinary_original_target(family, security, replicas, model_profile)
+    require(not original or execution_profile == "original-long1m-graphs")
+    if model_profile != "original" or original:
         require(operation == "local-correctness" and model_target(family, security, replicas, model_profile)
                 and type(replicas) is int and replicas == 2)
         profiles, identity = selected_model(extra[MODEL_PROFILE], model_profile)
@@ -344,7 +352,9 @@ def prepare(destination, operation="functional", family="B200", security="confid
     builder = load("lab_application_builder", ROOT / BUILDER, BUILDER_SHA)
     revision, bundle, extra = builder.inputs(ROOT)
     pack = PACK
-    if model_profile != "original":
+    original = ordinary_original_target(family, security, replicas, model_profile)
+    require(not original or execution_profile == "original-long1m-graphs")
+    if model_profile != "original" or original:
         extra[MODEL_PROFILE] = committed(builder, revision, MODEL_PROFILE)
         _, identity = selected_model(extra[MODEL_PROFILE], model_profile)
         pack = identity["pack"]
@@ -357,7 +367,8 @@ def prepare(destination, operation="functional", family="B200", security="confid
         for name in (CORRECTNESS, "scripts/test_engine_local_correctness.py"):
             extra[name] = committed(builder, revision, name)
     if execution_profile is not None:
-        require(operation == "local-correctness" and ordinary_uncensored_target(family, security, replicas, model_profile)
+        require(operation == "local-correctness"
+                and (ordinary_uncensored_target(family, security, replicas, model_profile) or original)
                 and provider_wheelhouse is None)
         tuning_measurement_options(tokenizer_parity, tokenizer_materialization, runtime_observation,
                                    stream_cohort, stream_profile, provider_wheelhouse, execution_profile)
@@ -528,7 +539,7 @@ def bundle_inputs(path, expected):
 def memory_gib(contract, bundle):
     replicas = parallel_size(contract)
     if "model_profile" in contract:
-        # Only the source-bound uncensored DP2 identity has this cap.
+        # Explicit source-bound DP2 identities share the finite memory cap.
         validate_model_profile(contract, bundle)
         return ENGINE_MEMORY_GIB
     return 8 if contract["operation"] == "pre-serve" else ENGINE_MEMORY_GIB * replicas
@@ -1096,6 +1107,7 @@ def main():
         "prepare-nonconfidential-baseline": ("local-correctness", "B200", "nonconfidential"),
         "prepare-nonconfidential-baseline-b300": ("local-correctness", "B300", "nonconfidential"),
         "prepare-nonconfidential-uncensored-b300-dp2": ("local-correctness", "B300", "nonconfidential", 2),
+        "prepare-nonconfidential-original-b300-dp2": ("local-correctness", "B300", "nonconfidential", 2),
     }
     for option in preparations:
         action.add_argument("--" + option)
@@ -1119,7 +1131,7 @@ def main():
     parser.add_argument("--model-profile", choices=("original", "uncensored"),
                         help="Fixed checkpoint selection during preparation only; absence selects original.")
     parser.add_argument("--execution-profile", metavar="PROFILE",
-                        help="Explicit ordinary uncensored B300 DP2 experiment: batch8-eager, batch8-graphs or batch8-dspark.")
+                        help="Closed ordinary B300 DP2 experiment; official weights require original-long1m-graphs.")
     parser.add_argument("--receipt-sha256")
     parser.add_argument("--weights")
     parser.add_argument("--output")
@@ -1136,6 +1148,9 @@ def main():
             require(not any((args.receipt_sha256, args.weights, args.output, args.deadline)))
             require(option != "prepare-local-correctness-b200-dp2" or args.model_profile == "uncensored")
             require(option != "prepare-nonconfidential-uncensored-b300-dp2" or args.model_profile == "uncensored")
+            original = option == "prepare-nonconfidential-original-b300-dp2"
+            require(not original or args.model_profile == "original"
+                    and args.execution_profile == "original-long1m-graphs")
             target = model_target(profile[1], profile[2], profile[3] if len(profile) == 4 else 1,
                                   args.model_profile)
             optional = {}
@@ -1146,13 +1161,13 @@ def main():
                         and not args.stream_cohort and not args.provider_conformance_wheels)
                 optional["tau_owner"] = True
             if args.execution_profile is not None:
-                require(option == "prepare-nonconfidential-uncensored-b300-dp2"
+                require(original or option == "prepare-nonconfidential-uncensored-b300-dp2"
                         and args.model_profile == "uncensored")
                 tuning_measurement_options(args.tokenizer_parity, args.tokenizer_materialization,
                     args.runtime_observation, args.stream_cohort, args.stream_profile, args.provider_conformance_wheels,
                     args.execution_profile)
                 optional["execution_profile"] = args.execution_profile
-            if args.model_profile == "uncensored":
+            if args.model_profile == "uncensored" or original:
                 require(profile[0] == "local-correctness" and len(profile) == 4 and profile[3] == 2
                         and model_target(profile[1], profile[2], profile[3], args.model_profile))
                 optional["model_profile"] = args.model_profile

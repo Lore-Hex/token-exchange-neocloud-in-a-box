@@ -10,9 +10,11 @@ LONG_PROFILE = "long128k-eager"
 LONG_GRAPHS_PROFILE = "long128k-graphs"
 LONG_PROFILES = (LONG_PROFILE, LONG_GRAPHS_PROFILE)
 MILLION_PROFILE = "long1m-graphs"
-LONG_CONTEXT_PROFILES = (*LONG_PROFILES, MILLION_PROFILE)
+ORIGINAL_MILLION_PROFILE = "original-long1m-graphs"
+LONG_CONTEXT_PROFILES = (*LONG_PROFILES, MILLION_PROFILE, ORIGINAL_MILLION_PROFILE)
 EAGER_CONTEXTS = {"tau8k-eager": 8192, "quality32k-eager": 32768, LONG_PROFILE: 131072}
-CONTEXTS = {**EAGER_CONTEXTS, LONG_GRAPHS_PROFILE: 131072, MILLION_PROFILE: 1048576}
+CONTEXTS = {**EAGER_CONTEXTS, LONG_GRAPHS_PROFILE: 131072, MILLION_PROFILE: 1048576,
+            ORIGINAL_MILLION_PROFILE: 1048576}
 NAMES = (*BATCH_NAMES, *CONTEXTS, SCALING_PROFILE)
 REVISION = "5df63a7203cdb9328d824a27b682e77c7b9928be"
 # https://github.com/vllm-project/vllm/tree/5df63a7203cdb9328d824a27b682e77c7b9928be
@@ -43,7 +45,7 @@ def select(name):
 
 
 def enabled(contract):
-    """No implicit opt-in, original-weight substitution or confidential crossover."""
+    """Explicit model-specific opt-ins; never confidential crossover."""
     if "execution_profile" not in contract:
         require("tuning.py" not in contract.get("sources", {}))
         return None
@@ -54,9 +56,12 @@ def enabled(contract):
             and type(contract.get("data_parallel_size")) is int
             and contract["data_parallel_size"] == 2
             and type(contract.get("model_profile")) is dict
-            and contract["model_profile"].get("name") == "uncensored"
+            and contract["model_profile"].get("name") ==
+                ("original" if name == ORIGINAL_MILLION_PROFILE else "uncensored")
             and "tuning.py" in contract.get("sources", {})
             and "provider_conformance" not in contract)
+    if name == ORIGINAL_MILLION_PROFILE:
+        require("tau_owner" not in contract)
     measurement_keys = ("tokenizer_parity", "tokenizer_materialization", "runtime_observation", "stream_cohort")
     if name in CONTEXTS:
         require(contract.get("tokenizer_parity") is True and contract.get("runtime_observation") is True
@@ -100,7 +105,7 @@ def arguments(baseline, name):
             for flag in ("--enable-chunked-prefill", "--enable-prefix-caching", "--enable-prompt-tokens-details"):
                 require(flag not in result and flag.replace("--enable-", "--no-enable-") not in result)
                 result.append(flag)
-        if name not in (LONG_GRAPHS_PROFILE, MILLION_PROFILE):
+        if name not in (LONG_GRAPHS_PROFILE, MILLION_PROFILE, ORIGINAL_MILLION_PROFILE):
             return result
     else:
         replace("--max-num-seqs", "1", "32" if name == SCALING_PROFILE else "8")
@@ -113,7 +118,7 @@ def arguments(baseline, name):
         # Removing eager also restores pinned compiler/JIT defaults.
         # DSpark shares this list: target needs 8*6 rows, drafter needs 8*5.
         # Without 40, drafter rounds 48 to 50 and drops it above its 40-row cap.
-        sizes = ([1, 2, 4, 8, 16, 32] if name == SCALING_PROFILE else [1] if name in (LONG_GRAPHS_PROFILE, MILLION_PROFILE) else
+        sizes = ([1, 2, 4, 8, 16, 32] if name == SCALING_PROFILE else [1] if name in (LONG_GRAPHS_PROFILE, MILLION_PROFILE, ORIGINAL_MILLION_PROFILE) else
                  [6, 12, 24, 40, 48] if name == "batch8-dspark" else [1, 2, 4, 8])
         compilation = {"pass_config": {"fuse_allreduce_rms": False},
                        "cudagraph_mode": "FULL_DECODE_ONLY", "cudagraph_capture_sizes": sizes}

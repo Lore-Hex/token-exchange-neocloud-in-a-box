@@ -42,7 +42,10 @@ def enabled(contract):
                  (contract.get("gpu_security") == "nonconfidential" and contract.get("gpu_family") == "B300"
                   and type(contract.get("data_parallel_size")) is int and contract["data_parallel_size"] == 2
                   and type(contract.get("model_profile")) is dict
-                  and contract["model_profile"].get("name") == "uncensored"
+                  and (contract["model_profile"].get("name") == "uncensored" or
+                       contract["model_profile"].get("name") == "original"
+                       and contract.get("execution_profile") == "original-long1m-graphs"
+                       and not {"stream_cohort", "provider_conformance", "tau_owner"} & set(contract))
                   and ("provider_conformance" not in contract or "stream_cohort" not in contract))))
     return True
 
@@ -161,7 +164,10 @@ def validate_sample(sample, contract):
         # The host and lab entry validate the complete pinned model identity.
         enabled(contract)
         require(type(contract["model_profile"]) is dict
-                and contract["model_profile"].get("name") == "uncensored" and replicas == 2)
+                and contract["model_profile"].get("name") in ("uncensored", "original") and replicas == 2)
+        if contract["model_profile"]["name"] == "original":
+            require(contract.get("gpu_security") == "nonconfidential"
+                    and contract.get("execution_profile") == "original-long1m-graphs")
         memory_gib = 512
     require(values["memory.max"] == memory_gib << 30 and values["memory.swap.max"] == 0
             and values["pids.max"] == 1024 and 0 < values["pids.current"] <= 1024

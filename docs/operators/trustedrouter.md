@@ -31,6 +31,10 @@ replacement starts. Its finite retirement and cleanup deadline must fit the
 approved rental window. Do not reuse a completed run's receipt or extend a
 running owner's deadline in place.
 
+The [official-checkpoint lab preparation](../tasks/p2-t3-original-lab.md) is a
+separate migration prerequisite, not a public serving path or a relabeling of
+the selected checkpoint's measured results.
+
 Publish only the capacity qualified for that profile. The separate short-prompt
 C64 experiment does not permit raising the 1M service above C1. Prefix-cache
 support also does not imply a discount: by default the selected 1M catalog
