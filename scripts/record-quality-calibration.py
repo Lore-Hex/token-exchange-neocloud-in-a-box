@@ -21,6 +21,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import bounded_https
+import quality_candidate
 import tau_external_tokenizer
 import tau_live_identity
 import tau_selected_policy
@@ -33,8 +34,12 @@ MAX_OUTPUT = 8192
 
 def candidate_transport(contract, deadline):
     """Select TLS only from the hash-bound contract, never by retry/detection."""
-    worker.require(type(contract) is dict and contract.get("model") == MODEL
-                   and contract.get("serving_profile") == "long1m-graphs")
+    worker.require(type(contract) is dict)
+    original = contract.get("schema") == quality_candidate.ORIGINAL_ENDPOINT
+    if original:
+        quality_candidate.validate_original(contract)
+    else:
+        worker.require(contract.get("model") == MODEL and contract.get("serving_profile") == "long1m-graphs")
     cutoff = contract.get("retire_at")
     now = time.time()
     worker.require(type(cutoff) in (int, float) and math.isfinite(cutoff)
@@ -46,9 +51,11 @@ def candidate_transport(contract, deadline):
         certificate = {"certificate_pem": tau_live_identity.private_read(contract["certificate"], deadline),
                        "certificate_sha256": contract["certificate_sha256"]}
     else:
-        worker.require(contract.get("schema") == "nib.quality-calibration-endpoint/v1"
+        worker.require(contract.get("schema") == (quality_candidate.ORIGINAL_ENDPOINT if original else
+                                                  "nib.quality-calibration-endpoint/v1")
                        and set(contract) == {"schema", "model", "serving_profile", "serving_context_tokens",
                                              "retire_at", "tls_mode", "hostname", "address", "port"}
+                       | ({"model_profile"} if original else set())
                        and contract["tls_mode"] == "system-roots"
                        and type(contract["serving_context_tokens"]) is int
                        and contract["serving_context_tokens"] == 1048576
@@ -176,9 +183,10 @@ def measured_cached_tokens(raw, prompt_tokens):
     return cached
 
 
-def numeric_reply(raw, expected_prompt):
+def numeric_reply(raw, expected_prompt, *, model=MODEL):
+    worker.require(model in (MODEL, quality_candidate.ORIGINAL_MODEL))
     usage = measured_usage(raw)
-    worker.require(raw.get("model") == MODEL and usage["prompt_tokens"] == expected_prompt
+    worker.require(raw.get("model") == model and usage["prompt_tokens"] == expected_prompt
                    and usage["completion_tokens"] <= MAX_OUTPUT)
     choices = raw.get("choices")
     worker.require(type(choices) is list and len(choices) == 1)
@@ -225,7 +233,8 @@ def journal(path):
         yield Journal(stream)
 
 
-def evaluate(index, item, prompt, grade, counter, http, key, deadline, row=None, before_send=lambda: None):
+def evaluate(index, item, prompt, grade, counter, http, key, deadline, row=None, before_send=lambda: None, *, model=MODEL):
+    worker.require(model in (MODEL, quality_candidate.ORIGINAL_MODEL))
     if row is None:
         row = {}
     row.update(kind="item", index=index, status="infrastructure_error", stage="render",
@@ -234,7 +243,7 @@ def evaluate(index, item, prompt, grade, counter, http, key, deadline, row=None,
     http.last_status = None
     try:
         with worker.alarm(min(deadline, before + 119)):
-            body = {"model": MODEL, "messages": [{"role": "user", "content": prompt(item)}],
+            body = {"model": model, "messages": [{"role": "user", "content": prompt(item)}],
                     "max_completion_tokens": MAX_OUTPUT, "temperature": 0,
                     "reasoning_effort": "none", "stream": False}
             row["stage"] = "tokenize"
@@ -250,7 +259,7 @@ def evaluate(index, item, prompt, grade, counter, http, key, deadline, row=None,
             row["usage"] = measured_usage(reply)
             # Keep measured totals even when optional cache accounting is malformed.
             row["cached_prompt_tokens"] = measured_cached_tokens(reply, row["usage"]["prompt_tokens"])
-            text, finish, _ = numeric_reply(reply, incoming)
+            text, finish, _ = numeric_reply(reply, incoming, model=model)
             row.update(finish_reason=finish, stage="grade")
             # Truncation never receives credit, but known token usage is retained.
             score = grade(item, text if finish == "stop" else "")
@@ -291,25 +300,29 @@ def main():
         worker.require(digest(raw) == args.contract_sha256)
         contract = worker.decode(raw)
         http, tls_mode = candidate_transport(contract, deadline)
+        original = contract["schema"] == quality_candidate.ORIGINAL_ENDPOINT
+        model = contract["model"]
         counter = tau_external_tokenizer.Counter(args.vllm_source, args.tokenizer, args.tokenizer_wheel, context_tokens=32768)
         key = tau_live_identity.private_read(args.candidate_key, deadline).rstrip(b"\n")
         revision = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], timeout=10, stderr=subprocess.DEVNULL).decode().strip()
         for name in ("record-quality-calibration.py", "bounded_https.py", "tau_external_tokenizer.py",
                      "tau_live_identity.py", "tau_trial_worker.py", "tau_selected_policy.py",
-                     "engine_tokenizer_parity.py"):
+                     "engine_tokenizer_parity.py", "quality_candidate.py", "deepseek_model_profile.py"):
             committed = subprocess.check_output(["git", "-C", str(ROOT), "show", revision + ":scripts/" + name], timeout=10, stderr=subprocess.DEVNULL)
             worker.require(committed == (ROOT / "scripts" / name).read_bytes())
         results = []
         with journal(args.output) as stream:
-            stream.write({"kind": "manifest", "schema": "nib.quality-calibration/v3", "git_sha": revision,
+            stream.write({"kind": "manifest", "schema": quality_candidate.ORIGINAL_RECEIPT if original else
+                          "nib.quality-calibration/v3", "git_sha": revision,
                 "trbench_revision": REVISION, "trbench_tree_sha256": tree_sha, "dataset_sha256": dataset_sha,
                 "suite": args.suite, "expected": args.count, "started_at": started,
                 "sampling": "proportional-stride" if args.suite == "mmlu_pro" else "first-n",
-                "model": MODEL, "temperature": 0, "max_output_tokens": MAX_OUTPUT,
+                "model": model, "temperature": 0, "max_output_tokens": MAX_OUTPUT,
                 "reasoning_effort": "none", "concurrency": 1, "retries": 0,
                 "endpoint_binding_sha256": args.contract_sha256, "confidential": False,
                 "candidate_tls_mode": tls_mode,
-                "matched_reference": False, "full_quality_qualified": False})
+                "matched_reference": False, "full_quality_qualified": False,
+                **(quality_candidate.original_fields() if original else {})})
             cancelled = False
             def cancel(signum, frame):
                 nonlocal cancelled
@@ -328,7 +341,7 @@ def main():
                     try:
                         results.append(row)
                         evaluate(index, item, prompt, grade, counter, http, key, deadline, row,
-                                 before_send=lambda: stream.write({"kind": "intent", "index": index}))
+                                 before_send=lambda: stream.write({"kind": "intent", "index": index}), model=model)
                     finally:
                         if not stream.failed and any(item is row for item in results):
                             stream.write(row)
