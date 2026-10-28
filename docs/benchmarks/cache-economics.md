@@ -90,3 +90,34 @@ prices until the operator-specific evidence and normal rollout gates pass.
 Related: [long-context cache tests](../tasks/p2-t3-long-context-cache.md),
 [quality calibration](../tasks/p2-t3-retained-quality.md), and
 [published cache-read prices](../operators/trustedrouter.md#cache-read-pricing).
+
+## Read-Only Cache Counters
+
+`scripts/cache_counters.py` summarizes an existing private DP2 `/metrics`
+snapshot without sending inference, reading credentials or contacting a server:
+
+```sh
+python3 -I -S -B scripts/cache_counters.py --model "$MODEL" < private-metrics.txt
+```
+
+The pinned vLLM revision defines prefix-cache queries and hits as **tokens**,
+not requests ([definitions](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/metrics/loggers.py#L661-L678),
+[increments](https://github.com/vllm-project/vllm/blob/5df63a7203cdb9328d824a27b682e77c7b9928be/vllm/v1/metrics/loggers.py#L1167-L1177)).
+This parser requires both counters for exactly ranks 0 and 1 of the expected
+model, rejects duplicate or malformed series and noninteger/unsafe counts,
+and weights the aggregate fraction by queried tokens, not by rank. Zero
+queries produce an unknown fraction, not a measured zero hit rate.
+
+Collect only from the separately authenticated, owned engine and verify its
+source, process and container identity. This offline parser cannot establish
+those facts; a supplied source hash is not authentication. Keep raw metrics
+and reports operator-private. Output contains numeric counters and an input
+hash, not model names, unrelated labels, prompts or completions. Input is
+bounded to 2 MiB. The existing engine metrics transport is not changed.
+
+These are **engine-lifetime cumulative**, non-atomic counters covering all
+engine work, not a particular customer's cache-hit rate or invoice. They reset
+on restart. Do not compare snapshots across processes or infer a measurement
+window from one snapshot. They do not establish KV residency, a causal speedup,
+cached-input settlement or a sustainable cache discount. No delta is computed,
+no missing value is filled in and no tariff or serving profile is changed.
