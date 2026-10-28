@@ -607,5 +607,110 @@ with q.journal(pathlib.Path(sys.argv[1])) as journal:
             self.assertLessEqual(http.post.call_count, 1)
 
 
+class InterruptionAuditTests(unittest.TestCase):
+    def setUp(self):
+        self.rows = CalibrationTests().writer_receipt(
+            public_contract(), [reply() for _ in range(20)], exit_code=0)
+
+    def raw(self, rows):
+        return b"".join(quality.worker.encoded(row) for row in rows)
+
+    def test_every_intact_prefix_is_audited_without_fabricating_completion(self):
+        for end in range(1, len(self.rows)):
+            with self.subTest(end=end):
+                raw = self.raw(self.rows[:end])
+                record = summary.audit_interrupted(raw)
+                pending = int(end % 2 == 0)
+                items = (end - 1) // 2
+                self.assertEqual(record["item_receipts"], items)
+                self.assertEqual(record["missing_item_receipts"], 20 - items)
+                self.assertEqual(record["possibly_sent_requests"], items + pending)
+                self.assertEqual(record["unknown_usage_requests"], pending)
+                self.assertEqual(record["unknown_cache_usage_requests"], items + pending)
+                self.assertEqual(record["unresolved_intents"], pending)
+                self.assertEqual(record["known_prompt_tokens"], items * 20)
+                self.assertEqual(record["known_completion_tokens"], items * 3)
+                self.assertEqual(record["known_cached_prompt_tokens"], 0)
+                self.assertEqual(record["result"], "interrupted")
+                self.assertIsNone(record["ended_utc"])
+                self.assertEqual(record["source_receipt_sha256"], quality.digest(raw))
+                for flag in ("receipt_complete", "source_authentication_verified", "billing_reconciled",
+                             "confidential", "full_benchmark", "matched_reference", "quality_qualified"):
+                    self.assertIs(record[flag], False)
+                with self.assertRaises((ValueError, KeyError)):
+                    summary.report(raw)
+
+    def test_known_failed_usage_is_not_erased_or_counted_as_evaluated(self):
+        item = self.rows[2]
+        item.update(status="protocol_or_transport_error", score=None, cached_prompt_tokens=12)
+        record = summary.audit_interrupted(self.raw(self.rows[:4]))
+        self.assertEqual((record["evaluated"], record["failed_item_receipts"]), (0, 1))
+        self.assertEqual(record["known_prompt_tokens"], 20)
+        self.assertEqual(record["known_cached_prompt_tokens"], 12)
+        self.assertEqual(record["unknown_usage_requests"], 1)
+        self.assertEqual(record["unknown_cache_usage_requests"], 1)
+
+    def test_unsent_item_never_becomes_a_possible_charge(self):
+        item = self.rows[2]
+        item.update(status="cancelled", score=None, usage=None, cached_prompt_tokens=None,
+                    generation_started=False, http_status=None, finish_reason=None)
+        record = summary.audit_interrupted(self.raw([self.rows[0], item]))
+        self.assertEqual(record["item_receipts"], 1)
+        self.assertEqual(record["possibly_sent_requests"], 0)
+        self.assertEqual(record["unknown_usage_requests"], 0)
+        self.assertEqual(record["unknown_cache_usage_requests"], 0)
+
+    def test_rejects_completed_receipts_and_legacy_without_intents(self):
+        with self.assertRaises(ValueError):
+            summary.audit_interrupted(self.raw(self.rows))
+        for schema in ("nib.quality-calibration/v1", "nib.quality-calibration/v2"):
+            self.rows[0]["schema"] = schema
+            with self.subTest(schema=schema), self.assertRaises(ValueError):
+                summary.audit_interrupted(self.raw(self.rows[:2]))
+
+    def test_rejects_torn_lines_oversized_inputs_and_duplicate_json_keys(self):
+        raw = self.raw(self.rows[:2])
+        for invalid in (b"", raw[:-1], raw + b'{"kind":', raw + b"\n",
+                        raw + b" " * (1 << 20), raw.replace(b'"index":0', b'"index":1,"index":0'),
+                        raw.replace(b'"index":0', b'"index":NaN')):
+            with self.subTest(size=len(invalid)), self.assertRaises((ValueError, KeyError)):
+                summary.audit_interrupted(invalid)
+
+    def test_rejects_missing_duplicate_out_of_order_or_excess_intents(self):
+        invalid = [self.rows[:2] + [self.rows[1]], [self.rows[0], self.rows[2]],
+                   self.rows[:3] + [dict(self.rows[1], index=2)],
+                   self.rows[:-1] + [{"kind": "intent", "index": 20}],
+                   self.rows[:1] + [{"kind": "intent", "index": True}],
+                   self.rows[:2] + [dict(self.rows[2], generation_started=False)],
+                   self.rows[:2] + [self.rows[0]]]
+        for rows in invalid:
+            with self.subTest(kinds=[r["kind"] for r in rows]), self.assertRaises(ValueError):
+                summary.audit_interrupted(self.raw(rows))
+
+    def test_shared_validation_rejects_invalid_usage_score_and_provenance(self):
+        for index, field, invalid in ((0, "git_sha", "bad"), (0, "expected", True),
+                                      (0, "started_at", "bad"), (2, "cached_prompt_tokens", 21),
+                                      (2, "usage", None), (2, "score", None),
+                                      (2, "elapsed_seconds", -1), (2, "http_status", 503)):
+            rows = copy.deepcopy(self.rows[:3])
+            rows[index][field] = invalid
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                summary.audit_interrupted(self.raw(rows))
+
+    def test_cli_is_read_only_and_never_echoes_arbitrary_input(self):
+        self.rows[0]["ignored"] = "SYNTHETIC_PRIVATE_CANARY"
+        raw = self.raw(self.rows[:4])
+        script = Path(__file__).with_name("audit-quality-interruption.py")
+        proc = subprocess.run([sys.executable, "-I", "-S", "-B", str(script)],
+                              input=raw, capture_output=True, timeout=10)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), summary.audit_interrupted(raw))
+        self.assertNotIn(b"CANARY", proc.stdout + proc.stderr)
+        proc = subprocess.run([sys.executable, "-I", "-S", "-B", str(script)],
+                              input=b"SYNTHETIC_PRIVATE_CANARY", capture_output=True, timeout=10)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertNotIn(b"CANARY", proc.stdout + proc.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -100,6 +100,34 @@ known and unknown usage totals. A completed answer must have HTTP 200, a stop
 finish reason and usage within the declared request limits. Truncated responses
 receive no credit. CLI validation failures do not echo arbitrary input values.
 
+### Interrupted-run audit
+
+After confirming a stopped v3 writer, preserve its original JSONL file unchanged.
+An intact prefix without a final summary can be inspected offline with:
+
+```sh
+python3 -I -S -B scripts/audit-quality-interruption.py < /private/receipt.jsonl
+```
+
+This prints a numeric `nib.quality-calibration-interruption/v1` report, not a
+replacement receipt or publishable benchmark pass. It shares the ordinary
+summarizer's item, usage, score and provenance-format checks. Each durable intent
+without an item counts as one possibly sent request with unknown total and cache
+usage. Known usage on failed items remains counted. Unsent failures do not become
+charges, missing items stay missing, and no completion timestamp is invented.
+Even a prefix containing every expected item remains interrupted without the
+original final summary. An exit code of zero means the audit parsed successfully,
+not that evaluation completed. The original bytes are identified by SHA256;
+format validation does not authenticate the source or reconcile actual billing.
+
+The audit rejects legacy receipts without durable intents, completed receipts,
+out-of-order or duplicate rows, malformed counts, duplicate JSON keys, inputs over
+1 MiB and a torn final line. Do not truncate such a line to make it pass: preserve
+the raw file and investigate separately. The tool makes no API calls, reads no
+credentials, retries nothing and never resumes or combines runs. It cannot
+recover missing files or observer logs. Copying a still-active file is not proof
+the writer stopped, so verify ownership and quiescence separately first.
+
 ### Cache usage accounting
 
 Cache accounting began with `nib.quality-calibration/v2` and its matching
