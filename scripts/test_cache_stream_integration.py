@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 import cache_journal as journal
+import cache_complete as complete
 import cache_probe as probe
 import test_stream_https as wire
 
@@ -76,6 +77,10 @@ class CacheStreamTests(unittest.TestCase):
         self.assertEqual(summary["requests_with_unknown_usage"], 0)
         self.assertEqual(client.attempts[probe.stream.transport.PATH], 9)
         self.assertEqual(len(connections), 9)
+        audited = complete.audit(b"".join(json.dumps(row).encode() + b"\n" for row in rows))
+        self.assertTrue(audited["recorded_sequence_completed"])
+        self.assertEqual(audited["known_cached_prompt_tokens"], summary["known_cached_prompt_tokens"])
+        self.assertFalse(audited["billing_reconciled"] or audited["source_authenticated"])
         bodies = [json.loads(connection.sent[0].split(b"\r\n\r\n", 1)[1]) for connection in connections]
         for index in (0, 3, 6):
             self.assertEqual(bodies[index]["cache_salt"], bodies[index + 1]["cache_salt"])
