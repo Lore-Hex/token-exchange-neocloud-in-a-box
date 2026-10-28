@@ -215,7 +215,8 @@ def make_payload(builder, revision, bundle, extra, binary, operation="functional
     identity = None
     pack = PACK
     original = ordinary_original_target(family, security, replicas, model_profile)
-    require(not original or execution_profile == "original-long1m-graphs")
+    require(not original or execution_profile == "original-long1m-graphs"
+            and not tau_owner and not stream_cohort and provider_conformance is None)
     if model_profile != "original" or original:
         require(operation == "local-correctness" and model_target(family, security, replicas, model_profile)
                 and type(replicas) is int and replicas == 2)
@@ -353,7 +354,8 @@ def prepare(destination, operation="functional", family="B200", security="confid
     revision, bundle, extra = builder.inputs(ROOT)
     pack = PACK
     original = ordinary_original_target(family, security, replicas, model_profile)
-    require(not original or execution_profile == "original-long1m-graphs")
+    require(not original or execution_profile == "original-long1m-graphs"
+            and not tau_owner and not stream_cohort and provider_wheelhouse is None)
     if model_profile != "original" or original:
         extra[MODEL_PROFILE] = committed(builder, revision, MODEL_PROFILE)
         _, identity = selected_model(extra[MODEL_PROFILE], model_profile)

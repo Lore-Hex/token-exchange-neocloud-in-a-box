@@ -2,7 +2,10 @@
 """Official-checkpoint lab boundaries only; no GPU or live service execution."""
 
 import copy
+from contextlib import ExitStack
+from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -11,6 +14,8 @@ import deepseek_tuning as tuning
 import engine_runtime_observation as observation
 import engine_tokenizer_parity as parity
 import selected_service_engine as service_engine
+import test_deepseek_lab as lab_fixtures
+import test_deepseek_model_profile as model_fixtures
 import test_deepseek_tuning as fixtures
 import test_engine_runtime_observation as observation_fixtures
 
@@ -40,7 +45,7 @@ class OriginalLabTests(unittest.TestCase):
         with mock.patch.object(lab, "read_source",
                 side_effect=lambda path, *_: files[path.removeprefix("/opt/nib/")]):
             self.assertEqual(lab.validate_settings(contract, self.plan, 2), MODEL)
-        with fixtures.fixtures.payload_tree(files) as root:
+        with model_fixtures.payload_tree(files) as root:
             self.assertEqual(host.validate_model_profile(contract, root), MODEL)
             self.assertEqual(host.memory_gib(contract, root), 512)
 
@@ -58,6 +63,7 @@ class OriginalLabTests(unittest.TestCase):
         self.assertEqual(tuning.enabled(contract), PROFILE)
         self.assertTrue(parity.enabled(contract))
         self.assertTrue(observation.enabled(contract))
+        self.assertEqual(lab_fixtures.probe.parallel_size(contract), 2)
         self.assertEqual(tuning.context_limit(contract), 1048576)
         self.assertFalse(contract["deployable"])
         self.assertFalse(contract["confidential"])
@@ -101,7 +107,7 @@ class OriginalLabTests(unittest.TestCase):
         for change in changes:
             with self.subTest(change=change), self.assertRaises(ValueError):
                 self.validate(files, {**contract, **change})
-        with fixtures.fixtures.payload_tree(files) as root:
+        with model_fixtures.payload_tree(files) as root:
             path = root / "payload/pack/files.sha256"
             path.write_bytes((ROOT / models.select("uncensored")["pack"] / "files.sha256").read_bytes())
             with self.assertRaises(ValueError):
@@ -112,7 +118,7 @@ class OriginalLabTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 self.payload(**{key: False})
         for change in ({"stream_cohort": True}, {"tau_owner": True}, {"provider_conformance": {}}):
-            with self.subTest(change=change), self.assertRaises((ValueError, KeyError)):
+            with self.subTest(change=change), self.assertRaises(ValueError):
                 self.payload(**change)
 
     def test_cgroup_limits_and_observation_identity_remain_closed(self):
@@ -146,6 +152,56 @@ class OriginalLabTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     host.main()
                 prepare.assert_not_called()
+
+    def test_cli_published_bundle_runs_real_profile_validation(self):
+        real_load, real_read = host.load, host.read
+        config = {"config": {"Env": ["LD_LIBRARY_PATH=" + lab.IMAGE_LD_PATH, "CUDA_HOME=/usr/local/cuda"]}}
+
+        def build(_root, _revision, work, _env):
+            binary = work / "synthetic-validator"
+            binary.write_bytes(b"synthetic-linux-validator-not-executed")
+            return binary, "a" * 64
+
+        def load(name, path, sha):
+            module = real_load(name, path, sha)
+            if name == "lab_application_builder":
+                module.inputs = lambda _: ("1" * 40, dict(self.args[2]), dict(self.args[3]))
+                module.recorder.build_validator = build
+                module.recorder.raw_metadata = lambda *_: config
+            elif name == "lab_record_support":
+                module.raw_metadata = lambda *_: config
+            return module
+
+        def read(path, *args):
+            if Path(path).parent == ROOT / "build/engine-image-metadata":
+                return b"synthetic-OCI-metadata-not-used-for-runtime"
+            return real_read(path, *args)
+
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            root = Path(temporary).resolve() / "bundle"
+            command = [host.SCRIPT, "--prepare-nonconfidential-original-b300-dp2", str(root),
+                       "--model-profile", "original", "--execution-profile", PROFILE,
+                       "--tokenizer-parity", "--tokenizer-materialization", "--runtime-observation"]
+            stack.enter_context(mock.patch.object(sys, "argv", command))
+            stack.enter_context(mock.patch.object(host, "load", side_effect=load))
+            stack.enter_context(mock.patch.object(host, "read", side_effect=read))
+            stack.enter_context(mock.patch.object(host, "committed",
+                side_effect=lambda _b, _r, name: (ROOT / name).read_bytes()))
+            stack.enter_context(mock.patch("builtins.print"))
+            self.assertEqual(host.main(), 0)
+            receipt_sha = host.digest(real_read(root / "receipt.json"))
+            receipt, contract, _, _ = host.bundle_inputs(root, receipt_sha)
+            self.assertEqual(contract["model_profile"], MODEL)
+            self.assertEqual(receipt["source_bundle_sha256"], contract["source_bundle_sha256"])
+            self.assertEqual(contract["execution_profile"], PROFILE)
+            self.assertFalse(contract["deployable"])
+            for name in ("probe.py", "model-profile.py", "lab.json", "pack/files.sha256"):
+                path = root / "payload" / name
+                original = path.read_bytes()
+                path.write_bytes(original + b"\n")
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    host.bundle_inputs(root, receipt_sha)
+                path.write_bytes(original)
 
 
 if __name__ == "__main__":

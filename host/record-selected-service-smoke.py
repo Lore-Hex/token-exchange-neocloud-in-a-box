@@ -41,7 +41,7 @@ SECONDS = 60
 HOST_RESERVE = 180
 CLIENT_REAP = 25
 LABEL = "nib.selected-service-smoke"
-CACHE_SHA = "9390b3124d523f91fe80e5340658c4163f5047ff396bb7cf7de8c043ce683d0a"
+CACHE_SHA = "25141adae8f894a54f4b8f90c65ba26a9d7b3f493121b640b381c4f2a0cb57f6"
 TMPFS = {"/cache": "rw,nosuid,nodev,exec,size=16g,mode=0700,uid=65532,gid=65532",
          "/tmp": "rw,nosuid,nodev,noexec,size=256m,mode=1777"}
 

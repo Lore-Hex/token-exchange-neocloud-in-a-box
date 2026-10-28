@@ -67,7 +67,11 @@ def parallel_size(contract):
                   and contract["model_profile"].get("name") == "uncensored"))
             and (security_profile(contract) == "confidential" or
                  (contract.get("gpu_family") == "B300" and type(contract.get("model_profile")) is dict
-                  and contract["model_profile"].get("name") == "uncensored"))))
+                  and (contract["model_profile"].get("name") == "uncensored" or
+                       contract["model_profile"].get("name") == "original"
+                       and contract.get("execution_profile") == "original-long1m-graphs"
+                       and not {"stream_cohort", "provider_conformance", "tau_owner"} & set(contract))))
+            )
     return size
 
 
