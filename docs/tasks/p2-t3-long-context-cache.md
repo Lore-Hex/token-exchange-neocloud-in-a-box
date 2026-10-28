@@ -66,6 +66,15 @@ No claim about a newer engine's performance applies to this candidate.
   exposes actual `usage.prompt_tokens_details.cached_tokens`, including in the
   final usage chunk when streaming usage is requested. The guard forwards it
   unchanged. An absent field must never be interpreted as a measured cache hit.
+  The benchmark stream collector rejects malformed optional cache/reasoning
+  details, but retains input/output totals that already passed integer, limit
+  and arithmetic validation. A malformed cache count stays unknown; a valid
+  cache count survives a later invalid reasoning breakdown. The request remains
+  failed and its output is excluded from completed throughput. These are
+  provider-reported usage counts, not invoice reconciliation or permission to
+  discount prices. Historical evidence is not rewritten. Historical-source
+  comparisons normalize only the exact reviewed accounting change; all other
+  bytes remain checked, and malformed-detail behavior has separate regressions.
 - `long128k-graphs` removes `--enforce-eager` and selects
   `FULL_DECODE_ONLY` with `cudagraph_capture_sizes: [1]`, retaining
   `pass_config.fuse_allreduce_rms: false`. Pinned
