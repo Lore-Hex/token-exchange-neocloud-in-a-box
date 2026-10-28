@@ -150,6 +150,14 @@ reconciliation. The two namespaces may map to different replicas, so a zero-hit
 negative sample does not prove same-replica isolation. No cache-isolation,
 quality, sustained-load, privacy, invoice or tariff qualification is claimed.
 
+`scripts/test_cache_stream_integration.py` exercises the real sequence, HTTP/SSE
+collector, measurements and interrupted-prefix auditor together over synthetic
+in-memory connections. It covers namespace ordering, late protocol failures,
+missing cache counts, partial sends, overload, failed receipt callbacks and
+nested deadline cleanup. The socket/TLS connection and receipt storage are
+test doubles; these checks do not validate live TLS, fsync durability, tokenizer
+parity, runtime identity, network performance or hardware.
+
 ### Interrupted Journals
 
 Audit an intact, newline-terminated prefix of a single interrupted sequence:
