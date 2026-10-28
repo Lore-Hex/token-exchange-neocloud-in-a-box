@@ -61,17 +61,17 @@ def require(value):
 def parallel_size(contract):
     size = contract.get("data_parallel_size", 1)
     require(type(size) is int and size in (1, 2))
+    original = (type(contract.get("model_profile")) is dict
+                and contract["model_profile"].get("name") == "original"
+                and contract.get("execution_profile") == "original-long1m-graphs"
+                and not {"stream_cohort", "provider_conformance", "tau_owner"} & set(contract))
     require(size == 1 or (contract.get("operation") == "local-correctness"
             and (contract.get("gpu_family") == "B300" or
                  (contract.get("gpu_family") == "B200" and type(contract.get("model_profile")) is dict
                   and contract["model_profile"].get("name") == "uncensored"))
             and (security_profile(contract) == "confidential" or
                  (contract.get("gpu_family") == "B300" and type(contract.get("model_profile")) is dict
-                  and (contract["model_profile"].get("name") == "uncensored" or
-                       contract["model_profile"].get("name") == "original"
-                       and contract.get("execution_profile") == "original-long1m-graphs"
-                       and not {"stream_cohort", "provider_conformance", "tau_owner"} & set(contract))))
-            )
+                  and (contract["model_profile"].get("name") == "uncensored" or original)))))
     return size
 
 
