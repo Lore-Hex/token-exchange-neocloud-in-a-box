@@ -36,6 +36,9 @@ PARITY = (
     (275, "6ddfa5e6dbf2f45b8efc1e2ebda65f1f79c39b1a4ec8a7fce8e77fc5a0add7d5"),
     (332, "4e5eb88296779609b1ef81a335894e3ef5c284a94a8ceb1607421414c43c9cbe"),
 )
+# Offline cache-input candidate search only; existing callers retain their
+# 8K/32K limits. This is not a serving limit or live-test authorization.
+CACHE_PREPARE_CONTEXT = 262144
 
 
 def verified(path, size, sha):
@@ -46,7 +49,7 @@ def verified(path, size, sha):
 
 class Counter:
     def __init__(self, source_root, model_root, wheel, *, context_tokens=8192):
-        require(type(context_tokens) is int and context_tokens in (8192, 32768))
+        require(type(context_tokens) is int and context_tokens in (8192, 32768, CACHE_PREPARE_CONTEXT))
         self.context_tokens = context_tokens
         self.temporary = None
         self.native = self.tokenizer = None

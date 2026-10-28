@@ -158,6 +158,34 @@ nested deadline cleanup. The socket/TLS connection and receipt storage are
 test doubles; these checks do not validate live TLS, fsync durability, tokenizer
 parity, runtime identity, network performance or hardware.
 
+### Offline Input Preparation
+
+Prepare all three fixed synthetic input sizes using already downloaded, pinned
+tokenizer sources, model tokenizer files and the approved native wheel:
+
+```sh
+python3 -I -S -B scripts/cache_workload.py \
+  --vllm-source "$VLLM_SOURCE" --tokenizer "$TOKENIZER" \
+  --tokenizer-wheel "$TOKENIZER_WHEEL"
+```
+
+This command makes no network calls, loads no model weights and reads no API
+credentials. It reuses the hash-verified V4.1 renderer/native BPE and its four
+historical parity fixtures. A separate, explicit 262,144-token offline search
+bound permits candidates around 131,072 input tokens; existing 8K/32K callers
+keep their limits. Each shape has at most 67 candidate measurements and the
+whole preparation has a 180-second deadline. Padding estimates only choose
+candidates: an exact measured count is required, with token/message hashes
+recorded. It never guesses, truncates or rounds a prompt to fit.
+
+The numeric JSON contains no prompt text, credential or input path. Save it
+operator-privately with the reviewed source revision and original files; it
+does not authenticate its own provenance. This is preparation, not execution
+approval or current runtime parity, cache savings, model quality, billing or
+price qualification. The live caller must still verify this exact source and
+workload, the current owner, endpoint, tokenizer and aggregate budget. It must
+never start inference merely because offline preparation succeeded.
+
 ### Interrupted Journals
 
 Audit an intact, newline-terminated prefix of a single interrupted sequence:
