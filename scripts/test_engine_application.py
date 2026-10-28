@@ -159,6 +159,79 @@ class ApplicationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 overlay.inspect(overlay.Tree(tree.fd), contract, console=console, packaging=True)
 
+    def test_build_application_uses_one_measured_budget_without_skipping_inventory(self):
+        with self.wheel() as (_, tree, console, contract, measured):
+            clock = [100.0]
+            original_inventory = tree.inventory
+            deadlines = []
+            def inventory():
+                deadlines.append((tree.deadline, console[1].deadline))
+                clock[0] += 60
+                return original_inventory()
+            @contextmanager
+            def selected(*args):
+                yield tree, console
+            with mock.patch.object(app.time, "monotonic", side_effect=lambda: clock[0]), \
+                 mock.patch.object(app, "verify_layout", side_effect=lambda *args: clock.__setitem__(0, 120.0)), \
+                 mock.patch.object(app, "selected_tree", selected), \
+                 mock.patch.object(tree, "inventory", side_effect=inventory):
+                result = app.run_application(overlay, None, None, contract, measured,
+                                             fixtures.OverlayTests.stages, apply_requested=True)
+            self.assertEqual(app.APPLICATION_SECONDS, 720)
+            self.assertEqual(deadlines, [(820.0, 820.0)] * 8)
+            self.assertEqual(result["stages"], 5)
+            self.assertFalse(result["engine_executed"])
+            self.assertFalse(result["hardware_validated"])
+
+    def test_build_budget_exhausted_in_layout_never_inspects_or_applies(self):
+        with self.wheel() as (_, tree, console, contract, measured):
+            @contextmanager
+            def selected(*args):
+                yield tree, console
+            for elapsed in (720, 721):
+                clock = [100.0]
+                with self.subTest(elapsed=elapsed), \
+                     mock.patch.object(app.time, "monotonic", side_effect=lambda: clock[0]), \
+                     mock.patch.object(app, "verify_layout", side_effect=lambda *args: clock.__setitem__(0, 100.0 + elapsed)), \
+                     mock.patch.object(app, "selected_tree", selected), \
+                     mock.patch.object(app, "inspect") as inspection, \
+                     mock.patch.object(app, "apply") as application, self.assertRaises(ValueError):
+                    try:
+                        app.run_application(overlay, None, None, contract, measured, [], apply_requested=True)
+                    finally:
+                        inspection.assert_not_called()
+                        application.assert_not_called()
+
+    def test_build_budget_expiry_during_inspection_or_final_check_rejects(self):
+        with self.wheel() as (_, tree, console, contract, measured):
+            @contextmanager
+            def selected(*args):
+                yield tree, console
+            for phase in ("inspection", "application", "inspection-only"):
+                clock = [100.0]
+                def inspection(*args):
+                    if phase == "inspection":
+                        clock[0] = 820.0
+                        return tree.inventory()
+                    if phase == "inspection-only":
+                        clock[0] = 820.0
+                    return {}
+                def application(*args):
+                    clock[0] = 820.0
+                    return {"result": "must-not-escape"}
+                with self.subTest(phase=phase), \
+                     mock.patch.object(app.time, "monotonic", side_effect=lambda: clock[0]), \
+                     mock.patch.object(app, "verify_layout"), \
+                     mock.patch.object(app, "selected_tree", selected), \
+                     mock.patch.object(app, "inspect", side_effect=inspection), \
+                     mock.patch.object(app, "apply", side_effect=application) as applied, self.assertRaises(ValueError):
+                    try:
+                        app.run_application(overlay, None, None, contract, measured, [],
+                                             apply_requested=phase != "inspection-only")
+                    finally:
+                        if phase != "application":
+                            applied.assert_not_called()
+
     def test_mutated_self_consistent_inventory_never_rebases_measured_input(self):
         for name in ("distutils-precedence.pth", "vllm/_C.abi3.so", "vllm/envs.py", "vllm/__pycache__/envs.cpython-312.pyc"):
             with self.subTest(name=name), self.wheel() as (fixture, tree, console, contract, measured):

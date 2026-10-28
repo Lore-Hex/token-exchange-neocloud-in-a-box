@@ -241,8 +241,8 @@ class ProgressTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.validate(bad, True)
 
-    def test_pinned_integrity_implementation_is_byte_identical(self):
-        for name, expected in (("engine_application.py", "ce69e94d64434294f674c4be66e1a41fe8a08864535e6dbe242db365559b7406"),
+    def test_pinned_integrity_implementations_match_reviewed_sources(self):
+        for name, expected in (("engine_application.py", "9ee8ac9af663f31ff12e8ef0d9da364ea6eb90994f29592c16a7ebd47213df6c"),
                                ("engine_overlay.py", "deb0d99de48a2f06cba20e36d2f707ffacf2c8afd35531447df59b920f288938")):
             self.assertEqual(hashlib.sha256((ROOT / "scripts" / name).read_bytes()).hexdigest(), expected)
 

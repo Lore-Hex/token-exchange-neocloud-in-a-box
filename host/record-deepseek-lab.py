@@ -26,7 +26,7 @@ import uuid
 ROOT = Path(__file__).absolute().parent.parent
 SCRIPT = "host/record-deepseek-lab.py"
 BUILDER = "scripts/prepare-engine-application.py"
-BUILDER_SHA = "68147e708cef42d70bf7634581891b04dd67c3311d2a718d31955f66dc80931e"
+BUILDER_SHA = "cf2dadcd362ca47364538b94daeb7f12e0d6430d4888e099fc02b3546d87c94e"
 HELPER = "scripts/engine_python_bootstrap.py"
 RUNTIME = "scripts/engine_lab.py"
 LAB_BOOTSTRAP = "scripts/engine_lab_bootstrap.py"
