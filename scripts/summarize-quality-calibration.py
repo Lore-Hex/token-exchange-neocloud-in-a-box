@@ -59,29 +59,42 @@ def summary_host():
             "gpus": "not-inspected", "driver": None, "cuda": None}
 
 
-def report(raw):
-    rows = [json.loads(line) for line in raw.splitlines()]
-    manifest, summary = rows[0], rows[-1]
-    trial.require(manifest["schema"] in ("nib.quality-calibration/v1", "nib.quality-calibration/v2", "nib.quality-calibration/v3") and summary["kind"] == "summary"
+def receipt_parts(raw, interrupted=False):
+    trial.require(type(raw) is bytes and 0 < len(raw) <= 1 << 20)
+    if interrupted:
+        # A torn final line requires separate recovery, not a silently dropped request.
+        trial.require(raw.endswith(b"\n"))
+    rows = [trial.worker.decode(line) for line in raw.splitlines()]
+    manifest = rows[0]
+    trial.require(type(manifest) is dict and manifest["schema"] in ("nib.quality-calibration/v1", "nib.quality-calibration/v2", "nib.quality-calibration/v3")
                   and manifest["suite"] in ("gsm8k", "mmlu_pro", "ifeval"))
     durable_intents = manifest["schema"] == "nib.quality-calibration/v3"
-    cache_accounting = manifest["schema"] != "nib.quality-calibration/v1"
-    items = rows[1:-1]
+    if interrupted:
+        trial.require(durable_intents and manifest.get("kind") == "manifest")
+        summary, items = None, rows[1:]
+    else:
+        summary, items = rows[-1], rows[1:-1]
+        trial.require(len(rows) >= 2 and type(summary) is dict and summary["kind"] == "summary")
+    pending = False
     if durable_intents:
-        items = []
-        pending = False
-        for row in rows[1:-1]:
-            trial.require(type(row) is dict and type(row.get("index")) is int and row["index"] == len(items))
+        parsed = []
+        for row in items:
+            trial.require(type(row) is dict and type(row.get("index")) is int and row["index"] == len(parsed))
             if row.get("kind") == "intent":
                 trial.require(not pending and set(row) == {"kind", "index"})
                 pending = True
             else:
                 trial.require(row.get("kind") == "item" and row.get("generation_started") is pending)
-                items.append(row)
+                parsed.append(row)
                 pending = False
-        trial.require(not pending)
+        items = parsed
+        trial.require(interrupted or not pending)
     expected = manifest["expected"]
-    trial.require(type(expected) is int and expected in (20, 50, 200) and len(items) <= expected)
+    trial.require(type(expected) is int and expected in (20, 50, 200) and len(items) + int(pending) <= expected)
+    return manifest, summary, items, pending
+
+
+def validated_items(manifest, items, cache_accounting):
     clean = []
     for index, row in enumerate(items):
         trial.require(row["kind"] == "item" and row["index"] == index and row["status"] in
@@ -120,6 +133,10 @@ def report(raw):
                       "elapsed_seconds": number(row["elapsed_seconds"])})
         if cache_accounting:
             clean[-1]["cached_prompt_tokens"] = cached
+    return clean
+
+
+def receipt_totals(expected, clean, cache_accounting):
     evaluated = sum(row["status"] == "evaluated" for row in clean)
     totals = {"expected": expected, "attempted": len(clean), "evaluated": evaluated,
               "missing": expected - len(clean), "errors": len(clean) - evaluated,
@@ -131,6 +148,44 @@ def report(raw):
         totals.update(
             known_cached_prompt_tokens=sum(row["cached_prompt_tokens"] or 0 for row in clean),
             unknown_cache_usage_requests=sum(row["generation_started"] and row["cached_prompt_tokens"] is None for row in clean))
+    return totals
+
+
+def provenance(manifest):
+    hashes = {key: manifest[key] for key in ("git_sha", "trbench_revision", "dataset_sha256",
+                                             "trbench_tree_sha256", "endpoint_binding_sha256")}
+    trial.require(all(type(value) is str and re.fullmatch("[0-9a-f]{%d}" % (40 if key in
+        ("git_sha", "trbench_revision") else 64), value) for key, value in hashes.items()))
+    return hashes
+
+
+def audit_interrupted(raw):
+    """Inspect an intact v3 prefix without completing, rewriting or resuming it."""
+    manifest, _, items, pending = receipt_parts(raw, interrupted=True)
+    clean = validated_items(manifest, items, True)
+    totals = receipt_totals(manifest["expected"], clean, True)
+    return {"schema": "nib.quality-calibration-interruption/v1", "provenance": provenance(manifest),
+            "source_receipt_sha256": hashlib.sha256(raw).hexdigest(), "suite": manifest["suite"],
+            "started_utc": timestamp(manifest["started_at"]), "ended_utc": None,
+            "expected": totals["expected"], "item_receipts": totals["attempted"],
+            "missing_item_receipts": totals["missing"], "evaluated": totals["evaluated"],
+            "failed_item_receipts": totals["errors"], "unresolved_intents": int(pending),
+            "possibly_sent_requests": totals["generation_requests"] + int(pending),
+            "unknown_usage_requests": totals["unknown_usage_requests"] + int(pending),
+            "unknown_cache_usage_requests": totals["unknown_cache_usage_requests"] + int(pending),
+            **{key: totals[key] for key in ("known_prompt_tokens", "known_completion_tokens", "known_cached_prompt_tokens")},
+            "items": clean, "result": "interrupted", "receipt_complete": False,
+            "source_authentication_verified": False, "billing_reconciled": False,
+            "confidential": False, "full_benchmark": False, "matched_reference": False, "quality_qualified": False}
+
+
+def report(raw):
+    manifest, summary, items, _ = receipt_parts(raw)
+    durable_intents = manifest["schema"] == "nib.quality-calibration/v3"
+    cache_accounting = manifest["schema"] != "nib.quality-calibration/v1"
+    expected = manifest["expected"]
+    clean = validated_items(manifest, items, cache_accounting)
+    totals = receipt_totals(expected, clean, cache_accounting)
     for key, value in totals.items():
         if key == "generation_requests" and key not in summary:
             trial.require(not cache_accounting and all("generation_started" not in row for row in items))
@@ -140,10 +195,7 @@ def report(raw):
     trial.require(summary["latency_median_seconds"] == median)
     started_utc, ended_utc = timestamp(manifest["started_at"]), timestamp(summary["ended_at"])
     trial.require(datetime.fromisoformat(summary["ended_at"]) >= datetime.fromisoformat(manifest["started_at"]))
-    hashes = {key: manifest[key] for key in ("git_sha", "trbench_revision", "dataset_sha256",
-                                             "trbench_tree_sha256", "endpoint_binding_sha256")}
-    trial.require(all(type(value) is str and re.fullmatch("[0-9a-f]{%d}" % (40 if key in
-        ("git_sha", "trbench_revision") else 64), value) for key, value in hashes.items()))
+    hashes = provenance(manifest)
     tls_mode = manifest.get("candidate_tls_mode", "unrecorded")
     trial.require(tls_mode in ("pinned", "system-roots", "unrecorded"))
     version = 3 if durable_intents else 2 if cache_accounting else 1
@@ -155,7 +207,7 @@ def report(raw):
             "prompt_strict": sum(r["score"].get("prompt_strict", 0) for r in clean if r["status"] == "evaluated"),
             "prompt_loose": sum(r["score"].get("prompt_loose", 0) for r in clean if r["status"] == "evaluated"),
             "started_utc": started_utc, "ended_utc": ended_utc,
-            "result": "pass" if evaluated == expected else "fail", "confidential": False,
+            "result": "pass" if totals["evaluated"] == expected else "fail", "confidential": False,
             "full_benchmark": False, "matched_reference": False, "quality_qualified": False}
 
 
