@@ -2,8 +2,9 @@
 
 Status: implemented for offline preparation and synthetic boundary testing.
 No GPU execution, quality, throughput, confidential-computing or public-serving
-claim follows from this change. The selected public-service owner still rejects
-this profile; its migration is a separate, required step.
+claim follows from this change. The separately bound
+[official service runtime](p2-t3-original-runtime.md) is a required preparation
+step, not proof of a completed migration.
 
 The existing official pack pins
 [`deepseek-ai/DeepSeek-V4.1-Flash-1017`](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/tree/1bae0e1088993b9b82de08f59de5be5a34e42170)
@@ -56,7 +57,7 @@ rejection, implicit-selection rejection and confidential/selected crossover.
 The tests use synthetic sources and counters, not hardware receipts.
 
 Before a serving cutover: independently review the final source, pass full CI,
-stage and hash the official pack without overwriting live inputs, implement the
+stage and hash the official pack without overwriting live inputs, prepare the
 source-bound public owner/image and canonical model identity, then run bounded
 readiness, conformance, code-scored quality and cache checks. Coordinate the
 catalog update with that verified serving identity and a rollback plan. Preserve

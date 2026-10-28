@@ -184,6 +184,8 @@ def prepare(bundle, receipt_sha, trcs, output, *, checker_wheelhouse=None):
         for name in receipt["files"] if name.startswith("payload/")}
     derived = owner.prepare_payload(payload)
     contract = owner.service.correctness.strict_json(derived["lab.json"])
+    require(checker_wheelhouse is None or owner.engine_entry.model_profile_name(
+        contract["execution_profile"]) == "uncensored", "contract")
     pins = owner.service.correctness.strict_json(files["scripts/e2e/pins.json"])
     tls = read(str(Path(trcs)), LIMIT)
     require(digest(tls) == pins["trcs"]["binary_sha256"], "identity")

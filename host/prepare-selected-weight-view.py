@@ -46,6 +46,18 @@ def cache_helper():
     return module
 
 
+def selection(cache, name="uncensored"):
+    require(type(name) is str and name in ("original", "uncensored"))
+    original, selected = cache.profiles()
+    return (original, 83) if name == "original" else (selected, 79)
+
+
+def identity_fields(profile, *, worker=False):
+    original = profile["name"] == "original"
+    return {"schema": "nib.selected-weight-view" + ("-worker" if worker else "")
+            + ("/v2" if original else "/v1"), **({"model_profile": profile} if original else {})}
+
+
 @contextmanager
 def private_view_parent(cache, path):
     """Permit one private child of Linux's root-owned sticky RAM disk."""
@@ -146,18 +158,18 @@ def prepare_view(cache, source, destination, rows, deadline):
             "relative_path": "model"}
 
 
-def worker(source, destination, seconds):
+def worker(source, destination, seconds, model_profile="uncensored"):
     require(sys.platform == "linux" and os.getuid() == 0 and sys.flags.isolated
             and sys.flags.no_site and sys.dont_write_bytecode)
     seconds = int(seconds)
     require(0 < seconds <= 7200 - RESERVE)
     cache = cache_helper()
-    _, profile = cache.profiles()
+    profile, count = selection(cache, model_profile)
     manifest = Path(__file__).absolute().parents[1] / profile["pack"] / "files.sha256"
     rows = cache.manifest_rows(cache.read_regular(manifest), profile["manifest_sha256"],
-                               profile["total_bytes"], 79)
+                               profile["total_bytes"], count)
     result = prepare_view(cache, Path(source), Path(destination), rows, time.monotonic() + seconds)
-    print(json.dumps({"schema": "nib.selected-weight-view-worker/v1", **result}, sort_keys=True))
+    print(json.dumps({**identity_fields(profile, worker=True), **result}, sort_keys=True))
 
 
 def main(argv=None):
@@ -169,6 +181,7 @@ def main(argv=None):
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--producer", required=True)
     parser.add_argument("--timeout", required=True, type=int)
+    parser.add_argument("--model-profile", choices=("original", "uncensored"), default="uncensored")
     args = parser.parse_args(argv)
     require(re.fullmatch("[0-9a-f]{40}", args.producer) and RESERVE < args.timeout <= 7200)
     paths = (args.source, args.destination, args.output)
@@ -176,9 +189,9 @@ def main(argv=None):
             and all(left != right and not left.is_relative_to(right) and not right.is_relative_to(left)
                     for index, left in enumerate(paths) for right in paths[index + 1:]))
     cache = cache_helper()
-    _, profile = cache.profiles()
+    profile, count = selection(cache, args.model_profile)
     source = cache.read_regular(Path(__file__).absolute())
-    report = {"schema": "nib.selected-weight-view/v1", "producer": args.producer,
+    report = {**identity_fields(profile), "producer": args.producer,
               "script_sha256": hashlib.sha256(source).hexdigest(), "cache_helper_sha256": CACHE_SHA256,
               "manifest_sha256": profile["manifest_sha256"], "result": "fail", "publication": "unproven",
               "source_preserved": None, "confidential": False, "runtime_ready": False,
@@ -207,8 +220,9 @@ def main(argv=None):
                 signal.signal(sig, cancel)
             raw = cache.load_capture()([sys.executable, "-I", "-S", "-B", "-c", BOOTSTRAP,
                 str(Path(__file__).absolute()), source.decode("utf-8"), str(args.source), str(args.destination),
-                str(args.timeout - RESERVE)], timeout=args.timeout - RESERVE, limit=4096)
-            expected = {"schema": "nib.selected-weight-view-worker/v1", "files": 79,
+                str(args.timeout - RESERVE)] + (["original"] if args.model_profile == "original" else []),
+                timeout=args.timeout - RESERVE, limit=4096)
+            expected = {**identity_fields(profile, worker=True), "files": count,
                         "verified_bytes": profile["total_bytes"], "file_mode": "0444", "directory_mode": "0555",
                         "relative_path": "model"}
             result = json.loads(raw, object_pairs_hook=cache.unique)

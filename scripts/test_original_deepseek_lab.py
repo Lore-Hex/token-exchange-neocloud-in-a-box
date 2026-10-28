@@ -67,9 +67,9 @@ class OriginalLabTests(unittest.TestCase):
         self.assertEqual(tuning.context_limit(contract), 1048576)
         self.assertFalse(contract["deployable"])
         self.assertFalse(contract["confidential"])
-        # Public serving support must be implemented and reviewed separately.
-        with self.assertRaises(ValueError):
-            service_engine.canonical_arguments(contract)
+        arguments = service_engine.canonical_arguments(contract)
+        self.assertEqual(arguments[arguments.index("--served-model-name") + 1],
+                         service_engine.ORIGINAL_MODEL)
 
     def test_same_source_backed_flags_without_model_substitution(self):
         files, contract = self.payload()

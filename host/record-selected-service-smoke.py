@@ -105,11 +105,12 @@ def private_path(value):
     return path
 
 
-def weights_view(lab, path, deadline):
+def weights_view(lab, path, deadline, *, execution_profile=service.engine_entry.EAGER_PROFILE):
     cache = lab.load("service_smoke_weight_cache", ROOT / "host/cache-public-weights.py", CACHE_SHA)
-    profile = service.models.select("uncensored")
+    profile = service.models.select(service.engine_entry.model_profile_name(execution_profile))
     rows = cache.manifest_rows(lab.read(ROOT / profile["pack"] / "files.sha256"),
-                              profile["manifest_sha256"], profile["total_bytes"], 79)
+                              profile["manifest_sha256"], profile["total_bytes"],
+                              83 if profile["name"] == "original" else 79)
     cache.strict_inventory(path, rows)
     directories = {path}
     for _, _, name in rows:
@@ -569,7 +570,7 @@ def run_container(args, contract, lab, recorder, env, build, base, image, inputs
     weights = private_path(args.weights)
     deadline = min(time.monotonic() + SECONDS, contract.startup_deadline)
     with service.identity.worker.alarm(deadline):
-        weights_view(lab, weights, deadline)
+        weights_view(lab, weights, deadline, execution_profile=contract.execution_profile)
     name, token = "nib-selected-" + uuid.uuid4().hex, uuid.uuid4().hex
     docker = Docker(recorder, env, contract.hard_wall, contract.hard_monotonic)
     stop_at = datetime.datetime.fromtimestamp(contract.hard_wall - HOST_RESERVE,

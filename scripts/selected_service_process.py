@@ -108,11 +108,11 @@ def prepare_payload(payload):
     require(payload["launch.py"] == launcher_source(source_root, selected=False), "identity")
     contract = service.correctness.strict_json(payload["lab.json"])
     engine_entry.canonical_arguments(contract)
-    service.models.validate_contract(contract)
-    require(contract["model_profile"] == service.models.select("uncensored")
+    profile = service.models.validate_contract(contract)
+    require(profile == service.models.select(engine_entry.model_profile_name(contract["execution_profile"]))
             and set(payload) == set(contract["sources"]) | {"lab.json", "python"}
             and all(digest(payload[name]) == sha for name, sha in contract["sources"].items()), "identity")
-    service.models.validate_manifest("uncensored", payload["pack/files.sha256"])
+    service.models.validate_manifest(profile["name"], payload["pack/files.sha256"])
     require(payload["python"] == service.engine_lab.wrapper_bytes(contract["interpreter"]["resolved"],
         contract["environment"], digest(payload["lab.json"])), "identity")
     result = dict(payload)
@@ -152,9 +152,9 @@ class Prepared:
         require(digest(raw) == row["lab_sha256"], "identity")
         self.lab_sha, self.lab = row["lab_sha256"], service.correctness.strict_json(raw)
         engine_entry.canonical_arguments(self.lab)
-        service.models.validate_contract(self.lab)
-        require(self.lab["model_profile"] == service.models.select("uncensored")
-                and self.lab["manifest_sha256"] == service.models.select("uncensored")["manifest_sha256"]
+        profile = service.models.validate_contract(self.lab)
+        require(profile == service.models.select(engine_entry.model_profile_name(self.lab["execution_profile"]))
+                and self.lab["manifest_sha256"] == profile["manifest_sha256"]
                 and digest(bootstrap.read_source(str(PAYLOAD / "pack/files.sha256"))) ==
                 self.lab["manifest_sha256"], "model")
         require(type(self.lab["sources"]) is dict and len(self.lab["sources"]) <= 110, "contract")

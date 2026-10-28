@@ -247,7 +247,8 @@ def runtime_plan(args, admitted, selected, commands, result):
     result["reason"] = "weights"
     weights = smoke.private_path(args.weights)
     smoke.weights_view(lab, weights, min(commands.end - contract.cleanup_reserve,
-                                      time.monotonic() + smoke.SECONDS))
+                                      time.monotonic() + smoke.SECONDS),
+                       execution_profile=contract.execution_profile)
     stop_at = smoke.service.retirement_at(contract.hard_wall - smoke.HOST_RESERVE)
     if smoke.service.ordinary_profile(contract.lifetime_profile):
         result.update(schema="nib.selected-service-owner/v2", lifetime={

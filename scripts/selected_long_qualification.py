@@ -59,7 +59,7 @@ class WorkloadProfile:
 
 def workload_profile(execution_profile=process.engine_entry.LONG_PROFILE):
     require(type(execution_profile) is str
-            and execution_profile in (*process.engine_entry.LONG_CONTEXT_PROFILES, COMBINED_PROFILE), "contract")
+            and execution_profile in (*process.engine_entry.SELECTED_LONG_CONTEXT_PROFILES, COMBINED_PROFILE), "contract")
     if execution_profile == process.engine_entry.MILLION_PROFILE:
         return WorkloadProfile(1048576, 393216, (262144, 524288, 1048576), 2097152, 600, 7200, True)
     return WorkloadProfile(CONTEXT, LONG_OUTPUT, TARGETS, MAX_PADDING, PREPARE_SECONDS, RUN_SECONDS)
@@ -402,7 +402,7 @@ def run_owned(supervisor, *, stage_deadline=None, combined=False):
         require(threading.current_thread() is threading.main_thread() and type(supervisor) is service.Supervisor
                 and type(supervisor.owner) is process.ProcessOwner and supervisor.used
                 and supervisor.phase == "ready"
-                and supervisor.contract.execution_profile in process.engine_entry.LONG_CONTEXT_PROFILES
+                and supervisor.contract.execution_profile in process.engine_entry.SELECTED_LONG_CONTEXT_PROFILES
                 and not getattr(supervisor, "_long_qualification_used", False), "contract")
         supervisor._long_qualification_used = True
         require(type(combined) is bool, "contract")
@@ -457,7 +457,7 @@ def _validate_report(raw, prepared_sha256=None, *, execution_profile=None, combi
     require(type(raw) is bytes and len(raw) <= MAX_REPORT, "protocol")
     row = service.correctness.strict_json(raw)
     require(type(row) is dict and type(row.get("execution_profile")) is str
-            and row["execution_profile"] in ((COMBINED_PROFILE,) if combined else process.engine_entry.LONG_CONTEXT_PROFILES)
+            and row["execution_profile"] in ((COMBINED_PROFILE,) if combined else process.engine_entry.SELECTED_LONG_CONTEXT_PROFILES)
             and (execution_profile is None or row["execution_profile"] == execution_profile), "protocol")
     template = empty_report(row["execution_profile"])
     profile = workload_profile(row["execution_profile"])
