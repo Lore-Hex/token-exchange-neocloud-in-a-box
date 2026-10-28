@@ -10,6 +10,10 @@ the changed behavior, including ceilings and malformed streams.
 
 def legacy_source(raw, module):
     if module == "stream_measurement":
+        for assignment in (b"self.usage = (prompt, output, None)\n",
+                           b"self.usage = (prompt, output, cached)\n"):
+            if raw.count(assignment) != 1:
+                raise AssertionError("unreviewed usage assignment count")
         changes = (
             ('MILLION_PROFILE = "long1m"\n', ''),
             ('def stream_limit(profile=None):\n'
