@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Synthetic public files only; no weights, network, inference or privileged IO."""
 import hashlib
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stdout
+import io
 import json
 import os
 from pathlib import Path
@@ -241,15 +242,35 @@ class WeightViewTests(unittest.TestCase):
         self.assertEqual(len(rows), 79)
         self.assertEqual(sum(row[1] for row in rows), 510311056155)
 
+    def test_original_selection_is_explicit_pinned_and_not_a_selected_receipt(self):
+        original, count = view.selection(cache, "original")
+        self.assertEqual(original, cache.profiles()[0])
+        rows = cache.manifest_rows(cache.read_regular(ROOT / original["pack"] / "files.sha256"),
+                                  original["manifest_sha256"], original["total_bytes"], count)
+        self.assertEqual((len(rows), sum(row[1] for row in rows)), (83, 510311045295))
+        selected, count = view.selection(cache)
+        self.assertEqual((selected, count), (cache.profiles()[1], 79))
+        self.assertEqual(view.identity_fields(selected), {"schema": "nib.selected-weight-view/v1"})
+        self.assertEqual(view.identity_fields(original),
+                         {"schema": "nib.selected-weight-view/v2", "model_profile": original})
+        for value in (None, True, "deepseek", "original/other"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                view.selection(cache, value)
+
     def test_worker_metadata_and_parent_failure_preserves_signals(self):
-        for success in (True, False):
+        for model_profile, outcome in ((name, result) for name in ("uncensored", "original")
+                                       for result in ("pass", "interrupt", "other-checkpoint")):
+            success = outcome == "pass"
             source, destination, _ = self.fixture()
             output = source.parent / "report.json"
-            _, profile = cache.profiles()
-            packet = json.dumps({"schema": "nib.selected-weight-view-worker/v1", "files": 79,
-                "verified_bytes": profile["total_bytes"], "file_mode": "0444", "directory_mode": "0555",
+            profile, count = view.selection(cache, model_profile)
+            returned, returned_count = view.selection(cache,
+                ("uncensored" if model_profile == "original" else "original")
+                if outcome == "other-checkpoint" else model_profile)
+            packet = json.dumps({**view.identity_fields(returned, worker=True), "files": returned_count,
+                "verified_bytes": returned["total_bytes"], "file_mode": "0444", "directory_mode": "0555",
                 "relative_path": "model"}).encode()
-            capture = mock.Mock(return_value=packet) if success else mock.Mock(side_effect=InterruptedError)
+            capture = mock.Mock(side_effect=InterruptedError) if outcome == "interrupt" else mock.Mock(return_value=packet)
             old = {number: signal.getsignal(number) for number in (signal.SIGINT, signal.SIGTERM)}
             flags = types.SimpleNamespace(**({name: getattr(view.sys.flags, name) for name in dir(view.sys.flags)
                 if type(getattr(view.sys.flags, name)) is int} | {"isolated": True, "no_site": True}))
@@ -263,7 +284,8 @@ class WeightViewTests(unittest.TestCase):
                 uid = source.stat().st_uid
                 with mock.patch.object(view.os, "getuid", side_effect=[0] + [uid] * 50):
                     code = view.main(["--source", str(source), "--destination", str(destination),
-                        "--output", str(output), "--producer", "a" * 40, "--timeout", "120"])
+                        "--output", str(output), "--producer", "a" * 40, "--timeout", "120"]
+                        + (["--model-profile", "original"] if model_profile == "original" else []))
                 self.assertTrue(directory.called)
             result = json.loads(output.read_bytes())
             self.assertEqual(code, 0 if success else 1)
@@ -273,6 +295,27 @@ class WeightViewTests(unittest.TestCase):
             self.assertNotIn(str(source), output.read_text())
             self.assertEqual(old, {number: signal.getsignal(number) for number in old})
             self.assertEqual(capture.call_args.kwargs, {"timeout": 60, "limit": 4096})
+            self.assertEqual(capture.call_args.args[0][-1], "original" if model_profile == "original" else "60")
+            self.assertEqual({key: result[key] for key in view.identity_fields(profile)},
+                             view.identity_fields(profile))
+
+    def test_official_worker_passes_all_manifest_rows_to_unchanged_copy(self):
+        profile, _ = view.selection(cache, "original")
+        result = {"files": 83, "verified_bytes": profile["total_bytes"],
+                  "file_mode": "0444", "directory_mode": "0555", "relative_path": "model"}
+        flags = types.SimpleNamespace(isolated=True, no_site=True)
+        output = io.StringIO()
+        with mock.patch.object(view, "cache_helper", return_value=cache), \
+                mock.patch.object(view.sys, "platform", "linux"), \
+                mock.patch.object(view.sys, "flags", flags), \
+                mock.patch.object(view.sys, "dont_write_bytecode", True), \
+                mock.patch.object(view.os, "getuid", return_value=0), \
+                mock.patch.object(view, "prepare_view", return_value=result) as prepare, redirect_stdout(output):
+            view.worker("/synthetic/source", "/synthetic/destination", "60", "original")
+        self.assertEqual(prepare.call_args.args[1:3], (Path("/synthetic/source"), Path("/synthetic/destination")))
+        self.assertEqual(len(prepare.call_args.args[3]), 83)
+        self.assertEqual(sum(row[1] for row in prepare.call_args.args[3]), profile["total_bytes"])
+        self.assertEqual(json.loads(output.getvalue()), {**view.identity_fields(profile, worker=True), **result})
 
 
 if __name__ == "__main__":

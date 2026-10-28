@@ -16,6 +16,10 @@ selected abliterated model's ID. It requires the separately implemented
 - Preparation preserves the lab bundle, creates a new source-bound launcher
   and validates the official manifest. Host inventory expects all 83 files;
   the in-container owner hashes them before engine startup.
+- `host/prepare-selected-weight-view.py --model-profile original` creates a
+  separate source-preserving view using the same bounded atomic copy and
+  full-hash verification. It emits a distinct v2 receipt carrying the complete
+  official identity. The default selected-checkpoint v1 behavior is unchanged.
 - The existing 1M runtime settings remain: 1048576 context, 393216 maximum
   output, global admission C1, 512 GiB memory, no swap, prefix caching, actual
   cached-token accounting, 3540-second request deadline and 7240-second
