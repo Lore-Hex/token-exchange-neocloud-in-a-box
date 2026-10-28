@@ -112,6 +112,17 @@ class CompleteTests(unittest.TestCase):
                       raw.replace(b'"completed":true', b'"completed":false,"completed":true')):
             with self.subTest(value=value[:20]), self.assertRaises(ValueError): complete.audit(value)
 
+    def test_successful_request_must_finish_before_collector_deadline(self):
+        for elapsed in (118.999, 119, 120):
+            rows = self.records()
+            rows[2]["measurement"]["elapsed_seconds"] = elapsed
+            rows[-1]["elapsed_seconds"] = elapsed + 9
+            with self.subTest(elapsed=elapsed):
+                if elapsed < 119:
+                    self.assertTrue(self.audit(rows)["recorded_sequence_completed"])
+                else:
+                    with self.assertRaises(ValueError): self.audit(rows)
+
     def test_cli_fixed_errors_and_no_extra_arguments(self):
         for raw, args, expected in ((self.encoded(self.records()), [], 0),
                                    (b"SENSITIVE_TEST_CONTENT\n", [], 1),

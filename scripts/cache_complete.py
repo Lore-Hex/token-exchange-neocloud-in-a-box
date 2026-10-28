@@ -29,6 +29,8 @@ def audit(raw):
     results, summary = rows[2:-1:2], rows[-1]
     require(all(row["phase"] == "warm" or row["measurement"]["cached_prompt_tokens"] == 0
                 for row in results))
+    require(all(row["measurement"]["elapsed_seconds"] < probe.stream.REQUEST_SECONDS
+                for row in results))
     expected = {
         "planned_requests": probe.REQUESTS, "attempted_requests": probe.REQUESTS,
         "not_started_requests": 0, "requests_with_unknown_usage": 0,

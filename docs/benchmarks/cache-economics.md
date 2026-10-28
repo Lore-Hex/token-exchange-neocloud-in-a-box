@@ -198,8 +198,9 @@ This reuses the interrupted-prefix validator, then requires one final successful
 summary whose request, token and warm-hit counts exactly match every receipt.
 All nine ordered attempts must have known usage; cold and different-namespace
 results must report zero cached tokens, including the last request. Warm misses
-are valid results and are not dropped. Serial request durations must fit the
-reported total window, which must be below the sequence's 1,200-second cap.
+are valid results and are not dropped. Every successful request must finish
+before the collector's 119-second deadline. Serial request durations must fit
+the reported total window, which must be below the sequence's 1,200-second cap.
 Duplicate keys, extra fields, mixed runs, missing receipts, malformed tails,
 overstated qualification flags and failed terminal summaries are rejected.
 
