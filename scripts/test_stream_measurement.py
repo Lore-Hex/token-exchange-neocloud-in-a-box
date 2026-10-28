@@ -4,6 +4,7 @@
 import copy
 import json
 import math
+from pathlib import Path
 import unittest
 
 import stream_measurement as measure
@@ -46,6 +47,24 @@ def finish(m, *, count=512, cached=None):
 
 
 class MeasurementTests(unittest.TestCase):
+    def test_historical_comparison_only_normalizes_exact_accounting_changes(self):
+        from fixtures.stream_profile_compat import legacy_source
+        raw = Path(measure.__file__).read_bytes()
+        normalized = legacy_source(raw, "stream_measurement")
+        self.assertNotIn(b"self.usage = (prompt, output, None)", normalized)
+        self.assertEqual(normalized.count(b"self.usage = (prompt, output, cached)"), 1)
+        self.assertIn(b"require(reasoning is None or integer(reasoning, output))\n"
+                      b"            self.usage = (prompt, output, cached)", normalized)
+        early = b"            self.usage = (prompt, output, None)\n"
+        for before, after in (
+            (early, early.replace(b"None", b"0")),
+            (early, early * 2),
+            (b"self.usage = (prompt, output, cached)", b"self.usage = (prompt, output, None)"),
+            (b"require(reasoning is None or integer(reasoning, output))", b"require(True)"),
+        ):
+            with self.subTest(before=before, after=after), self.assertRaises(AssertionError):
+                legacy_source(raw.replace(before, after), "stream_measurement")
+
     def test_role_finish_usage_and_done_do_not_move_token_clock(self):
         m = meter()
         prefix(m)

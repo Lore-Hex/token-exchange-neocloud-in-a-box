@@ -72,7 +72,9 @@ No claim about a newer engine's performance applies to this candidate.
   cache count survives a later invalid reasoning breakdown. The request remains
   failed and its output is excluded from completed throughput. These are
   provider-reported usage counts, not invoice reconciliation or permission to
-  discount prices. Historical evidence is not rewritten.
+  discount prices. Historical evidence is not rewritten. Historical-source
+  comparisons normalize only the exact reviewed accounting change; all other
+  bytes remain checked, and malformed-detail behavior has separate regressions.
 - `long128k-graphs` removes `--enforce-eager` and selects
   `FULL_DECODE_ONLY` with `cudagraph_capture_sizes: [1]`, retaining
   `pass_config.fuse_allreduce_rms: false`. Pinned

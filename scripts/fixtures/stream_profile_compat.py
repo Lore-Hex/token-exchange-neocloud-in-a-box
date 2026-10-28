@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Exact opt-in normalization for historical-source regression assertions.
+"""Exact reviewed-change normalization for historical-source assertions.
 
-Only these literal, reviewed opt-in additions may differ. Everything left over is
-still compared byte-for-byte (or by the existing salt-only AST test) against
-the immutable historical source. Runtime tests independently exercise both
-branches, including their ceilings and malformed streams.
+Only these literal profile additions and failed-usage accounting fixes may
+differ. Everything left over is compared byte-for-byte (or by the existing
+salt-only AST test) against immutable historical source. Runtime tests exercise
+the changed behavior, including ceilings and malformed streams.
 """
 
 
@@ -21,6 +21,15 @@ def legacy_source(raw, module):
             ('(3540 if million else 1800)', '1800'),
             ('393216 if million else 131072', '131072'),
             ('self.bytes + len(data) > self.max_stream_bytes', 'self.bytes + len(data) > MAX_STREAM'),
+            ('            # Optional breakdowns can be malformed after valid totals arrive.\n'
+             '            # Reject the stream, but do not turn already reported work into unknown usage.\n'
+             '            self.usage = (prompt, output, None)\n', ''),
+            ('            self.usage = (prompt, output, cached)\n'
+             '            details = usage.get("completion_tokens_details")',
+             '            details = usage.get("completion_tokens_details")'),
+            ('            require(reasoning is None or integer(reasoning, output))\n',
+             '            require(reasoning is None or integer(reasoning, output))\n'
+             '            self.usage = (prompt, output, cached)\n'),
         )
     elif module == "stream_transport":
         changes = (
@@ -57,6 +66,6 @@ def legacy_source(raw, module):
         raise AssertionError("unreviewed source normalization")
     for added, original in changes:
         if raw.count(added.encode()) != 1:
-            raise AssertionError("opt-in source differs from exact reviewed addition")
+            raise AssertionError("source differs from exact reviewed change")
         raw = raw.replace(added.encode(), original.encode())
     return raw
