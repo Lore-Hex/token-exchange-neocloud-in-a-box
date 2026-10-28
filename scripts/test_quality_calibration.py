@@ -164,7 +164,7 @@ class CalibrationTests(unittest.TestCase):
             http.last_status = 200
             return value
         http = types.SimpleNamespace(last_status=None, post=post)
-        public = contract["schema"] == "nib.quality-calibration-endpoint/v1"
+        public = contract["schema"] in ("nib.quality-calibration-endpoint/v1", quality.quality_candidate.ORIGINAL_ENDPOINT)
         raw = json.dumps(contract).encode()
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             output = Path(temporary) / "receipt.jsonl"
@@ -173,7 +173,9 @@ class CalibrationTests(unittest.TestCase):
             for name in ("trbench-root", "contract", "candidate-key", "vllm-source", "tokenizer", "tokenizer-wheel"):
                 args += ["--" + name, "/unused"]
             stack.enter_context(mock.patch.object(quality.sys, "argv", args))
-            stack.enter_context(mock.patch.object(quality.sys, "flags", types.SimpleNamespace(isolated=True)))
+            isolated_sys = types.SimpleNamespace(**vars(quality.sys))
+            isolated_sys.flags = types.SimpleNamespace(isolated=True)
+            stack.enter_context(mock.patch.object(quality, "sys", isolated_sys))
             stack.enter_context(mock.patch.object(quality, "source", return_value="a" * 64))
             stack.enter_context(mock.patch.object(quality, "cases", return_value=(
                 [{}] * 20, lambda r: "SYNTHETIC_PROMPT_CANARY",
@@ -605,6 +607,129 @@ with q.journal(pathlib.Path(sys.argv[1])) as journal:
             self.assertEqual(record["usage"] is not None, stage == "grade")
             self.assertNotIn("CANARY", json.dumps(record))
             self.assertLessEqual(http.post.call_count, 1)
+
+
+class OriginalCalibrationTests(unittest.TestCase):
+    def contract(self):
+        return {**public_contract(), "schema": quality.quality_candidate.ORIGINAL_ENDPOINT,
+                **quality.quality_candidate.original_fields()}
+
+    def response(self):
+        value = reply()
+        value["model"] = quality.quality_candidate.ORIGINAL_MODEL
+        value["usage"]["prompt_tokens_details"] = {"cached_tokens": 12}
+        return value
+
+    def raw(self, rows):
+        return b"".join(quality.worker.encoded(row) for row in rows)
+
+    def test_official_contract_retains_closed_public_tls_transport(self):
+        with mock.patch.object(quality.bounded_https, "system_trust") as trust, \
+             mock.patch.object(quality.tau_live_identity, "private_read") as read:
+            http, mode = quality.candidate_transport(self.contract(), time.monotonic() + 10)
+        self.assertEqual(mode, "system-roots")
+        self.assertEqual((http.hostname, http.address, http.port), ("synthetic.invalid", "8.8.8.8", 443))
+        self.assertEqual(http.paths, ("/v1/chat/completions",))
+        trust.assert_called_once_with()
+        read.assert_not_called()
+
+    def test_mixed_revision_identity_and_legacy_contract_rejected_before_transport(self):
+        cases = []
+        for key, value in (("model", quality.MODEL), ("serving_profile", "long1m-graphs"),
+                           ("schema", "nib.quality-calibration-endpoint/v1"),
+                           ("schema", "nib.tau-external-trial-endpoint/v2"),
+                           ("model_profile", quality.quality_candidate.models.select("uncensored")),
+                           ("certificate", "/unused"), ("tls_mode", "pinned")):
+            cases.append({**self.contract(), key: value})
+        for key in quality.quality_candidate.original_fields():
+            contract = self.contract()
+            del contract[key]
+            cases.append(contract)
+        for key in self.contract()["model_profile"]:
+            contract = self.contract()
+            contract["model_profile"][key] = "wrong"
+            cases.append(contract)
+        for contract in cases:
+            with self.subTest(contract=contract), mock.patch.object(quality.bounded_https, "HTTPS") as transport, \
+                 mock.patch.object(quality.tau_live_identity, "private_read") as read:
+                with self.assertRaises(ValueError):
+                    quality.candidate_transport(contract, time.monotonic() + 10)
+                transport.assert_not_called()
+                read.assert_not_called()
+
+    def test_original_request_and_response_identity_are_paired(self):
+        for response, expected in ((self.response(), "evaluated"), (reply(), "protocol_or_transport_error")):
+            http = types.SimpleNamespace(last_status=None, post=mock.Mock(return_value=response))
+            grade = mock.Mock(return_value={"correct": 1})
+            row = quality.evaluate(0, {}, lambda r: "synthetic", grade,
+                types.SimpleNamespace(count=lambda b: 20), http, b"synthetic", time.monotonic() + 10,
+                model=quality.quality_candidate.ORIGINAL_MODEL)
+            self.assertEqual(row["status"], expected)
+            self.assertEqual(http.post.call_args.args[1]["model"], quality.quality_candidate.ORIGINAL_MODEL)
+            self.assertEqual(row["usage"], {"prompt_tokens": 20, "completion_tokens": 3})
+            self.assertEqual(grade.call_count, int(expected == "evaluated"))
+        with self.assertRaises(ValueError):
+            quality.numeric_reply(self.response(), 20)
+        http.post.reset_mock()
+        with self.assertRaises(ValueError):
+            quality.evaluate(0, {}, None, None, None, http, b"synthetic", time.monotonic() + 10, model="wrong")
+        http.post.assert_not_called()
+
+    def test_original_writer_and_summary_retain_checkpoint_and_usage(self):
+        rows = CalibrationTests().writer_receipt(self.contract(), [self.response() for _ in range(20)], exit_code=0)
+        self.assertEqual(rows[0]["schema"], quality.quality_candidate.ORIGINAL_RECEIPT)
+        record = summary.report(self.raw(rows))
+        self.assertEqual(record["schema"], "nib.quality-calibration-summary/v4")
+        for value in (rows[0], record):
+            for key, expected in quality.quality_candidate.original_fields().items():
+                self.assertEqual(value[key], expected)
+        self.assertEqual((record["evaluated"], record["correct"], record["known_cached_prompt_tokens"]), (20, 20, 240))
+        for flag in ("confidential", "full_benchmark", "matched_reference", "quality_qualified"):
+            self.assertIs(record[flag], False)
+        self.assertNotIn(b"CANARY", self.raw(rows))
+
+    def test_original_interruption_preserves_unknown_usage_and_identity(self):
+        rows = CalibrationTests().writer_receipt(self.contract())
+        record = summary.audit_interrupted(self.raw(rows[:2]))
+        self.assertEqual(record["schema"], "nib.quality-calibration-interruption/v2")
+        self.assertEqual(record["unresolved_intents"], 1)
+        self.assertEqual(record["unknown_usage_requests"], 1)
+        self.assertEqual(record["unknown_cache_usage_requests"], 1)
+        self.assertEqual(record["model_profile"], self.contract()["model_profile"])
+        self.assertIs(record["receipt_complete"], False)
+        self.assertIs(record["source_authentication_verified"], False)
+        with self.assertRaises(ValueError):
+            summary.report(self.raw(rows[:2]))
+
+    def test_original_summaries_reject_mixed_identity(self):
+        rows = CalibrationTests().writer_receipt(self.contract(), [self.response() for _ in range(20)], exit_code=0)
+        for key, value in (("model", quality.MODEL), ("serving_profile", "long1m-graphs"),
+                           ("model_profile", quality.quality_candidate.models.select("uncensored"))):
+            changed = copy.deepcopy(rows)
+            changed[0][key] = value
+            with self.subTest(key=key):
+                with self.assertRaises(ValueError):
+                    summary.report(self.raw(changed))
+                with self.assertRaises(ValueError):
+                    summary.audit_interrupted(self.raw(changed[:2]))
+
+    def test_legacy_receipts_are_not_relabelled(self):
+        rows = CalibrationTests().writer_receipt(public_contract(), [reply() for _ in range(20)], exit_code=0)
+        record = summary.report(self.raw(rows))
+        self.assertEqual(record["schema"], "nib.quality-calibration-summary/v3")
+        self.assertNotIn("model_profile", record)
+        self.assertNotIn("serving_profile", record)
+
+    def test_pinned_tokenizer_files_match_both_model_manifests(self):
+        models = quality.quality_candidate.models
+        for name in models.NAMES:
+            profile = models.select(name)
+            raw = (quality.ROOT / profile["pack"] / "files.sha256").read_bytes()
+            models.validate_manifest(name, raw)
+            rows = {path: (int(size), sha) for sha, size, path in
+                    (line.split() for line in raw.decode("ascii").splitlines())}
+            for path, expected in quality.tau_external_tokenizer.parity.MODEL_FILES.items():
+                self.assertEqual(rows[path], expected)
 
 
 class InterruptionAuditTests(unittest.TestCase):

@@ -15,6 +15,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tau_trial as trial
+import quality_candidate
 
 
 def number(value):
@@ -66,9 +67,10 @@ def receipt_parts(raw, interrupted=False):
         trial.require(raw.endswith(b"\n"))
     rows = [trial.worker.decode(line) for line in raw.splitlines()]
     manifest = rows[0]
-    trial.require(type(manifest) is dict and manifest["schema"] in ("nib.quality-calibration/v1", "nib.quality-calibration/v2", "nib.quality-calibration/v3")
+    trial.require(type(manifest) is dict and manifest["schema"] in ("nib.quality-calibration/v1", "nib.quality-calibration/v2", "nib.quality-calibration/v3", quality_candidate.ORIGINAL_RECEIPT)
                   and manifest["suite"] in ("gsm8k", "mmlu_pro", "ifeval"))
-    durable_intents = manifest["schema"] == "nib.quality-calibration/v3"
+    quality_candidate.receipt_fields(manifest)
+    durable_intents = manifest["schema"] in ("nib.quality-calibration/v3", quality_candidate.ORIGINAL_RECEIPT)
     if interrupted:
         trial.require(durable_intents and manifest.get("kind") == "manifest")
         summary, items = None, rows[1:]
@@ -160,11 +162,13 @@ def provenance(manifest):
 
 
 def audit_interrupted(raw):
-    """Inspect an intact v3 prefix without completing, rewriting or resuming it."""
+    """Inspect an intact durable prefix without completing or resuming it."""
     manifest, _, items, pending = receipt_parts(raw, interrupted=True)
     clean = validated_items(manifest, items, True)
     totals = receipt_totals(manifest["expected"], clean, True)
-    return {"schema": "nib.quality-calibration-interruption/v1", "provenance": provenance(manifest),
+    return {"schema": "nib.quality-calibration-interruption/v2" if manifest["schema"] == quality_candidate.ORIGINAL_RECEIPT else
+            "nib.quality-calibration-interruption/v1", "provenance": provenance(manifest),
+            **quality_candidate.receipt_fields(manifest),
             "source_receipt_sha256": hashlib.sha256(raw).hexdigest(), "suite": manifest["suite"],
             "started_utc": timestamp(manifest["started_at"]), "ended_utc": None,
             "expected": totals["expected"], "item_receipts": totals["attempted"],
@@ -181,7 +185,7 @@ def audit_interrupted(raw):
 
 def report(raw):
     manifest, summary, items, _ = receipt_parts(raw)
-    durable_intents = manifest["schema"] == "nib.quality-calibration/v3"
+    durable_intents = manifest["schema"] in ("nib.quality-calibration/v3", quality_candidate.ORIGINAL_RECEIPT)
     cache_accounting = manifest["schema"] != "nib.quality-calibration/v1"
     expected = manifest["expected"]
     clean = validated_items(manifest, items, cache_accounting)
@@ -198,8 +202,9 @@ def report(raw):
     hashes = provenance(manifest)
     tls_mode = manifest.get("candidate_tls_mode", "unrecorded")
     trial.require(tls_mode in ("pinned", "system-roots", "unrecorded"))
-    version = 3 if durable_intents else 2 if cache_accounting else 1
+    version = 4 if manifest["schema"] == quality_candidate.ORIGINAL_RECEIPT else 3 if durable_intents else 2 if cache_accounting else 1
     return {"schema": f"nib.quality-calibration-summary/v{version}", "provenance": hashes,
+            **quality_candidate.receipt_fields(manifest),
             "candidate_tls_mode": tls_mode,
             "source_receipt_sha256": hashlib.sha256(raw).hexdigest(), "suite": manifest["suite"],
             **totals, "latency_median_seconds": median, "items": clean,
@@ -227,8 +232,9 @@ def main():
                   == record["provenance"]["trbench_tree_sha256"])
     root = Path(__file__).resolve().parents[1]
     revision = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], timeout=10, stderr=subprocess.DEVNULL).decode().strip()
-    committed = subprocess.check_output(["git", "-C", str(root), "show", revision + ":scripts/" + Path(__file__).name], timeout=10, stderr=subprocess.DEVNULL)
-    trial.require(committed == Path(__file__).read_bytes())
+    for name in (Path(__file__).name, "quality_candidate.py", "deepseek_model_profile.py"):
+        committed = subprocess.check_output(["git", "-C", str(root), "show", revision + ":scripts/" + name], timeout=10, stderr=subprocess.DEVNULL)
+        trial.require(committed == (root / "scripts" / name).read_bytes())
     envelope = trial.evidence_record(revision, record["source_receipt_sha256"], record["started_utc"], record)
     envelope.update(host=summary_host(), command="python3 -I -B scripts/summarize-quality-calibration.py --input PRIVATE --output EVIDENCE --trbench-root PRIVATE",
         notes="Scored selected cases using pinned TrustedRouter formatters and graders against a retained ordinary-TLS "
