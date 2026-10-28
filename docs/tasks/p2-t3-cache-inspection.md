@@ -11,8 +11,8 @@ approved open mount's Linux `mnt_id`; nested bind mounts are rejected even
 when they contain byte-identical files. See
 [proc_pid_fdinfo(5)](https://man7.org/linux/man-pages/man5/proc_pid_fdinfo.5.html).
 It only accepts the complete pinned original
-83-file pack. It does not mount, unmount, restore, copy, delete, change
-permissions or start inference.
+83-file pack. Its default mode does not mount or unmount anything. Neither mode
+restores, copies, deletes model files, changes permissions or starts inference.
 
 An operator must separately arrange and approve a **read-only NFS mount** of
 the public cache on a suitable host. The kernel readback must match the exact
@@ -46,6 +46,32 @@ can subsequently change the files. The receipt explicitly leaves immutability,
 runtime readiness, confidentiality and process-group absence unverified.
 Restore, independent local rehashing, image admission, drained model-ID cutover,
 fresh conformance/quality/cache tests and rollback gates remain separate.
+
+## Temporary Private Mount
+
+When no suitable read-only mount already exists, add `--private-mount` and pass
+an existing empty, root-owned private directory as `--mount`. The worker uses
+`/usr/bin/unshare --mount --propagation private`, verifies that its mount namespace
+differs from the supervisor's and that the containing mount has private
+propagation, then mounts only the approved export read-only. See
+[unshare(1)](https://man7.org/linux/man-pages/man1/unshare.1.html), inspected
+2026-10-28. This requires Linux mount-namespace support and root privileges.
+Namespace failure is terminal; there is no fallback to a shared host mount.
+
+The same deadline covers mounting, the full hash check and normal unmounting.
+Mount or cleanup failures do not produce a successful pack receipt. Cleanup
+never uses force or lazy unmount, and refuses a different or writable export.
+Mount changes are private to the worker; the server's existing mounts and
+running service remain unchanged. The underlying NFS reads still consume host
+and network resources, so this does not waive the live-run window/budget gate.
+The existing supervisor bounds the process group; uncertain cleanup stays
+uncertain and must be investigated before another attempt.
+
+Private mode produces a `nib.public-weight-cache-inspection/v2` receipt with
+explicit requested-mode, verified-namespace and completed-unmount fields.
+Only an exact successful worker acknowledgment can set the latter two true.
+Default mode retains its v1 contract. Neither mode creates a runtime snapshot
+or authorizes use of a mounted cloud cache as the live model directory.
 
 ## Verification
 

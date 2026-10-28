@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Synthetic cache inspection only; no mount, network or model downloads."""
 import hashlib
+import contextlib
 import io
 import json
 import os
@@ -246,6 +247,119 @@ class InspectionTests(unittest.TestCase):
         self.assertEqual(sum(row[1] for row in inspect.call_args.args[3]), self.profile["total_bytes"])
         with mock.patch.object(inspection.Path, "open", return_value=io.BytesIO(b"raise AssertionError('unverified')")):
             with self.assertRaises(ValueError): inspection.cache_helper()
+
+    def private_fixture(self, stack):
+        mount = self.root / "empty-mount"
+        mount.mkdir(mode=0o700)
+        stack.enter_context(mock.patch.object(inspection.os, "readlink", return_value="mnt:[18]"))
+        stack.enter_context(mock.patch.object(self.cache, "command", return_value=b'{"filesystems":[{"propagation":"private"}]}'))
+        unmounted = stack.enter_context(mock.patch.object(self.cache, "require_unmounted", side_effect=[None, ValueError("mounted")]))
+        mounted = stack.enter_context(mock.patch.object(self.cache, "mount_cache"))
+        verify = stack.enter_context(mock.patch.object(self.cache, "verify_mount"))
+        unmount = stack.enter_context(mock.patch.object(self.cache, "unmount_cache"))
+        check = stack.enter_context(mock.patch.object(inspection, "inspect_pack", return_value={"files": 2, "verified_bytes": 24}))
+        return mount, unmounted, mounted, verify, unmount, check
+
+    def test_private_namespace_full_check_and_normal_cleanup_share_deadline(self):
+        with contextlib.ExitStack() as stack:
+            mount, unmounted, mounted, verify, unmount, check = self.private_fixture(stack)
+            deadline = time.monotonic() + 10
+            result = inspection.private_inspection(self.cache, self.export, mount, self.rows, deadline, "mnt:[17]")
+            self.assertEqual(result, {"files": 2, "verified_bytes": 24,
+                                      "private_namespace_verified": True, "private_mount_cleanup_confirmed": True})
+            self.assertEqual(unmounted.call_args_list, [mock.call(mount)] * 2)
+            mounted.assert_called_once_with(self.export, mount, readonly=True)
+            check.assert_called_once_with(self.cache, self.export, mount, self.rows, deadline)
+            verify.assert_called_once_with(self.export, mount, readonly=True)
+            unmount.assert_called_once_with(self.export, mount)
+
+    def test_namespace_propagation_target_and_deadline_reject_before_mount(self):
+        for mode in ("same", "invalid", "shared", "nonempty", "mounted", "deadline"):
+            with self.subTest(mode=mode), contextlib.ExitStack() as stack:
+                self.setUp()
+                mount, unmounted, mounted, _, _, check = self.private_fixture(stack)
+                parent = "mnt:[17]"
+                deadline = time.monotonic() + 10
+                if mode == "same": parent = "mnt:[18]"
+                if mode == "invalid": parent = "private-input"
+                if mode == "shared": self.cache.command.return_value = b'{"filesystems":[{"propagation":"shared"}]}'
+                if mode == "nonempty": (mount / "existing").write_bytes(b"untouched")
+                if mode == "mounted": unmounted.side_effect = ValueError("mounted")
+                if mode == "deadline": deadline = time.monotonic() - 1
+                with self.assertRaises(ValueError):
+                    inspection.private_inspection(self.cache, self.export, mount, self.rows, deadline, parent)
+                mounted.assert_not_called()
+                check.assert_not_called()
+
+    def test_private_failures_never_pass_and_cleanup_refuses_foreign_mount(self):
+        for mode in ("mount", "hash", "unmount", "wrong-export", "late"):
+            with self.subTest(mode=mode), contextlib.ExitStack() as stack:
+                self.setUp()
+                mount, _, mounted, verify, unmount, check = self.private_fixture(stack)
+                deadline = time.monotonic() + 10
+                if mode == "mount": mounted.side_effect = ValueError("mount-failed-after-attachment")
+                if mode == "hash": check.side_effect = ValueError("bad-hash")
+                if mode == "unmount": unmount.side_effect = ValueError("busy")
+                if mode == "wrong-export": verify.side_effect = ValueError("foreign")
+                if mode == "late":
+                    stack.enter_context(mock.patch.object(inspection.time, "monotonic", side_effect=[deadline - 1, deadline - 1, deadline + 1]))
+                with self.assertRaises(ValueError):
+                    inspection.private_inspection(self.cache, self.export, mount, self.rows, deadline, "mnt:[17]")
+                if mode == "wrong-export": unmount.assert_not_called()
+                else: unmount.assert_called_once_with(self.export, mount)
+
+    def test_private_receipt_uses_isolated_worker_and_requires_exact_ack(self):
+        def capture(argv, **kwargs):
+            intent = json.loads(self.output.read_bytes())
+            self.assertEqual(intent["schema"], "nib.public-weight-cache-inspection/v2")
+            self.assertTrue(intent["private_mount_requested"])
+            self.assertFalse(intent["private_namespace_verified"])
+            self.assertFalse(intent["private_mount_cleanup_confirmed"])
+            self.assertEqual(argv[:6], ["/usr/bin/unshare", "--mount", "--propagation", "private", "--", sys.executable])
+            self.assertEqual(argv[-4:], [self.export, str(self.mount), "60", "mnt:[17]"])
+            self.assertEqual(kwargs, {"timeout": 60, "limit": 4096})
+            return self.success(private_namespace_verified=True, private_mount_cleanup_confirmed=True)
+        with mock.patch.object(inspection.os, "readlink", return_value="mnt:[17]"):
+            self.assertEqual(self.report(capture, private_mount=True), 0)
+        result = json.loads(self.output.read_bytes())
+        self.assertTrue(result["private_namespace_verified"])
+        self.assertTrue(result["private_mount_cleanup_confirmed"])
+        for key in ("mount_changed", "runtime_ready", "immutable", "confidential"):
+            self.assertFalse(result[key])
+        for ack in (self.success(), self.success(private_namespace_verified=1, private_mount_cleanup_confirmed=True),
+                    self.success(private_namespace_verified=True, private_mount_cleanup_confirmed=False)):
+            self.output.unlink()
+            with mock.patch.object(inspection.os, "readlink", return_value="mnt:[17]"):
+                self.assertEqual(self.report(mock.Mock(return_value=ack), private_mount=True), 1)
+            result = json.loads(self.output.read_bytes())
+            self.assertFalse(result["private_namespace_verified"])
+            self.assertFalse(result["private_mount_cleanup_confirmed"])
+            self.assertFalse(result["pack_verified"])
+
+    def test_private_timeout_keeps_cleanup_unproven_without_retry(self):
+        capture = mock.Mock(side_effect=ValueError("probe-timeout"))
+        with mock.patch.object(inspection.os, "readlink", return_value="mnt:[17]"):
+            self.assertEqual(self.report(capture, private_mount=True), 1)
+        capture.assert_called_once()
+        result = json.loads(self.output.read_bytes())
+        self.assertEqual(result["failure"], "timeout")
+        self.assertEqual(result["cleanup"], "unproven")
+        self.assertFalse(result["private_mount_cleanup_confirmed"])
+
+    def test_private_worker_routes_only_to_isolated_mount_check(self):
+        fake_sys = types.SimpleNamespace(**vars(sys))
+        fake_sys.platform = "linux"
+        fake_sys.flags = types.SimpleNamespace(isolated=True, no_site=True)
+        fake_sys.dont_write_bytecode = True
+        ack = {"files": 83, "verified_bytes": self.profile["total_bytes"],
+               "private_namespace_verified": True, "private_mount_cleanup_confirmed": True}
+        with mock.patch.object(inspection, "sys", fake_sys), mock.patch.object(inspection.os, "getuid", return_value=0), \
+                mock.patch.object(inspection, "private_inspection", return_value=ack) as check, \
+                mock.patch.object(inspection, "inspect_pack") as direct, mock.patch("sys.stdout", io.StringIO()) as output:
+            inspection.worker(self.export, str(self.mount), "60", "mnt:[17]")
+        direct.assert_not_called()
+        self.assertEqual(check.call_args.args[-1], "mnt:[17]")
+        self.assertEqual(json.loads(output.getvalue()), json.loads(self.success(**ack)))
 
 
 if __name__ == "__main__":

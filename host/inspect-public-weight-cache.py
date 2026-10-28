@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Hash an already read-only-mounted official pack; never mount, copy or serve it."""
+"""Hash an official pack read-only, optionally inside a temporary private mount."""
 import argparse
 import datetime
 import hashlib
@@ -97,7 +97,36 @@ def inspect_pack(cache, export, mount, rows, deadline):
     return {"files": len(rows), "verified_bytes": sum(row[1] for row in rows)}
 
 
-def worker(export, mount, seconds):
+def private_inspection(cache, export, mount, rows, deadline, parent_namespace):
+    # unshare(1) --mount --propagation private isolates all mount changes.
+    # https://man7.org/linux/man-pages/man1/unshare.1.html (2026-10-28)
+    require(re.fullmatch(r"mnt:\[[0-9]+\]", parent_namespace) is not None
+            and os.readlink("/proc/self/ns/mnt") != parent_namespace)
+    with cache.directory(mount, private=True) as fd:
+        with os.scandir(fd) as entries:
+            require(next(entries, None) is None)
+    cache.require_unmounted(mount)
+    found = json.loads(cache.command(["findmnt", "--json", "--target", str(mount),
+                       "--output", "PROPAGATION"]), object_pairs_hook=cache.unique)
+    require(type(found) is dict and found == {"filesystems": [{"propagation": "private"}]}
+            and time.monotonic() < deadline)
+    # Even a failed mount/readback may have attached the export in this namespace.
+    # Never detach a foreign mount or use forced/lazy cleanup.
+    try:
+        cache.mount_cache(export, mount, readonly=True)
+        require(time.monotonic() < deadline)
+        result = inspect_pack(cache, export, mount, rows, deadline)
+    finally:
+        try:
+            cache.require_unmounted(mount)
+        except ValueError:
+            cache.verify_mount(export, mount, readonly=True)
+            cache.unmount_cache(export, mount)
+    require(time.monotonic() < deadline)
+    return {**result, "private_namespace_verified": True, "private_mount_cleanup_confirmed": True}
+
+
+def worker(export, mount, seconds, parent_namespace=None):
     require(sys.platform == "linux" and os.getuid() == 0 and sys.flags.isolated
             and sys.flags.no_site and sys.dont_write_bytecode)
     seconds = int(seconds)
@@ -106,14 +135,16 @@ def worker(export, mount, seconds):
     profile, _ = cache.profiles()
     manifest = Path(__file__).absolute().parents[1] / profile["pack"] / "files.sha256"
     rows = cache.manifest(cache.read_regular(manifest))
-    result = inspect_pack(cache, export, Path(mount), rows, time.monotonic() + seconds)
+    deadline = time.monotonic() + seconds
+    result = (inspect_pack(cache, export, Path(mount), rows, deadline) if parent_namespace is None
+              else private_inspection(cache, export, Path(mount), rows, deadline, parent_namespace))
     print(json.dumps({"schema": "nib.public-weight-cache-inspection-worker/v1",
                       "model_profile": profile, **result}, sort_keys=True))
 
 
-def inspect_report(export, mount, output, producer, seconds):
+def inspect_report(export, mount, output, producer, seconds, private_mount=False):
     require(type(seconds) is int and RESERVE < seconds <= 7200
-            and re.fullmatch(r"[0-9a-f]{40}", producer) is not None)
+            and re.fullmatch(r"[0-9a-f]{40}", producer) is not None and type(private_mount) is bool)
     paths = (mount, output, Path(__file__).absolute())
     require(all(path.is_absolute() and str(path) == os.path.normpath(path) and ".." not in path.parts for path in paths)
             and all(left != right and not left.is_relative_to(right) and not right.is_relative_to(left)
@@ -132,6 +163,9 @@ def inspect_report(export, mount, output, producer, seconds):
               "mount_changed": False, "source_written": False, "source_removed": False,
               "immutable": False, "runtime_ready": False, "confidential": False,
               "started_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(), "ended_utc": None}
+    if private_mount:
+        report.update(schema="nib.public-weight-cache-inspection/v2", private_mount_requested=True,
+                      private_namespace_verified=False, private_mount_cleanup_confirmed=False)
     with cache.directory(output.parent, private=True) as parent:
         fd = os.open(output.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
         with os.fdopen(fd, "w") as stream:
@@ -162,16 +196,23 @@ def inspect_report(export, mount, output, producer, seconds):
                 persist()
                 budget = seconds - RESERVE
                 deadline = time.monotonic() + budget
-                raw = capture([sys.executable, "-I", "-S", "-B", "-c", BOOTSTRAP,
-                    str(Path(__file__).absolute()), source.decode("utf-8"), export, str(mount), str(budget)],
-                    timeout=budget, limit=4096)
+                argv = [sys.executable, "-I", "-S", "-B", "-c", BOOTSTRAP,
+                        str(Path(__file__).absolute()), source.decode("utf-8"), export, str(mount), str(budget)]
+                private_ack = {}
+                if private_mount:
+                    namespace = os.readlink("/proc/self/ns/mnt")
+                    require(re.fullmatch(r"mnt:\[[0-9]+\]", namespace) is not None)
+                    argv = ["/usr/bin/unshare", "--mount", "--propagation", "private", "--", *argv, namespace]
+                    private_ack = {"private_namespace_verified": True, "private_mount_cleanup_confirmed": True}
+                raw = capture(argv, timeout=budget, limit=4096)
                 require(time.monotonic() < deadline and type(raw) is bytes and len(raw) <= 4096)
                 result = json.loads(raw, object_pairs_hook=cache.unique)
                 require(result == {"schema": "nib.public-weight-cache-inspection-worker/v1",
-                        "model_profile": profile, "files": 83, "verified_bytes": profile["total_bytes"]}
+                        "model_profile": profile, "files": 83, "verified_bytes": profile["total_bytes"], **private_ack}
                         and type(result["files"]) is int and type(result["verified_bytes"]) is int)
+                require(all(result[key] is True for key in private_ack))
                 report.update(result="pass", cleanup="worker-completed", worker_exit_confirmed=True,
-                              files=83, verified_bytes=profile["total_bytes"], pack_verified=True)
+                              files=83, verified_bytes=profile["total_bytes"], pack_verified=True, **private_ack)
             except (cache.Cancelled, InterruptedError):
                 report.update(result="fail", failure="cancelled", pack_verified=False,
                               files=0, verified_bytes=0, worker_exit_confirmed=False, cleanup="unproven")
@@ -189,6 +230,8 @@ def inspect_report(export, mount, output, producer, seconds):
                     if cancelled:
                         report.update(result="fail", failure="cancelled", pack_verified=False,
                                       files=0, verified_bytes=0, worker_exit_confirmed=False, cleanup="unproven")
+                        if private_mount:
+                            report.update(private_namespace_verified=False, private_mount_cleanup_confirmed=False)
                     report["ended_utc"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
                     persist()
                 finally:
@@ -209,8 +252,9 @@ def main(argv=None):
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--producer", required=True)
     parser.add_argument("--timeout", required=True, type=int)
+    parser.add_argument("--private-mount", action="store_true")
     args = parser.parse_args(argv)
-    return inspect_report(args.export, args.mount, args.output, args.producer, args.timeout)
+    return inspect_report(args.export, args.mount, args.output, args.producer, args.timeout, args.private_mount)
 
 
 if __name__ == "__main__":
