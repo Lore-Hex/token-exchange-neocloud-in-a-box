@@ -119,6 +119,37 @@ tokenized by the transport. No cache-isolation, billing, quality, hardware,
 confidentiality or sustainable-price qualification follows from a successful
 stream. Synthetic in-memory tests are not a live TLS or GPU benchmark.
 
+## Bounded Cache Sequence
+
+`scripts/cache_probe.py` drives that transport for one prepared synthetic
+workload: 2,048 input / 512 maximum output tokens, or 32,768 or 131,072 input /
+1,024 maximum output tokens. It reuses the existing synthetic long-output
+fixture. The caller must first measure its exact padding with the pinned
+tokenizer; counts are not estimated by this sequence.
+
+Each sequence has three cold/warm/different-namespace triplets, nine requests
+maximum, concurrency one, no retries and a 1,200-second overall cap. Each pair
+of namespaces is fresh; only the cold/warm pair shares one. It checks the
+caller's runtime predicate before every request and emits a manifest, pre-send
+intents, numerical results and a summary through a required durable writer.
+Receipt failures propagate and prohibit further requests. Unmatched intents
+remain possibly transmitted with unknown usage; never resume that run. The
+transport is consumed even if a sequence fails before sending.
+
+Transport failure, missing cache counts or unexpected cold/negative cache reuse
+stops the sequence. A warm miss is retained rather than excluded or retried.
+Known usage survives a late failure; missing usage remains explicitly counted.
+Reported totals cover attempted failures too, and time includes preparation,
+preflight and receipt work before the terminal write. A five-second bounded
+receipt-only allowance does not admit inference after the run deadline.
+
+This is not a standalone admission controller: the operator still needs a
+reviewed source/endpoint/tokenizer-bound caller, an exclusive fsynced journal,
+fresh runtime/quiescence checks, aggregate cost authorization and exact billing
+reconciliation. The two namespaces may map to different replicas, so a zero-hit
+negative sample does not prove same-replica isolation. No cache-isolation,
+quality, sustained-load, privacy, invoice or tariff qualification is claimed.
+
 ## Read-Only Cache Counters
 
 `scripts/cache_counters.py` summarizes an existing private DP2 `/metrics`
