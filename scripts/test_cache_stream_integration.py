@@ -58,6 +58,11 @@ class CacheStreamTests(unittest.TestCase):
     def audit_prefix(self, rows):
         return journal.audit(b"".join(json.dumps(row).encode() + b"\n" for row in rows))
 
+    def assert_no_content(self, rendered, prompt):
+        self.assertIn("CEDAR42", prompt)
+        for canary in (wire.CANARY, wire.KEY.decode(), "CEDAR42", prompt):
+            self.assertNotIn(canary, rendered)
+
     def test_complete_sequence_parses_real_streams_and_preserves_scope_order(self):
         client, rows, connections = self.fixture([
             wire.response(wire.data(1024 if index % 3 == 1 else 0)) for index in range(9)])
@@ -78,15 +83,20 @@ class CacheStreamTests(unittest.TestCase):
         self.assertEqual(len({body["cache_salt"] for body in bodies}), 6)
         self.assertTrue(all(connection.closed and connection.buffer.closed for connection in connections))
         rendered = repr(rows) + out.getvalue() + err.getvalue()
-        self.assertNotIn(wire.CANARY, rendered)
-        self.assertNotIn(wire.KEY.decode(), rendered)
-        self.assertNotIn(bodies[0]["messages"][0]["content"], rendered)
+        self.assert_no_content(rendered, bodies[0]["messages"][0]["content"])
         for length in range(1, len(rows)):
             report = self.audit_prefix(rows[:length])
             self.assertEqual(report["known_prompt_tokens"], ((length - 1) // 2) * 2048)
             self.assertEqual(report["orphaned_intents"], int(length % 2 == 0))
         with self.assertRaises(ValueError): self.run_probe(client, rows)
         self.assertEqual(len(connections), 9)
+
+    def test_content_assertion_detects_escaped_prompt_logging(self):
+        body = probe.request(2000, 2048, "a" * 64)
+        prompt = body["messages"][0]["content"]
+        for rendered in (prompt, repr(body), json.dumps(body), wire.CANARY, wire.KEY.decode()):
+            with self.subTest(rendered=rendered[:30]), self.assertRaises(AssertionError):
+                self.assert_no_content(rendered, prompt)
 
     def test_late_protocol_failure_keeps_actual_totals_and_never_retries(self):
         for raw, cached in ((wire.data(0).replace(b"data: [DONE]\n\n", b""), 0),
