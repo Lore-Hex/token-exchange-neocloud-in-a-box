@@ -154,16 +154,12 @@ class MeasurementTests(unittest.TestCase):
             m.feed(raw, 1)
             self.assertEqual(m.close(2).status, "protocol-error")
 
-    def test_usage_strict_integer_arithmetic_limits_and_details(self):
+    def test_invalid_total_usage_remains_unknown(self):
         mutations = [lambda r: r.update(prompt_tokens=True), lambda r: r.update(completion_tokens=1.0),
                      lambda r: r.update(completion_tokens=0), lambda r: r.update(total_tokens=1),
                      lambda r: r.update(total_tokens=True), lambda r: r.update(prompt_tokens=-1),
                      lambda r: r.update(prompt_tokens=4097, total_tokens=4609),
-                     lambda r: r.update(completion_tokens=513, total_tokens=2561),
-                     lambda r: r.update(prompt_tokens_details=[]),
-                     lambda r: r.update(prompt_tokens_details={"cached_tokens": 2049}),
-                     lambda r: r.update(prompt_tokens_details={"cached_tokens": True}),
-                     lambda r: r.update(completion_tokens_details={"reasoning_tokens": 513})]
+                     lambda r: r.update(completion_tokens=513, total_tokens=2561)]
         for mutate in mutations:
             m = meter()
             row = usage()
@@ -171,7 +167,61 @@ class MeasurementTests(unittest.TestCase):
             m.feed(event(chunk({"content": "x"}, finish="stop", usage=row)), 1)
             result = m.close(2)
             self.assertEqual(result.status, "protocol-error")
+            self.assertIsNone(result.prompt_tokens)
             self.assertIsNone(result.completion_tokens)
+            self.assertIsNone(result.cached_prompt_tokens)
+
+    def test_bad_cache_details_reject_but_preserve_valid_total_usage(self):
+        details = [[], "private-cache-canary", True,
+                   *({"cached_tokens": value} for value in (-1, 2049, True, 0.0, "1024", [], {}))]
+        for detail in details:
+            with self.subTest(detail=detail):
+                m = meter()
+                row = usage()
+                row["prompt_tokens_details"] = detail
+                m.feed(event(chunk({"content": "private-output-canary"}, finish="stop", usage=row)), 1)
+                m.feed(event(b"[DONE]"), 2)
+                sample = m.close(3)
+                self.assertEqual(sample.status, "protocol-error")
+                self.assertEqual((sample.prompt_tokens, sample.completion_tokens), (2048, 512))
+                self.assertIsNone(sample.cached_prompt_tokens)
+                self.assertIsNone(sample.metadata()["ttft_seconds"])
+                self.assertFalse(m.done or m.pending or m.event)
+                report = measure.summarize([sample], scheduled=1, wall_seconds=3, gpu_count=8)
+                self.assertEqual((report["completed"], report["failed"]), (0, 1))
+                self.assertEqual(report["reported_failed_output_tokens"], 512)
+                self.assertEqual(report["completed_output_tokens"], 0)
+                self.assertEqual(report["requests_with_unknown_usage"], 0)
+                serialized = json.dumps({"sample": sample.metadata(), "report": report, "meter": vars(m)}, default=str)
+                self.assertNotIn("private-cache-canary", serialized)
+                self.assertNotIn("private-output-canary", serialized)
+
+    def test_bad_output_details_preserve_valid_cache_count_without_success(self):
+        for cached in (None, 0, 1024):
+            for detail in ([], "private-reasoning-canary", True,
+                           {"reasoning_tokens": -1}, {"reasoning_tokens": 513},
+                           {"reasoning_tokens": True}, {"reasoning_tokens": "1"}):
+                with self.subTest(cached=cached, detail=detail):
+                    m = meter()
+                    row = usage(cached=cached)
+                    row["completion_tokens_details"] = detail
+                    m.feed(event(chunk({"content": "private-output-canary"}, finish="length", usage=row)), 1)
+                    sample = m.close(2)
+                    self.assertEqual(sample.status, "protocol-error")
+                    self.assertEqual((sample.prompt_tokens, sample.completion_tokens,
+                                      sample.cached_prompt_tokens), (2048, 512, cached))
+                    self.assertNotIn("private-reasoning-canary", json.dumps(sample.metadata()))
+
+    def test_invalid_totals_cannot_be_rescued_by_valid_optional_details(self):
+        for change in ({"prompt_tokens": True}, {"total_tokens": 99}, {"completion_tokens": 513}):
+            m = meter()
+            row = usage(cached=1024)
+            row.update(completion_tokens_details={"reasoning_tokens": 1}, **change)
+            m.feed(event(chunk({"content": "x"}, finish="stop", usage=row)), 1)
+            sample = m.close(2)
+            self.assertEqual(sample.status, "protocol-error")
+            self.assertEqual((sample.prompt_tokens, sample.completion_tokens,
+                              sample.cached_prompt_tokens), (None, None, None))
 
     def test_time_limits_invalid_timestamps_and_sticky_failure(self):
         for time in (-1, True, math.nan, math.inf, 10**500, "1"):
