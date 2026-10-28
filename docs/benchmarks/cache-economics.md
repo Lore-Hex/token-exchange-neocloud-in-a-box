@@ -150,6 +150,30 @@ reconciliation. The two namespaces may map to different replicas, so a zero-hit
 negative sample does not prove same-replica isolation. No cache-isolation,
 quality, sustained-load, privacy, invoice or tariff qualification is claimed.
 
+### Interrupted Journals
+
+Audit an intact, newline-terminated prefix of a single interrupted sequence:
+
+```sh
+python3 -I -S -B scripts/cache_journal.py < private-cache-journal.jsonl
+```
+
+The offline auditor requires the manifest and ordered intent/result records,
+rejects duplicate keys, mixed runs, malformed/truncated tails and terminal
+summaries, and makes no network calls or changes to the input. An orphaned
+intent remains one possibly transmitted request with unknown usage. A saved
+intent followed by a pre-send failure also remains conservatively uncertain.
+Known usage after a late failure is retained, even when the upstream prompt count
+disagrees with the prepared tokenizer count. Missing cache counts stay unknown.
+Requests without send evidence are not a statement that nothing was billed.
+
+This validates only the supplied prefix, not its provenance or completeness.
+Preserve the original file and all unresolved holds; never reconstruct missing
+receipts from transcript totals, concatenate runs, resume or manufacture a
+terminal summary. A rejected audit cannot release accounting holds. Even nine
+completed result records without a terminal record do not qualify the run,
+cache isolation, model quality, billing, confidential computing or a tariff.
+
 ## Read-Only Cache Counters
 
 `scripts/cache_counters.py` summarizes an existing private DP2 `/metrics`
