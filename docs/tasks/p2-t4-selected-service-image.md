@@ -135,6 +135,26 @@ PID 1, without an init-wrapper process. It retains one engine at
 
 ## Remaining Runtime Work
 
+### Image Application Budget
+
+The standalone image-build application now uses the same fixed 720-second
+layout-plus-application budget as the CPU diagnostic. Previously it inherited
+the generic tree's 300-second deadline, although the recorded
+[CPU entry run](../../evidence/p2/2026-10-20-cpu-entry-125036c/output.log)
+took 496,309 ms for application plus 8,562 ms of preflight, and the
+[native run](../../evidence/p2/2026-10-20-cpu-native-39467970211-1/output.log)
+took 671,086 ms for application. These are historical software observations,
+not a successful new image build or hardware acceptance.
+
+One deadline starts before layout verification and covers inspection, all
+eight full inventory passes and the final completion check. It is not renewed
+per pass and is not configurable through an environment variable or argument.
+The generic tree and layout scanner retain their existing bounds; hash,
+mutation, link, size, ABI and packaging checks are unchanged. Expiry at any
+point rejects the application and requires discarding the modified image.
+Regression tests use synthetic time and files; a fresh exact-head build is
+still required before this correction can establish a usable image.
+
 The private-container runner and external lifetime watchdog are a **separate
 host-owner task**, not implemented here. They must retain the original absolute cutoff,
 exact image identity, UID 65532, read-only root, 512 GiB/no swap, bounded

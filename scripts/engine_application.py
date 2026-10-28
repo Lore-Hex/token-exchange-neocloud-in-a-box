@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import posixpath
 import stat
+import time
 import types
 
 EVIDENCE = "evidence/p0/2026-10-20-official-vllm-python-chain/output.log"
@@ -20,6 +21,8 @@ EVIDENCE_SHA = "52a15aafc3044821740c5d408e5fc44f6635bea36c30f5af51f5866120810440
 EVIDENCE_SOURCE = "d033d2198866f7fdbd509e56329702942f22de14"
 MODE = "exact-image-application-contract"
 HOOKS = {"distutils-precedence.pth", "nvidia_cutlass_dsl_packages.pth"}
+# Same fixed, all-pass budget as the measured CPU application diagnostic.
+APPLICATION_SECONDS = 720
 
 
 def measurement(overlay, data):
@@ -173,6 +176,22 @@ def read_payload(name):
         os.close(parent)
 
 
+def run_application(overlay, descriptor, diagnostic, contract, measured, stages, *, apply_requested):
+    deadline = time.monotonic() + APPLICATION_SECONDS
+    verify_layout(overlay, descriptor, diagnostic, contract, measured)
+    with selected_tree(overlay, contract, measured) as (tree, console):
+        overlay.require(0 < deadline - time.monotonic() <= APPLICATION_SECONDS)
+        tree.deadline = console[1].deadline = deadline
+        before = inspect(overlay, tree, contract, measured, console)
+        result = apply(overlay, tree, contract, stages, before, measured, console) if apply_requested else {
+            "status": "BLOCKED", "result": "experimental-inspection-only", "image": None,
+            "generic_overlay_admission": "not-granted", "deployable": False, "abi_validated": False,
+            "hardware_validated": False, "engine_executed": False,
+            "inventory_sha256": overlay.digest(overlay.json_bytes(before))}
+    overlay.require(time.monotonic() < deadline)
+    return result
+
+
 def main():
     import json
     if len(sys.argv) not in (2, 3) or (len(sys.argv) == 3 and sys.argv[2] != "--apply"):
@@ -202,14 +221,8 @@ def main():
         measured = measurement(overlay, payload.read("measurement.json"))
         stages = [{item["path"]: payload.read(f"stages/{n}/" + item["path"]) for item in contract["files"]}
                   for n in range(1, 6)]
-    verify_layout(overlay, descriptor, diagnostic, contract, measured)
-    with selected_tree(overlay, contract, measured) as (tree, console):
-        before = inspect(overlay, tree, contract, measured, console)
-        result = apply(overlay, tree, contract, stages, before, measured, console) if len(sys.argv) == 3 else {
-            "status": "BLOCKED", "result": "experimental-inspection-only", "image": None,
-            "generic_overlay_admission": "not-granted", "deployable": False, "abi_validated": False,
-            "hardware_validated": False, "engine_executed": False,
-            "inventory_sha256": overlay.digest(overlay.json_bytes(before))}
+    result = run_application(overlay, descriptor, diagnostic, contract, measured, stages,
+                             apply_requested=len(sys.argv) == 3)
     print(overlay.json_bytes(result).decode(), end="")
 
 

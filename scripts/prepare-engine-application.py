@@ -18,7 +18,7 @@ SCRIPT = "scripts/prepare-engine-application.py"
 APPLICATION = "scripts/engine_application.py"
 TEST = "scripts/test_engine_application.py"
 RECORDER_SHA = "33fb55fa674951a0797571280d3fef9fc686a234575469aba3bdf0f320873379"
-APPLICATION_SHA = "ce69e94d64434294f674c4be66e1a41fe8a08864535e6dbe242db365559b7406"
+APPLICATION_SHA = "9ee8ac9af663f31ff12e8ef0d9da364ea6eb90994f29592c16a7ebd47213df6c"
 
 
 def bootstrap_read(path):
