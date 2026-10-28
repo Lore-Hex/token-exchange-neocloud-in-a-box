@@ -190,12 +190,42 @@ def numeric_reply(raw, expected_prompt):
     return message["content"], choice["finish_reason"], usage
 
 
-def write(stream, row):
-    stream.write(worker.encoded(row))
-    stream.flush()
+class RecordingFailure(BaseException):
+    """A receipt failure stops the run, never another inference attempt."""
 
 
-def evaluate(index, item, prompt, grade, counter, http, key, deadline, row=None):
+class Journal:
+    def __init__(self, stream):
+        self.stream = stream
+        self.failed = False
+
+    def write(self, row):
+        if self.failed:
+            raise RecordingFailure("Calibration receipt unavailable")
+        try:
+            raw = worker.encoded(row)
+            worker.require(self.stream.write(raw) == len(raw))
+            self.stream.flush()
+            os.fsync(self.stream.fileno())
+        except BaseException:
+            self.failed = True
+            raise RecordingFailure("Calibration receipt unavailable") from None
+
+
+@contextlib.contextmanager
+def journal(path):
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as stream:
+        # Persist the newly created directory entry before any request can send.
+        parent = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(parent)
+        finally:
+            os.close(parent)
+        yield Journal(stream)
+
+
+def evaluate(index, item, prompt, grade, counter, http, key, deadline, row=None, before_send=lambda: None):
     if row is None:
         row = {}
     row.update(kind="item", index=index, status="infrastructure_error", stage="render",
@@ -211,8 +241,11 @@ def evaluate(index, item, prompt, grade, counter, http, key, deadline, row=None)
             incoming = counter.count(body)
             worker.require(incoming + MAX_OUTPUT <= 32768)
             row["stage"] = "request"
+            def record_send():
+                before_send()
+                row["generation_started"] = True
             reply = http.post("/v1/chat/completions", body, key, min(deadline, before + 119),
-                              before_send=lambda: row.update(generation_started=True))
+                              before_send=record_send)
             row["stage"] = "response-validation"
             row["usage"] = measured_usage(reply)
             # Keep measured totals even when optional cache accounting is malformed.
@@ -266,10 +299,9 @@ def main():
                      "engine_tokenizer_parity.py"):
             committed = subprocess.check_output(["git", "-C", str(ROOT), "show", revision + ":scripts/" + name], timeout=10, stderr=subprocess.DEVNULL)
             worker.require(committed == (ROOT / "scripts" / name).read_bytes())
-        fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         results = []
-        with os.fdopen(fd, "wb") as stream:
-            write(stream, {"kind": "manifest", "schema": "nib.quality-calibration/v2", "git_sha": revision,
+        with journal(args.output) as stream:
+            stream.write({"kind": "manifest", "schema": "nib.quality-calibration/v3", "git_sha": revision,
                 "trbench_revision": REVISION, "trbench_tree_sha256": tree_sha, "dataset_sha256": dataset_sha,
                 "suite": args.suite, "expected": args.count, "started_at": started,
                 "sampling": "proportional-stride" if args.suite == "mmlu_pro" else "first-n",
@@ -295,10 +327,11 @@ def main():
                            "elapsed_seconds": 0.0}
                     try:
                         results.append(row)
-                        evaluate(index, item, prompt, grade, counter, http, key, deadline, row)
+                        evaluate(index, item, prompt, grade, counter, http, key, deadline, row,
+                                 before_send=lambda: stream.write({"kind": "intent", "index": index}))
                     finally:
-                        if any(item is row for item in results):
-                            write(stream, row)
+                        if not stream.failed and any(item is row for item in results):
+                            stream.write(row)
                     if row["status"] == "cancelled":
                         break
                     # Stop a broken transport early; retain the full expected denominator.
@@ -306,21 +339,24 @@ def main():
                         break
             finally:
                 cancelled = True
-                counter.close()
-                key = b""
-                write(stream, {"kind": "summary", "attempted": len(results), "expected": args.count,
-                    "evaluated": sum(row["status"] == "evaluated" for row in results),
-                    "errors": sum(row["status"] != "evaluated" for row in results),
-                    "missing": args.count - len(results), "ended_at": datetime.now(timezone.utc).isoformat(),
-                    "known_prompt_tokens": sum((row["usage"] or {}).get("prompt_tokens", 0) for row in results),
-                    "known_completion_tokens": sum((row["usage"] or {}).get("completion_tokens", 0) for row in results),
-                    "known_cached_prompt_tokens": sum(row["cached_prompt_tokens"] or 0 for row in results),
-                    "generation_requests": sum(row["generation_started"] for row in results),
-                    "unknown_usage_requests": sum(row["generation_started"] and row["usage"] is None for row in results),
-                    "unknown_cache_usage_requests": sum(row["generation_started"] and row["cached_prompt_tokens"] is None for row in results),
-                    "latency_median_seconds": statistics.median(row["elapsed_seconds"] for row in results) if results else None})
-                for sig, handler in prior.items():
-                    signal.signal(sig, handler)
+                try:
+                    counter.close()
+                    key = b""
+                    if not stream.failed:
+                        stream.write({"kind": "summary", "attempted": len(results), "expected": args.count,
+                            "evaluated": sum(row["status"] == "evaluated" for row in results),
+                            "errors": sum(row["status"] != "evaluated" for row in results),
+                            "missing": args.count - len(results), "ended_at": datetime.now(timezone.utc).isoformat(),
+                            "known_prompt_tokens": sum((row["usage"] or {}).get("prompt_tokens", 0) for row in results),
+                            "known_completion_tokens": sum((row["usage"] or {}).get("completion_tokens", 0) for row in results),
+                            "known_cached_prompt_tokens": sum(row["cached_prompt_tokens"] or 0 for row in results),
+                            "generation_requests": sum(row["generation_started"] for row in results),
+                            "unknown_usage_requests": sum(row["generation_started"] and row["usage"] is None for row in results),
+                            "unknown_cache_usage_requests": sum(row["generation_started"] and row["cached_prompt_tokens"] is None for row in results),
+                            "latency_median_seconds": statistics.median(row["elapsed_seconds"] for row in results) if results else None})
+                finally:
+                    for sig, handler in prior.items():
+                        signal.signal(sig, handler)
     print(json.dumps({"suite": args.suite, "attempted": len(results), "expected": args.count,
                       "evaluated": sum(row["status"] == "evaluated" for row in results)}))
     return 0 if len(results) == args.count and all(row["status"] == "evaluated" for row in results) else 1
@@ -329,5 +365,5 @@ def main():
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except Exception:
+    except (Exception, RecordingFailure):
         sys.exit("Calibration failed before completion; no response text retained.")

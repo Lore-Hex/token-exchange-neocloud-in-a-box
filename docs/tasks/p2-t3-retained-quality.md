@@ -102,8 +102,9 @@ receive no credit. CLI validation failures do not echo arbitrary input values.
 
 ### Cache usage accounting
 
-New receipts use `nib.quality-calibration/v2`; their numeric evidence summaries
-use `nib.quality-calibration-summary/v2`. Each item retains
+Cache accounting began with `nib.quality-calibration/v2` and its matching
+`nib.quality-calibration-summary/v2`. New durable-intent receipts use v3 of
+both schemas, retaining the same cache fields. Each item retains
 `cached_prompt_tokens` from the response's `usage.prompt_tokens_details.cached_tokens`.
 Missing or null cache details/counts remain `null` (unknown); an explicit integer
 zero means the provider reported no cache hits. Known counts must be integers
@@ -117,6 +118,32 @@ are not charged as unknown requests. Historical v1 evidence retains its original
 format without invented cache counts. These are reported token counts, not
 measured cache savings, invoice reconciliation or proof of a customer discount.
 Request payloads, scoring, failure denominators and execution limits are unchanged.
+
+### Durable request intents
+
+Store private receipts on persistent, backed-up operator storage, not a temporary
+directory. The runner exclusively creates its output, synchronizes the parent
+directory entry, and flushes and synchronizes every manifest, intent, item and
+terminal summary. After TLS verification and immediately before sending a request,
+it records a content-free `intent` containing only the zero-based case index.
+The request cannot send until that write succeeds. A write, flush or synchronization
+failure stops the run immediately; it is not retried as a network error.
+
+A surviving intent without its item means the request **may have been sent**:
+retain the uncertainty and reconcile it, never infer zero usage or fabricate a
+response. Even the existing `generation_started` marker is conservative, since
+the process can exit between recording intent and transmitting bytes. No prompt,
+response, credential or endpoint address is added to these records.
+
+The v3 summary validator requires each started item to have exactly one preceding
+matching intent. Missing, duplicated, reordered or unresolved intents and missing
+terminal summaries cannot qualify. Historical v1/v2 files remain valid under
+their original contracts, without invented intents. Interrupted runs cannot
+resume, append, overwrite or contribute elapsed time to a replacement run.
+Use a fresh reviewed run identity and preserve the original evidence. Filesystem
+synchronization does not protect against deletion, loss of the underlying disk
+or deletion of a temporary directory; backup and storage placement remain operator
+responsibilities. Offline crash tests do not themselves qualify a live run.
 
 ## October 26-27 results
 

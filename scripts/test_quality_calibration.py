@@ -142,9 +142,10 @@ class CalibrationTests(unittest.TestCase):
 
     def assert_interrupted_writer(self, contract):
         rows = self.writer_receipt(contract)
-        self.assertEqual(rows[0]["schema"], "nib.quality-calibration/v2")
-        self.assertEqual(rows[1]["status"], "cancelled")
-        self.assertIsNone(rows[1]["cached_prompt_tokens"])
+        self.assertEqual(rows[0]["schema"], "nib.quality-calibration/v3")
+        self.assertEqual(rows[1], {"kind": "intent", "index": 0})
+        self.assertEqual(rows[2]["status"], "cancelled")
+        self.assertIsNone(rows[2]["cached_prompt_tokens"])
         self.assertEqual(rows[-1]["generation_requests"], 1)
         self.assertEqual(rows[-1]["unknown_usage_requests"], 1)
         self.assertEqual(rows[-1]["known_cached_prompt_tokens"], 0)
@@ -153,7 +154,7 @@ class CalibrationTests(unittest.TestCase):
         record = summary.report(b"".join(quality.worker.encoded(row) for row in rows))
         self.assertEqual(record["unknown_cache_usage_requests"], 1)
 
-    def writer_receipt(self, contract, responses=None):
+    def writer_receipt(self, contract, responses=None, exit_code=1):
         values = iter(responses or [])
         def post(*args, before_send, **kwargs):
             before_send()
@@ -188,11 +189,19 @@ class CalibrationTests(unittest.TestCase):
             stack.enter_context(mock.patch.object(quality.subprocess, "check_output", side_effect=git))
             stack.enter_context(redirect_stdout(io.StringIO()))
             stack.enter_context(redirect_stderr(io.StringIO()))
-            self.assertEqual(quality.main(), 1)
+            self.assertEqual(quality.main(), exit_code)
             rows = [json.loads(line) for line in output.read_bytes().splitlines()]
             self.assertEqual(rows[0]["candidate_tls_mode"], "system-roots" if public else "pinned")
             self.assertNotIn(b"CANARY", output.read_bytes())
             return rows
+
+    def test_completed_v3_writer_keeps_full_denominator(self):
+        rows = self.writer_receipt(public_contract(), [reply() for _ in range(20)], exit_code=0)
+        self.assertEqual(sum(row["kind"] == "intent" for row in rows), 20)
+        record = summary.report(b"".join(quality.worker.encoded(row) for row in rows))
+        self.assertEqual((record["result"], record["expected"], record["evaluated"], record["correct"]),
+                         ("pass", 20, 20, 20))
+        self.assertEqual((record["generation_requests"], record["unknown_usage_requests"]), (20, 0))
 
     def test_cache_usage_does_not_change_payload_scoring_or_total_usage(self):
         for details, cached in ((None, None), ({}, None), ({"cached_tokens": None}, None),
@@ -260,7 +269,7 @@ class CalibrationTests(unittest.TestCase):
         responses[1]["usage"]["prompt_tokens_details"] = {"cached_tokens": 0}
         rows = self.writer_receipt(public_contract(), responses)
         record = summary.report(b"".join(quality.worker.encoded(row) for row in rows))
-        self.assertEqual(record["schema"], "nib.quality-calibration-summary/v2")
+        self.assertEqual(record["schema"], "nib.quality-calibration-summary/v3")
         self.assertEqual([r["cached_prompt_tokens"] for r in record["items"]], [12, 0, None, None])
         for key, value in {"known_prompt_tokens": 60, "known_completion_tokens": 9,
                            "known_cached_prompt_tokens": 12, "unknown_cache_usage_requests": 2,
@@ -268,8 +277,8 @@ class CalibrationTests(unittest.TestCase):
                            "expected": 20, "missing": 16, "errors": 1}.items():
             self.assertEqual(record[key], value, key)
         self.assertNotIn("CANARY", json.dumps(record))
-        invalid = [(1, "cached_prompt_tokens", v) for v in (-1, 21, True, 1.0, "12", [], {})]
-        invalid += [(4, "cached_prompt_tokens", 0), (1, "usage", None),
+        invalid = [(2, "cached_prompt_tokens", v) for v in (-1, 21, True, 1.0, "12", [], {})]
+        invalid += [(8, "cached_prompt_tokens", 0), (2, "usage", None),
                     (-1, "known_cached_prompt_tokens", 0), (-1, "unknown_cache_usage_requests", 1),
                     (-1, "unknown_cache_usage_requests", True)]
         for index, key, value in invalid:
@@ -278,16 +287,120 @@ class CalibrationTests(unittest.TestCase):
                 bad[index][key] = value
                 with self.assertRaises(ValueError):
                     summary.report(b"".join(quality.worker.encoded(row) for row in bad))
-        for index, key in ((1, "cached_prompt_tokens"), (1, "generation_started"),
+        for index, key in ((2, "cached_prompt_tokens"), (2, "generation_started"),
                            (-1, "known_cached_prompt_tokens"), (-1, "unknown_cache_usage_requests")):
             bad = copy.deepcopy(rows)
             del bad[index][key]
             with self.subTest(missing=key), self.assertRaises(ValueError):
                 summary.report(b"".join(quality.worker.encoded(row) for row in bad))
-        rows[4]["generation_started"] = False
+        rows[8]["generation_started"] = False
+        del rows[7]  # A request that never reached before_send has no intent.
         rows[-1].update(generation_requests=3, unknown_usage_requests=0, unknown_cache_usage_requests=1)
         self.assertEqual(summary.report(b"".join(quality.worker.encoded(row) for row in rows))[
             "unknown_cache_usage_requests"], 1)
+
+    def test_v2_receipts_remain_accepted_without_inventing_intents(self):
+        rows = self.writer_receipt(public_contract(), [reply()])
+        rows = [row for row in rows if row["kind"] != "intent"]
+        rows[0]["schema"] = "nib.quality-calibration/v2"
+        record = summary.report(b"".join(quality.worker.encoded(row) for row in rows))
+        self.assertEqual(record["schema"], "nib.quality-calibration-summary/v2")
+        self.assertEqual(record["generation_requests"], 2)
+        self.assertEqual(record["unknown_usage_requests"], 1)
+
+    def test_v3_rejects_missing_duplicate_reordered_or_unresolved_intents(self):
+        rows = self.writer_receipt(public_contract(), [reply()])
+        mutations = [lambda r: r.pop(1), lambda r: r.insert(1, dict(r[1])),
+                     lambda r: r[1].update(index=1), lambda r: r[1].update(index=True),
+                     lambda r: r[1].update(extra="PRIVATE_CANARY"),
+                     lambda r: r[2].update(generation_started=False),
+                     lambda r: r[2].update(generation_started=1),
+                     lambda r: r.pop(-2), lambda r: r.pop(-1),
+                     lambda r: r.insert(-1, {"kind": "intent", "index": 2})]
+        for mutate in mutations:
+            bad = copy.deepcopy(rows)
+            mutate(bad)
+            with self.subTest(rows=bad), self.assertRaises((ValueError, KeyError)):
+                summary.report(b"".join(quality.worker.encoded(row) for row in bad))
+
+    def test_journal_persists_manifest_intent_result_before_next_action(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "receipt.jsonl"
+            observed = []
+            fsync = os.fsync
+            def sync(fd):
+                fsync(fd)
+                observed.append(path.read_bytes())
+            with mock.patch.object(quality.os, "fsync", side_effect=sync), quality.journal(path) as journal:
+                journal.write({"kind": "manifest"})
+                journal.write({"kind": "intent", "index": 0})
+                journal.write({"kind": "item", "index": 0})
+            self.assertEqual([len(raw.splitlines()) for raw in observed], [0, 1, 2, 3])
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            original = path.read_bytes()
+            with self.assertRaises(FileExistsError), quality.journal(path):
+                self.fail("Existing evidence must never be overwritten")
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_journal_failure_prevents_send_and_any_more_writes(self):
+        for failure in (OSError("PRIVATE_CANARY"), KeyboardInterrupt(), quality.worker.Abort("timeout")):
+            with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as directory:
+                with quality.journal(Path(directory) / "receipt.jsonl") as journal:
+                    journal.write({"kind": "manifest"})
+                    sent = mock.Mock()
+                    def post(*args, before_send, **kwargs):
+                        before_send()
+                        sent()
+                        return reply()
+                    http = types.SimpleNamespace(last_status=None, post=post)
+                    with mock.patch.object(quality.os, "fsync", side_effect=failure), \
+                         self.assertRaises(quality.RecordingFailure):
+                        quality.evaluate(0, {}, lambda _: "PRIVATE_CANARY", mock.Mock(),
+                            types.SimpleNamespace(count=lambda _: 20), http, b"PRIVATE_CANARY",
+                            time.monotonic() + 10,
+                            before_send=lambda: journal.write({"kind": "intent", "index": 0}))
+                    sent.assert_not_called()
+                    self.assertTrue(journal.failed)
+                    with self.assertRaises(quality.RecordingFailure):
+                        journal.write({"kind": "summary"})
+
+    def test_short_write_and_flush_failure_poison_journal(self):
+        for stage in ("write", "flush"):
+            stream = mock.Mock()
+            stream.write.return_value = 0 if stage == "write" else len(quality.worker.encoded({"kind": "intent"}))
+            if stage == "flush":
+                stream.flush.side_effect = OSError("PRIVATE_CANARY")
+            journal = quality.Journal(stream)
+            with mock.patch.object(quality.os, "fsync") as sync, self.assertRaises(quality.RecordingFailure):
+                journal.write({"kind": "intent"})
+            sync.assert_not_called()
+            self.assertTrue(journal.failed)
+
+    def test_abrupt_process_exit_keeps_intent_but_never_qualifies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "receipt.jsonl"
+            program = '''import importlib.util, os, pathlib, sys, time, types
+s = importlib.util.spec_from_file_location("quality", "scripts/record-quality-calibration.py")
+q = importlib.util.module_from_spec(s)
+s.loader.exec_module(q)
+def post(*args, before_send, **kwargs):
+    before_send()
+    os._exit(42)
+with q.journal(pathlib.Path(sys.argv[1])) as journal:
+    journal.write({"kind": "manifest", "schema": "nib.quality-calibration/v3", "suite": "gsm8k"})
+    q.evaluate(0, {}, lambda _: "SYNTHETIC_PROMPT_CANARY", lambda *a: None,
+        types.SimpleNamespace(count=lambda _: 20), types.SimpleNamespace(last_status=None, post=post),
+        b"SYNTHETIC_KEY_CANARY", time.monotonic() + 10,
+        before_send=lambda: journal.write({"kind": "intent", "index": 0}))
+'''
+            proc = subprocess.run([sys.executable, "-I", "-B", "-c", program, str(path)],
+                                  cwd=quality.ROOT, capture_output=True, timeout=10)
+            self.assertEqual(proc.returncode, 42)
+            raw = path.read_bytes()
+            self.assertEqual([r["kind"] for r in map(json.loads, raw.splitlines())], ["manifest", "intent"])
+            self.assertNotIn(b"CANARY", raw + proc.stdout + proc.stderr)
+            with self.assertRaises(ValueError):
+                summary.report(raw)
 
     def test_real_writer_retains_usage_on_cache_and_later_protocol_failures(self):
         malformed, late_failure = reply(), reply()
