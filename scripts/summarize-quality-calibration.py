@@ -62,10 +62,24 @@ def summary_host():
 def report(raw):
     rows = [json.loads(line) for line in raw.splitlines()]
     manifest, summary = rows[0], rows[-1]
-    trial.require(manifest["schema"] in ("nib.quality-calibration/v1", "nib.quality-calibration/v2") and summary["kind"] == "summary"
+    trial.require(manifest["schema"] in ("nib.quality-calibration/v1", "nib.quality-calibration/v2", "nib.quality-calibration/v3") and summary["kind"] == "summary"
                   and manifest["suite"] in ("gsm8k", "mmlu_pro", "ifeval"))
-    cache_accounting = manifest["schema"] == "nib.quality-calibration/v2"
+    durable_intents = manifest["schema"] == "nib.quality-calibration/v3"
+    cache_accounting = manifest["schema"] != "nib.quality-calibration/v1"
     items = rows[1:-1]
+    if durable_intents:
+        items = []
+        pending = False
+        for row in rows[1:-1]:
+            trial.require(type(row) is dict and type(row.get("index")) is int and row["index"] == len(items))
+            if row.get("kind") == "intent":
+                trial.require(not pending and set(row) == {"kind", "index"})
+                pending = True
+            else:
+                trial.require(row.get("kind") == "item" and row.get("generation_started") is pending)
+                items.append(row)
+                pending = False
+        trial.require(not pending)
     expected = manifest["expected"]
     trial.require(type(expected) is int and expected in (20, 50, 200) and len(items) <= expected)
     clean = []
@@ -132,7 +146,8 @@ def report(raw):
         ("git_sha", "trbench_revision") else 64), value) for key, value in hashes.items()))
     tls_mode = manifest.get("candidate_tls_mode", "unrecorded")
     trial.require(tls_mode in ("pinned", "system-roots", "unrecorded"))
-    return {"schema": "nib.quality-calibration-summary/v2" if cache_accounting else "nib.quality-calibration-summary/v1", "provenance": hashes,
+    version = 3 if durable_intents else 2 if cache_accounting else 1
+    return {"schema": f"nib.quality-calibration-summary/v{version}", "provenance": hashes,
             "candidate_tls_mode": tls_mode,
             "source_receipt_sha256": hashlib.sha256(raw).hexdigest(), "suite": manifest["suite"],
             **totals, "latency_median_seconds": median, "items": clean,
