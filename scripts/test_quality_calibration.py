@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Calibration transport accounting; synthetic replies only, no inference."""
 import importlib.util
+import copy
 from contextlib import ExitStack, redirect_stdout, redirect_stderr
 import io
 import json
@@ -140,9 +141,28 @@ class CalibrationTests(unittest.TestCase):
         self.assert_interrupted_writer(public_contract())
 
     def assert_interrupted_writer(self, contract):
+        rows = self.writer_receipt(contract)
+        self.assertEqual(rows[0]["schema"], "nib.quality-calibration/v2")
+        self.assertEqual(rows[1]["status"], "cancelled")
+        self.assertIsNone(rows[1]["cached_prompt_tokens"])
+        self.assertEqual(rows[-1]["generation_requests"], 1)
+        self.assertEqual(rows[-1]["unknown_usage_requests"], 1)
+        self.assertEqual(rows[-1]["known_cached_prompt_tokens"], 0)
+        self.assertEqual(rows[-1]["unknown_cache_usage_requests"], 1)
+        self.assertEqual(rows[-1]["missing"], 19)
+        record = summary.report(b"".join(quality.worker.encoded(row) for row in rows))
+        self.assertEqual(record["unknown_cache_usage_requests"], 1)
+
+    def writer_receipt(self, contract, responses=None):
+        values = iter(responses or [])
         def post(*args, before_send, **kwargs):
             before_send()
-            raise KeyboardInterrupt
+            value = next(values, None)
+            if value is None:
+                raise KeyboardInterrupt
+            http.last_status = 200
+            return value
+        http = types.SimpleNamespace(last_status=None, post=post)
         public = contract["schema"] == "nib.quality-calibration-endpoint/v1"
         raw = json.dumps(contract).encode()
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
@@ -155,10 +175,11 @@ class CalibrationTests(unittest.TestCase):
             stack.enter_context(mock.patch.object(quality.sys, "flags", types.SimpleNamespace(isolated=True)))
             stack.enter_context(mock.patch.object(quality, "source", return_value="a" * 64))
             stack.enter_context(mock.patch.object(quality, "cases", return_value=(
-                [{}] * 20, lambda r: "SYNTHETIC_PROMPT_CANARY", mock.Mock(), "b" * 64)))
+                [{}] * 20, lambda r: "SYNTHETIC_PROMPT_CANARY",
+                lambda *a: {"correct": 1, "total": 1, "errors": 0, "score": 100.0}, "b" * 64)))
             stack.enter_context(mock.patch.object(quality.tau_live_identity, "private_read",
                                                   side_effect=[raw, b"key"] if public else [raw, b"pem", b"key"]))
-            stack.enter_context(mock.patch.object(quality.bounded_https, "HTTPS", return_value=types.SimpleNamespace(last_status=None, post=post)))
+            stack.enter_context(mock.patch.object(quality.bounded_https, "HTTPS", return_value=http))
             stack.enter_context(mock.patch.object(quality.tau_external_tokenizer, "Counter", return_value=types.SimpleNamespace(count=lambda b: 20, close=lambda: None)))
             def git(argv, **kwargs):
                 if "rev-parse" in argv:
@@ -170,11 +191,118 @@ class CalibrationTests(unittest.TestCase):
             self.assertEqual(quality.main(), 1)
             rows = [json.loads(line) for line in output.read_bytes().splitlines()]
             self.assertEqual(rows[0]["candidate_tls_mode"], "system-roots" if public else "pinned")
-            self.assertEqual(rows[1]["status"], "cancelled")
-            self.assertEqual(rows[-1]["generation_requests"], 1)
-            self.assertEqual(rows[-1]["unknown_usage_requests"], 1)
-            self.assertEqual(rows[-1]["missing"], 19)
             self.assertNotIn(b"CANARY", output.read_bytes())
+            return rows
+
+    def test_cache_usage_does_not_change_payload_scoring_or_total_usage(self):
+        for details, cached in ((None, None), ({}, None), ({"cached_tokens": None}, None),
+                                ({"cached_tokens": 0}, 0), ({"cached_tokens": 12}, 12),
+                                ({"cached_tokens": 20, "ignored": "PRIVATE_CANARY"}, 20)):
+            with self.subTest(details=details):
+                value = reply()
+                value["usage"]["prompt_tokens_details"] = details
+                http = types.SimpleNamespace(last_status=None, post=mock.Mock(return_value=value))
+                grade = mock.Mock(return_value={"correct": 1})
+                record = quality.evaluate(0, {}, lambda r: "synthetic", grade,
+                    types.SimpleNamespace(count=lambda b: 20), http, b"synthetic", time.monotonic() + 10)
+                self.assertEqual(record["status"], "evaluated")
+                self.assertEqual(record["cached_prompt_tokens"], cached)
+                self.assertEqual(record["usage"], {"prompt_tokens": 20, "completion_tokens": 3})
+                grade.assert_called_once_with({}, "SYNTHETIC_REPLY_CANARY")
+                self.assertEqual(http.post.call_args.args[1], {
+                    "model": quality.MODEL, "messages": [{"role": "user", "content": "synthetic"}],
+                    "max_completion_tokens": 8192, "temperature": 0, "reasoning_effort": "none", "stream": False})
+                http.post.assert_called_once()
+                self.assertNotIn("CANARY", json.dumps(record))
+
+    def test_malformed_cache_usage_fails_without_losing_measured_totals(self):
+        cases = [[], "PRIVATE_CANARY", 0, False]
+        cases += [{"cached_tokens": value} for value in (-1, 21, True, 1.0, "12", [], {})]
+        for details in cases:
+            with self.subTest(details=details):
+                value = reply()
+                value["usage"]["prompt_tokens_details"] = details
+                http = types.SimpleNamespace(last_status=None, post=mock.Mock(return_value=value))
+                grade = mock.Mock()
+                record = quality.evaluate(0, {}, lambda r: "synthetic", grade,
+                    types.SimpleNamespace(count=lambda b: 20), http, b"synthetic", time.monotonic() + 10)
+                self.assertEqual(record["status"], "protocol_or_transport_error")
+                self.assertEqual(record["stage"], "response-validation")
+                self.assertEqual(record["usage"], {"prompt_tokens": 20, "completion_tokens": 3})
+                self.assertIsNone(record["cached_prompt_tokens"])
+                grade.assert_not_called()
+                http.post.assert_called_once()
+                self.assertNotIn("CANARY", json.dumps(record))
+
+    def test_cache_usage_survives_later_failure_and_truncation(self):
+        for mutation, status in (({"model": "wrong"}, "protocol_or_transport_error"),
+                                 ({"choices": []}, "protocol_or_transport_error"),
+                                 ({}, "truncated")):
+            value = reply()
+            value["usage"]["prompt_tokens_details"] = {"cached_tokens": 12}
+            value["choices"][0]["finish_reason"] = "length"
+            value.update(mutation)
+            grade = mock.Mock(return_value={"correct": 0})
+            record = quality.evaluate(0, {}, lambda r: "synthetic", grade,
+                types.SimpleNamespace(count=lambda b: 20),
+                types.SimpleNamespace(last_status=None, post=mock.Mock(return_value=value)),
+                b"synthetic", time.monotonic() + 10)
+            self.assertEqual(record["status"], status)
+            self.assertEqual(record["cached_prompt_tokens"], 12)
+            if status == "truncated":
+                grade.assert_called_once_with({}, "")
+            else:
+                grade.assert_not_called()
+
+    def test_real_writer_and_summary_distinguish_missing_zero_and_cache_hits(self):
+        responses = [reply() for _ in range(3)]
+        responses[0]["usage"]["prompt_tokens_details"] = {"cached_tokens": 12}
+        responses[1]["usage"]["prompt_tokens_details"] = {"cached_tokens": 0}
+        rows = self.writer_receipt(public_contract(), responses)
+        record = summary.report(b"".join(quality.worker.encoded(row) for row in rows))
+        self.assertEqual(record["schema"], "nib.quality-calibration-summary/v2")
+        self.assertEqual([r["cached_prompt_tokens"] for r in record["items"]], [12, 0, None, None])
+        for key, value in {"known_prompt_tokens": 60, "known_completion_tokens": 9,
+                           "known_cached_prompt_tokens": 12, "unknown_cache_usage_requests": 2,
+                           "unknown_usage_requests": 1, "generation_requests": 4, "correct": 3,
+                           "expected": 20, "missing": 16, "errors": 1}.items():
+            self.assertEqual(record[key], value, key)
+        self.assertNotIn("CANARY", json.dumps(record))
+        invalid = [(1, "cached_prompt_tokens", v) for v in (-1, 21, True, 1.0, "12", [], {})]
+        invalid += [(4, "cached_prompt_tokens", 0), (1, "usage", None),
+                    (-1, "known_cached_prompt_tokens", 0), (-1, "unknown_cache_usage_requests", 1),
+                    (-1, "unknown_cache_usage_requests", True)]
+        for index, key, value in invalid:
+            with self.subTest(index=index, key=key, value=value):
+                bad = copy.deepcopy(rows)
+                bad[index][key] = value
+                with self.assertRaises(ValueError):
+                    summary.report(b"".join(quality.worker.encoded(row) for row in bad))
+        for index, key in ((1, "cached_prompt_tokens"), (1, "generation_started"),
+                           (-1, "known_cached_prompt_tokens"), (-1, "unknown_cache_usage_requests")):
+            bad = copy.deepcopy(rows)
+            del bad[index][key]
+            with self.subTest(missing=key), self.assertRaises(ValueError):
+                summary.report(b"".join(quality.worker.encoded(row) for row in bad))
+        rows[4]["generation_started"] = False
+        rows[-1].update(generation_requests=3, unknown_usage_requests=0, unknown_cache_usage_requests=1)
+        self.assertEqual(summary.report(b"".join(quality.worker.encoded(row) for row in rows))[
+            "unknown_cache_usage_requests"], 1)
+
+    def test_real_writer_retains_usage_on_cache_and_later_protocol_failures(self):
+        malformed, late_failure = reply(), reply()
+        malformed["usage"]["prompt_tokens_details"] = {"cached_tokens": "PRIVATE_CANARY"}
+        late_failure["usage"]["prompt_tokens_details"] = {"cached_tokens": 12}
+        late_failure["model"] = "PRIVATE_CANARY"
+        rows = self.writer_receipt(public_contract(), [malformed, late_failure])
+        record = summary.report(b"".join(quality.worker.encoded(row) for row in rows))
+        self.assertEqual([r["cached_prompt_tokens"] for r in record["items"]], [None, 12, None])
+        for key, value in {"known_prompt_tokens": 40, "known_completion_tokens": 6,
+                           "known_cached_prompt_tokens": 12, "unknown_cache_usage_requests": 2,
+                           "unknown_usage_requests": 1, "generation_requests": 3,
+                           "correct": 0, "errors": 3, "evaluated": 0}.items():
+            self.assertEqual(record[key], value, key)
+        self.assertNotIn("CANARY", json.dumps(record))
 
     def test_summary_full_denominator_and_no_input_text(self):
         manifest = {"schema": "nib.quality-calibration/v1", "suite": "gsm8k", "expected": 20,
@@ -191,6 +319,10 @@ class CalibrationTests(unittest.TestCase):
                     "ended_at": "2026-10-26T23:01:00+00:00"}
         raw = lambda: b"\n".join(json.dumps(row).encode() for row in (manifest, item, terminal))
         record = summary.report(raw())
+        self.assertEqual(record["schema"], "nib.quality-calibration-summary/v1")
+        self.assertNotIn("known_cached_prompt_tokens", record)
+        self.assertNotIn("unknown_cache_usage_requests", record)
+        self.assertNotIn("cached_prompt_tokens", record["items"][0])
         self.assertEqual(record["candidate_tls_mode"], "unrecorded")
         for mode in ("pinned", "system-roots"):
             manifest["candidate_tls_mode"] = mode
