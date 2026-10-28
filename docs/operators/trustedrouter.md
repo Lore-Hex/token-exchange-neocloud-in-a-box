@@ -95,6 +95,11 @@ and exact customer-ledger charges. Do not interrupt an active observer or infer
 margin from cache-hit counts. This option has software tests, not a new live
 discount, performance, settlement or profitability result.
 
+The offline [cache price sensitivity calculator](../benchmarks/cache-economics.md)
+compares candidate rates against numeric usage and full-window fleet allocation.
+It preserves unknown usage bounds and separates failed work from completed
+gross; it never changes a tariff or substitutes for settlement verification.
+
 Use an isolated operator-owned project and runtime identity. Do not connect the
 node to TrustedRouter's internal networks, databases, secret stores or payment
 accounts. Public ingress is TLS only; keep the engine and API guard on loopback.
