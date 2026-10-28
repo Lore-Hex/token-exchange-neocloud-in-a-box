@@ -12,6 +12,7 @@ const ProfileSelectedGraphs = "selected-deepseek-graphs"
 const ProfileSelectedQuality = "selected-deepseek-quality"
 const ProfileSelectedLong = "selected-deepseek-long"
 const ProfileSelectedMillion = "selected-deepseek-million"
+const ProfileOriginalMillion = "original-deepseek-million"
 
 // Profiles are closed startup choices, not caller-supplied model aliases or
 // backend settings. The same value binds catalog, admission and request bounds.
@@ -60,7 +61,7 @@ func profileFor(name string) (serviceProfile, error) {
 	switch name {
 	case ProfileQwen:
 		return qwenProfile(), nil
-	case ProfileSelectedDeepSeek, ProfileSelectedGraphs, ProfileSelectedQuality, ProfileSelectedLong, ProfileSelectedMillion:
+	case ProfileSelectedDeepSeek, ProfileSelectedGraphs, ProfileSelectedQuality, ProfileSelectedLong, ProfileSelectedMillion, ProfileOriginalMillion:
 		// The pack's tr_model_id, not its bare lab served_model_name. A future
 		// owned engine must serve this exact ID; this API never rewrites it.
 		profile := serviceProfile{model: "dealignai/deepseek-v4.1-flash-1017-uncensored-fp8",
@@ -76,8 +77,14 @@ func profileFor(name string) (serviceProfile, error) {
 		if name == ProfileSelectedLong {
 			profile.context, profile.maxOutput, profile.longContext = 131072, 16384, true
 		}
-		if name == ProfileSelectedMillion {
+		if name == ProfileSelectedMillion || name == ProfileOriginalMillion {
 			profile.context, profile.maxOutput, profile.longContext = 1048576, 393216, true
+		}
+		if name == ProfileOriginalMillion {
+			// Separate identity from models/deepseek-v4.1-flash-1017/1/pack.yaml;
+			// never reinterpret the existing selected checkpoint's model ID.
+			profile.model = "deepseek/deepseek-v4.1-flash-1017"
+			profile.name = "DeepSeek V4.1 Flash 1017"
 		}
 		return profile, nil
 	default:

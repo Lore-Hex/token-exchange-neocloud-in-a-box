@@ -21,7 +21,7 @@ import (
 func configuredHandler(arguments []string) (*pilotapi.Handler, error) {
 	flags := flag.NewFlagSet("nib-pilot-api", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	profile := flags.String("profile", pilotapi.ProfileQwen, "closed API profile: qwen, selected-deepseek, selected-deepseek-graphs, selected-deepseek-quality, selected-deepseek-long or selected-deepseek-million")
+	profile := flags.String("profile", pilotapi.ProfileQwen, "closed API profile: qwen, selected-deepseek, selected-deepseek-graphs, selected-deepseek-quality, selected-deepseek-long, selected-deepseek-million or original-deepseek-million")
 	keyFile := flags.String("api-key-file", "", "private key file")
 	providerFile := flags.String("provider-config", "", "required operator metadata JSON file")
 	inputPrice := flags.String("input-price", "", "USD per million input tokens")

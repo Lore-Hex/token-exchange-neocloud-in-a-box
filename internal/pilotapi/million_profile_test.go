@@ -53,7 +53,7 @@ func TestMillionProfileLimits(t *testing.T) {
 
 func TestAllClosedProfileCatalogsSatisfyPinnedSchema(t *testing.T) {
 	for _, name := range []string{ProfileQwen, ProfileSelectedDeepSeek, ProfileSelectedGraphs,
-		ProfileSelectedQuality, ProfileSelectedLong, ProfileSelectedMillion} {
+		ProfileSelectedQuality, ProfileSelectedLong, ProfileSelectedMillion, ProfileOriginalMillion} {
 		t.Run(name, func(t *testing.T) {
 			h, err := NewWithProfile(name, testProvider(), testKey, "0.65", "1.45", "")
 			if err != nil {

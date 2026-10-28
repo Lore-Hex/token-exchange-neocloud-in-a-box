@@ -119,7 +119,7 @@ func NewWithPricing(profileName string, provider ProviderConfig, key string, pri
 	switch lifetime {
 	case "ordinary-24h":
 	case "ordinary-7d":
-		if profileName != ProfileSelectedMillion || retirementAt == "" {
+		if (profileName != ProfileSelectedMillion && profileName != ProfileOriginalMillion) || retirementAt == "" {
 			return nil, errors.New("weekly lease requires the million profile and an explicit cutoff")
 		}
 		limit *= 7

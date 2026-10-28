@@ -24,6 +24,11 @@ in local Docker, not on a public node; it does not test payment settlement.
 | Selected DeepSeek on eight B300s | [1M GPU profile](../tasks/p2-t3-million-context.md), [public-owner smoke](../../evidence/p2/2026-10-27-selected-public-weekly/README.md) | Ordinary TLS, 1,048,576 combined tokens, 393,216 output tokens and public C1. Existing bounded evidence is not a sustained-load guarantee. |
 | Confidential GPU node | [Phase dependencies](../../PLAN.md#8-phases) | Full CPU/GPU attestation and the confidential production path remain unfinished. |
 
+The separate `original-deepseek-million` API guard is software support for the
+official checkpoint, not a deployed replacement. See the
+[official-model migration boundary](../tasks/p2-t3-original-service.md). Existing
+selected-model measurements do not qualify different weights.
+
 Use reviewed committed source, exact model and engine pins, and the chosen
 path's prepare/build/run procedure. The GPU path is not the Qwen binary with a
 different model name. Keep one owner per GPU allocation; drain it before a
