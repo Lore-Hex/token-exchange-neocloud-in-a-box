@@ -186,6 +186,31 @@ price qualification. The live caller must still verify this exact source and
 workload, the current owner, endpoint, tokenizer and aggregate budget. It must
 never start inference merely because offline preparation succeeded.
 
+### Completed Journals
+
+Reconcile a single recorded successful nine-request sequence offline:
+
+```sh
+python3 -I -S -B scripts/cache_complete.py < private-cache-journal.jsonl
+```
+
+This reuses the interrupted-prefix validator, then requires one final successful
+summary whose request, token and warm-hit counts exactly match every receipt.
+All nine ordered attempts must have known usage; cold and different-namespace
+results must report zero cached tokens, including the last request. Warm misses
+are valid results and are not dropped. Every successful request must finish
+before the collector's 119-second deadline. Serial request durations must fit
+the reported total window, which must be below the sequence's 1,200-second cap.
+Duplicate keys, extra fields, mixed runs, missing receipts, malformed tails,
+overstated qualification flags and failed terminal summaries are rejected.
+
+`recorded_sequence_completed` means only that these supplied records are
+consistent. It does not authenticate their source, prove current runtime or
+tokenizer identity, attest storage durability, release accounting holds, verify
+customer billing, or qualify cache isolation, quality, throughput or a price.
+No input is changed and no inference is sent. Keep original failed/interrupted
+files unchanged; this command does not repair them or strip terminal records.
+
 ### Interrupted Journals
 
 Audit an intact, newline-terminated prefix of a single interrupted sequence:
