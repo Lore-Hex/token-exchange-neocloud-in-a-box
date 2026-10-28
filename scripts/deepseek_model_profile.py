@@ -41,10 +41,22 @@ def validate_manifest(name, raw):
 
 
 def validate_contract(contract):
-    """Absence is the original legacy schema; only the opt-in adds identity."""
+    """Preserve legacy absence; explicit original identity is a closed opt-in."""
     if "model_profile" not in contract:
         return select()
-    value = select("uncensored")
+    profile = contract["model_profile"]
+    if type(profile) is not dict:
+        raise ValueError("model contract rejected")
+    value = select(profile.get("name"))
+    if value["name"] == "original" and not (
+            contract.get("operation") == "local-correctness"
+            and contract.get("gpu_family") == "B300"
+            and contract.get("gpu_security") == "nonconfidential"
+            and type(contract.get("data_parallel_size")) is int
+            and contract["data_parallel_size"] == 2
+            and contract.get("execution_profile") == "original-long1m-graphs"
+            and not {"stream_cohort", "provider_conformance", "tau_owner"} & set(contract)):
+        raise ValueError("model contract rejected")
     if (contract["model_profile"] != value
             or type(contract["model_profile"]) is not dict
             or type(contract["model_profile"].get("total_bytes")) is not int

@@ -142,6 +142,8 @@ class PayloadProfiles(unittest.TestCase):
         old.__file__ = str(ROOT / host.SCRIPT)
         exec(compile(git(ROOT, "show", "fc55fd09efd1e52a2c1302281c7c634fefee2d04:" + host.SCRIPT),
                      old.__file__, "exec"), old.__dict__)
+        # Compare memory behavior with the same reviewed helper bytes.
+        old.MODEL_PROFILE_SHA = host.MODEL_PROFILE_SHA
         config = {"config": {"Env": ["NVIDIA_REQUIRE_CUDA=cuda>=13.0"]}}
         cases = [("functional", "B200", "confidential", 1, 512),
                  ("hardware-diagnostic", "B200", "confidential", 1, 512),

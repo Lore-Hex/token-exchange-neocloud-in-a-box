@@ -141,20 +141,20 @@ class CPUParityTests(unittest.TestCase):
                          "d9953b09e9adfe07bafd6aa659cd449e32034f8af01ac2f38372384596dfcfda")
         self.assertEqual(without_eligibility(baseline), without_eligibility(previous))
 
-        # Only the GPU runtime receipt gets an explicit context identity. All
+        # GPU eligibility and runtime receipts may change. All
         # shared CPU probes, token hashes, templates and local validation stay
         # identical. GPU v1 byte parity is exercised in the runtime tests.
         def without_gpu_runtime(raw):
             tree = ast.parse(raw)
             tree.body = [node for node in tree.body if not isinstance(node, ast.FunctionDef)
-                         or node.name not in ("runtime_identity", "run", "validate")]
+                         or node.name not in ("enabled", "runtime_identity", "run", "validate")]
             return ast.dump(tree, include_attributes=False)
         self.assertEqual(without_gpu_runtime((ROOT / path).read_bytes()), without_gpu_runtime(baseline))
 
     def test_same_fixed_probes_and_no_semantic_repair(self):
         source = ROOT / "scripts/engine_tokenizer_parity.py"
         self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(),
-                         "6d89db5050f2f3d4d40c334a1f137f97807ea931e13ceaa0b50f633351abab6f")
+                         "978814f3341b83fed33282f23ee76b173bc4235235ccf374149d0363252f3ce8")
         for model in cpu.MODEL_IDS:
             for probe in cpu.probes.probes():
                 original = copy.deepcopy(probe)

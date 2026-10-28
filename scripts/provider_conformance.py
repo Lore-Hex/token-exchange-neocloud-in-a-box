@@ -23,7 +23,7 @@ RUNTIME_SHA = "2a04a7198f9c95a53abed9d03b28abfaf34792f544ead550a94620248b3a90d4"
 SUPPORT_SHA = "133e0ebed2afd5ad38498a7ae143c6e93a2c28a007fbc8ad62412e54c3d9361f"
 LOCK_SHA = "d5fbea8926b7410c34730593b8ebd305f01b04a160eb30e9867330c45799ade7"
 CHECKER_SHA = "591a11295d3f1e0ef20fbc51c788cabfbedf176e79ce56de8378252bd13adecd"
-PROFILE_SHA = "11475b07991fb510704d64143fcd9a0084327e586699604f14f88436960b754a"
+PROFILE_SHA = "aba5b55574e6b1c959b4e2c017973b6ec0025d3a0081a0427a00bdc5a9f37c5f"
 PROFILE_SOURCE = "scripts/deepseek_model_profile.py"
 SOURCES = ("scripts/provider_conformance.py", "scripts/provider_conformance_worker.py",
            "scripts/tau_runtime.py", "scripts/tau_trial_worker.py", "scripts/e2e/requirements.lock", PROFILE_SOURCE)

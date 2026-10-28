@@ -49,8 +49,17 @@ class MillionPrerequisiteEvidenceTests(unittest.TestCase):
     def test_complete_staging_manifest_and_unchanged_validator(self):
         run, row = self.rows["weights/run.json"], self.rows["weights/output.log"]
         self.assertEqual((run["git_sha"], row["source_git_sha"]), (STAGE_SOURCE, STAGE_SOURCE))
-        self.assertEqual(git(ROOT, "show", STAGE_SOURCE + ":host/record-stage.py"),
-                         (ROOT / "host/record-stage.py").read_bytes())
+        historical = git(ROOT, "show", STAGE_SOURCE + ":host/record-stage.py")
+        current = (ROOT / "host/record-stage.py").read_bytes()
+        old_pin = b'PROFILE_SHA256 = "11475b07991fb510704d64143fcd9a0084327e586699604f14f88436960b754a"'
+        new_pin = b'PROFILE_SHA256 = "aba5b55574e6b1c959b4e2c017973b6ec0025d3a0081a0427a00bdc5a9f37c5f"'
+        self.assertEqual(historical.count(old_pin), 1)
+        self.assertEqual(current.count(new_pin), 1)
+        self.assertEqual(hashlib.sha256((ROOT / "scripts/deepseek_model_profile.py").read_bytes()).hexdigest(),
+                         "aba5b55574e6b1c959b4e2c017973b6ec0025d3a0081a0427a00bdc5a9f37c5f")
+        # Rebinding the reviewed helper does not change the historical staging
+        # validator. Every other byte, plus the original evidence, stays exact.
+        self.assertEqual(historical.replace(old_pin, new_pin), current)
         self.assertEqual((run["result"], row["result"], row["stage"]), ("pass", "pass", "complete"))
         self.assertFalse(run["hardware_validated"])
         for key in ("hardware_validated", "runtime_ready", "confidential_qualified"):

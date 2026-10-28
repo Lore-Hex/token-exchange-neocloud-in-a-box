@@ -16,7 +16,7 @@ import time
 import types
 import uuid
 
-CACHE_SHA256 = "9390b3124d523f91fe80e5340658c4163f5047ff396bb7cf7de8c043ce683d0a"
+CACHE_SHA256 = "25141adae8f894a54f4b8f90c65ba26a9d7b3f493121b640b381c4f2a0cb57f6"
 RESERVE = 60
 SHARED_MEMORY = Path("/dev/shm")
 BOOTSTRAP = """
