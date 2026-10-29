@@ -10,8 +10,10 @@ The [first actual local archive verification failed](../../evidence/p2/2026-10-2
 Its original receipt and log are retained. An empty provenance subject was
 subsequently identified as a definite rejection condition. A separately
 [rebuilt original image passed full local archive verification](../../evidence/p2/2026-10-29-original-image-verified/README.md).
-The original parser's subject binding is unchanged. Image import, model-weight
-verification, runtime and deployment remain pending.
+The later [paired-owner image rebuild also passed local archive verification](../../evidence/p2/2026-10-29-original-handoff-image-verified/README.md)
+with fresh source/preparation/build bindings. The original parser's subject
+binding is unchanged. These archive results do not establish image import,
+model-weight verification, consumer/mount execution, runtime or deployment.
 
 ## Closed reuse
 

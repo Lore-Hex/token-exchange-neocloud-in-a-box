@@ -1,0 +1,14 @@
+{
+  "schema": "nib.evidence/v1",
+  "phase": "P2",
+  "task": "T3",
+  "git_sha": "d18aee4ce01062134d0e893c72555ef104a9ed84",
+  "command": "python3 -I -S -B /source/host/verify-selected-image-archive.py --preparation /preparation --preparation-sha256 d4f792cfc372cadd232d2aa8973967f90b3b768890cb080625821dd7ca582718 --build-report /build/build.json --build-sha256 1a779ce2aee671cd10639c6567dee7e35e84fc81128eac486e74d24567345e98 --archive /archive/image.tar --archive-sha256 7b2f9939774a96a940c42509eb894df0e39470edaaca8faf5e5c8215b6a7c787 --archive-bytes 9247318016 --producer d18aee4ce01062134d0e893c72555ef104a9ed84 --output /output/receipt.json",
+  "execution": "software",
+  "host": {"provider": "local", "machine": "linux-arm64-isolated-container", "gpus": "none", "driver": null, "cuda": null},
+  "started_utc": "2026-10-29T07:46:14.879134Z",
+  "ended_utc": "2026-10-29T07:47:19.373888Z",
+  "result": "pass",
+  "hardware_validated": false,
+  "notes": "Byte-original receipt/output and build receipt preserved after privacy review; no rerun. Times are the verifier receipt's UTC times. Local verifier runtime sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337, network none, read-only root and inputs, 2 CPUs, 3 GiB memory and equal memory+swap ceiling, 128 PIDs, nonroot user, no capabilities, no-new-privileges. Only fresh receipt directory writable; no Docker socket, credentials or GPU. Operator reports container exit0 without OOM; receipt confirms worker exit. Archive 9247318016bytes, expanded ordered layers23745049088bytes,44layers; not an import capacity guarantee. Image targetlinux/amd64, verifierlinux/arm64. Fresh source/preparation/build bindings include the paired-owner implementation; no actual consumer/mount execution is established. No image load/runtime, remote transfer, model-weight scan, inference, deployment, live official-model endpoint, pricing/catalog change, publication or confidentiality established by this run. Earlier failure and prior image PASS remain untouched. Large archive/preparation retained privately under receipt-bound hashes. Exact producer ancestry already retained by normal merge."
+}
