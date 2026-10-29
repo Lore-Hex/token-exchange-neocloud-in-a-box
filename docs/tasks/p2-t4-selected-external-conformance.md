@@ -15,8 +15,10 @@ redirects, alternate targets or discovery:
 1. One credential-free `/healthz` request.
 2. Missing-key and fixed wrong-key authentication negatives.
 3. One `/v1/models` request, checked against the complete expected catalog.
-4. Eight unchanged pinned JSON requests: callability, PONG/default response,
+4. Eight pinned JSON probes: callability, PONG/default response,
    temperature, four forwarded-field probes and explicit max-token spelling.
+   Selected request bytes remain unchanged; original uses the explicit output
+   cap described below.
 5. One pinned streaming request, with all seven upstream streaming assertions.
 
 Exactly nine requests can read the real bearer key. Every connection completes
@@ -79,10 +81,69 @@ warning. No parser repair, relaxed status or silent request rewrite is added.
 
 The checker deliberately omits a max-token field in six of its JSON probes. The
 existing selected guard must enforce its advertised 256-token ceiling; the
-runner does not rewrite the upstream recipe. Valid known usage is retained even
+selected runner does not rewrite the upstream recipe. Valid known usage is retained even
 if EOF, cancellation or connection close later fails. A request that may have
 been sent without authoritative usage is explicitly unknown, never zero. This
 is client-observed accounting, not a billing ledger or server-side call count.
+
+## Explicit Original Candidate
+
+The opt-in `nib.selected-external-conformance-input/v2` has exactly the v1
+fields above plus the three fields returned by
+[`quality_candidate.original_fields()`](../../scripts/quality_candidate.py):
+`model`, `serving_profile`, and the complete `model_profile`. These bind the
+canonical official model to `original-long1m-graphs`, its existing pinned pack,
+revision, total bytes and manifest hash. There is no free-form model, revision,
+profile or URL override. V1 still means only the selected candidate; adding
+original fields to v1, omitting them from v2, or mixing either payload fails.
+
+The original expected catalog must declare the exact existing runtime contract:
+Catalog v2.1, 1,048,576 context tokens, 393,216 maximum output tokens, streaming,
+tools and prompt caching, no structured-output/reasoning capability, and the
+30/3540/30-second reliability limits. Validation uses the unchanged checked-in
+[`catalog.v2.schema.json`](../../internal/catalog/catalog.v2.schema.json)
+(SHA-256 `927350ccda756319f30f129c486286213b4f3ff4bb7b8f6dda27b939c55d35d8`),
+then the pinned checker's exact-field/id/decimal rules. Its original vendored
+v2.0 schema remains the selected path. The new schema hash was read from the
+existing source, not obtained by extending the checker's schema at runtime.
+Prices and the complete provider declaration still come from the independently
+approved input and must match the observed catalog exactly; nothing publishes
+or changes either. See the existing
+[runtime profile](p2-t3-original-runtime.md).
+
+**The serving ceiling is not the conformance budget.** Original JSON probes
+that would omit an output limit explicitly send `max_tokens: 256`; callability
+still sends 4 and max-token spelling still sends 16. Streaming sends 256. The
+PONG prompt, sampling/forwarded fields, upstream assertions and strict status
+projection are unchanged. JSON usage is bounded to 4096 prompt tokens and the
+requested output limit; streaming retains the existing 7936/256 token bounds.
+Every authentication-negative and generation request names the original model,
+and JSON/SSE responses must name that same model. No model monkeypatch, response
+rewrite, retry, GPT/judge call or additional request is introduced.
+
+Prepare a **fresh** macOS payload on the exact existing pinned observer runtime:
+
+```sh
+python3.12 -I -S -B scripts/external_checker_payload.py \
+  --profile macos-arm64-cpython-3.12.13 --candidate original \
+  --wheelhouse "$LOCKED_MAC_WHEELS" --output "$NEW_PRIVATE_DESTINATION"
+```
+
+Its `nib.external-checker-payload/v2` manifest binds all three original fields,
+the unchanged platform/wheel lock, and committed source including the identity
+helper, execution-profile helper and catalog schema. Use its exact `trial.json`
+SHA in the v2 input. The external execution command below is unchanged; schema
+selection is explicit in that input, not a runtime model flag. Linux original
+observer payloads and original embedded checkers remain unsupported and fail
+before import; selected Linux/Mac defaults retain their v1 formats.
+
+The original numeric receipt is `nib.selected-external-conformance/v2` and adds
+the same three identity fields and `catalog_schema_sha256`. Input, target,
+catalog, payload and expected-service/preparation hashes retain their meanings.
+Passing assertions do not prove the expected remote source, model weight bytes,
+tools, cache behavior, long-context performance or quality; all existing
+ownership/deployment/confidentiality claim flags remain false. Actual macOS
+payload preparation/import and live original conformance are separate gates.
 
 ## Software preparation and execution gate
 
@@ -96,7 +157,8 @@ extras and byte/hash drift are not accepted. Import paths/modules are restored
 afterward; upstream stdout/stderr and exception chains never reach the receipt.
 No package installation or download occurs during a run.
 
-All 11 checker-dependent external tests are included in the mandatory CI checker
+All checker-dependent external tests, including the original positive and
+mismatch cases, are included in the mandatory CI checker
 suite alongside the owned subset/protocol classes. Missing dependencies, skips,
 expected failures or incomplete execution fail that gate.
 
