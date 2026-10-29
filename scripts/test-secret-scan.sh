@@ -346,6 +346,30 @@ pair/scorer/output.log|compact|tokenizer_sha256|604363ffa22647728e0dd56e84926ad3
 CASES
 done
 
+# The all-refs scan also visits the image verifier's public preparation pin.
+# Recompute it from immutable main ancestry; never exempt an arbitrary digest.
+known=978814f3341b83fed33282f23ee76b173bc4235235ccf374149d0363252f3ce8
+actual=$(GIT_NO_LAZY_FETCH=1 GIT_ALLOW_PROTOCOL='' git --no-replace-objects -C "$root" \
+  show ef99d58bd1a2204ecac8d8de122f82e04904048f:scripts/engine_tokenizer_parity.py \
+  | openssl dgst -sha256 | awk '{print $NF}')
+if [[ "$actual" != "$known" ]]; then
+  printf 'Image verifier public source hash proof failed.\n' >&2
+  exit 1
+fi
+target="$tmp/image-archive/host/verify-selected-image-archive.py"
+mkdir -p "$(dirname "$target")"
+printf '    "engine_tokenizer_parity": "%s",\n' "$known" > "$target"
+expect_receipt_scan "$target" 0
+printf '    "engine_tokenizer_parity": "%s",\n' "$unknown" > "$target"
+expect_receipt_scan "$target" 42
+printf '    "api_key": "%s",\n' "$known" > "$target"
+expect_receipt_scan "$target" 42
+printf '    "engine_tokenizer_parity": "%s",\n' "$known" > "$tmp/image-archive/other.py"
+expect_receipt_scan "$tmp/image-archive/other.py" 42
+printf '"engine_tokenizer_parity": "%s", "api_key": "%s"\n' "$known" "$unknown" > "$target"
+expect_receipt_scan "$target" 42
+printf 'Image verifier source-hash exception requires exact value, field and path; adjacent secrets remain detected.\n'
+
 # CPU retry originals require the exact observed source/token hashes.
 while IFS='|' read -r relative field known suffix; do
   format=pretty

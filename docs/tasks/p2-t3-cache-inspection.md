@@ -1,7 +1,9 @@
 # P2.T3 Read-Only Official Cache Inspection
 
 Status: implemented with synthetic unit tests. No live cache availability,
-hardware, throughput or serving result is established by this change.
+hardware qualification, throughput or serving result is established. An
+[actual failed attempt](../../evidence/p2/2026-10-29-original-cache-inspection-failure/README.md)
+is preserved without upgrading its unproven cleanup or claiming a root cause.
 
 The official checkpoint can be checked without allocating another full local
 copy. `host/inspect-public-weight-cache.py` reuses the hash-pinned public cache
@@ -122,6 +124,46 @@ proven. Missing records do not authorize name-based adoption, retry or a
 success claim. This optional handshake does not supply that external monitor
 or establish a completed live inspection.
 
+## Failure Diagnostics
+
+The pinned process capture intentionally discards stderr and raises on a
+nonzero exit before returning stdout. Previously, an escaping worker exception
+therefore became only `worker-failed`, with no stage. The capture, cache,
+profile and cgroup helper pins and lifecycle remain unchanged.
+
+Caught worker exceptions now produce a bounded
+`nib.public-weight-cache-inspection-worker-failure/v1` acknowledgment instead
+of a traceback. This internal failure acknowledgment exits zero solely to
+transport diagnostics through the existing capture. The supervisor validates
+the exact keys and closed label sets and still exits nonzero with a failed
+inspection receipt. Only the existing exact success acknowledgment can pass;
+successful v1/v2/v3 receipts remain unchanged.
+
+On an accepted failure acknowledgment, the receipt adds `worker_failure` with
+only `stage`, `error` and nullable `cleanup_error`. Stages distinguish worker
+preflight, pinned helper/manifest loading, namespace, target and propagation
+checks, private mount, mount readback/identity, pack opening, inventory before
+and after hashing, hashing, final mount readback, deadline and private cleanup.
+An otherwise unclassified worker exception uses `worker`. Errors are only
+`not-found`, `permission-denied`, `os-error`, `command-failed`, `command-timeout`,
+`rejected` or `unexpected-error`. These are exception categories, not proven
+root causes. No raw exception, command, return body, file name, export, path,
+host identifier or traceback is retained, including on error paths.
+
+If private cleanup also fails, the original stage/error is retained and
+`cleanup_error` records only the cleanup error category. A private-cleanup-only
+failure uses stage `private-cleanup`. Validated worker metadata also survives
+a later cgroup cleanup/limit rejection, OOM result or supervisor cancellation;
+it never overrides those failures. Every failure still claims zero verified
+files/bytes, no pack pass, no worker-exit confirmation and `cleanup: unproven`.
+The existing private mount and process-absence flags remain conservative.
+
+No acknowledgment is guaranteed: interpreter/bootstrap, cgroup join, exec or
+unshare failures before the worker, timeout, abrupt exit, output-limit or
+capture-cleanup failure may leave no worker metadata. Absence is **unknown**,
+not evidence that a particular stage succeeded. There is no retry, fallback,
+new mount behavior or new remote diagnostic command.
+
 ## Verification
 
 `python3 -m unittest discover -s scripts -p test_public_weight_cache_inspection.py`
@@ -131,3 +173,7 @@ mutation during checking, wrong/read-write/nested mounts, timeout, failed cleanu
 late cancellation, private CLI errors, mixed checkpoint acknowledgments, duplicate JSON keys, exact
 worker source, durable intent and receipt collisions. This is not a real NFS
 hash run or a complete failure-injection test of the existing supervisor.
+Additional cases cover closed failure acknowledgments, private primary plus
+cleanup failure, cgroup cleanup/OOM/cancellation precedence, privacy canaries,
+unchanged original evidence bytes, and a real subprocess failure acknowledgment
+through the pinned capture with invalid worker preflight and no mount or read.

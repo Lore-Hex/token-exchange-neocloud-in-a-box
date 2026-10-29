@@ -7,7 +7,7 @@ useDefault = true
 id = "generic-api-key"
 
 [[rules.allowlists]]
-description = "Exact public tokenizer source pin in the selected image archive verifier"
+description = "Exact public tokenizer source hash in the image archive verifier"
 condition = "AND"
 regexTarget = "match"
 paths = ['''(^|/)host/verify-selected-image-archive\.py$''']
