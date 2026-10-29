@@ -248,6 +248,94 @@ class InspectionTests(unittest.TestCase):
         with mock.patch.object(inspection.Path, "open", return_value=io.BytesIO(b"raise AssertionError('unverified')")):
             with self.assertRaises(ValueError): inspection.cache_helper()
 
+    def bounded_fixture(self, stack, *, cleanup_error=False, oom=0):
+        resource = inspection.resource_helper(self.cache)
+        @contextlib.contextmanager
+        def group(state):
+            state["limits_read_back"] = True
+            fd = os.open(self.root, os.O_RDONLY)
+            try:
+                yield fd, "nib-build-" + "a" * 32
+            finally:
+                os.close(fd)
+                if cleanup_error:
+                    raise ValueError("private-cleanup-error")
+                state.update(empty_verified=True, group_removed=True, oom_kill=oom,
+                             memory_peak_bytes=1234, populated_before_cleanup=0)
+        stack.enter_context(mock.patch.object(resource, "cgroup", side_effect=group))
+        stack.enter_context(mock.patch.object(inspection, "resource_helper", return_value=resource))
+        return resource
+
+    def test_bounded_capture_pins_helper_and_wraps_before_mount_with_cleanup(self):
+        with contextlib.ExitStack() as stack:
+            resource = self.bounded_fixture(stack)
+            def capture(argv, **kwargs):
+                self.assertEqual(argv[:6], [sys.executable, "-I", "-S", "-B", "-c", inspection.RESOURCE_BOOTSTRAP])
+                self.assertEqual(argv[6], "nib-build-" + "a" * 32)
+                self.assertEqual(tuple(map(int, argv[7:9])), (self.root.stat().st_dev, self.root.stat().st_ino))
+                self.assertEqual(json.loads(argv[9]), resource.LIMITS)
+                self.assertEqual(argv[10:15], ["/usr/bin/unshare", "--mount", "--propagation", "private", "--"])
+                self.assertEqual(kwargs, {"timeout": 60, "limit": 4096})
+                intent = json.loads(self.output.read_bytes())
+                self.assertEqual(intent["schema"], "nib.public-weight-cache-inspection/v3")
+                self.assertFalse(intent["resources"]["empty_verified"])
+                return self.success(private_namespace_verified=True, private_mount_cleanup_confirmed=True)
+            stack.enter_context(mock.patch.object(inspection.os, "readlink", return_value="mnt:[17]"))
+            self.assertEqual(self.report(capture, private_mount=True, bounded_resources=True), 0)
+        result = json.loads(self.output.read_bytes())
+        self.assertTrue(result["pack_verified"])
+        self.assertTrue(result["resources"]["empty_verified"])
+        self.assertTrue(result["resources"]["group_removed"])
+        self.assertEqual(result["resources"]["limits"], resource.LIMITS)
+        self.assertEqual(result["resources"]["oom_kill"], 0)
+        self.assertNotIn(str(self.root), self.output.read_text())
+        self.assertNotIn("nib-build-", self.output.read_text())
+
+    def test_bounded_cleanup_oom_timeout_and_cancel_never_pass(self):
+        for mode in ("cleanup", "oom", "timeout", "cancel", "ack"):
+            with self.subTest(mode=mode), contextlib.ExitStack() as stack:
+                self.setUp()
+                self.bounded_fixture(stack, cleanup_error=mode == "cleanup", oom=int(mode == "oom"))
+                capture = mock.Mock(return_value=b"{}" if mode == "ack" else self.success())
+                if mode == "timeout": capture.side_effect = ValueError("probe-timeout")
+                if mode == "cancel": capture.side_effect = InterruptedError()
+                self.assertEqual(self.report(capture, bounded_resources=True), 1)
+                result = json.loads(self.output.read_bytes())
+                self.assertFalse(result["pack_verified"])
+                self.assertEqual(result["verified_bytes"], 0)
+                self.assertEqual(result["resources"]["empty_verified"], mode != "cleanup")
+                self.assertNotIn("private-cleanup-error", self.output.read_text())
+
+    def test_resource_helper_hash_and_boolean_gate(self):
+        helper = inspection.resource_helper(self.cache)
+        self.assertEqual(helper.LIMITS, {"memory.max": str(8 << 30), "memory.swap.max": "0",
+                        "memory.oom.group": "1", "pids.max": "256", "cpu.max": "200000 100000"})
+        with mock.patch.object(self.cache, "read_regular", return_value=b"raise AssertionError('unverified')"):
+            with self.assertRaises(ValueError): inspection.resource_helper(self.cache)
+        with self.assertRaises(ValueError): self.report(mock.Mock(), bounded_resources=1)
+
+    def test_resource_bootstrap_checks_membership_and_limits_before_exec(self):
+        # Execute the real bootstrap with fake kernel files; no cgroup mutation.
+        program = compile(inspection.RESOURCE_BOOTSTRAP, "<resource-test>", "exec")
+        limits = {"memory.max": str(8 << 30), "cpu.max": "200000 100000"}
+        args = ["-c", "nib-build-" + "a" * 32, "1", "2", json.dumps(limits), "/usr/bin/unshare", "--mount"]
+        for mode in ("ok", "inode", "membership", "limit"):
+            with self.subTest(mode=mode), contextlib.ExitStack() as stack:
+                stack.enter_context(mock.patch.object(sys, "argv", args))
+                stack.enter_context(mock.patch.object(os, "open", return_value=19))
+                stack.enter_context(mock.patch.object(os, "close"))
+                stack.enter_context(mock.patch.object(os, "fstat", return_value=types.SimpleNamespace(st_dev=1, st_ino=3 if mode == "inode" else 2)))
+                stack.enter_context(mock.patch.object(os, "write", side_effect=lambda fd, raw: len(raw)))
+                stack.enter_context(mock.patch.object(Path, "read_text", return_value="0::/other\n" if mode == "membership" else "0::/" + args[1] + "\n"))
+                stack.enter_context(mock.patch.object(os, "read", side_effect=[b"unlimited" if mode == "limit" else str(8 << 30).encode(), b"200000 100000"]))
+                execute = stack.enter_context(mock.patch.object(os, "execv"))
+                if mode == "ok":
+                    exec(program, {})
+                    execute.assert_called_once_with("/usr/bin/unshare", ["/usr/bin/unshare", "--mount"])
+                else:
+                    with self.assertRaises(AssertionError): exec(program, {})
+                    execute.assert_not_called()
+
     def private_fixture(self, stack):
         mount = self.root / "empty-mount"
         mount.mkdir(mode=0o700)

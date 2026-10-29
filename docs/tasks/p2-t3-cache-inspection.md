@@ -73,6 +73,33 @@ Only an exact successful worker acknowledgment can set the latter two true.
 Default mode retains its v1 contract. Neither mode creates a runtime snapshot
 or authorizes use of a mounted cloud cache as the live model directory.
 
+## Bounded Resource Mode
+
+Add `--bounded-resources` to place the worker, mount helper and all descendants
+in a fresh cgroup before any mount or model read. This composes with private
+mount mode and emits a v3 receipt; v1/v2 defaults remain unchanged. It reuses
+the hash-pinned `host/probe-build-resources.py` lifecycle with an 8 GiB memory
+cap, zero swap, two CPU equivalents and 256 tasks. These are process/cgroup
+limits, not a network-throughput or host-kernel memory limit. See the Linux
+[cgroup v2 memory and CPU interfaces](https://docs.kernel.org/6.17/admin-guide/cgroup-v2.html).
+The existing root controllers must already be available; the checker never
+enables controllers, moves service processes or adopts an existing group.
+
+The child verifies the exact new directory identity, joins the group and reads
+back all limits before executing the existing inspector. Cleanup targets that
+owned group, including descendants with different sessions/process groups.
+Success requires verified empty membership, group removal and zero OOM kills,
+as well as the original complete hash/mount acknowledgment. Cleanup or limit
+failures cannot preserve a pack pass. The receipt records the pinned resource
+helper, observed limits, memory peak and cleanup state, without operator paths.
+SIGTERM to the inspector uses its existing cancellation path; the resource
+lifecycle then cleans up its group. Unproven cleanup is not permission to
+delete, recover or kill any unrelated resource.
+
+No resource limit authorizes a live run by itself. Operators must still check
+disk space, health, incremental transfer charges, time limits and competing
+work before launching. Bound and monitor host/network pressure separately.
+
 ## Verification
 
 `python3 -m unittest discover -s scripts -p test_public_weight_cache_inspection.py`
