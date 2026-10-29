@@ -73,6 +73,48 @@ def archive_fixture(prepared="a" * 64, *, compressed=True, attestation=True, emp
 
 
 class ArchiveTests(unittest.TestCase):
+    def test_actual_original_image_verification_preserves_exact_bytes_and_scope(self):
+        directory = ROOT / "evidence/p2/2026-10-29-original-image-verified"
+        expected = {"receipt.json": "d1da9b8ce809a9cf4a7996a98eec3abb1a4f69f41053e8e1097cb16223b7c8cb",
+                    "output.log": "6ca680d7eef85f6ff979851cd42c0624af89c2fc97b76ed4a2cf686ad6829519",
+                    "build.json": "2e86711c2462efa5cff9e09ee455f593c7450bede1aae1fc11e638228ad80cee"}
+        for name, digest in expected.items():
+            self.assertEqual(verify.sha((directory / name).read_bytes()), digest)
+        result = json.loads((directory / "receipt.json").read_bytes())
+        build = json.loads((directory / "build.json").read_bytes())
+        self.assertEqual(result["result"], "pass")
+        self.assertIs(result["archive_verified"], True)
+        self.assertIs(result["worker_exit_confirmed"], True)
+        self.assertEqual(result["archive"]["bytes"], 9247235584)
+        self.assertEqual(result["archive"]["expanded_bytes"], 23744649728)
+        self.assertEqual(result["archive"]["layers"], 44)
+        self.assertEqual(len(result["archive"]["diff_ids"]), 44)
+        self.assertEqual(result["archive"]["platform"], "linux/amd64")
+        self.assertEqual(result["archive"]["image_id"], build["image_id"])
+        self.assertEqual(result["source"]["build_sha256"], expected["build.json"])
+        self.assertEqual(result["source"]["model_profile"]["name"], "original")
+        self.assertEqual(result["profile"], "original-long1m-graphs")
+        for key in ("image_loaded", "runtime_started", "deployable", "hardware_validated", "published", "confidential"):
+            self.assertIs(result[key], False)
+
+    def test_actual_verification_metadata_binds_producer_and_pinned_source(self):
+        directory = ROOT / "evidence/p2/2026-10-29-original-image-verified"
+        result = json.loads((directory / "receipt.json").read_bytes())
+        metadata = json.loads((directory / "run.json").read_bytes())
+        self.assertEqual(metadata["git_sha"], "bb3064eddf091b754e8213f81d2b583043a7a9b1")
+        self.assertEqual(metadata["git_sha"], result["producer"])
+        self.assertEqual(metadata["git_sha"], result["source"]["build_producer"])
+        self.assertEqual((metadata["execution"], metadata["result"]), ("software", "pass"))
+        self.assertIs(metadata["hardware_validated"], False)
+        self.assertEqual(metadata["host"]["gpus"], "none")
+        from test_evidence_history import git
+        for name, digest in {"host/verify-selected-image-archive.py": result["script_sha256"],
+                             **result["helpers"]}.items():
+            self.assertEqual(verify.sha(git(ROOT, "show", metadata["git_sha"] + ":" + name)), digest)
+        git(ROOT, "merge-base", "--is-ancestor", metadata["git_sha"], "HEAD")
+        for key in ("started_utc", "ended_utc"):
+            self.assertEqual(metadata[key], result[key].replace("+00:00", "Z"))
+
     def test_failed_original_receipt_is_preserved_without_success_claims(self):
         directory = ROOT / "evidence/p2/2026-10-29-original-image-archive-failure"
         raw = (directory / "receipt.json").read_bytes()

@@ -8,9 +8,10 @@ mount, start a model, contact a registry, or authorize a cutover.
 
 The [first actual local archive verification failed](../../evidence/p2/2026-10-29-original-image-archive-failure/README.md).
 Its original receipt and log are retained. An empty provenance subject was
-subsequently identified as a definite rejection condition; a successful rebuild
-and replacement verification remain pending. The original parser's subject
-binding is unchanged.
+subsequently identified as a definite rejection condition. A separately
+[rebuilt original image passed full local archive verification](../../evidence/p2/2026-10-29-original-image-verified/README.md).
+The original parser's subject binding is unchanged. Image import, model-weight
+verification, runtime and deployment remain pending.
 
 ## Closed reuse
 
