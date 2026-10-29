@@ -6,6 +6,12 @@ selected-service preparation, its separate original build receipt, and one exact
 operator-pinned archive. It does not invoke Docker, build, load, pull, tag, delete,
 mount, start a model, contact a registry, or authorize a cutover.
 
+The [first actual local archive verification failed](../../evidence/p2/2026-10-29-original-image-archive-failure/README.md).
+Its original receipt and log are retained. An empty provenance subject was
+subsequently identified as a definite rejection condition; a successful rebuild
+and replacement verification remain pending. The original parser's subject
+binding is unchanged.
+
 ## Closed reuse
 
 The unchanged, SHA-256-pinned [Qwen archive validator](../../scripts/pilot/export.py)
