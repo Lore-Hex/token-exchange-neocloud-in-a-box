@@ -556,6 +556,11 @@ def main(argv=None):
                 or args.long_qualification) and shutdown.is_set() and result["status"] != "failed":
             result.update(status="failed", reason="cancelled")
         publish(result)
+        if view is not None:
+            if result["status"] != "retired":
+                return 1
+            sys.stdout.flush()
+            view.retired(result, contract)
         return 0 if result["status"] in ("retired", "cancelled") else 1
     except BaseException as error:
         if args.long_qualification:

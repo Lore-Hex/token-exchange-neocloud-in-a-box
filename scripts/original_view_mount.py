@@ -407,6 +407,7 @@ class Lease:
         self.stack, self.listener, self.connection, self.peer = ExitStack(), None, None, None
         self.closed, self.registered, self.released, self.mount_attempted = False, False, False, False
         self.unmount_attempted = False
+        self.terminal_end = None
         self.admission_sealed, self.closure_recorded = False, False
         self.worker_states = []
         try:
@@ -570,12 +571,24 @@ class Lease:
     def observe(self):
         self.fresh()
         require(self.released and self.peer is not None)
+        end = min(self.row["hard_monotonic"], time.monotonic() + self.row["hard_wall"] - time.time())
+        require(time.monotonic() < end)
         ready = select.select([self.peer[1], self.connection], [], [], 0)[0]
-        if self.peer[1] in ready:
-            return True
-        # While PID 1 is alive, readable means EOF or an unsolicited packet.
-        require(self.connection not in ready)
-        return False
+        if self.connection in ready:
+            raw = self.connection.recv(4097)
+            if self.terminal_end is None:
+                require(raw == consumer.encoded(consumer.terminal(self.consumer_sha)))
+                self.terminal_end = min(time.monotonic() + consumer.TERMINAL_SECONDS, end)
+                # A queued duplicate must not hide behind simultaneous PID exit.
+                if select.select([self.connection], [], [], 0)[0]:
+                    require(self.connection.recv(4097) == b"")
+            else:
+                require(raw == b"")
+        if self.terminal_end is None:
+            require(self.peer[1] not in ready)
+            return False
+        require(time.monotonic() < min(self.terminal_end, end))
+        return self.peer[1] in ready
 
     def close_admission(self):
         self.closed = True

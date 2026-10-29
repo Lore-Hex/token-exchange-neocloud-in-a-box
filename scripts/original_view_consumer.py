@@ -22,6 +22,7 @@ DIRECTORY = Path("/run/nib-inputs")
 CONTRACT = "original-view.json"
 SOCKET = "original-view.sock"
 SCHEMA = "nib.original-view-consumer/v1"
+TERMINAL_SECONDS = 60
 
 
 def encoded(value):
@@ -104,8 +105,13 @@ def release(contract_sha):
     return {"schema": "nib.original-view-release/v1", "contract_sha256": contract_sha}
 
 
+def terminal(contract_sha):
+    return {"schema": "nib.original-view-terminal/v1", "contract_sha256": contract_sha,
+            "status": "retired", "cleanup_confirmed": True}
+
+
 class Hold:
-    """One connection; EOF/extra data is failure, never a reconnect or retry."""
+    """One connection and one terminal acknowledgment; never reconnect or retry."""
 
     def __init__(self, expected, prepared, contract, shutdown):
         self.value = load_contract(expected, contract)
@@ -113,6 +119,7 @@ class Hold:
                 and contract.startup_deadline <= self.value["startup_deadline"], "mounts")
         self.sha, self.shutdown, self.prepared = expected, shutdown, prepared
         self.space, self.connection = namespace(), None
+        self.released, self.terminal_sent = False, False
         self.model_check()
         connection = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         try:
@@ -144,10 +151,11 @@ class Hold:
         require(self.connection.send(raw) == len(raw), "mounts")
 
     def check(self):
-        require(not self.shutdown.is_set() and self.connection is not None, "cancelled")
+        require(not self.shutdown.is_set() and self.connection is not None and not self.terminal_sent, "cancelled")
         require(not select.select([self.connection], [], [], 0)[0], "mounts")
 
     def verified(self, deadline):
+        require(not self.released, "mounts")
         self.check()
         self.send("verified")
         while True:
@@ -157,7 +165,30 @@ class Hold:
                 require(raw == encoded(release(self.sha)), "mounts")
                 self.model_check()
                 require(not self.shutdown.is_set() and time.monotonic() < deadline, "deadline")
+                self.released = True
                 return
+
+    def retired(self, result, contract):
+        require(self.released and not self.terminal_sent and result.get("status") == "retired"
+                and result.get("reason") == "retired" and result.get("ready") is True
+                and result.get("cleanup_confirmed") is True
+                and result.get("schema") == service.EXECUTION_SCHEMA
+                and result.get("execution_prepared_sha256") == self.value["prepared_sha256"]
+                and result.get("execution") == service.engine_entry.execution_limits(PROFILE), "mounts")
+        cleanup = result.get("cleanup")
+        require(type(cleanup) is list and len(cleanup) == len(service.ROLES), "mounts")
+        for row, role in zip(cleanup, reversed(service.ROLES)):
+            require(type(row) is dict and set(row) == {"role", "drained", "reaped"}
+                    and row["role"] == role and row["drained"] is True and row["reaped"] is True, "mounts")
+        self.check()
+        end = min(contract.hard_monotonic, time.monotonic() + contract.hard_wall - time.time())
+        require(time.monotonic() < end, "deadline")
+        self.connection.settimeout(min(1, end - time.monotonic()))
+        raw = encoded(terminal(self.sha))
+        require(not self.shutdown.is_set() and time.monotonic() < end, "deadline")
+        require(self.connection.send(raw) == len(raw), "mounts")
+        self.terminal_sent = True
+        require(not self.shutdown.is_set() and time.monotonic() < end, "deadline")
 
     def close(self):
         if self.connection is not None:

@@ -36,6 +36,13 @@ def deadlines():
     return {"startup_deadline": 1000000000.0, "hard_monotonic": 1000001000.0, "hard_wall": 4000000000.0}
 
 
+def retired_result():
+    return consumer.service.execution_result({"schema": consumer.service.ORDINARY_SCHEMA,
+        "status": "retired", "reason": "retired", "ready": True, "cleanup_confirmed": True,
+        "cleanup": [{"role": role, "drained": True, "reaped": True}
+                    for role in reversed(consumer.service.ROLES)]}, consumer.PROFILE, contract()["prepared_sha256"])
+
+
 class EvidenceTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -175,6 +182,8 @@ class ConsumerTests(unittest.TestCase):
         hold.space = {"device": 4, "inode": 88}
         hold.shutdown = mock.Mock(is_set=mock.Mock(return_value=False))
         hold.connection = mock.Mock()
+        hold.connection.send.side_effect = len
+        hold.released, hold.terminal_sent = False, False
         return hold
 
     def test_exact_release_only_after_verified_ack(self):
@@ -186,6 +195,7 @@ class ConsumerTests(unittest.TestCase):
             hold.verified(time.monotonic() + 10)
         send.assert_called_once_with("verified")
         model.assert_called_once()
+        self.assertTrue(hold.released)
 
     def test_eof_wrong_release_or_cancel_never_passes_hold(self):
         for raw in (b"", b"{}", consumer.encoded(consumer.release("0" * 64))):
@@ -206,6 +216,48 @@ class ConsumerTests(unittest.TestCase):
         with mock.patch.object(consumer.select, "select", return_value=([hold.connection], [], [])), \
                 self.assertRaises(ValueError):
             hold.check()
+
+    def test_terminal_is_once_only_after_successful_retirement_and_cleanup(self):
+        hold = self.hold()
+        hold.released = True
+        with mock.patch.object(consumer.select, "select", return_value=([], [], [])):
+            hold.retired(retired_result(), SimpleNamespace(**deadlines()))
+            self.assertTrue(hold.terminal_sent)
+            hold.connection.send.assert_called_once_with(consumer.encoded(consumer.terminal(hold.sha)))
+            with self.assertRaises(ValueError):
+                hold.retired(retired_result(), SimpleNamespace(**deadlines()))
+        hold.connection.send.assert_called_once()
+
+    def test_failed_cancelled_unreleased_or_incomplete_cleanup_never_sends_terminal(self):
+        cases = [{"status": "cancelled"}, {"status": "failed"}, {"reason": "owner-failed"},
+                 {"ready": False}, {"cleanup_confirmed": False}, {"cleanup": []},
+                 {"execution_prepared_sha256": "0" * 64}]
+        bad_cleanup = retired_result()["cleanup"]
+        bad_cleanup[0]["reaped"] = 1
+        cases.append({"cleanup": bad_cleanup})
+        for changed in cases:
+            hold = self.hold()
+            hold.released = True
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                hold.retired({**retired_result(), **changed}, SimpleNamespace(**deadlines()))
+            hold.connection.send.assert_not_called()
+        for released, cancelled in ((False, False), (True, True)):
+            hold = self.hold()
+            hold.released, hold.shutdown.is_set.return_value = released, cancelled
+            with self.subTest(released=released, cancelled=cancelled), self.assertRaises(ValueError):
+                hold.retired(retired_result(), SimpleNamespace(**deadlines()))
+            hold.connection.send.assert_not_called()
+
+    def test_expired_consumer_never_sends_terminal(self):
+        for bounds in ({"hard_monotonic": 10, "hard_wall": 200},
+                       {"hard_monotonic": 20, "hard_wall": 100}):
+            hold = self.hold()
+            hold.released = True
+            with mock.patch.object(consumer.select, "select", return_value=([], [], [])), \
+                    mock.patch.object(consumer.time, "monotonic", return_value=10), \
+                    mock.patch.object(consumer.time, "time", return_value=100), self.assertRaises(ValueError):
+                hold.retired(retired_result(), SimpleNamespace(**bounds))
+            hold.connection.send.assert_not_called()
 
     def test_acknowledgment_has_no_verified_counts_before_full_hash(self):
         joined = consumer.acknowledgment(contract(), "f" * 64, "joined", {"device": 1, "inode": 2})
@@ -791,11 +843,19 @@ class DeadlineTests(unittest.TestCase):
             hold = stack.enter_context(mock.patch.object(consumer, "Hold"))
             stack.enter_context(mock.patch.object(process, "ProcessOwner"))
             supervisor = stack.enter_context(mock.patch.object(consumer.service, "Supervisor"))
-            supervisor.return_value.run.return_value = {"schema": "synthetic", "status": "retired"}
+            result, events = retired_result(), []
+            supervisor.return_value.run.side_effect = lambda **_: events.append("retired") or result
             stack.enter_context(mock.patch.object(consumer.service, "snapshot_inputs", return_value=nullcontext(object())))
             stack.enter_context(mock.patch.object(consumer.service, "progress"))
             stack.enter_context(mock.patch.object(consumer.service, "execution_result", side_effect=lambda row, *_: row))
-            stack.enter_context(redirect_stdout(io.StringIO()))
+            output = stack.enter_context(redirect_stdout(io.StringIO()))
+            def terminal(row, current):
+                self.assertIs(row, result)
+                self.assertEqual(json.loads(output.getvalue())["status"], "retired")
+                self.assertEqual(current.startup_deadline, value["startup_deadline"])
+                events.append("terminal")
+            hold.return_value.retired.side_effect = terminal
+            hold.return_value.close.side_effect = lambda: events.append("closed")
             args = ["--prepared-sha256", value["prepared_sha256"], "--hard-stop-at", value["hard_stop_at"],
                 "--input-price", "1", "--output-price", "2", "--execution-profile", consumer.PROFILE,
                 "--lifetime-profile", consumer.service.ORDINARY_PROFILE, "--original-view-sha256", sha,
@@ -806,6 +866,17 @@ class DeadlineTests(unittest.TestCase):
             factory.assert_called_once_with(value["prepared_sha256"], value["startup_deadline"])
             self.assertEqual(hold.call_args.args[2].startup_deadline, value["startup_deadline"])
             self.assertEqual(supervisor.call_args.args[0].startup_deadline, value["startup_deadline"])
+            self.assertEqual(events, ["retired", "terminal", "closed"])
+            hold.return_value.retired.assert_called_once()
+            for status in ("failed", "cancelled"):
+                hold.return_value.retired.reset_mock()
+                result["status"] = status
+                self.assertEqual(process.main(args), 1)
+                hold.return_value.retired.assert_not_called()
+            result["status"] = "retired"
+            with mock.patch.object(output, "flush", side_effect=OSError("synthetic publication failure")):
+                self.assertEqual(process.main(args), 1)
+            hold.return_value.retired.assert_not_called()
             factory.reset_mock()
             clock.advance(101)
             self.assertEqual(process.main(args), 1)
@@ -813,17 +884,99 @@ class DeadlineTests(unittest.TestCase):
 
 
 class ObserveTests(unittest.TestCase):
-    def test_live_peer_requires_socket_silence_and_pid_exit_takes_precedence(self):
-        lease = object.__new__(mount.Lease)
-        lease.fresh, lease.connection = mock.Mock(), object()
-        lease.released, lease.peer = True, (91, 11, {"device": 4, "inode": 50})
-        for ready, expected in (([], False), ([11], True), ([11, lease.connection], True)):
-            with self.subTest(ready=ready), mock.patch.object(mount.select, "select", return_value=(ready, [], [])):
-                self.assertIs(lease.observe(), expected)
-        # select readability covers both EOF and unsolicited packets; neither
-        # can be ignored while the bound pidfd still describes a live PID 1.
-        with mock.patch.object(mount.select, "select", return_value=([lease.connection], [], [])), self.assertRaises(ValueError):
-            lease.observe()
+    def setUp(self):
+        self.lease = object.__new__(mount.Lease)
+        self.lease.fresh, self.lease.connection = mock.Mock(), mock.Mock()
+        self.lease.released, self.lease.peer = True, (91, 11, {"device": 4, "inode": 50})
+        self.lease.row = {"hard_monotonic": 200, "hard_wall": 300}
+        self.lease.consumer_sha, self.lease.terminal_end = "f" * 64, None
+        self.now, self.wall, self.exited, self.packets, self.eof = 10, 100, False, [], False
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(mock.patch.object(mount.time, "monotonic", side_effect=lambda: self.now))
+        stack.enter_context(mock.patch.object(mount.time, "time", side_effect=lambda: self.wall))
+        def select(fds, *_):
+            ready = [fd for fd in fds if (fd == 11 and self.exited)
+                     or (fd is self.lease.connection and (self.packets or self.eof))]
+            return ready, [], []
+        stack.enter_context(mock.patch.object(mount.select, "select", side_effect=select))
+        self.lease.connection.recv.side_effect = lambda _: self.packets.pop(0) if self.packets else b""
+
+    def test_successful_consumer_finally_eof_before_pid_exit_waits_without_new_grant(self):
+        hold = ConsumerTests().hold()
+        hold.released = True
+        hold.connection.send.side_effect = lambda raw: self.packets.append(raw) or len(raw)
+        hold.connection.close.side_effect = lambda: setattr(self, "eof", True)
+        hold.retired(retired_result(), SimpleNamespace(**self.lease.row))
+        hold.close()  # main's finally runs while PID 1 is still alive.
+        self.assertFalse(self.lease.observe())
+        self.assertEqual(self.lease.terminal_end, 70)
+        self.now = 20
+        self.assertFalse(self.lease.observe())
+        self.assertEqual(self.lease.terminal_end, 70)
+        self.exited = True
+        self.assertTrue(self.lease.observe())
+        self.assertTrue(self.lease.released)
+        self.lease.connection.send.assert_not_called()
+
+    def test_active_silence_only_and_premature_eof_fails_even_with_pid_exit(self):
+        self.assertFalse(self.lease.observe())
+        self.eof = True
+        for self.exited in (False, True):
+            with self.subTest(exited=self.exited), self.assertRaises(ValueError):
+                self.lease.observe()
+
+    def test_pid_exit_without_terminal_is_not_success(self):
+        self.exited = True
+        with self.assertRaises(ValueError): self.lease.observe()
+
+    def test_wrong_contract_or_unsolicited_packet_rejected(self):
+        for raw in (b"{}", consumer.encoded(consumer.terminal("0" * 64)),
+                    consumer.encoded({**consumer.terminal("f" * 64), "extra": True})):
+            self.packets = [raw]
+            with self.subTest(raw=raw), self.assertRaises(ValueError): self.lease.observe()
+            self.assertIsNone(self.lease.terminal_end)
+
+    def test_duplicate_terminal_rejected_even_when_pid_already_exited(self):
+        raw = consumer.encoded(consumer.terminal(self.lease.consumer_sha))
+        for self.exited in (False, True):
+            self.lease.terminal_end = None
+            self.packets = [raw, raw]
+            with self.subTest(exited=self.exited), self.assertRaises(ValueError): self.lease.observe()
+
+    def test_later_duplicate_rejected(self):
+        raw = consumer.encoded(consumer.terminal(self.lease.consumer_sha))
+        self.packets = [raw]
+        self.assertFalse(self.lease.observe())
+        self.packets = [raw]
+        with self.assertRaises(ValueError): self.lease.observe()
+
+    def test_terminal_and_pid_exit_same_poll_still_require_exact_packet(self):
+        self.packets = [consumer.encoded(consumer.terminal(self.lease.consumer_sha))]
+        self.eof, self.exited = True, True
+        self.assertTrue(self.lease.observe())
+
+    def test_terminal_wait_never_renews_or_extends_original_hard_stop(self):
+        self.lease.row["hard_monotonic"] = 30
+        self.packets = [consumer.encoded(consumer.terminal(self.lease.consumer_sha))]
+        self.assertFalse(self.lease.observe())
+        self.assertEqual(self.lease.terminal_end, 30)
+        self.now, self.eof, self.exited = 30, True, True
+        with self.assertRaises(ValueError): self.lease.observe()
+
+    def test_terminal_wait_expires_with_live_pid_and_eof(self):
+        self.packets = [consumer.encoded(consumer.terminal(self.lease.consumer_sha))]
+        self.eof = True
+        self.assertFalse(self.lease.observe())
+        self.now = 70
+        with self.assertRaises(ValueError): self.lease.observe()
+
+    def test_late_terminal_rejected_on_monotonic_or_wall_cutoff(self):
+        raw = consumer.encoded(consumer.terminal(self.lease.consumer_sha))
+        for now, wall in ((200, 100), (10, 300)):
+            self.now, self.wall, self.packets = now, wall, [raw]
+            with self.subTest(now=now, wall=wall), self.assertRaises(ValueError): self.lease.observe()
+            self.assertIsNone(self.lease.terminal_end)
 
 
 class WatchdogTerminalTests(unittest.TestCase):
@@ -844,6 +997,7 @@ class WatchdogTerminalTests(unittest.TestCase):
             selected.cleanup.return_value = {key: True for key in ("container_absent", "network_absent",
                 "creations_resolved", "quarantine_confirmed", "policy_removed", "cleanup_confirmed")}
             view.row, view.poll.return_value, view.observe.return_value = deadlines(), True, True
+            view.terminal_end = 70
             now, calls, messages = {"value": 10}, [], iter([b"verify\n", b"" if outcome == "parent-death" else b"done\n"])
             def select(*_):
                 calls.append("poll")

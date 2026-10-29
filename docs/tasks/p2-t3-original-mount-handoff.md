@@ -181,17 +181,30 @@ here, and a budget change must still preserve the one host-to-consumer cutoff.
 
 ## Closure and failure retention
 
-After release, the host observes both the bound pidfd and the hold socket. EOF
-or any unsolicited packet while the consumer is alive fails closed and starts
-cleanup; it is not ignored until PID exit. Confirmed PID exit takes precedence
-over its simultaneous socket EOF.
+After release, the host observes both the bound pidfd and the hold socket.
+Active-state EOF or unsolicited data fails closed, including simultaneous PID
+exit without a terminal acknowledgment. The consumer sends one fixed
+`nib.original-view-terminal/v1` packet bound to the exact consumer-contract
+digest on its original authenticated connection. It sends only after the
+supervisor reports ready, retired and confirmed cleanup with every expected
+role drained/reaped, the input snapshot closes successfully, and the lifecycle
+receipt is published. Cancellation, incomplete cleanup or expiry cannot send
+this acknowledgment. It grants no new serving authority.
+
+The exact terminal packet starts a wait of at most 60 seconds, capped by the
+original owner deadline. Only then may socket EOF precede PID exit, including
+the consumer's explicit `finally` close or interpreter teardown. Wrong-contract,
+duplicate or other data is rejected even with simultaneous PID exit. EOF does
+not prove PID or descendant absence, and neither EOF nor PID exit renews the
+terminal wait. The consumer also checks its unchanged hard stop before and
+after the bounded terminal send.
 
 On normal consumer exit, the watchdog retains the container/network for final
 parent readback. The parent sends fixed `done` over its exclusively inherited
 life pipe only after validating the lifecycle receipt and fresh exited/zero
 Docker state. The watchdog independently verifies that state and PID exit
-before accepting it. This terminal wait is capped at 60 seconds from observed
-exit and at the original owner deadline; neither is renewed. Parent EOF,
+before accepting it. Parent readback must finish within the same terminal wait
+and original owner deadline; neither is renewed. Parent EOF,
 expiry or failed readback cleans up independently and cannot report success.
 This is an authenticated parent acknowledgment, not a reused container name or
 an unauthenticated terminal snapshot. There is no waiting for a dead parent.
@@ -234,7 +247,8 @@ They also cover expiry during intent/fsync/readback, the actual consumer-entry
 cutoff propagation before preparation and into the supervisor, boot/time
 namespace mismatch, exact consumer bytes in original image preparation, the
 end-to-end synthetic watchdog/parent acknowledgment protocol, normal-exit
-readback races and post-release socket EOF/data. No real image is built by
+readback races, terminal-before-PID EOF, wrong/duplicate/late terminal packets,
+and premature post-release socket EOF/data. No real image is built by
 these tests; preparation proves packaged source bytes, not runnable-image or
 hardware success.
 The image-archive verifier's authenticated `selected_service_process` pin is
@@ -260,6 +274,10 @@ timeout 300 python3 -B -m unittest -v \
   test_original_service_runtime test_original_weight_staging \
   test_selected_image_archive
 ```
+
+The parent reported 82 focused/archive tests passing in 14.094 seconds at
+`d2ab5104e71d4471407724933524b14b900951f0`. That result predates the terminal
+handshake fix and is not a passing-test claim for the corrected head.
 
 Use the already approved cached runtime and record its actual identity; this
 document supplies no guessed image pin. Independent final-head review and all

@@ -153,17 +153,19 @@ def watchdog(root, life_fd):
             if serving:
                 require(owner.daemon_identity(commands, daemon[0]) == daemon)
                 info = selected_owner.fresh(serving=True)
-                if view is not None and view.observe():
+                exited = view.observe() if view is not None else False
+                if view is not None and view.terminal_end is not None:
+                    terminal_end = min(view.terminal_end, commands.end)
+                if exited:
                     if info["State"]["Status"] == "exited":
                         require(type(info["State"]["ExitCode"]) is int and info["State"]["ExitCode"] == 0)
                     # The inherited life pipe authenticates this one parent.
                     # Keep final Docker/network readback available for at most
-                    # 60 seconds, never beyond the original owner cutoff.
-                    if terminal_end is None:
-                        terminal_end = min(time.monotonic() + 60, commands.end)
+                    # 60 seconds from the terminal packet, never beyond the
+                    # original owner cutoff. PID exit cannot renew that wait.
                     # The PID can exit after Docker's running-state sample.
                     # Final exited/zero readback is required again on done.
-                    require(time.monotonic() < terminal_end)
+                    require(terminal_end is not None and time.monotonic() < terminal_end)
         else:
             raise ValueError("selected owner expiry")
         result["result"] = "pass"
