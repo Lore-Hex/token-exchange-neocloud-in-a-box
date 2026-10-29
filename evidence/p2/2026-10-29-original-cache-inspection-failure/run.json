@@ -4,16 +4,17 @@
   "task": "T3",
   "git_sha": "aa87e9ef0e9a9164e41aebe10681cfa6934bd947",
   "command": "python3 -I -S -B <private-source>/host/inspect-public-weight-cache.py --export <private-export> --mount <private-mount> --output <private-receipt> --producer aa87e9ef0e9a9164e41aebe10681cfa6934bd947 --timeout 3600 --private-mount --bounded-resources --ownership-dir <private-ownership> --attempt-id <private-attempt>",
-  "command_redacted": true,
   "execution": "hardware",
-  "host": {"inventory_recorded": false},
-  "started_utc": "2026-10-29T02:08:50.166342+00:00",
-  "ended_utc": "2026-10-29T02:09:01.147751+00:00",
+  "host": {
+    "provider": "withheld",
+    "machine": "operator-reported-existing-host",
+    "gpus": "eight-selected-B300",
+    "driver": null,
+    "cuda": null
+  },
+  "started_utc": "2026-10-29T02:08:50.166342Z",
+  "ended_utc": "2026-10-29T02:09:01.147751Z",
   "result": "fail",
-  "failure": "worker-failed",
-  "cause_established": false,
   "hardware_validated": false,
-  "receipt_sha256": "c87747674f82d223fcfe0d47d373db074c00db60edcbb6f08d2fbf908a0916c7",
-  "output_log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  "notes": "Operator-supplied original content-free receipt and empty log, not a rerun. Invocation preserves inspector flags with private values redacted; private launch/monitor wrapper and host identity are not published. No stage or cause was recorded. Cleanup remains unproven; separate operator observations do not upgrade this receipt. No cache availability, model verification, inference, runtime readiness or confidentiality is established."
+  "notes": "Operator-supplied original content-free receipt and empty log, not a rerun. Invocation preserves inspector flags with private values redacted; private launch/monitor wrapper and host identity are not published. Host GPU class is operator-reported, not measured by this receipt; driver/CUDA were not recorded. Failure is worker-failed; no stage or cause was established. Cleanup remains unproven; separate operator observations do not upgrade this receipt. Original receipt SHA256 c87747674f82d223fcfe0d47d373db074c00db60edcbb6f08d2fbf908a0916c7; empty output.log SHA256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855. No cache availability, model verification, inference, runtime readiness or confidentiality is established."
 }
