@@ -16,9 +16,9 @@ import test_stream_https as wire
 
 
 class CacheStreamTests(unittest.TestCase):
-    def fixture(self, responses, *, partial_send=False, slow_headers=False):
+    def fixture(self, responses, *, partial_send=False, slow_headers=False, candidate="selected"):
         with patch.object(probe.stream.bounded_https, "system_trust"):
-            client = probe.stream.SelectedHTTPS("candidate.example.test", address="8.8.8.8")
+            client = probe.stream.SelectedHTTPS("candidate.example.test", address="8.8.8.8", candidate=candidate)
         rows, connections = [], []
         responses = iter(responses)
 

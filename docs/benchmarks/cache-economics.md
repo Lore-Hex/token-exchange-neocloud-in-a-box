@@ -186,6 +186,38 @@ price qualification. The live caller must still verify this exact source and
 workload, the current owner, endpoint, tokenizer and aggregate budget. It must
 never start inference merely because offline preparation succeeded.
 
+### Explicit Official Candidate
+
+The cache preparation CLI accepts `--candidate original`; omission retains the
+historical selected-model v1 format and wire model. This opt-in uses only
+`quality_candidate.original_fields()`: the official model ID, pinned original
+checkpoint/manifest and `original-long1m-graphs` profile. No arbitrary model,
+revision, serving profile or tokenizer-source override is accepted.
+
+For an already admitted caller, construct `stream_https.SelectedHTTPS` with
+`candidate="original"` and call `cache_probe.run` with the same candidate and
+`preparation=` set to the unmodified v2 preparation object. The selected shape's
+padding must match. Request validation and every streamed response event enforce
+that client's model identity. The transport's TLS, timeout, request/token budgets
+and no-retry rules are unchanged. This is software support, not a live caller or
+permission to launch inference.
+
+V2 preparation binds the existing hash-verified tokenizer sources, model files
+and native wheel to the official identity. Both checkpoint manifests pin the
+same tokenizer bytes; that does not make their model identities interchangeable.
+The v2 manifest embeds the complete preparation. Every intent, result and summary
+binds its canonical workload hash, tokenizer source/identity hashes, selected
+token-ID hash and full official identity. The interrupted and completed auditors
+emit v2 reports with those bindings plus the exact input journal's hash and size.
+Mixed v1/v2 records, profiles, models or preparation bindings are rejected, not
+upgraded. Legacy v1 records remain unchanged and cannot be relabelled official.
+
+Audits establish internal consistency, not source authenticity, current tokenizer
+parity, endpoint ownership or billing reconciliation. Preserve the original
+preparation and source evidence; independently verify them before any separately
+approved request. Tests use synthetic tokenizer counts and in-memory HTTP/SSE;
+no real tokenizer execution, external inference or GPU validation is claimed.
+
 ### Completed Journals
 
 Reconcile a single recorded successful nine-request sequence offline:

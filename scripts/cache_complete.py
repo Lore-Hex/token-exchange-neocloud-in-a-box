@@ -26,6 +26,7 @@ def audit(raw):
                 "unknown_cache_usage_requests", "prompt_count_mismatches")))
     rows = [json.loads(line, object_pairs_hook=meter.unique,
                        parse_constant=lambda _: require(False)) for line in lines]
+    candidate, binding = journal.context(rows[0])
     results, summary = rows[2:-1:2], rows[-1]
     require(all(row["phase"] == "warm" or row["measurement"]["cached_prompt_tokens"] == 0
                 for row in results))
@@ -44,7 +45,7 @@ def audit(raw):
     flags = {"completed": True, "billing_reconciled": False, "cache_isolation_qualified": False,
              "quality_qualified": False, "confidential": False, "tariff_change_justified": False}
     journal.fields(summary, "summary", set(expected) | set(flags) |
-                   {"elapsed_seconds", "stop_reason"}, report["run_id"])
+                   {"elapsed_seconds", "stop_reason"}, report["run_id"], candidate=candidate, binding=binding)
     require(all(type(summary[name]) is int and summary[name] == value
                 for name, value in expected.items()) and
             all(summary[name] is value for name, value in flags.items()) and
@@ -52,7 +53,7 @@ def audit(raw):
             sum(row["measurement"]["elapsed_seconds"] for row in results) <=
             summary["elapsed_seconds"] < probe.RUN_SECONDS)
     report.pop("run_completed")
-    return {**report, "schema": "nib.cache-complete-audit/v1",
+    return {**report, "schema": probe.identity.schema("cache-complete-audit", candidate),
             "source_sha256": hashlib.sha256(raw).hexdigest(), "source_bytes": len(raw),
             "journal_records": len(rows), "terminal_present": True,
             "recorded_sequence_completed": True,
