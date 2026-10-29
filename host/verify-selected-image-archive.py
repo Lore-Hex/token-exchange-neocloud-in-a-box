@@ -3,6 +3,7 @@
 """Verify one source-bound original image archive offline; never load or run it."""
 
 import argparse
+import builtins
 from contextlib import contextmanager
 import datetime
 import gzip
@@ -34,12 +35,15 @@ MAX_ARCHIVE, MAX_EXPANDED = 10 << 30, 64 << 30
 SECONDS, MEMORY, MAX_REPORT = 1800, 2 << 30, 65536
 PREPARATION_MODULES = {
     "deepseek_model_profile": "aba5b55574e6b1c959b4e2c017973b6ec0025d3a0081a0427a00bdc5a9f37c5f",
+    "e2e.exercise": "f3af954884134fbd34a94bc001bfb9d7c9c5151c923e9b81571b678251efae6c",
+    "e2e.snapshot": RUNNER_SHA,
     "engine_lab": "0befaeac8c981dd1432f541fda30aa5a20a7d62fb4a1cacd817d57b1eb72fea2",
     "engine_local_correctness": "6f52e50c8c6699650d6a3e05ae55236f10987a7ab26c41c703c209868a79fb1c",
     "engine_python_bootstrap": "4287c42d3d34f42a2e89901600c11c2fe20669f3bb6b5b120f2671b992a5df92",
     "engine_runtime_observation": "e83b13ebbc1979d77a34e2078e0bb4e2aefd01cb4299c98c1aeabe127aee428f",
     "engine_tokenizer_parity": "978814f3341b83fed33282f23ee76b173bc4235235ccf374149d0363252f3ce8",
     "pilot.serve": "9d921944e5aa7a608cc7e4cb7adea57f50ba78b04641ceca283a701a94a7e561",
+    "pilot.run": "7a0d23e8b95e998a09ec7a0b066d067441e1fb1cd6121bd5172d9373c10d6cf8",
     "selected_service": "914b18673163ff48c2c6ceaf5213a97d592cd59514db23449f191f1ab2be2ca9",
     "selected_service_engine": "08569ee0c6741d87028b739f05f234452e1992eacdf9348f94b0dede520dc87d",
     "selected_service_image": IMAGE_SHA,
@@ -151,12 +155,35 @@ def preparation_helper():
              for name in PREPARATION_MODULES}
     sources = {name: read(path, 1 << 20) for name, path in paths.items()}
     require(all(sha(sources[name]) == expected for name, expected in PREPARATION_MODULES.items()))
+    buffered = {str(paths[name]): raw for name, raw in sources.items()}
+    direct_loaders = {str(paths[name]) for name in ("pilot.serve", "pilot.run")}
+
+    class BufferedPath(type(Path())):
+        def read_bytes(self):
+            require(str(self) in buffered)
+            return buffered[str(self)]
+
+    def source_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "pathlib":
+            require(fromlist == ("Path",) and level == 0)
+            return types.SimpleNamespace(Path=BufferedPath)
+        return builtins.__import__(name, globals, locals, fromlist, level)
+
+    def execute_source(filename, namespace):
+        require(filename in buffered)
+        if filename in direct_loaders:
+            namespace["__builtins__"] = {**vars(builtins), "__import__": source_import, "exec": source_exec}
+        exec(compile(buffered[filename], filename, "exec", dont_inherit=True), namespace)
+
+    def source_exec(code, namespace):
+        require(type(code) is types.CodeType)
+        execute_source(code.co_filename, namespace)
 
     class ClosedImports:
         def find_spec(self, name, path=None, target=None):
-            if name in sources or name == "pilot":
-                return ModuleSpec(name, self, is_package=name == "pilot")
-            require(not name.startswith("pilot."))
+            if name in sources or name in ("pilot", "e2e"):
+                return ModuleSpec(name, self, is_package=name in ("pilot", "e2e"))
+            require(not name.startswith(("pilot.", "e2e.")))
             return None
 
         def create_module(self, spec):
@@ -164,13 +191,15 @@ def preparation_helper():
 
         def exec_module(self, module):
             name = module.__name__
-            if name != "pilot":
+            if name in sources:
                 module.__file__ = str(paths[name])
-                exec(compile(sources[name], module.__file__, "exec", dont_inherit=True), module.__dict__)
+                execute_source(module.__file__, module.__dict__)
 
     # Authenticate the complete closed graph before executing any of it. Compile
     # those exact bytes, not a second filesystem read or an existing module cache.
-    names = set(sources) | {"pilot"}
+    # The two legacy direct-source loaders get private Path/exec bindings as well;
+    # their nested loads cannot bypass authentication or reopen dependency files.
+    names = set(sources) | {"pilot", "e2e"}
     saved = {name: sys.modules[name] for name in names if name in sys.modules}
     search = list(sys.path)
     loader = ClosedImports()

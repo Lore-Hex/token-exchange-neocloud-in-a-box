@@ -40,6 +40,9 @@ fresh modules compile those exact buffered bytes, never a second filesystem read
 or cached repository module. The temporary import context restores prior modules
 after validation. Receipts include each helper's source hash and the canonical
 module-map SHA-256. No existing dependency source or pin in another tool changes.
+The two legacy direct-source loaders receive private `Path`/`exec` bindings so
+their nested source reads also use the authenticated buffers. This does not
+patch shared `pathlib`, builtins, or existing Qwen module instances.
 
 ## Bounds and private output
 

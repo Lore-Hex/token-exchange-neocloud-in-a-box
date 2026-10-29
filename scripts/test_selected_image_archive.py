@@ -116,7 +116,8 @@ class ArchiveTests(unittest.TestCase):
 
     def test_transitive_source_tampering_fails_before_any_import(self):
         original = verify.read
-        for target in ("deepseek_model_profile", "engine_local_correctness", "engine_python_bootstrap"):
+        for target in ("deepseek_model_profile", "engine_local_correctness", "engine_python_bootstrap",
+                       "run", "exercise", "snapshot"):
             def changed(path, limit):
                 raw = original(path, limit)
                 return b"raise AssertionError('must not execute')" if path.stem == target else raw
@@ -127,7 +128,7 @@ class ArchiveTests(unittest.TestCase):
                 execute.assert_not_called()
 
     def test_authenticated_imports_are_fresh_and_restore_shared_modules(self):
-        names = set(verify.PREPARATION_MODULES) | {"pilot"}
+        names = set(verify.PREPARATION_MODULES) | {"pilot", "e2e"}
         before = {name: sys.modules.get(name) for name in names}
         search, loaders = list(sys.path), list(sys.meta_path)
         with verify.preparation_helper() as helper:
@@ -149,6 +150,17 @@ class ArchiveTests(unittest.TestCase):
         with mock.patch.object(verify, "read", side_effect=once), verify.preparation_helper() as helper:
             self.assertEqual(helper.owner.service.models.select("original")["name"], "original")
         self.assertEqual(len(seen), len(verify.PREPARATION_MODULES))
+
+    def test_legacy_direct_exec_uses_buffered_sources_without_global_path_patch(self):
+        with mock.patch.object(Path, "read_bytes", side_effect=AssertionError("source must not reopen")) as read:
+            with verify.preparation_helper() as helper:
+                pilot = helper.owner.service.pilot.pilot
+                self.assertIn("catalog.native-model-discovery", pilot.REQUIRED)
+                self.assertTrue(callable(pilot.controlled_env))
+                self.assertIsNot(helper.owner.service.pilot.Path, Path)
+                self.assertIsNot(pilot.Path, Path)
+            self.assertIs(Path.read_bytes, read)
+            read.assert_not_called()
 
     def test_closed_limits_and_expired_deadline_fail(self):
         files, build, _, _ = archive_fixture()
