@@ -77,6 +77,13 @@ def ordinary_profile(profile):
     return type(profile) is str and profile in (ORDINARY_PROFILE, WEEKLY_PROFILE)
 
 
+def startup_seconds(execution_profile):
+    engine_entry.execution_limits(execution_profile)
+    # Original NFS handoff includes two full integrity passes before loading.
+    # This is a startup ceiling, never a renewal of the absolute service cutoff.
+    return 7200 if execution_profile == engine_entry.ORIGINAL_MILLION_PROFILE else engine_lab.STARTUP_SECONDS
+
+
 def request_seconds(execution_profile):
     engine_entry.execution_limits(execution_profile)
     if execution_profile in engine_entry.MILLION_PROFILES:
@@ -216,7 +223,7 @@ class Contract:
         for price in (input_price, output_price):
             require(type(price) is str and re.fullmatch(r"(0|[1-9][0-9]{0,5})(\.[0-9]{1,6})?", price), "price")
         return cls(hard_stop_at, wall, monotonic,
-                   min(time.monotonic() + engine_lab.STARTUP_SECONDS, monotonic - reserve),
+                   min(time.monotonic() + startup_seconds(execution_profile), monotonic - reserve),
                    input_price, output_price, lifetime_profile, execution_profile, cached_input_price)
 
     @property
