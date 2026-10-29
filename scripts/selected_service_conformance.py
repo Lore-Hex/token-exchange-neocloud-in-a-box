@@ -163,9 +163,13 @@ def validate_catalog(checker, raw, supervisor, deadline):
 
 @asynccontextmanager
 async def measured_response(checker, observed, connection, deadline, report, started, checkpoint,
-                            *, prompt_limit=4096, request_url="https://127.0.0.1:8443/v1/chat/completions"):
+                            *, prompt_limit=4096, request_url="https://127.0.0.1:8443/v1/chat/completions",
+                            candidate="selected"):
     """Shared SSE accounting/parser; callers retain their distinct trust boundaries."""
-    meter = measurement.StreamMeasurement(service.MODEL, timeout_seconds=inference.REQUEST_SECONDS,
+    require(type(candidate) is str and candidate in ("selected", "original"), "contract")
+    model = (service.engine_entry.service_model(service.engine_entry.ORIGINAL_MILLION_PROFILE)
+             if candidate == "original" else service.MODEL)
+    meter = measurement.StreamMeasurement(model, timeout_seconds=inference.REQUEST_SECONDS,
         max_prompt_tokens=prompt_limit, max_output_tokens=service.OUTPUT)
     length = transport.response_length(observed)
     complete = False

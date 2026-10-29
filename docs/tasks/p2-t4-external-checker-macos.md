@@ -63,6 +63,14 @@ exercise actual native Brotli/rpds imports and the vendored catalog schema;
 merely validating a synthetic inventory is not native-import evidence.
 Public-service calls remain separately authorized, finite and non-retrying.
 
+The selected candidate remains the default v1 payload. Explicit
+`--candidate original` produces a separate v2 manifest with the closed original
+identity and source/schema bindings described in
+[external conformance](p2-t4-selected-external-conformance.md#explicit-original-candidate).
+The exact Mac runtime and all wheel hashes remain unchanged. A v2 payload cannot
+be used by the selected runner or a Linux/embedded checker, nor can a v1 payload
+satisfy an original input. This does not add an embedded checker to an image.
+
 ## Verification
 
 [Portability tests](../../scripts/test_external_checker_payload.py) cover exact

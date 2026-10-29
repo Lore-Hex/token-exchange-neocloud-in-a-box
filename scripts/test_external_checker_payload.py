@@ -18,6 +18,27 @@ from test_tau_runtime import wheel
 
 
 class PlatformTests(unittest.TestCase):
+    def test_original_source_closure_binds_helpers_and_existing_catalog_schema(self):
+        calls = []
+        def current(deadline, *, extra_files):
+            calls.append(extra_files)
+            return {"git_sha": "1" * 40, "files": {
+                name: observer.CATALOG_SHA if name == observer.CATALOG_SOURCE else "2" * 64
+                for name in extra_files}}
+        with mock.patch.object(observer.prep, "identity", side_effect=lambda _: {"git_sha": "1" * 40, "files": {}}), \
+                mock.patch.object(observer.runtime.tau, "committed_identity", side_effect=current):
+            legacy = observer.identity(time.monotonic() + 5)
+            self.assertEqual(calls, [observer.SOURCES])
+            self.assertEqual(set(legacy["files"]), set(observer.SOURCES))
+            result = observer.identity(time.monotonic() + 5, "original")
+            self.assertEqual(set(result["files"]), set(observer.SOURCES + observer.ORIGINAL_SOURCES))
+            self.assertEqual(calls[-2:], [observer.SOURCES, observer.ORIGINAL_SOURCES])
+            with mock.patch.object(observer, "CATALOG_SHA", "0" * 64):
+                # A committed but unreviewed schema cannot be silently adopted.
+                with mock.patch.object(observer.runtime.tau, "committed_identity", return_value=result), \
+                        self.assertRaises(ValueError):
+                    observer.identity(time.monotonic() + 5, "original")
+
     def test_exact_tags_and_unchanged_linux_gate(self):
         for tag in ("py3-none-any", "py2.py3-none-any", "py312-none-any",
                     "cp312-cp312-macosx_10_13_universal2", "cp312-cp312-macosx_11_0_arm64"):
@@ -87,7 +108,7 @@ class PayloadTests(unittest.TestCase):
         self.stack.enter_context(mock.patch.object(observer, "check_runtime"))
         self.stack.enter_context(mock.patch.object(observer, "identity", return_value=self.producer))
 
-    def fixture(self):
+    def fixture(self, candidate="selected"):
         files = {"packages/example.py": b"raise AssertionError('MUST_NOT_IMPORT')\n",
                  "packages/empty.py": b""}
         packages = observer.prep.requirements((observer.ROOT / "scripts/e2e/requirements.lock").read_bytes())
@@ -95,9 +116,9 @@ class PayloadTests(unittest.TestCase):
                         "version": version, "bytes": 100, "sha256": sorted(hashes)[0]}
                   for name, (version, hashes) in packages.items()}
         wheels["trustedrouter-provider-check"]["sha256"] = observer.prep.CHECKER_SHA
-        return files, {"schema": observer.SCHEMA, "target": observer.TARGET, "producer": self.producer,
+        return files, {"schema": observer.schema(candidate), "target": observer.TARGET, "producer": self.producer,
             "requirements_sha256": observer.prep.LOCK_SHA, "checker_wheel_sha256": observer.prep.CHECKER_SHA,
-            "model_profile": observer.prep.source(observer.prep.PROFILE_SOURCE, observer.prep.PROFILE_SHA).select("uncensored"),
+            **observer.model_fields(candidate),
             "wheels": wheels, "files": {name: {"bytes": len(raw), "sha256": observer.digest(raw)}
                                         for name, raw in files.items()}}
 
@@ -117,6 +138,55 @@ class PayloadTests(unittest.TestCase):
             subset.payload_files(root, self.end, sha)
         with self.assertRaises(ValueError):
             observer.verify(root, "0" * 64, self.end)
+
+    def test_official_sealed_payload_requires_exact_candidate_identity_and_source(self):
+        files, plan = self.fixture("original")
+        root, sha = self.publish(files, plan)
+        self.assertEqual(observer.verify(root, sha, self.end, candidate="original"), plan)
+        with self.assertRaises(ValueError):
+            observer.verify(root, sha, self.end)
+        legacy_files, legacy = self.fixture()
+        legacy_root, legacy_sha = self.publish(legacy_files, legacy, "legacy")
+        with self.assertRaises(ValueError):
+            observer.verify(legacy_root, legacy_sha, self.end, candidate="original")
+        changes = (lambda p: p.update(model="arbitrary/model"),
+            lambda p: p.update(serving_profile="long1m-graphs"),
+            lambda p: p["model_profile"].update(hf_revision="0" * 40),
+            lambda p: p["model_profile"].update(manifest_sha256="0" * 64),
+            lambda p: p["model_profile"].update(total_bytes=float(p["model_profile"]["total_bytes"])),
+            lambda p: p["producer"].update(git_sha="3" * 40),
+            lambda p: p["producer"]["files"].update({observer.SOURCES[0]: "0" * 64}),
+            lambda p: p.update(schema=observer.SCHEMA))
+        for index, change in enumerate(changes):
+            bad = copy.deepcopy(plan)
+            change(bad)
+            root, sha = self.publish(files, bad, "bad-" + str(index))
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                observer.verify(root, sha, self.end, candidate="original")
+
+    def test_prepare_keeps_legacy_bytes_and_explicit_official_manifest(self):
+        for candidate in ("selected", "original"):
+            files, plan = self.fixture(candidate)
+            rows = [(b"synthetic", record) for record in plan["wheels"].values()]
+            def unpack(output, raw, expected, deadline):
+                output.update(files)
+            with mock.patch.object(observer.prep, "wheel_inputs", return_value=rows), \
+                    mock.patch.object(observer, "add_wheel", side_effect=unpack):
+                result = observer.prepare(self.root, self.end, self.producer, candidate=candidate)
+                self.assertEqual(result, {**files, "trial.json": observer.encoded(plan)})
+                if candidate == "selected":
+                    self.assertEqual(observer.prepare(self.root, self.end, self.producer), result)
+
+    def test_official_linux_or_unknown_candidate_rejected_before_import(self):
+        with mock.patch.object(observer.sys, "platform", "linux"), \
+                mock.patch.object(subset, "checker_modules") as load:
+            with self.assertRaises(ValueError), observer.checker_modules(
+                    self.root, self.end, "0" * 64, candidate="original"):
+                self.fail("must not enter")
+            load.assert_not_called()
+        for candidate in (None, {}, "uncensored", "arbitrary/model"):
+            with self.subTest(candidate=candidate), self.assertRaises(ValueError):
+                observer.candidate_fields(candidate)
 
     def test_self_consistent_wrong_target_source_lock_or_wheel_rejected(self):
         files, base = self.fixture()

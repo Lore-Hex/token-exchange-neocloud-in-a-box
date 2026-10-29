@@ -25,12 +25,21 @@ REAL_TRUST_INPUT = check.probe.trust_input
 CANARY = "PRIVATE_PROVIDER_CONTENT_CANARY"
 
 
-def admission():
+def admission(candidate="selected"):
     wall = datetime.now(timezone.utc)
     stop = (wall + timedelta(seconds=600)).strftime("%Y-%m-%dT%H:%M:%SZ")
     catalog = fixtures.catalog(SimpleNamespace(contract=SimpleNamespace(admission_stop_at=stop)))
     catalog["provider"]["id"] = "private-test-provider"
-    return {"schema": check.INPUT, "runner_git_sha": "1" * 40, "service_git_sha": "2" * 40,
+    if candidate == "original":
+        catalog["contract_version"] = "2.1"
+        model = catalog["data"][0]
+        model.update(id=check.protocol.checker_model(candidate), owned_by="deepseek",
+                     context_length=1048576, max_output_tokens=393216)
+        model["capabilities"].update(tools=True, prompt_caching=True)
+        model["reliability"]["completion_timeout_seconds"] = 3540
+    return {"schema": check.ORIGINAL_INPUT if candidate == "original" else check.INPUT,
+        **check.external_checker_payload.candidate_fields(candidate),
+        "runner_git_sha": "1" * 40, "service_git_sha": "2" * 40,
         "preparation_sha256": "3" * 64, "checker_payload_sha256": "4" * 64,
         "target": {"address": "8.8.8.8", "hostname": "private-test.example", "port": 8443},
         "catalog": catalog, "deadline": (wall + timedelta(seconds=470)).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -44,6 +53,61 @@ def json_response(payload, status=200):
 
 
 class BoundaryTests(unittest.TestCase):
+    def test_closed_original_input_and_numeric_receipt_identity(self):
+        value = admission("original")
+        check.admit(value)
+        fields = check.external_checker_payload.candidate_fields("original")
+        for change in (lambda v: v.update(schema=check.INPUT), lambda v: v.pop("model"),
+                lambda v: v.update(model=check.service.MODEL), lambda v: v.update(model="arbitrary/model"),
+                lambda v: v.update(serving_profile="long1m-graphs"),
+                lambda v: v["model_profile"].update(hf_revision="0" * 40),
+                lambda v: v["model_profile"].update(manifest_sha256="0" * 64),
+                lambda v: v["model_profile"].update(total_bytes=float(v["model_profile"]["total_bytes"]))):
+            bad = copy.deepcopy(value)
+            change(bad)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                check.admit(bad)
+        with self.assertRaises(ValueError):
+            check.admit({**admission(), **fields})
+        row = check.empty_result("original")
+        self.assertEqual(row["schema"], check.ORIGINAL_SCHEMA)
+        self.assertEqual({key: row[key] for key in fields}, fields)
+        self.assertEqual((row["max_output_tokens"], row["max_seconds"], row["retries"]), (256, 480, 0))
+        self.assertEqual(row["catalog_schema_sha256"], check.digest(
+            (check.ROOT / check.external_checker_payload.CATALOG_SOURCE).read_bytes()))
+        self.assertEqual(check.empty_result()["schema"], check.SCHEMA)
+        self.assertFalse(set(fields) & set(check.empty_result()))
+
+    def test_json_usage_requires_requested_candidate_and_bounded_integers(self):
+        for candidate in ("selected", "original"):
+            row = inference_tests.completion()
+            row["model"] = check.protocol.checker_model(candidate)
+            self.assertIsNotNone(check.protocol.usage(check.encoded(row), 256, candidate=candidate))
+            other = "original" if candidate == "selected" else "selected"
+            self.assertIsNone(check.protocol.usage(check.encoded(row), 256, candidate=other))
+            for usage in ({**row["usage"], "completion_tokens": 257},
+                          {**row["usage"], "prompt_tokens": True}):
+                self.assertIsNone(check.protocol.usage(check.encoded({**row, "usage": usage}),
+                                                     256, candidate=candidate))
+        with self.assertRaises(ValueError):
+            check.protocol.checker_model("arbitrary/model")
+
+    def test_original_request_cap_does_not_rewrite_legacy_or_accept_model_override(self):
+        build = mock.Mock(return_value={})
+        checker = SimpleNamespace(client=SimpleNamespace(GatewayClient=SimpleNamespace(chat_body=build)),
+                                  rules=SimpleNamespace(PONG_PROMPT="synthetic"))
+        client = SimpleNamespace(provider=None)
+        for candidate in ("selected", "original"):
+            arguments = dict(model=check.protocol.checker_model(candidate), prompt="synthetic",
+                             temperature=None, max_tokens=None, max_tokens_key=None, extra=None)
+            case, body, maximum = check.protocol.json_request(checker, client, 1,
+                                                             **arguments, candidate=candidate)
+            self.assertEqual((case, body, maximum), ("pong", b"{}", 256))
+            self.assertEqual(build.call_args.kwargs["max_tokens"], 256 if candidate == "original" else None)
+            other = "original" if candidate == "selected" else "selected"
+            with self.assertRaises(ValueError):
+                check.protocol.json_request(checker, client, 1, **arguments, candidate=other)
+
     def test_checker_payload_digest_precedes_loading_and_binds_complete_inventory(self):
         files = fixtures.PackagingTests().payload()
         expected = check.digest(files["trial.json"])
@@ -121,13 +185,13 @@ class BoundaryTests(unittest.TestCase):
 class ExternalCheckerTests(unittest.TestCase):
     @contextmanager
     def fixture(self, *, mutate_input=None, mutate_wire=None, fail_tls=None, fail_send=None, fail_close=None,
-                warning=False, stream=None, key_hook=None):
+                warning=False, stream=None, key_hook=None, candidate="selected"):
         from tr_provider_check import contract as rules, http as client
         from tr_provider_check.checks import callability, catalog, chat, streaming
         import httpx
         checker = SimpleNamespace(httpx=httpx, rules=rules, client=client, catalog=catalog, chat=chat,
                                   callability=callability, streaming=streaming)
-        value = admission()
+        value = admission(candidate)
         served = copy.deepcopy(value["catalog"])
         if mutate_input:
             mutate_input(value)
@@ -140,12 +204,16 @@ class ExternalCheckerTests(unittest.TestCase):
             "catalog": json_response(served)}
         for case in check.protocol.JSON_CASES:
             row, status = inference_tests.completion(), 200
+            row["model"] = check.protocol.checker_model(candidate)
             row["choices"][0]["message"]["content"] = "PONG"
             row["usage"].update(prompt_tokens=12, completion_tokens=2, total_tokens=14)
             if warning and case in ("thinking", "reasoning", "reasoning-effort"):
                 row, status = {"error": {"message": CANARY, "type": "invalid_request"}}, 400
             wires[case] = json_response(row, status)
         chunks = fixtures.stream() if stream is None else stream
+        if candidate == "original":
+            chunks = [chunk.replace(check.service.MODEL.encode(), check.protocol.checker_model(candidate).encode())
+                      for chunk in chunks]
         wires["stream"] = b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n" \
             + b"".join(format(len(chunk), "x").encode() + b"\r\n" + chunk + b"\r\n" for chunk in chunks) + b"0\r\n\r\n"
         if mutate_wire:
@@ -237,6 +305,58 @@ class ExternalCheckerTests(unittest.TestCase):
             self.assertTrue(all("max_tokens" not in body for body in bodies[1:-1]))
             self.assertTrue(all(value == {"usage": {"prompt_tokens": 12, "completion_tokens": 2},
                 "usage_unknown": False} for value in row["usage"].values()))
+
+    def test_original_pinned_seventeen_assertions_and_all_request_model_bindings(self):
+        with self.fixture(candidate="original") as state:
+            row = self.result(state)
+            self.assertEqual((row["result"], row["schema"]), ("pass", check.ORIGINAL_SCHEMA), row)
+            self.assertEqual(row["checks"], dict.fromkeys(check.subset.pinned.MANDATORY, "pass"))
+            self.assertEqual(list(state.connections), list(check.CASES))
+            state.loader.assert_called_once_with(Path(state.args.checker_payload), mock.ANY,
+                                                  "4" * 64, candidate="original")
+            for case, connection in state.connections.items():
+                self.assertEqual(len(connection.sent), 1)
+                if case in ("health", "catalog"):
+                    continue
+                body = json.loads(connection.sent[0].split(b"\r\n\r\n")[1])
+                self.assertEqual(body["model"], check.protocol.checker_model("original"))
+                if case in check.GENERATIONS:
+                    maximum = 4 if case == "callability" else 16 if case == "max-token" else 256
+                    self.assertEqual(body.get("max_tokens", body.get("max_completion_tokens")), maximum)
+            self.assertTrue(all(value == {"usage": {"prompt_tokens": 12, "completion_tokens": 2},
+                "usage_unknown": False} for value in row["usage"].values()))
+
+    def test_original_catalog_and_source_drift_fail_before_authentication(self):
+        changes = (lambda v: v["catalog"].update(contract_version="2.0"),
+            lambda v: v["catalog"]["data"][0].update(id=check.service.MODEL),
+            lambda v: v["catalog"]["data"][0].update(context_length=8192),
+            lambda v: v["catalog"]["data"][0].update(max_output_tokens=256),
+            lambda v: v["catalog"]["data"][0]["capabilities"].update(tools=False),
+            lambda v: v["catalog"]["data"][0]["reliability"].update(completion_timeout_seconds=900),
+            lambda v: v.update(runner_git_sha="9" * 40),
+            lambda v: v["model_profile"].update(hf_revision="0" * 40))
+        for change in changes:
+            with self.subTest(change=change), self.fixture(candidate="original", mutate_input=change) as state:
+                self.assertEqual(self.result(state)["result"], "fail")
+                self.assertFalse(any(event[0] == "key" for event in state.events))
+        with self.fixture(candidate="original") as state:
+            state.loader.side_effect = ValueError("wrong model/source payload")
+            self.assertEqual(self.result(state)["result"], "fail")
+            state.tls.assert_not_called()
+
+    def test_original_json_stream_model_mismatch_and_warn_never_pass(self):
+        for case in ("callability", "pong", "stream"):
+            def wrong(wires):
+                # Same-length wrong model preserves HTTP/chunk framing.
+                model = check.protocol.checker_model("original").encode()
+                wires[case] = wires[case].replace(model, b"x" * len(model))
+            with self.subTest(case=case), self.fixture(candidate="original", mutate_wire=wrong) as state:
+                row = self.result(state)
+                self.assertEqual(row["result"], "fail")
+                self.assertTrue(row["usage"][case]["usage_unknown"])
+        with self.fixture(candidate="original", warning=True) as state:
+            row = self.result(state)
+            self.assertEqual((row["result"], row["checker_result"]), ("fail", "warn"))
 
     def test_checker_warn_and_fail_are_never_promoted(self):
         with self.fixture(warning=True) as state:

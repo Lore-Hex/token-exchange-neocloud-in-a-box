@@ -31,6 +31,7 @@ _spec.loader.exec_module(probe)
 subset, service, inference = protocol.subset, protocol.service, protocol.inference
 require, encoded, digest = inference.require, inference.encoded, protocol.process.digest
 SCHEMA, INPUT = "nib.selected-external-conformance/v1", "nib.selected-external-conformance-input/v1"
+ORIGINAL_SCHEMA, ORIGINAL_INPUT = "nib.selected-external-conformance/v2", "nib.selected-external-conformance-input/v2"
 CASES = ("health", "missing-key", "wrong-key", "catalog", *protocol.JSON_CASES, "stream")
 GENERATIONS = (*protocol.JSON_CASES, "stream")
 SECONDS, JSON_LIMIT = 480, 65536
@@ -61,10 +62,16 @@ def source_identity(deadline):
     return probe.source_identity(deadline, extra_files=tuple(sorted(names)))
 
 
+def candidate_for(value):
+    require(type(value) is dict and value.get("schema") in (INPUT, ORIGINAL_INPUT), "contract")
+    return "original" if value["schema"] == ORIGINAL_INPUT else "selected"
+
+
 def admit(value):
+    fields = external_checker_payload.candidate_fields(candidate_for(value))
     require(type(value) is dict and set(value) == {"schema", "runner_git_sha", "service_git_sha",
-        "preparation_sha256", "checker_payload_sha256", "target", "catalog", "deadline", "admission_stop_at"}
-        and value["schema"] == INPUT, "contract")
+        "preparation_sha256", "checker_payload_sha256", "target", "catalog", "deadline", "admission_stop_at", *fields}
+        and encoded({key: value[key] for key in fields}) == encoded(fields), "contract")
     for field, length in (("runner_git_sha", 40), ("service_git_sha", 40),
                           ("preparation_sha256", 64), ("checker_payload_sha256", 64)):
         sha(value[field], length)
@@ -76,15 +83,33 @@ def admit(value):
     return target, wall
 
 
-def catalog(checker, raw, expected):
-    payload = subset.catalog_payload(checker, raw)
+def catalog(checker, raw, expected, *, candidate="selected"):
+    model = protocol.checker_model(candidate)
+    if candidate == "original":
+        payload = service.correctness.strict_json(raw)
+        schema_raw = external_checker_payload.runtime.read_file(
+            ROOT / external_checker_payload.CATALOG_SOURCE, 1 << 20, time.monotonic() + 5)
+        require(digest(schema_raw) == external_checker_payload.CATALOG_SHA, "identity")
+        checker.catalog.Draft202012Validator(service.correctness.strict_json(schema_raw),
+            format_checker=checker.catalog.FormatChecker()).validate(payload)
+        checker.catalog._validate_vendored_rules(payload)
+    else:
+        payload = subset.catalog_payload(checker, raw)
     require(encoded(payload) == encoded(expected), "identity")
     require(len(payload["data"]) == 1, "identity")
     row = payload["data"][0]
-    require(row["id"] == service.MODEL and row["context_length"] == service.CONTEXT
-        and row["max_output_tokens"] == service.OUTPUT and row["lifecycle"]["status"] == "active"
-        and row["capabilities"] == {"streaming": True, "tools": False, "structured_output": False,
-                                   "reasoning": False, "prompt_caching": False}, "contract")
+    limits = service.engine_entry.execution_limits(service.engine_entry.ORIGINAL_MILLION_PROFILE
+        if candidate == "original" else service.engine_entry.EAGER_PROFILE)
+    require(row["id"] == model and row["context_length"] == limits["context_tokens"]
+        and row["max_output_tokens"] == limits["max_output_tokens"] and row["lifecycle"]["status"] == "active"
+        and row["capabilities"] == {"streaming": True, "tools": candidate == "original", "structured_output": False,
+                                   "reasoning": False, "prompt_caching": candidate == "original"}, "contract")
+    if candidate == "original":
+        require(type(row["context_length"]) is int and type(row["max_output_tokens"]) is int
+            and payload["contract_version"] == "2.1" and row["owned_by"] == model.split("/", 1)[0]
+            and row["reliability"] == {"first_token_timeout_seconds": 30,
+                "completion_timeout_seconds": service.request_seconds(service.engine_entry.ORIGINAL_MILLION_PROFILE),
+                "stream_idle_timeout_seconds": 30, "capacity_scope": "model"}, "contract")
     evidence = checker.catalog.CatalogEvidence()
     evidence.declared_models.append(row)
     return evidence
@@ -100,8 +125,12 @@ class Boundary(BaseException):
         super().__init__("external checker boundary rejected")
 
 
-def empty_result():
-    return {"schema": SCHEMA, "result": "fail", "failure": "contract", "started_at": probe.now(), "ended_at": None,
+def empty_result(candidate="selected"):
+    fields = external_checker_payload.candidate_fields(candidate)
+    if candidate == "original":
+        fields["catalog_schema_sha256"] = external_checker_payload.CATALOG_SHA
+    return {"schema": ORIGINAL_SCHEMA if candidate == "original" else SCHEMA, **fields,
+        "result": "fail", "failure": "contract", "started_at": probe.now(), "ended_at": None,
         "git_sha": None, "source_sha256": {}, "input_sha256": None, "target_sha256": None,
         "expected_service_git_sha": None, "expected_preparation_sha256": None, "checker_payload_sha256": None,
         "catalog_sha256": None, "provider_sha256": None, "deadline": None, "admission_stop_at": None,
@@ -123,6 +152,8 @@ class Client:
     def __init__(self, checker, target, trust, value, args, cutoff, report):
         self.checker, self.target, self.trust, self.value = checker, target, trust, value
         self.args, self.cutoff, self.report, self.index = args, cutoff, report, 0
+        self.candidate = candidate_for(value)
+        self.model = protocol.checker_model(self.candidate)
         self.evidence = None
 
     def checkpoint(self, deadline):
@@ -185,8 +216,11 @@ class Client:
                 raise Boundary(error) from None
 
     def prechecks(self):
+        body = probe.body()
+        if self.candidate == "original":
+            body = encoded({**service.correctness.strict_json(body), "model": self.model})
         for case in CASES[:3]:
-            with self.response(case, probe.body() if case != "health" else b"") as (observed, _, _):
+            with self.response(case, body if case != "health" else b"") as (observed, _, _):
                 if case != "health":
                     raw = probe.fixed_body(observed, status=401, limit=4096, category="authentication", media="application/json")
                     require(service.correctness.strict_json(raw) == {"error": {
@@ -196,19 +230,20 @@ class Client:
     async def models(self):
         with self.response("catalog") as (observed, _, _):
             raw = probe.fixed_body(observed, status=200, limit=JSON_LIMIT, category="protocol", media="application/json")
-            self.evidence = catalog(self.checker, raw, self.value["catalog"])
+            self.evidence = catalog(self.checker, raw, self.value["catalog"], candidate=self.candidate)
             self.report["prechecks"]["catalog"] = True
             return self.checker.httpx.Response(200, content=raw, request=self.request("GET", "/v1/models"))
 
     async def chat(self, *, model, prompt, temperature=0, max_tokens=None, max_tokens_key=None, extra=None):
         case, body, maximum = protocol.json_request(self.checker, self, self.index, model=model, prompt=prompt,
-            temperature=temperature, max_tokens=max_tokens, max_tokens_key=max_tokens_key, extra=extra)
+            temperature=temperature, max_tokens=max_tokens, max_tokens_key=max_tokens_key, extra=extra,
+            candidate=self.candidate)
         self.index += 1
         with self.response(case, body) as (observed, _, _):
             raw = probe.fixed_payload(observed, status=observed.status, limit=JSON_LIMIT,
                 category="protocol", media="application/json")
             if observed.status == 200:
-                usage = protocol.usage(raw, maximum)
+                usage = protocol.usage(raw, maximum, candidate=self.candidate)
                 if usage is not None:
                     self.report["usage"][case].update(usage=usage, usage_unknown=False)
             probe.end_of_body(observed, "protocol")
@@ -217,7 +252,7 @@ class Client:
 
     @asynccontextmanager
     async def stream_chat(self, *, model, prompt, temperature):
-        require(model == service.MODEL and prompt == self.checker.rules.PONG_PROMPT and temperature is None, "contract")
+        require(model == self.model and prompt == self.checker.rules.PONG_PROMPT and temperature is None, "contract")
         body = encoded(self.checker.client.GatewayClient.chat_body(self, model=model, prompt=prompt,
             temperature=None, max_tokens=service.OUTPUT))
         started = time.monotonic()
@@ -225,13 +260,14 @@ class Client:
             async with subset.measured_response(self.checker, observed, connection, deadline,
                     self.report["usage"]["stream"], started, self.checkpoint,
                     prompt_limit=service.CONTEXT - service.OUTPUT,
-                    request_url="https://" + self.target.hostname + "/v1/chat/completions") as response:
+                    request_url="https://" + self.target.hostname + "/v1/chat/completions",
+                    candidate=self.candidate) as response:
                 yield response
 
 
 async def collect(client):
-    rows = await protocol.json_checks(client.checker, client)
-    stream_rows = await client.checker.streaming.run_streaming_checks(client, service.MODEL,
+    rows = await protocol.json_checks(client.checker, client, candidate=client.candidate)
+    stream_rows = await client.checker.streaming.run_streaming_checks(client, client.model,
         evidence=client.evidence, clock=time.monotonic)
     protocol.project_checks([*rows, *stream_rows], {}, client.report)
     client.report["declared_v2_upstream_status"] = "skip"
@@ -246,6 +282,8 @@ def run(args):
             require(len(raw) <= JSON_LIMIT and digest(raw) == sha(args.input_sha256), "identity")
             value = service.correctness.strict_json(raw)
             target, wall = admit(value)
+            candidate = candidate_for(value)
+            report = empty_result(candidate)
             hard = time.monotonic() + wall - time.time()
             def cutoff():
                 nonlocal hard
@@ -264,9 +302,10 @@ def run(args):
                 require(peer_digest is None, "identity")
                 root = Path(args.checker_payload)
                 require(root.is_absolute() and ".." not in root.parts, "contract")
+                options = {"candidate": candidate} if candidate == "original" else {}
                 with subset.quiet_checker(), external_checker_payload.checker_modules(root, cutoff(),
-                        value["checker_payload_sha256"]) as checker:
-                    catalog(checker, encoded(value["catalog"]), value["catalog"])
+                        value["checker_payload_sha256"], **options) as checker:
+                    catalog(checker, encoded(value["catalog"]), value["catalog"], candidate=candidate)
                     require(value["catalog"]["data"][0]["lifecycle"]["retirement_at"] == value["admission_stop_at"], "identity")
                     client = Client(checker, target, trust, value, args, cutoff, report)
                     client.prechecks()

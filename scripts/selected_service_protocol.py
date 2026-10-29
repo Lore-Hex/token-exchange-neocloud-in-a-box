@@ -30,9 +30,16 @@ def contract():
         "max_output_tokens": service.OUTPUT, "checker_statuses_unchanged": True}
 
 
-def usage(raw, maximum):
+def checker_model(candidate="selected"):
+    require(type(candidate) is str and candidate in ("selected", "original"), "contract")
+    return (service.engine_entry.service_model(service.engine_entry.ORIGINAL_MILLION_PROFILE)
+            if candidate == "original" else service.MODEL)
+
+
+def usage(raw, maximum, *, candidate="selected"):
+    model = checker_model(candidate)
     try:
-        _, _, value = service.correctness.decode_completion(raw, service.MODEL, maximum)
+        _, _, value = service.correctness.decode_completion(raw, model, maximum)
         return value
     except (ValueError, TypeError, KeyError):
         return None
@@ -44,26 +51,32 @@ def checker_result(checks):
     return next((status for status in ("fail", "warn", "skip") if status in checks.values()), "pass")
 
 
-def json_request(checker, client, index, *, model, prompt, temperature, max_tokens, max_tokens_key, extra):
+def json_request(checker, client, index, *, model, prompt, temperature, max_tokens, max_tokens_key, extra,
+                 candidate="selected"):
     require(client.provider is None and type(index) is int and 0 <= index < len(JSON_CASES), "already-used")
     maximum = 4 if index == 0 else 16 if index == 7 else None
     expected_key = checker.client.max_token_parameter(checker.client.provider_for_model(model), model) \
         if index == 7 else None
-    require(model == service.MODEL and prompt == checker.rules.PONG_PROMPT
+    require(model == checker_model(candidate) and prompt == checker.rules.PONG_PROMPT
         and temperature == (0 if index == 2 else None) and max_tokens == maximum
         and max_tokens_key == expected_key and extra == EXTRAS[index], "contract")
+    # The official serving default is larger; keep this observer's 256-token
+    # budget explicit without changing the pinned assertions or legacy bytes.
+    if candidate == "original" and max_tokens is None:
+        max_tokens = service.OUTPUT
     body = encoded(checker.client.GatewayClient.chat_body(client, model=model, prompt=prompt, stream=False,
         temperature=temperature, max_tokens=max_tokens, max_tokens_key=max_tokens_key, extra=extra))
     return JSON_CASES[index], body, maximum or service.OUTPUT
 
 
-async def json_checks(checker, client):
+async def json_checks(checker, client, *, candidate="selected"):
+    model = checker_model(candidate)
     evidence = checker.catalog.CatalogEvidence()
     catalog_rows, models = await checker.catalog.run_catalog_checks(client, catalog_url=None, evidence=evidence)
-    require(models == [service.MODEL], "identity")
+    require(models == [model], "identity")
     call_rows, _ = await checker.callability.run_callability_checks(client, models, max_models=1,
-        declared_chat_models=[service.MODEL])
-    chat_rows = await checker.chat.run_chat_checks(client, service.MODEL)
+        declared_chat_models=[model])
+    chat_rows = await checker.chat.run_chat_checks(client, model)
     require(client.index == len(JSON_CASES), "protocol")
     return [*catalog_rows, *call_rows, *chat_rows]
 

@@ -20,6 +20,7 @@ import sysconfig
 import time
 
 import provider_conformance as prep
+import quality_candidate
 
 ROOT, runtime = prep.ROOT, prep.runtime
 require, digest, encoded = prep.require, runtime.digest, runtime.encoded
@@ -30,13 +31,36 @@ TARGET = {"profile": PROFILE, "implementation": "cpython", "python_full_version"
           "minimum_macos": "11.0", "soabi": "cpython-312-darwin", "purpose": "external-observer-only"}
 SOURCES = ("scripts/external_checker_payload.py", "scripts/check-selected-service.py",
            "scripts/selected_service_conformance.py", "scripts/selected_service_protocol.py")
+CATALOG_SOURCE = "internal/catalog/catalog.v2.schema.json"
+# Existing checked-in v2.1 schema, not a fetched or modified upstream checker.
+CATALOG_SHA = "927350ccda756319f30f129c486286213b4f3ff4bb7b8f6dda27b939c55d35d8"
+ORIGINAL_SOURCES = ("scripts/quality_candidate.py", "scripts/selected_service_engine.py", CATALOG_SOURCE)
 
 
-def identity(deadline):
+def candidate_fields(candidate="selected"):
+    require(type(candidate) is str and candidate in ("selected", "original"))
+    return quality_candidate.original_fields() if candidate == "original" else {}
+
+
+def schema(candidate="selected"):
+    candidate_fields(candidate)
+    return "nib.external-checker-payload/v2" if candidate == "original" else SCHEMA
+
+
+def model_fields(candidate="selected"):
+    return candidate_fields(candidate) or {
+        "model_profile": prep.source(prep.PROFILE_SOURCE, prep.PROFILE_SHA).select("uncensored")}
+
+
+def identity(deadline, candidate="selected"):
+    candidate_fields(candidate)
     result = prep.identity(deadline)
-    current = runtime.tau.committed_identity(deadline, extra_files=SOURCES)
-    require(current["git_sha"] == result["git_sha"])
-    result["files"].update(current["files"])
+    for names in (SOURCES, ORIGINAL_SOURCES) if candidate == "original" else (SOURCES,):
+        current = runtime.tau.committed_identity(deadline, extra_files=names)
+        require(current["git_sha"] == result["git_sha"])
+        result["files"].update(current["files"])
+    if candidate == "original":
+        require(result["files"][CATALOG_SOURCE] == CATALOG_SHA)
     return result
 
 
@@ -78,22 +102,24 @@ def add_wheel(files, raw, expected, deadline):
     prep.unpack_wheel(files, raw, deadline)
 
 
-def prepare(wheelhouse, deadline, producer):
+def prepare(wheelhouse, deadline, producer, *, candidate="selected"):
+    fields = model_fields(candidate)
     files, wheels = {}, {}
     for raw, expected in prep.wheel_inputs(wheelhouse, deadline):
         add_wheel(files, raw, expected, deadline)
         wheels[expected["filename"].split("-")[0].replace("_", "-").lower()] = expected
     wheel_records(wheels, deadline)
-    plan = {"schema": SCHEMA, "target": TARGET, "producer": producer,
+    plan = {"schema": schema(candidate), "target": TARGET, "producer": producer,
         "requirements_sha256": prep.LOCK_SHA, "checker_wheel_sha256": prep.CHECKER_SHA,
-        "model_profile": prep.source(prep.PROFILE_SOURCE, prep.PROFILE_SHA).select("uncensored"),
+        **fields,
         "wheels": wheels, "files": {name: {"bytes": len(raw), "sha256": digest(raw)}
                                      for name, raw in sorted(files.items())}}
     files["trial.json"] = encoded(plan)
     return files
 
 
-def verify(root, expected, deadline):
+def verify(root, expected, deadline, *, candidate="selected"):
+    fields = model_fields(candidate)
     check_runtime()
     require(root.is_absolute() and ".." not in root.parts and type(expected) is str
             and re.fullmatch("[0-9a-f]{64}", expected))
@@ -102,11 +128,11 @@ def verify(root, expected, deadline):
         require(digest(raw) == expected)
         plan = prep.support.decode(raw)
         require(type(plan) is dict and set(plan) == {"schema", "target", "producer", "requirements_sha256",
-            "checker_wheel_sha256", "model_profile", "wheels", "files"}
-            and plan["schema"] == SCHEMA and plan["target"] == TARGET
+            "checker_wheel_sha256", *fields, "wheels", "files"}
+            and plan["schema"] == schema(candidate) and plan["target"] == TARGET
             and plan["requirements_sha256"] == prep.LOCK_SHA and plan["checker_wheel_sha256"] == prep.CHECKER_SHA
-            and plan["producer"] == identity(deadline)
-            and plan["model_profile"] == prep.source(prep.PROFILE_SOURCE, prep.PROFILE_SHA).select("uncensored")
+            and plan["producer"] == identity(deadline, candidate)
+            and encoded({key: plan[key] for key in fields}) == encoded(fields)
             and type(plan["files"]) is dict and 0 < len(plan["files"]) <= 4000
             and all(name.startswith("packages/") for name in plan["files"]))
         wheel_records(plan["wheels"], deadline)
@@ -120,15 +146,18 @@ def verify(root, expected, deadline):
 
 
 @contextmanager
-def checker_modules(root, deadline, expected_sha256):
+def checker_modules(root, deadline, expected_sha256, *, candidate="selected"):
     import selected_service_conformance as subset
+    candidate_fields(candidate)
     if sys.platform == "darwin":
         with subset.service.identity.worker.alarm(deadline):
-            verify(root, expected_sha256, deadline)
+            verify(root, expected_sha256, deadline, candidate=candidate)
         with subset.imported_checker(root) as checker:
             yield checker
     else:
-        # The original verifier still rejects this distinct macOS schema.
+        # Official external payloads use the existing closed macOS target only.
+        # Never reinterpret the legacy Linux/embedded checker payload.
+        require(candidate == "selected")
         with subset.checker_modules(root, deadline, expected_sha256) as checker:
             yield checker
 
@@ -140,6 +169,7 @@ def main(argv=None):
                 raise ValueError("external checker payload rejected")
         parser = QuietParser(description=__doc__, allow_abbrev=False)
         parser.add_argument("--profile", required=True, choices=(PROFILE,))
+        parser.add_argument("--candidate", choices=("selected", "original"), default="selected")
         parser.add_argument("--wheelhouse", required=True, type=Path)
         parser.add_argument("--output", required=True, type=Path)
         args = parser.parse_args(argv)
@@ -147,12 +177,12 @@ def main(argv=None):
         check_runtime()
         deadline = time.monotonic() + 60
         with prep.support.alarm(deadline):
-            producer = identity(deadline)
-            files = prepare(args.wheelhouse, deadline, producer)
-            require(identity(deadline) == producer)
+            producer = identity(deadline, args.candidate)
+            files = prepare(args.wheelhouse, deadline, producer, candidate=args.candidate)
+            require(identity(deadline, args.candidate) == producer)
             prep.publish(args.output, files)
             expected = digest(files["trial.json"])
-            verify(args.output / "payload", expected, deadline)
+            verify(args.output / "payload", expected, deadline, candidate=args.candidate)
         print(expected)
         return 0
     except BaseException:
