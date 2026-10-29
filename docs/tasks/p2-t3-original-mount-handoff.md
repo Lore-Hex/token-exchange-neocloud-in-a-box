@@ -154,7 +154,47 @@ mount worker's nominal upper bound does not extend that cutoff or renew the
 original wall/monotonic service lifetime. CPU caps do not cap NFS traffic;
 separately approved pressure monitoring remains necessary.
 
+The private consumer contract also carries the host's original absolute
+`startup_deadline`, boot ID and actual time-namespace device/inode. Before
+preparation, the non-root consumer verifies the same boot and
+`/proc/self/ns/time` identity, establishing the shared monotonic clock, then
+clamps its `Contract.startup_deadline` to the smaller existing cutoff. It
+rechecks that binding before joining the hold. Unknown or different time
+namespaces reject; there is no assumed wall-clock conversion or fresh startup
+period at handoff. Preparation, full consumer hashing, release, engine startup
+and the existing supervisor all receive the clamped cutoff. No hard-stop or
+overall lifetime value is extended.
+
+Startup checks run again after intervening durable IO/readback and immediately
+before mount, Docker create/start, quarantine release and hold release. The
+unchanged mount/create/policy helpers run under the existing main-thread
+deadline alarm, so their own intervening IO cannot re-arm the startup window.
+An expired intent/verification record remains evidence, not mutation authority.
+Cleanup and observation are deliberately still permitted after startup expiry.
+
+**Deployment budget is still blocked.** This branch retains the existing
+1800-second startup budget. Both full hashes plus engine startup must fit it;
+this change makes no throughput claim that they can. A separately reviewed,
+explicit original-only startup budget with remaining-hard-stop checks is
+required before the proposed deployment. No pending budget branch is integrated
+here, and a budget change must still preserve the one host-to-consumer cutoff.
+
 ## Closure and failure retention
+
+After release, the host observes both the bound pidfd and the hold socket. EOF
+or any unsolicited packet while the consumer is alive fails closed and starts
+cleanup; it is not ignored until PID exit. Confirmed PID exit takes precedence
+over its simultaneous socket EOF.
+
+On normal consumer exit, the watchdog retains the container/network for final
+parent readback. The parent sends fixed `done` over its exclusively inherited
+life pipe only after validating the lifecycle receipt and fresh exited/zero
+Docker state. The watchdog independently verifies that state and PID exit
+before accepting it. This terminal wait is capped at 60 seconds from observed
+exit and at the original owner deadline; neither is renewed. Parent EOF,
+expiry or failed readback cleans up independently and cannot report success.
+This is an authenticated parent acknowledgment, not a reused container name or
+an unauthenticated terminal snapshot. There is no waiting for a dead parent.
 
 The watchdog closes admission and the hold connection before teardown, then
 uses the existing owned-container quarantine/cleanup. Before one ordinary
@@ -190,6 +230,17 @@ staging evidence, resource failures, substituted wrapper/model identity,
 remount-device semantics, atomic exclusive records, registration, consumer
 ack/release joins, prepared-source mismatch, hash-before-engine ordering,
 ordinary unmount binding and retention despite failed records/observations.
+They also cover expiry during intent/fsync/readback, the actual consumer-entry
+cutoff propagation before preparation and into the supervisor, boot/time
+namespace mismatch, exact consumer bytes in original image preparation, the
+end-to-end synthetic watchdog/parent acknowledgment protocol, normal-exit
+readback races and post-release socket EOF/data. No real image is built by
+these tests; preparation proves packaged source bytes, not runnable-image or
+hardware success.
+The image-archive verifier's authenticated `selected_service_process` pin is
+updated to the measured source bytes; its existing pre-import tamper regression
+also covers that module. Integration must remeasure any changed transitive
+preparation sources without relaxing authentication.
 All privileged/system observations are fakes; local temporary files and record
 locking exercise existing helpers. They are not NFS, namespace, GPU or Docker
 validation. Legacy suites must remain green without weakened assertions.
@@ -206,7 +257,8 @@ timeout 300 python3 -B -m unittest -v \
   test_selected_service_process test_selected_service_image \
   test_selected_service_smoke test_selected_service_graphs \
   test_selected_service_lifetime test_selected_service_weekly \
-  test_original_service_runtime test_original_weight_staging
+  test_original_service_runtime test_original_weight_staging \
+  test_selected_image_archive
 ```
 
 Use the already approved cached runtime and record its actual identity; this

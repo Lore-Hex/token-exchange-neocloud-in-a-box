@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Synthetic ownership and consumer protocol checks; no mounts, Docker or network."""
 
-from contextlib import contextmanager, ExitStack, redirect_stdout
+from contextlib import contextmanager, ExitStack, nullcontext, redirect_stdout
 import copy
 import io
 import json
@@ -20,13 +20,20 @@ import selected_service_process as process
 import test_selected_service_owner as owners
 import test_selected_service_process as processes
 import test_selected_service_smoke as smoke_tests
+import test_selected_service_image as images
+import test_original_deepseek_lab as original_labs
 
 
 def contract():
     return {"schema": consumer.SCHEMA, "attempt_id": "a" * 32, "consumer_token": "b" * 32,
         "mount_contract_sha256": "c" * 64, "prepared_sha256": "d" * 64,
         "model_profile": consumer.service.models.select("original"), "model": {"device": 50, "inode": 72},
-        "hard_stop_at": "2030-01-01T00:00:00Z"}
+        "hard_stop_at": "2030-01-01T00:00:00Z", "startup_deadline": 1000000000.0,
+        "boot_id": "00000000-0000-0000-0000-000000000001", "clock_namespace": {"device": 4, "inode": 77}}
+
+
+def deadlines():
+    return {"startup_deadline": 1000000000.0, "hard_monotonic": 1000001000.0, "hard_wall": 4000000000.0}
 
 
 class EvidenceTests(unittest.TestCase):
@@ -156,7 +163,9 @@ class ConsumerTests(unittest.TestCase):
         self.assertEqual(consumer.validate(contract()), contract())
         for change in ({"model_profile": consumer.service.models.select("uncensored")},
                 {"extra": True}, {"attempt_id": "a" * 31}, {"prepared_sha256": "x" * 64},
-                {"model": {"device": True, "inode": 72}}, {"model": {"device": 50, "inode": 0}}):
+                {"model": {"device": True, "inode": 72}}, {"model": {"device": 50, "inode": 0}},
+                {"startup_deadline": True}, {"startup_deadline": float("inf")},
+                {"boot_id": "wrong"}, {"clock_namespace": {"device": 4, "inode": False}}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 consumer.validate({**contract(), **change})
 
@@ -228,6 +237,10 @@ class OwnerLeaseTests(owners.Fixture, unittest.TestCase):
         runtime["command"] += ["--execution-profile", consumer.PROFILE, "--original-view-sha256", "f" * 64]
         state = mount.owner.State(root)
         state.initialize(self.contract, runtime)
+        records = self.root / "original-view"
+        records.mkdir(mode=0o700)
+        (records / "contract.json").write_bytes(consumer.encoded(deadlines()))
+        (records / "contract.json").chmod(0o600)
         self.commands.state = state
         return mount.owner.Owner(self.commands, self.reservation, state)
 
@@ -239,7 +252,7 @@ class OwnerLeaseTests(owners.Fixture, unittest.TestCase):
             self.assertIs(value, selected)
             self.assertNotIn("container-intent.json", value.rows())
             events.append("registered")
-            yield
+            yield lambda: nullcontext()
             self.assertIn("container-resolved.json", value.rows())
             events.append("resolved")
         with mock.patch.object(mount, "registration", registration):
@@ -259,7 +272,7 @@ class OwnerLeaseTests(owners.Fixture, unittest.TestCase):
 
     def test_original_release_requires_verification_proof(self):
         selected = self.original()
-        with mock.patch.object(mount, "registration", side_effect=lambda _: ExitStack()):
+        with mock.patch.object(mount, "registration", side_effect=lambda _: nullcontext(lambda: nullcontext())):
             selected.create()
         selected.begin_original_verification()
         self.commands.set_status("running")
@@ -270,12 +283,41 @@ class OwnerLeaseTests(owners.Fixture, unittest.TestCase):
 
     def test_running_original_can_be_inspected_only_under_quarantine(self):
         selected = self.original()
-        with mock.patch.object(mount, "registration", side_effect=lambda _: ExitStack()):
+        with mock.patch.object(mount, "registration", side_effect=lambda _: nullcontext(lambda: nullcontext())):
             selected.create()
         selected.begin_original_verification()
         self.commands.set_status("running")
         selected.fresh(serving=False, verifying=True)
         with self.assertRaises(ValueError): selected.fresh(serving=False)
+
+    def test_expiry_during_container_intent_prevents_create(self):
+        selected = self.original()
+        current = {"now": 10}
+        row = {"startup_deadline": 20, "hard_monotonic": 40, "hard_wall": 200}
+        record = selected.state.record
+        def slow_record(*args):
+            record(*args)
+            current["now"] = 20
+        with mock.patch.object(mount.time, "monotonic", side_effect=lambda: current["now"]), \
+                mock.patch.object(mount.time, "time", return_value=100), \
+                mock.patch.object(mount, "registration", return_value=nullcontext(lambda: mount.startup_window(row))), \
+                mock.patch.object(selected.state, "record", side_effect=slow_record), self.assertRaises(ValueError):
+            selected.create()
+        self.assertIsNone(self.commands.container)
+        self.assertIn("container-intent.json", selected.rows())
+
+    def test_expiry_during_policy_readback_prevents_release(self):
+        selected = self.original()
+        selected.rows = mock.Mock(return_value={"start-intent.json": {}})
+        current = {"now": 10}
+        row = {"startup_deadline": 20, "hard_monotonic": 40, "hard_wall": 200}
+        with mock.patch.object(mount.time, "monotonic", side_effect=lambda: current["now"]), \
+                mock.patch.object(mount.time, "time", return_value=100), \
+                mock.patch.object(mount, "verify_release", return_value=row), \
+                mock.patch.object(self.reservation, "protected", side_effect=lambda: current.update(now=20)), \
+                mock.patch.object(self.commands, "apply") as apply, self.assertRaises(ValueError):
+            selected.release_for_serving()
+        apply.assert_not_called()
 
 
 class ReleaseJoinTests(unittest.TestCase):
@@ -283,7 +325,8 @@ class ReleaseJoinTests(unittest.TestCase):
         self.value = contract()
         self.mount_contract = {"inputs": "/private/inputs", "prepared_sha256": self.value["prepared_sha256"],
             "staging": {"model_profile": self.value["model_profile"]}, "plan": {"attempt_id": self.value["attempt_id"]},
-            "consumer_token": self.value["consumer_token"], "consumer_hard_stop_at": self.value["hard_stop_at"]}
+            "consumer_token": self.value["consumer_token"], "consumer_hard_stop_at": self.value["hard_stop_at"],
+            "boot_id": self.value["boot_id"], "clock_namespace": self.value["clock_namespace"], **deadlines()}
         self.mount_raw = consumer.encoded(self.mount_contract)
         self.value["mount_contract_sha256"] = consumer.digest(self.mount_raw)
         self.raw = consumer.encoded(self.value)
@@ -404,6 +447,23 @@ class PreparationTests(unittest.TestCase):
                             lifetime_profile=args.lifetime_profile):
                         self.fail("old image admitted")
                     inspect.assert_not_called()
+
+    def test_original_image_preparation_keeps_exact_consumer_dependency(self):
+        images.ImageTests.setUpClass()
+        original_labs.OriginalLabTests.setUpClass()
+        _, lab = original_labs.OriginalLabTests().payload()
+        with mock.patch.object(images, "lab_contract", side_effect=lambda: copy.deepcopy(lab)), \
+                images.ImageTests().preparation() as (root, bundle, trcs, _, _, _):
+            sources = images.image.committed_sources.return_value[1]
+            name = "scripts/original_view_consumer.py"
+            raw = Path(consumer.__file__).read_bytes()
+            sources[name] = raw
+            report = images.image.prepare(bundle, "a" * 64, trcs, root / "output")
+            receipt, files, _ = images.image.validated_files(root / "output", report["receipt_sha256"])
+            self.assertEqual(files["context/service/" + name], raw)
+            prepared = json.loads(files["context/service/prepared.json"])
+            self.assertEqual(prepared["files"][name], consumer.digest(raw))
+            self.assertFalse(receipt["image_built"])
 
 
 class RetirementTests(unittest.TestCase):
@@ -548,13 +608,24 @@ class ConsumerStartupTests(unittest.TestCase):
             fixture.owner.start("engine", fixture.contract, fixture.inputs, lambda _: None, 1900)
         spawn.assert_not_called()
 
+    def test_hold_readback_overrun_never_launches_engine(self):
+        fixture = processes.ProcessTests()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        fixture.owner.original_view = mock.Mock()
+        fixture.owner.original_view.verified.side_effect = lambda _: fixture.clock.advance(1801)
+        with mock.patch.object(fixture.owner, "verify_weights"), mock.patch.object(fixture.owner, "spawn") as spawn, \
+                self.assertRaises(ValueError):
+            fixture.owner.start("engine", fixture.contract, fixture.inputs, lambda _: None, 1900)
+        spawn.assert_not_called()
+
 
 class WorkerTests(unittest.TestCase):
     def setUp(self):
         self.sha = "a" * 64
         self.row = {"namespace": {"device": 4, "inode": 50}, "boot_id": "synthetic-boot",
             "plan": {"target": "/private/target", "destination_export": "staging.example.test:/public",
-                "verification_seconds": 120}, "target": {"device": 5, "inode": 61}}
+                "verification_seconds": 120}, "target": {"device": 5, "inode": 61}, **deadlines()}
         self.mounted = {"mount_id": 71, "device": 7, "namespace": self.row["namespace"], "boot_id": self.row["boot_id"]}
         self.cache, self.inspection, self.stage, self.records = (mock.Mock() for _ in range(4))
         self.cache.unique = dict
@@ -569,6 +640,7 @@ class WorkerTests(unittest.TestCase):
         self.read = self.stack.enter_context(mock.patch.object(mount, "read", side_effect=lambda path:
             (b"", self.row if path.name == "contract.json" else {"mount": self.mounted, "contract_sha256": self.sha})))
         self.stack.enter_context(mock.patch.object(mount, "Records", return_value=self.records))
+        self.stack.enter_context(mock.patch.object(mount.smoke.service.identity.worker, "alarm", side_effect=lambda _: nullcontext()))
 
     def test_mount_readback_binds_export_target_boot_and_namespace(self):
         self.assertEqual(mount.mount_readback(self.row), self.mounted)
@@ -609,6 +681,18 @@ class WorkerTests(unittest.TestCase):
         with self.assertRaises(OSError): mount.worker("/private/records", self.sha, "attach")
         self.cache.mount_cache.assert_not_called()
 
+    def test_expiry_during_durable_intent_prevents_mount(self):
+        self.attach_setup()
+        self.records.publish.side_effect = lambda *_: self.row.update(startup_deadline=1)
+        with self.assertRaises(ValueError): mount.worker("/private/records", self.sha, "attach")
+        self.cache.mount_cache.assert_not_called()
+
+    def test_already_expired_worker_does_not_probe_or_mount(self):
+        self.row["startup_deadline"] = 1
+        with self.assertRaises(ValueError): mount.worker("/private/records", self.sha, "attach")
+        self.cache.require_unmounted.assert_not_called()
+        self.cache.mount_cache.assert_not_called()
+
     def test_failed_created_publication_preserves_mount_and_never_guesses_cleanup(self):
         self.attach_setup()
         calls = []
@@ -620,6 +704,193 @@ class WorkerTests(unittest.TestCase):
         with self.assertRaises(OSError): mount.worker("/private/records", self.sha, "attach")
         self.assertEqual(calls, ["mount-intent.json", "mount", "mount-created.json"])
         self.cache.unmount_cache.assert_not_called()
+
+
+class DeadlineTests(unittest.TestCase):
+    def test_registration_expiry_after_publish_never_yields_create_authority(self):
+        row = {**deadlines(), "consumer_token": "a" * 32, "image_id": "image",
+               "weights": "/weights", "inputs": "/inputs"}
+        raw = consumer.encoded(row)
+        selected = SimpleNamespace(state=SimpleNamespace(root=Path("/synthetic/container")),
+            selected=SimpleNamespace(policy=SimpleNamespace(token="a" * 32)), contract={},
+            runtime={"image_id": "image", "weights": "/weights", "inputs": "/inputs",
+                     "command": ["--original-view-sha256", "b" * 64]})
+        admitted = {"contract_sha256": consumer.digest(raw), "consumer_sha256": "b" * 64}
+        records = mock.Mock()
+        records.publish.side_effect = lambda *_: row.update(startup_deadline=1)
+        with mock.patch.object(mount, "read", side_effect=[(raw, row), (b"", admitted)]), \
+                mock.patch.object(mount, "admission_lock", side_effect=lambda _: nullcontext()), \
+                mock.patch.object(mount, "Records", return_value=records), \
+                mock.patch.object(Path, "exists", return_value=False), self.assertRaises(ValueError):
+            with mount.registration(selected):
+                self.fail("expired registration yielded create authority")
+
+    def test_verified_record_fsync_cannot_grant_late_release(self):
+        lease = object.__new__(mount.Lease)
+        lease.row, lease.sha = deadlines(), "a" * 64
+        lease.closed, lease.registered, lease.released = False, True, False
+        lease.consumer, lease.consumer_sha, lease.phase = contract(), "b" * 64, "verified"
+        space = {"device": 4, "inode": 50}
+        lease.peer, lease.connection, lease.records = (91, 11, space), mock.Mock(), mock.Mock()
+        lease.fresh = mock.Mock()
+        lease.connection.recv.return_value = consumer.encoded(consumer.acknowledgment(
+            lease.consumer, lease.consumer_sha, "verified", space))
+        selected = mock.Mock()
+        selected.rows.return_value = {"container-resolved.json": {"id": "c" * 64}}
+        lease.records.publish.side_effect = lambda *_: lease.row.update(startup_deadline=1)
+        with mock.patch.object(consumer, "namespace", return_value=space), \
+                mock.patch.object(mount.select, "select", side_effect=lambda fds, *_:
+                    (fds, [], []) if fds == [lease.connection] else ([], [], [])), self.assertRaises(ValueError):
+            lease.poll(selected)
+        with self.assertRaises(ValueError): lease.release()
+        lease.connection.send.assert_not_called()
+
+    @contextmanager
+    def consumer_boundary(self, value, clock):
+        raw = consumer.encoded(value)
+        with ExitStack() as stack:
+            stack.enter_context(mock.patch.object(consumer.os, "getpid", return_value=1))
+            for name in ("getuid", "geteuid", "getgid", "getegid"):
+                stack.enter_context(mock.patch.object(consumer.os, name, return_value=65532))
+            stack.enter_context(mock.patch.object(consumer.service.identity, "private_read", return_value=raw))
+            kernel = stack.enter_context(mock.patch.object(consumer.service.observer, "read_kernel",
+                return_value=(value["boot_id"] + "\n").encode()))
+            space = stack.enter_context(mock.patch.object(consumer, "clock_namespace", return_value=value["clock_namespace"]))
+            stack.enter_context(mock.patch.object(consumer.time, "monotonic", clock.monotonic))
+            stack.enter_context(mock.patch.object(consumer.time, "time", clock.time))
+            yield consumer.digest(raw), kernel, space
+
+    def test_same_boot_clock_clamps_without_extending_hard_stop(self):
+        clock = processes.Clock()
+        with mock.patch.object(consumer.time, "monotonic", clock.monotonic), \
+                mock.patch.object(consumer.time, "time", clock.time):
+            current = consumer.service.Contract.begin(clock.timestamp(18000), input_price="1", output_price="2",
+                lifetime_profile=consumer.service.ORDINARY_PROFILE, execution_profile=consumer.PROFILE)
+        value = {**contract(), "startup_deadline": clock.monotonic() + 100, "hard_stop_at": current.hard_stop_at}
+        with self.consumer_boundary(value, clock) as (sha, kernel, space):
+            clamped = consumer.clamp_contract(sha, current)
+            self.assertEqual(clamped.startup_deadline, value["startup_deadline"])
+            self.assertEqual((clamped.hard_wall, clamped.hard_monotonic, clamped.hard_stop_at),
+                             (current.hard_wall, current.hard_monotonic, current.hard_stop_at))
+            space.return_value = {"device": 4, "inode": 78}
+            with self.assertRaises(ValueError): consumer.clamp_contract(sha, current)
+            space.return_value = value["clock_namespace"]
+            kernel.return_value = b"00000000-0000-0000-0000-000000000002\n"
+            with self.assertRaises(ValueError): consumer.clamp_contract(sha, current)
+            kernel.return_value = (value["boot_id"] + "\n").encode()
+            clock.advance(101)
+            with self.assertRaises(ValueError): consumer.clamp_contract(sha, current)
+
+    def test_real_entry_clamps_before_preparation_and_passes_same_cutoff_to_supervisor(self):
+        clock = processes.Clock()
+        value = {**contract(), "startup_deadline": clock.monotonic() + 100,
+                 "hard_stop_at": clock.timestamp(18000)}
+        prepared = SimpleNamespace(lab={"execution_profile": consumer.PROFILE}, receipt_sha256=value["prepared_sha256"])
+        with self.consumer_boundary(value, clock) as (sha, _, _), ExitStack() as stack:
+            factory = stack.enter_context(mock.patch.object(process, "Prepared", return_value=prepared))
+            hold = stack.enter_context(mock.patch.object(consumer, "Hold"))
+            stack.enter_context(mock.patch.object(process, "ProcessOwner"))
+            supervisor = stack.enter_context(mock.patch.object(consumer.service, "Supervisor"))
+            supervisor.return_value.run.return_value = {"schema": "synthetic", "status": "retired"}
+            stack.enter_context(mock.patch.object(consumer.service, "snapshot_inputs", return_value=nullcontext(object())))
+            stack.enter_context(mock.patch.object(consumer.service, "progress"))
+            stack.enter_context(mock.patch.object(consumer.service, "execution_result", side_effect=lambda row, *_: row))
+            stack.enter_context(redirect_stdout(io.StringIO()))
+            args = ["--prepared-sha256", value["prepared_sha256"], "--hard-stop-at", value["hard_stop_at"],
+                "--input-price", "1", "--output-price", "2", "--execution-profile", consumer.PROFILE,
+                "--lifetime-profile", consumer.service.ORDINARY_PROFILE, "--original-view-sha256", sha,
+                "--hostname", "synthetic.invalid"]
+            for name in ("provider-config", "api-key-file", "cert", "key"):
+                args += ["--" + name, "/synthetic/" + name]
+            self.assertEqual(process.main(args), 0)
+            factory.assert_called_once_with(value["prepared_sha256"], value["startup_deadline"])
+            self.assertEqual(hold.call_args.args[2].startup_deadline, value["startup_deadline"])
+            self.assertEqual(supervisor.call_args.args[0].startup_deadline, value["startup_deadline"])
+            factory.reset_mock()
+            clock.advance(101)
+            self.assertEqual(process.main(args), 1)
+            factory.assert_not_called()
+
+
+class ObserveTests(unittest.TestCase):
+    def test_live_peer_requires_socket_silence_and_pid_exit_takes_precedence(self):
+        lease = object.__new__(mount.Lease)
+        lease.fresh, lease.connection = mock.Mock(), object()
+        lease.released, lease.peer = True, (91, 11, {"device": 4, "inode": 50})
+        for ready, expected in (([], False), ([11], True), ([11, lease.connection], True)):
+            with self.subTest(ready=ready), mock.patch.object(mount.select, "select", return_value=(ready, [], [])):
+                self.assertIs(lease.observe(), expected)
+        # select readability covers both EOF and unsolicited packets; neither
+        # can be ignored while the bound pidfd still describes a live PID 1.
+        with mock.patch.object(mount.select, "select", return_value=([lease.connection], [], [])), self.assertRaises(ValueError):
+            lease.observe()
+
+
+class WatchdogTerminalTests(unittest.TestCase):
+    def run_watchdog(self, outcome):
+        host = owners.host
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            root = Path(directory)
+            (root / "original-view").mkdir()
+            reader, writer = os.pipe()
+            stack.callback(os.close, writer)
+            commands, selected, reservation, view = (mock.Mock() for _ in range(4))
+            commands.remaining.return_value, commands.end = 1000, 2000
+            selected.fresh.return_value = {"State": {"Status": "exited", "ExitCode": 0}}
+            if outcome == "ack-race":
+                selected.fresh.side_effect = [{"State": {"Status": "running", "ExitCode": 0}},
+                    {"State": {"Status": "exited", "ExitCode": 0}},
+                    {"State": {"Status": "exited", "ExitCode": 0}}]
+            selected.cleanup.return_value = {key: True for key in ("container_absent", "network_absent",
+                "creations_resolved", "quarantine_confirmed", "policy_removed", "cleanup_confirmed")}
+            view.row, view.poll.return_value, view.observe.return_value = deadlines(), True, True
+            now, calls, messages = {"value": 10}, [], iter([b"verify\n", b"" if outcome == "parent-death" else b"done\n"])
+            def select(*_):
+                calls.append("poll")
+                if len(calls) == 1: return ([reader], [], [])
+                selected.cleanup.assert_not_called()
+                view.retire.assert_not_called()
+                if outcome == "timeout":
+                    now["value"] = 71
+                    return ([], [], [])
+                if outcome == "deadline":
+                    commands.remaining.return_value = 0
+                    return ([], [], [])
+                if len(calls) == 2 and outcome in ("ack", "ack-race"): return ([], [], [])
+                return ([reader], [], [])
+            stack.enter_context(mock.patch.object(host.os, "getuid", return_value=0))
+            stack.enter_context(mock.patch.object(host.sys, "platform", "linux"))
+            stack.enter_context(mock.patch.object(host, "read_reservation", return_value=SimpleNamespace(
+                contract={"hard_wall": 4000000000, "hard_monotonic": 2000})))
+            stack.enter_context(mock.patch.object(host.smoke, "host_recorder", return_value=(None, None)))
+            stack.enter_context(mock.patch.object(host, "GuardCommands", return_value=commands))
+            stack.enter_context(mock.patch.object(host.network, "Reservation", return_value=reservation))
+            stack.enter_context(mock.patch.object(host.owner, "Owner", return_value=selected))
+            stack.enter_context(mock.patch.object(host.owner, "daemon_identity", return_value=(91, 101)))
+            stack.enter_context(mock.patch.object(mount, "Lease", return_value=view))
+            stack.enter_context(mock.patch.object(host, "acknowledge"))
+            stack.enter_context(mock.patch.object(host.select, "select", side_effect=select))
+            stack.enter_context(mock.patch.object(host.os, "read", side_effect=lambda *_: next(messages)))
+            stack.enter_context(mock.patch.object(host.time, "monotonic", side_effect=lambda: now["value"]))
+            output = stack.enter_context(redirect_stdout(io.StringIO()))
+            result = host.watchdog(str(root), reader)
+            selected.cleanup.assert_called_once()
+            view.close_admission.assert_called_once()
+            view.retire.assert_called_once()
+            return result, host.cleanup_record(output.getvalue().encode()), calls
+
+    def test_normal_exit_waits_for_parent_final_readback_ack(self):
+        for outcome in ("ack", "ack-race"):
+            with self.subTest(outcome=outcome):
+                code, row, calls = self.run_watchdog(outcome)
+                self.assertEqual((code, row["result"], len(calls)), (0, "pass", 3))
+
+    def test_parent_death_wait_timeout_and_original_deadline_cleanup_independently(self):
+        for outcome in ("parent-death", "timeout", "deadline"):
+            with self.subTest(outcome=outcome):
+                code, row, _ = self.run_watchdog(outcome)
+                self.assertEqual((code, row["result"]), (1, "fail"))
+                self.assertTrue(row["cleanup"]["cleanup_confirmed"])
 
 
 if __name__ == "__main__":

@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Original-only verification hold, carried by a newly prepared service image."""
 
+from dataclasses import replace
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -35,9 +37,15 @@ def namespace(pid="self"):
     return {"device": info.st_dev, "inode": info.st_ino}
 
 
+def clock_namespace():
+    info = os.stat("/proc/self/ns/time")
+    return {"device": info.st_dev, "inode": info.st_ino}
+
+
 def validate(value):
     require(type(value) is dict and set(value) == {"schema", "attempt_id", "mount_contract_sha256",
-        "prepared_sha256", "model_profile", "model", "hard_stop_at", "consumer_token"}
+        "prepared_sha256", "model_profile", "model", "hard_stop_at", "consumer_token",
+        "startup_deadline", "boot_id", "clock_namespace"}
         and value["schema"] == SCHEMA and value["model_profile"] == service.models.select("original"), "mounts")
     for name, length in (("attempt_id", 32), ("consumer_token", 32),
                          ("mount_contract_sha256", 64), ("prepared_sha256", 64)):
@@ -47,7 +55,36 @@ def validate(value):
             and type(model["device"]) is int and model["device"] >= 0
             and type(model["inode"]) is int and model["inode"] > 0, "mounts")
     require(type(value["hard_stop_at"]) is str, "mounts")
+    require(type(value["startup_deadline"]) in (int, float)
+            and math.isfinite(value["startup_deadline"]) and value["startup_deadline"] > 0
+            and type(value["boot_id"]) is str
+            and re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", value["boot_id"]), "mounts")
+    space = value["clock_namespace"]
+    require(type(space) is dict and set(space) == {"device", "inode"}
+            and all(type(space[k]) is int and space[k] > 0 for k in space), "mounts")
     return value
+
+
+def load_contract(expected, contract):
+    require(contract.execution_profile == PROFILE and os.getpid() == 1
+            and os.getuid() == os.geteuid() == os.getgid() == os.getegid() == 65532, "mounts")
+    require(type(expected) is str and re.fullmatch("[0-9a-f]{64}", expected), "mounts")
+    raw = service.identity.private_read(DIRECTORY / CONTRACT, contract.startup_deadline)
+    require(digest(raw) == expected, "mounts")
+    value = validate(service.correctness.strict_json(raw))
+    boot = service.observer.read_kernel("/proc/sys/kernel/random/boot_id", 64,
+                                        contract.startup_deadline).decode("ascii").strip()
+    require(boot == value["boot_id"] and clock_namespace() == value["clock_namespace"]
+            and value["hard_stop_at"] == contract.hard_stop_at
+            and time.monotonic() < min(contract.startup_deadline, value["startup_deadline"]), "deadline")
+    return value
+
+
+def clamp_contract(expected, contract):
+    # Same boot and actual time namespace establish a shared monotonic clock.
+    # Neither a late container start nor preparation can re-arm the host cutoff.
+    value = load_contract(expected, contract)
+    return replace(contract, startup_deadline=min(contract.startup_deadline, value["startup_deadline"]))
 
 
 def acknowledgment(value, contract_sha, phase, space):
@@ -57,6 +94,8 @@ def acknowledgment(value, contract_sha, phase, space):
         "contract_sha256": contract_sha, "prepared_sha256": value["prepared_sha256"],
         "manifest_sha256": value["model_profile"]["manifest_sha256"], "uid": 65532, "gid": 65532,
         "pid": 1, "mount_namespace": space, "model": value["model"], "readonly": True,
+        "startup_deadline": value["startup_deadline"], "boot_id": value["boot_id"],
+        "clock_namespace": value["clock_namespace"],
         "files": 83 if phase == "verified" else 0,
         "verified_bytes": value["model_profile"]["total_bytes"] if phase == "verified" else 0}
 
@@ -69,14 +108,9 @@ class Hold:
     """One connection; EOF/extra data is failure, never a reconnect or retry."""
 
     def __init__(self, expected, prepared, contract, shutdown):
-        require(contract.execution_profile == PROFILE and os.getpid() == 1
-                and os.getuid() == os.geteuid() == os.getgid() == os.getegid() == 65532, "mounts")
-        require(type(expected) is str and re.fullmatch("[0-9a-f]{64}", expected), "mounts")
-        raw = service.identity.private_read(DIRECTORY / CONTRACT, contract.startup_deadline)
-        require(digest(raw) == expected, "mounts")
-        self.value = validate(service.correctness.strict_json(raw))
+        self.value = load_contract(expected, contract)
         require(self.value["prepared_sha256"] == prepared.receipt_sha256
-                and self.value["hard_stop_at"] == contract.hard_stop_at, "mounts")
+                and contract.startup_deadline <= self.value["startup_deadline"], "mounts")
         self.sha, self.shutdown, self.prepared = expected, shutdown, prepared
         self.space, self.connection = namespace(), None
         self.model_check()
@@ -122,6 +156,7 @@ class Hold:
                 raw = self.connection.recv(4097)
                 require(raw == encoded(release(self.sha)), "mounts")
                 self.model_check()
+                require(not self.shutdown.is_set() and time.monotonic() < deadline, "deadline")
                 return
 
     def close(self):

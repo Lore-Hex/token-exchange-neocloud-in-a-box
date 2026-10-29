@@ -527,6 +527,12 @@ def main(argv=None):
                     + contract.cleanup_reserve, "deadline")
         require(args.lifetime_profile == service.SMOKE_PROFILE or not any((args.inference_smoke,
             args.conformance_smoke, args.protocol_smoke, args.tool_smoke)), "contract")
+        if args.original_view_sha256 is not None:
+            import original_view_consumer
+            require(args.execution_profile == original_view_consumer.PROFILE
+                    and not any((args.inference_smoke, args.conformance_smoke, args.protocol_smoke,
+                                 args.tool_smoke, args.long_qualification)), "contract")
+            contract = original_view_consumer.clamp_contract(args.original_view_sha256, contract)
         service.progress("preparation", contract, args.prepared_sha256)
         stage = "prepared"
         prepared = Prepared(args.prepared_sha256, contract.startup_deadline)
@@ -534,10 +540,6 @@ def main(argv=None):
         if args.conformance_smoke or args.protocol_smoke:
             require("checker/trial.json" in prepared.files, "contract")
         if args.original_view_sha256 is not None:
-            import original_view_consumer
-            require(args.execution_profile == original_view_consumer.PROFILE
-                    and not any((args.inference_smoke, args.conformance_smoke, args.protocol_smoke,
-                                 args.tool_smoke, args.long_qualification)), "contract")
             view = original_view_consumer.Hold(args.original_view_sha256, prepared, contract, shutdown)
         stage = "inputs"
         service.progress("inputs", contract, args.prepared_sha256)

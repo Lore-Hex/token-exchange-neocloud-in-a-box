@@ -47,7 +47,7 @@ PREPARATION_MODULES = {
     "selected_service": "914b18673163ff48c2c6ceaf5213a97d592cd59514db23449f191f1ab2be2ca9",
     "selected_service_engine": "08569ee0c6741d87028b739f05f234452e1992eacdf9348f94b0dede520dc87d",
     "selected_service_image": IMAGE_SHA,
-    "selected_service_process": "cd9b6f83286eb65edeec50d6a8985e168f42ab391f4b67375efe8512ce1dfdc9",
+    "selected_service_process": "59d89f52418b2c19c456f319cb5c8d7c0b32d3da1758b1dabb359d00f51cab45",
     "tau_live_identity": "a51e8c271dd0dd1fef22ef41babc76ab0991de11ddcc567630309395072cf2c7",
     "tau_llama_identity": "f292626bc218c21e682e61d7358517432c47dd6dac7b5c0fc91434508feb35b3",
     "tau_local_llama": "02d8023a72010821eb84f8b9f482569a0d8419d8a2baa70ffd78f4aabdb6f911",

@@ -380,12 +380,14 @@ class Owner:
         self.reservation.protected()
         self.reservation.inspect(self.runtime["network_id"])
         registration = nullcontext()
-        if "--original-view-sha256" in self.runtime["command"]:
+        original = "--original-view-sha256" in self.runtime["command"]
+        if original:
             import original_view_mount
             registration = original_view_mount.registration(self)
-        with registration:
+        with registration as startup_check:
             self.state.record("container-intent")
-            identifier = network.full_id(self.commands.call(self.runtime["command"], limit=128).decode().strip())
+            with startup_check() if original else nullcontext():
+                identifier = network.full_id(self.commands.call(self.runtime["command"], limit=128).decode().strip())
             self.state.record("container-resolved", identifier)
             self.fresh(serving=False)
             self.reservation.protected()
@@ -397,7 +399,7 @@ class Owner:
         if original:
             import original_view_mount
             require("start-intent.json" in self.rows())
-            original_view_mount.verify_release(self)
+            contract = original_view_mount.verify_release(self)
         else:
             require("start-intent.json" not in self.rows())
             self.fresh(serving=False)
@@ -408,15 +410,19 @@ class Owner:
         # serving table remains installed; no other table is flushed/replaced.
         batch = policy.encoded({"nftables": [{"delete": {"table": {
             "family": family, "name": self.reservation.quarantine.table}}} for family in ("bridge", "inet")]})
-        self.commands.apply(batch)
+        with original_view_mount.startup_window(contract) if original else nullcontext():
+            self.commands.apply(batch)
         self.fresh(serving=True)
 
     def begin_original_verification(self):
+        import original_view_mount
         require("--original-view-sha256" in self.runtime["command"]
                 and "start-intent.json" not in self.rows())
         self.fresh(serving=False)
         self.reservation.protected()
+        original_view_mount.startup_check(self)
         self.state.record("start-intent")
+        original_view_mount.startup_check(self)
 
     def quarantine(self):
         try:

@@ -56,6 +56,31 @@ def sha(value, length=64):
     return value
 
 
+def startup_current(row):
+    remaining = min(row["startup_deadline"] - time.monotonic(),
+                    row["hard_monotonic"] - time.monotonic(), row["hard_wall"] - time.time())
+    require(remaining > 0)
+    return remaining
+
+
+@contextmanager
+def startup_window(row):
+    startup_current(row)
+    end = min(row["startup_deadline"], row["hard_monotonic"],
+              time.monotonic() + row["hard_wall"] - time.time())
+    # Preserve the pinned helpers' internals, including their intervening IO,
+    # under the existing main-thread alarm. This never renews a cutoff.
+    with smoke.service.identity.worker.alarm(end):
+        startup_current(row)
+        yield
+        startup_current(row)
+
+
+def startup_check(selected_owner):
+    _, row = read(selected_owner.state.root.parent / "original-view/contract.json")
+    startup_current(row)
+
+
 def read(path, *, uid=None):
     _, _, cache, _ = helpers()
     path = Path(path)
@@ -208,6 +233,7 @@ def prepare_configuration(args, admitted, selected, root, *, publish=True):
         "hard_monotonic": contract.hard_monotonic, "startup_deadline": contract.startup_deadline,
         "consumer_hard_stop_at": smoke.service.retirement_at(contract.hard_wall - smoke.HOST_RESERVE),
         "boot_id": helpers()[1].supervisor_identity()["boot_id"], "namespace": consumer.namespace(),
+        "clock_namespace": consumer.clock_namespace(),
         "target": {"device": identity.st_dev, "inode": identity.st_ino}}
     if publish:
         with cache.directory(root / "original-view", private=True) as parent:
@@ -244,6 +270,7 @@ def worker(directory, expected, operation):
         cache.unmount_cache(export, target)
         records.publish("unmounted.json", {"contract_sha256": expected, "ordinary_unmount": True})
     else:
+        startup_current(row)
         require(consumer.namespace() == row["namespace"] and inspection.supervisor_identity()["boot_id"] == row["boot_id"])
         cache.require_unmounted(target)
         with cache.directory(target, private=True) as fd, os.scandir(fd) as entries:
@@ -254,7 +281,8 @@ def worker(directory, expected, operation):
             "--output", "PROPAGATION"]), object_pairs_hook=cache.unique)
         require(propagation == {"filesystems": [{"propagation": "private"}]})
         records.publish("mount-intent.json", {"contract_sha256": expected})
-        cache.mount_cache(export, target, readonly=True)
+        with startup_window(row):
+            cache.mount_cache(export, target, readonly=True)
         mounted = mount_readback(row)
         records.publish("mount-created.json", {"contract_sha256": expected, "mount": mounted})
         model = Path(row["weights"])
@@ -266,7 +294,7 @@ def worker(directory, expected, operation):
             profile = row["staging"]["model_profile"]
             rows = cache.manifest_rows(cache.read_regular(ROOT / profile["pack"] / "files.sha256"),
                 profile["manifest_sha256"], profile["total_bytes"], 83)
-            end = min(row["startup_deadline"], time.monotonic() + row["plan"]["verification_seconds"] - 60)
+            end = row["startup_deadline"]
             before = cache.strict_inventory(model, rows)
             verified = {r[2]: inspection.hash_file(cache, model, r, end, mounted["mount_id"]) for r in rows}
             view.view_modes(cache, model, rows, end)
@@ -277,6 +305,7 @@ def worker(directory, expected, operation):
         records.publish("verified.json", {"contract_sha256": expected, "mount": mounted,
             "model": current_identity, "files": 83,
             "verified_bytes": profile["total_bytes"], "inventory_sha256": consumer.digest(consumer.encoded(verified))})
+        startup_current(row)
     print(json.dumps({"schema": "nib.original-view-worker/v1", "operation": operation, "contract_sha256": expected}))
 
 
@@ -317,7 +346,8 @@ def registration(selected_owner):
             "owner_sha256": consumer.digest(consumer.encoded(selected_owner.contract))})
         # The closure lock covers Docker create and its resolved-ID record, not
         # just the pre-create check. The watchdog cannot unmount in that gap.
-        yield
+        startup_current(contract)
+        yield lambda: startup_window(contract)
 
 
 def consumer_sha(root):
@@ -353,6 +383,9 @@ def verify_release(selected_owner):
         and value["attempt_id"] == contract["plan"]["attempt_id"]
         and value["consumer_token"] == contract["consumer_token"]
         and value["hard_stop_at"] == contract["consumer_hard_stop_at"]
+        and value["startup_deadline"] == contract["startup_deadline"]
+        and value["boot_id"] == contract["boot_id"]
+        and value["clock_namespace"] == contract["clock_namespace"]
         and value["model"] == verified["model"]
         and joined["host_pid"] == proof["host_pid"]
         and joined["mount_namespace"] == proof["acknowledgment"]["mount_namespace"]
@@ -362,6 +395,8 @@ def verify_release(selected_owner):
     info = selected_owner.fresh(serving=False, verifying=True)
     require(info["State"]["Pid"] == proof["host_pid"] and info["State"]["Running"]
             and consumer.namespace(proof["host_pid"]) == proof["acknowledgment"]["mount_namespace"])
+    startup_current(contract)
+    return contract
 
 
 class Lease:
@@ -383,7 +418,8 @@ class Lease:
     def bind(self):
         _, inspection, cache, _ = helpers()
         require(self.row["boot_id"] == inspection.supervisor_identity()["boot_id"]
-            and self.row["namespace"] == consumer.namespace())
+            and self.row["namespace"] == consumer.namespace()
+            and self.row["clock_namespace"] == consumer.clock_namespace())
         daemon = owner.daemon_identity(self.commands)
         self.daemon_fd = os.pidfd_open(daemon[0], 0)
         self.stack.callback(os.close, self.daemon_fd)
@@ -406,6 +442,8 @@ class Lease:
 
     def capture(self, operation):
         _, inspection, cache, _ = helpers()
+        if operation == "attach":
+            startup_current(self.row)
         state = {}
         owned = inspection.Ownership(cache, self.root / ("worker-" + operation), self.row["plan"]["attempt_id"],
             self.row["plan"]["producer"], consumer.digest(self.source))
@@ -415,9 +453,12 @@ class Lease:
         if operation == "unmount":
             require(not self.unmount_attempted)
             self.unmount_attempted = True
-        raw = inspection.bounded_capture(cache, cache.load_capture(), [sys.executable, "-I", "-S", "-B", "-c",
-            BOOTSTRAP, str(Path(__file__).absolute()), self.source.decode(), str(self.root), self.sha, operation],
-            seconds, state, owned)
+        capture = cache.load_capture()
+        argv = [sys.executable, "-I", "-S", "-B", "-c", BOOTSTRAP, str(Path(__file__).absolute()),
+                self.source.decode(), str(self.root), self.sha, operation]
+        if operation == "attach":
+            seconds = min(seconds, startup_current(self.row))
+        raw = inspection.bounded_capture(cache, capture, argv, seconds, state, owned)
         resource_success(state, inspection, cache)
         require(json.loads(raw, object_pairs_hook=cache.unique) == {
             "schema": "nib.original-view-worker/v1", "operation": operation, "contract_sha256": self.sha})
@@ -428,10 +469,13 @@ class Lease:
         self.fresh()
         _, verified = read(self.root / "verified.json")
         require(verified["contract_sha256"] == self.sha)
+        startup_current(self.row)
         self.consumer = consumer.validate({"schema": consumer.SCHEMA,
             "attempt_id": self.row["plan"]["attempt_id"], "mount_contract_sha256": self.sha,
             "prepared_sha256": self.row["prepared_sha256"], "model_profile": self.row["staging"]["model_profile"],
             "model": verified["model"], "hard_stop_at": self.row["consumer_hard_stop_at"],
+            "startup_deadline": self.row["startup_deadline"], "boot_id": self.row["boot_id"],
+            "clock_namespace": self.row["clock_namespace"],
             "consumer_token": self.row["consumer_token"]})
         raw = consumer.encoded(self.consumer)
         path = Path(self.row["inputs"]) / consumer.CONTRACT
@@ -442,14 +486,17 @@ class Lease:
             os.fchown(stream.fileno(), 65532, 65532)
             os.fsync(stream.fileno())
         self.consumer_sha = consumer.digest(raw)
+        startup_current(self.row)
         self.listener = self.stack.enter_context(socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET))
         self.listener.bind(str(Path(self.row["inputs"]) / consumer.SOCKET))
         os.chmod(Path(self.row["inputs"]) / consumer.SOCKET, 0o600)
         os.chown(Path(self.row["inputs"]) / consumer.SOCKET, 65532, 65532)
         self.listener.listen(1)
         self.listener.setblocking(False)
+        startup_current(self.row)
         self.records.publish("admitted.json", {"contract_sha256": self.sha, "consumer_sha256": self.consumer_sha,
             "resources": self.worker_states[0][0]})
+        startup_current(self.row)
 
     def admitted(self, selected_owner):
         self.fresh()
@@ -458,6 +505,7 @@ class Lease:
         require(registered == {"contract_sha256": self.sha,
             "runtime_sha256": consumer.digest(consumer.encoded(selected_owner.runtime)),
             "owner_sha256": consumer.digest(consumer.encoded(selected_owner.contract))})
+        startup_current(self.row)
         self.registered = True
 
     def poll(self, selected_owner):
@@ -509,18 +557,25 @@ class Lease:
         self.records.publish("consumer-verified.json", {"contract_sha256": self.sha,
             "container_id": selected_owner.rows()["container-resolved.json"]["id"],
             "acknowledgment": json.loads(raw), "host_pid": pid})
+        startup_current(self.row)
         return True
 
     def release(self):
         require(not self.closed and not self.released and self.phase == "verified")
         raw = consumer.encoded(consumer.release(self.consumer_sha))
+        startup_current(self.row)
         require(self.connection.send(raw) == len(raw))
         self.released = True
 
     def observe(self):
         self.fresh()
         require(self.released and self.peer is not None)
-        return bool(select.select([self.peer[1]], [], [], 0)[0])
+        ready = select.select([self.peer[1], self.connection], [], [], 0)[0]
+        if self.peer[1] in ready:
+            return True
+        # While PID 1 is alive, readable means EOF or an unsolicited packet.
+        require(self.connection not in ready)
+        return False
 
     def close_admission(self):
         self.closed = True

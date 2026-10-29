@@ -116,12 +116,21 @@ def watchdog(root, life_fd):
             view = original_view_mount.Lease(root, commands)
             view.prepare()
         acknowledge(b"ready\n")
-        serving, verifying = False, False
+        serving, verifying, terminal_end = False, False, None
         while commands.remaining() > 0:
             ready, _, _ = select.select([life_fd], [], [], min(1, commands.remaining()))
             if ready:
                 raw = os.read(life_fd, 8)
                 if not raw:
+                    require(view is None)  # Original success needs the parent's final-readback acknowledgment.
+                    break
+                if view is not None and raw == b"done\n":
+                    require(serving)
+                    info = selected_owner.fresh(serving=True)
+                    require(info["State"]["Status"] == "exited" and type(info["State"]["ExitCode"]) is int
+                            and info["State"]["ExitCode"] == 0 and view.observe())
+                    require(terminal_end is None or time.monotonic() < terminal_end)
+                    require(commands.remaining() > 0)
                     break
                 require(raw == (b"verify\n" if view is not None else b"serve\n") and not serving and not verifying)
                 require(owner.daemon_identity(commands, daemon[0]) == daemon)
@@ -143,9 +152,18 @@ def watchdog(root, life_fd):
                     serving = True
             if serving:
                 require(owner.daemon_identity(commands, daemon[0]) == daemon)
-                selected_owner.fresh(serving=True)
+                info = selected_owner.fresh(serving=True)
                 if view is not None and view.observe():
-                    break
+                    if info["State"]["Status"] == "exited":
+                        require(type(info["State"]["ExitCode"]) is int and info["State"]["ExitCode"] == 0)
+                    # The inherited life pipe authenticates this one parent.
+                    # Keep final Docker/network readback available for at most
+                    # 60 seconds, never beyond the original owner cutoff.
+                    if terminal_end is None:
+                        terminal_end = min(time.monotonic() + 60, commands.end)
+                    # The PID can exit after Docker's running-state sample.
+                    # Final exited/zero readback is required again on done.
+                    require(time.monotonic() < terminal_end)
         else:
             raise ValueError("selected owner expiry")
         result["result"] = "pass"
@@ -371,6 +389,8 @@ def run(args, admitted, selected, result):
             join["lifetime"] = smoke.service.lifetime_record(contract.lifetime_profile,
                 contract.hard_wall - smoke.HOST_RESERVE, contract.execution_profile)
         start = ["docker", "container", "start", "--attach", container]
+        if original:
+            original_view_mount.startup_current(view_contract)
         try:
             if smoke.service.ordinary_profile(contract.lifetime_profile):
                 raw = start_day(commands, start, join["lifetime"], build["prepared_sha256"],
@@ -386,6 +406,8 @@ def run(args, admitted, selected, result):
         info = selected_owner.fresh(serving=True)
         require(info["State"]["Status"] == "exited" and type(info["State"]["ExitCode"]) is int
                 and info["State"]["ExitCode"] == 0 and monitor.poll() is None)
+        if original:
+            require(commands.remaining() > 0 and os.write(writer, b"done\n") == 5)
         result["runtime_started"] = True
         accepted = True
     except BaseException:
