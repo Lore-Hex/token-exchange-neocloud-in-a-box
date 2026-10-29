@@ -181,7 +181,7 @@ class ArchiveTests(unittest.TestCase):
     def test_transitive_source_tampering_fails_before_any_import(self):
         original = verify.read
         for target in ("deepseek_model_profile", "engine_local_correctness", "engine_python_bootstrap",
-                       "run", "exercise", "snapshot"):
+                       "selected_service_process", "run", "exercise", "snapshot"):
             def changed(path, limit):
                 raw = original(path, limit)
                 return b"raise AssertionError('must not execute')" if path.stem == target else raw

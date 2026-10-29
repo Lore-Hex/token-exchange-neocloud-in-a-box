@@ -21,7 +21,7 @@ import types
 ROOT = Path(__file__).absolute().parents[1]
 SELF = "host/import-original-image.py"
 VERIFIER = "host/verify-selected-image-archive.py"
-VERIFIER_SHA = "338f26cc9eea7bf69bbd1cb33127a7f2594fb6d75f1a7ab10a5bae0dcb96c196"
+VERIFIER_SHA = "e24de243aa0ddc0f7c5bc61aab85152bf9ec1eeccd96a9e35ce4b299c0544968"
 STATE = Path("/var/lib/nib-original-image-import")
 SCHEMA = "nib.original-image-import/v1"
 REQUEST = "nib.original-image-import-request/v1"
