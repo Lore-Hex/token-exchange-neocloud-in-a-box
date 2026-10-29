@@ -232,8 +232,6 @@ def receive(input_fd, destination, raw_request, request_sha256, *, deadline):
             require(files.identity(os.fstat(output)) == identity
                     == files.identity(os.stat("payload", dir_fd=root, follow_symlinks=False)))
             check()
-        remaining(deadline)
-        return receipt
     except Exception:
         raise Rejected() from None
     finally:
@@ -246,3 +244,5 @@ def receive(input_fd, destination, raw_request, request_sha256, *, deadline):
                     close_failed = True
         if close_failed:
             raise Rejected() from None
+    remaining(deadline)
+    return receipt

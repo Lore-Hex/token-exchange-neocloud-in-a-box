@@ -462,6 +462,35 @@ class ReceiverTests(unittest.TestCase):
         self.assertEqual((self.destination / "payload").read_bytes(), self.raw)
         self.assertTrue((self.destination / "intent.json").exists())
 
+    def test_close_crossing_deadline_still_closes_remaining_descriptors_and_rejects(self):
+        self.feed()
+        original = os.close
+        closed = []
+        with mock.patch.object(receiver.time, "monotonic", return_value=100) as clock:
+            def close(fd):
+                info = os.fstat(fd)
+                original(fd)
+                if closed or stat.S_ISREG(info.st_mode) and info.st_size == len(self.raw):
+                    closed.append((fd, info.st_dev, info.st_ino))
+                    clock.return_value = 102
+            with mock.patch.object(receiver.os, "close", side_effect=close):
+                self.assert_rejected(deadline=101)
+        self.assertEqual(len(closed), 3)
+        for (fd, device, inode), path in zip(closed, (
+                self.destination / "payload", self.destination, self.parent)):
+            self.assertEqual((device, inode), (path.stat().st_dev, path.stat().st_ino))
+            with self.assertRaises(OSError):
+                os.fstat(fd)
+        self.assertTrue(os.get_blocking(self.read_fd))
+        self.assertEqual((self.destination / "payload").read_bytes(), self.raw)
+        intent = json.loads((self.destination / "intent.json").read_bytes())
+        report = json.loads((self.destination / "receipt.json").read_bytes())
+        self.assertEqual(intent["request_sha256"], digest(encoded(self.value)))
+        self.assertEqual(report["deadline_monotonic"], 101)
+        self.assertNotIn("result", report)
+        self.assertTrue(all(report[key] is False for key in receiver.FALSE_FLAGS))
+        self.assert_rejected()
+
 
 if __name__ == "__main__":
     unittest.main()
