@@ -159,8 +159,28 @@ the same permissions defect during canonical-order bootstrap installation, and
 candidate adds explicit private-parent creation and fatal traversal errors, with
 canonical-order/default-umask, failure-preservation and root/nested enumeration
 regressions. The baseline failure and blocked review are not relabeled as passes.
-The new candidate remains untested by the author and requires a fresh parent
-result and independent exact-head review.
+The parent then tested exact `fb7901122737b0ec7f431d2ff496e922b4ce9551`
+in its pinned offline, read-only-source container: **41 tests, 38 passed /
+3 errors in 0.915 s**. The mode/enumeration regressions passed; all three real
+local-transport cases rejected before their expected terminal artifacts existed.
+Independent exact-head review remained **BLOCKED** solely on the temporary
+transport script being executed directly from confirmed `noexec` scratch;
+no additional production defect was reported. Early `EACCES` is consistent
+with that prerequisite mismatch, but the original run did not retain the
+underlying exception, so that exact error remains an explanation pending
+diagnostic confirmation, not a retrospectively observed errno.
+
+The test-only follow-up pins and invokes the existing Python interpreter with
+the temporary fixture as a non-executable input file. Scratch remains `noexec`;
+production transport validation and helpers are unchanged. Synthetic diagnostics
+retain exception classes/errno and source frame locations (not messages, argv,
+payloads or full paths), local phase progress, and actual transport start/exit
+observations. Negative cases must reach their intended fault boundary before
+checking terminal artifacts, rather than accepting any early rejection. A
+separate injected pre-child error covers diagnostics without pretending that
+synthetic errno is the original run's observed cause. Both failed parent runs
+remain failures. The follow-up requires a fresh parent result and independent
+exact-head review; the author has not executed it.
 Parent-run focused command in an isolated offline, read-only-source,
 resource-bounded, Git-capable environment:
 
@@ -178,7 +198,8 @@ transport: generated launcher, installed pinned helpers, component receiver,
 full materialization/joins and emitted acknowledgments are not mocked.
 They cover success, a nonzero transport exit after the complete final ack, and
 replacement of the original attempt directory with a same-content copy after
-bootstrap. Failures must preserve the original claim/artifacts and reject replay.
+bootstrap, plus a synthetic pre-child transport error. Failures must preserve
+the original claim/artifacts and reject replay.
 
 Those integration fixtures construct their source tar exclusively from public
 d18 Git objects, and generate tiny OCI/preparation inputs with the existing test

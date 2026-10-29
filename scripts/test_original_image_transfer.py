@@ -39,6 +39,23 @@ def tree_and_tar(rows):
     return tree, output.getvalue()
 
 
+def synthetic_exception_chain(error):
+    """Test diagnostics only: no exception messages, payloads, argv or full paths."""
+    rows, seen = [], set()
+    while error is not None and id(error) not in seen and len(rows) < 8:
+        seen.add(id(error))
+        frames, trace = [], error.__traceback__
+        while trace is not None:
+            code = trace.tb_frame.f_code
+            frames.append({"file": Path(code.co_filename).name, "function": code.co_name,
+                           "line": trace.tb_lineno})
+            trace = trace.tb_next
+        rows.append({"exception": type(error).__name__, "errno": getattr(error, "errno", None),
+                     "frames": frames[-16:]})
+        error = error.__cause__ if error.__cause__ is not None else error.__context__
+    return rows
+
+
 class TransferTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -109,6 +126,19 @@ class TransferTests(unittest.TestCase):
         with mock.patch.object(sender, "load", side_effect=AssertionError("no import before authentication")):
             with self.assertRaises(ValueError):
                 sender.authenticated(encoded(self.value), "0" * 64)
+
+    def test_synthetic_diagnostics_keep_hidden_errno_without_exception_contents(self):
+        try:
+            try:
+                raise PermissionError(13, "synthetic-private-canary", "/synthetic-private-canary")
+            except OSError:
+                raise ValueError("original-image-transfer-rejected") from None
+        except ValueError as error:
+            rows = synthetic_exception_chain(error)
+        self.assertEqual([row["exception"] for row in rows], ["ValueError", "PermissionError"])
+        self.assertEqual(rows[1]["errno"], 13)
+        self.assertTrue(rows[1]["frames"])
+        self.assertNotIn(b"synthetic-private-canary", encoded(rows))
 
     def test_authenticated_complete_code_graph_and_distinct_producers(self):
         value, sources, _, _, _ = sender.authenticated(encoded(self.value), adapter.sha(encoded(self.value)))
@@ -846,17 +876,44 @@ class LocalTransportRoundtripTests(unittest.TestCase):
                 "preparation_sha256": args.preparation_sha256}
             python = str(Path(sys.executable).resolve())
             transport_path, transport_log = root / "local-posix-transport", root / "software-only-transport.jsonl"
-            transport_path.write_text("#!" + python + "\n" + LOCAL_TRANSPORT_FIXTURE)
-            transport_path.chmod(0o700)
+            transport_path.write_text(LOCAL_TRANSPORT_FIXTURE)
+            transport_path.chmod(0o600)
+            self.assertFalse(transport_path.stat().st_mode & 0o111)
+            # Scratch stays noexec: pin and execute the existing interpreter,
+            # which reads this temporary synthetic fixture as data.
             channel = {"schema": "nib.pinned-posix-command-transport/v1",
-                "argv": [str(transport_path), mode, str(destination), str(transport_log), "{command}"],
-                "executable_sha256": adapter.sha(transport_path.read_bytes()), "remote_python": python}
+                "argv": [python, "-I", "-S", "-B", str(transport_path), mode,
+                         str(destination), str(transport_log), "{command}"],
+                "executable_sha256": self.descriptor(Path(python))["sha256"], "remote_python": python}
+            failures = []
             def call():
-                return sender.send(encoded(manifest), adapter.sha(encoded(manifest)),
-                    encoded(channel), adapter.sha(encoded(channel)), inputs, local,
-                    deadline=adapter.time.monotonic() + 90)
+                try:
+                    return sender.send(encoded(manifest), adapter.sha(encoded(manifest)),
+                        encoded(channel), adapter.sha(encoded(channel)), inputs, local,
+                        deadline=adapter.time.monotonic() + 90)
+                except Exception as error:
+                    failures[:] = synthetic_exception_chain(error)
+                    raise
+            def events():
+                if not transport_log.exists():
+                    return []
+                rows = []
+                for line in transport_log.read_bytes().splitlines():
+                    try:
+                        rows.append(json.loads(line))
+                    except ValueError:
+                        rows.append({"event": "invalid-diagnostic-record", "bytes": len(line)})
+                return rows
+            def diagnostic():
+                phases = ("bootstrap", *adapter.ROLES, "final")
+                state = {"sender_exception_chain": failures, "transport_events": events(),
+                    "local_intents": [name for name in phases if (local / (name + ".intent.json")).exists()],
+                    "remote_acks": [name for name in phases
+                                    if (destination / (name + ".ack.json")).exists()]}
+                return "synthetic local transfer diagnostic: " + encoded(state).decode().strip()
             yield types.SimpleNamespace(call=call, destination=destination, local=local, manifest=manifest,
-                inputs=inputs, prep_rows=rows, source=verified["source"], transport_log=transport_log)
+                inputs=inputs, prep_rows=rows, source=verified["source"], transport_log=transport_log,
+                events=events, diagnostic=diagnostic)
 
     def assert_joined(self, fixture, result):
         self.assertEqual(result["phase"], "final")
@@ -880,9 +937,12 @@ class LocalTransportRoundtripTests(unittest.TestCase):
 
     def test_real_launcher_helpers_receiver_materializer_and_terminal_ack(self):
         with self.fixture("success") as fixture:
-            result = fixture.call()
+            try:
+                result = fixture.call()
+            except Exception:
+                self.fail(fixture.diagnostic())
             self.assert_joined(fixture, result)
-            rows = [json.loads(line) for line in fixture.transport_log.read_bytes().splitlines()]
+            rows = [row for row in fixture.events() if row["event"] == "exit"]
             self.assertEqual([row["phase"] for row in rows], ["clock", "bootstrap", *adapter.ROLES, "final"])
             self.assertTrue(all(row["child_exit"] == row["reported_exit"] == 0 for row in rows))
             self.assertTrue(all(row["child_stdin_pipe"] for row in rows))
@@ -894,10 +954,15 @@ class LocalTransportRoundtripTests(unittest.TestCase):
         with self.fixture("nonzero-after-final-ack") as fixture:
             with self.assertRaisesRegex(ValueError, "^original-image-transfer-rejected$"):
                 fixture.call()
+            self.assertTrue((fixture.destination / "final.ack.json").is_file(), fixture.diagnostic())
             terminal = json.loads((fixture.destination / "final.ack.json").read_bytes())
             self.assert_joined(fixture, terminal)
-            last = json.loads(fixture.transport_log.read_bytes().splitlines()[-1])
-            self.assertEqual((last["phase"], last["child_exit"], last["reported_exit"]), ("final", 0, 23))
+            rows = fixture.events()
+            self.assertTrue(rows, fixture.diagnostic())
+            last = rows[-1]
+            self.assertEqual(last["event"], "exit", fixture.diagnostic())
+            self.assertEqual((last["phase"], last["child_exit"], last["reported_exit"]),
+                             ("final", 0, 23), fixture.diagnostic())
             self.assertTrue(last["ack_emitted"])
             self.assertTrue((fixture.local / "final.intent.json").is_file())
             self.assertFalse((fixture.local / "final.exit-zero-ack.json").exists())
@@ -911,6 +976,7 @@ class LocalTransportRoundtripTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "^original-image-transfer-rejected$"):
                 fixture.call()
             preserved = fixture.destination.with_name(fixture.destination.name + ".preserved")
+            self.assertTrue(preserved.is_dir(), fixture.diagnostic())
             self.assertNotEqual(preserved.stat().st_ino, fixture.destination.stat().st_ino)
             self.assertEqual((preserved / "intent.json").read_bytes(),
                              (fixture.destination / "intent.json").read_bytes())
@@ -920,7 +986,7 @@ class LocalTransportRoundtripTests(unittest.TestCase):
             self.assertFalse((fixture.local / "source-tree.exit-zero-ack.json").exists())
             self.assertFalse((fixture.destination / "source-tree.intent.json").exists())
             self.assertFalse((fixture.destination / "source-tree").exists())
-            rows = [json.loads(line) for line in fixture.transport_log.read_bytes().splitlines()]
+            rows = [row for row in fixture.events() if row["event"] == "exit"]
             self.assertEqual([row["phase"] for row in rows], ["clock", "bootstrap", "no-ack"])
             self.assertNotEqual(rows[-1]["child_exit"], 0)
             before = fixture.transport_log.read_bytes()
@@ -928,35 +994,65 @@ class LocalTransportRoundtripTests(unittest.TestCase):
                 fixture.call()
             self.assertEqual(fixture.transport_log.read_bytes(), before)
 
+    def test_pre_ack_transport_error_reports_synthetic_errno_without_terminal_lookup(self):
+        with self.fixture("raise-before-child") as fixture:
+            with self.assertRaisesRegex(ValueError, "^original-image-transfer-rejected$"):
+                fixture.call()
+            rows = fixture.events()
+            self.assertTrue(rows, fixture.diagnostic())
+            self.assertEqual(rows[-1]["event"], "error", fixture.diagnostic())
+            self.assertEqual((rows[-1]["stage"], rows[-1]["exception"], rows[-1]["errno"]),
+                             ("child-start", "PermissionError", 13), fixture.diagnostic())
+            self.assertIn('"errno":13', fixture.diagnostic())
+            self.assertTrue((fixture.local / "intent.json").is_file())
+            self.assertFalse((fixture.local / "bootstrap.intent.json").exists())
+            self.assertFalse(fixture.destination.exists())
 
-# This executable is written only inside a temporary software-test directory.
+
+# This non-executable driver is read by the pinned existing Python interpreter.
 # It is not an SSH implementation or an operational transport configuration.
-LOCAL_TRANSPORT_FIXTURE = """import json,os,pathlib,shutil,stat,subprocess,sys
+LOCAL_TRANSPORT_FIXTURE = """import hashlib,json,os,pathlib,shutil,stat,subprocess,sys
 os.umask(0o022)
 mode,root,log,command=sys.argv[1:]
-data=sys.stdin.buffer.read((80<<20)+1)
-if len(data)>(80<<20): raise SystemExit(24)
-child=subprocess.Popen(['/bin/sh','-c',command],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-pipe=stat.S_ISFIFO(os.fstat(child.stdin.fileno()).st_mode)
-stdout,stderr=child.communicate(data,timeout=60)
-ack=json.loads(stdout) if stdout else {}
-phase=ack.get('phase','clock' if 'nonce' in ack else 'no-ack')
-reported=child.returncode
-if child.returncode==0 and phase=='bootstrap' and mode=='replace-after-bootstrap':
- target=pathlib.Path(root)
- preserved=target.with_name(target.name+'.preserved')
- target.rename(preserved)
- shutil.copytree(preserved,target)
-if child.returncode==0 and phase=='final' and mode=='nonzero-after-final-ack': reported=23
-record={'phase':phase,'child_exit':child.returncode,'reported_exit':reported,'child_stdin_pipe':pipe,'ack_emitted':bool(stdout)}
-with open(log,'ab') as output:
- output.write(json.dumps(record,sort_keys=True,separators=(',',':')).encode()+b'\\n')
- output.flush()
- os.fsync(output.fileno())
-sys.stdout.buffer.write(stdout)
-sys.stdout.buffer.flush()
-sys.stderr.buffer.write(stderr)
-sys.stderr.buffer.flush()
+def record(event,**fields):
+ with open(log,'ab') as output:
+  os.fchmod(output.fileno(),0o600)
+  output.write(json.dumps({'event':event,**fields},sort_keys=True,separators=(',',':')).encode()+b'\\n')
+  output.flush()
+  os.fsync(output.fileno())
+stage='input-read'
+try:
+ record('start',stage=stage)
+ data=sys.stdin.buffer.read((80<<20)+1)
+ if len(data)>(80<<20): raise ValueError('synthetic input bound')
+ stage='child-start'
+ if mode=='raise-before-child': raise PermissionError(13,'synthetic transport error')
+ child=subprocess.Popen(['/bin/sh','-c',command],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+ pipe=stat.S_ISFIFO(os.fstat(child.stdin.fileno()).st_mode)
+ stage='child-wait'
+ record('started',stage=stage,input_bytes=len(data))
+ stdout,stderr=child.communicate(data,timeout=60)
+ stage='ack-parse'
+ ack=json.loads(stdout) if stdout else {}
+ phase=ack.get('phase','clock' if 'nonce' in ack else 'no-ack')
+ reported=child.returncode
+ stage='fault-injection'
+ if child.returncode==0 and phase=='bootstrap' and mode=='replace-after-bootstrap':
+  target=pathlib.Path(root)
+  preserved=target.with_name(target.name+'.preserved')
+  target.rename(preserved)
+  shutil.copytree(preserved,target)
+ if child.returncode==0 and phase=='final' and mode=='nonzero-after-final-ack': reported=23
+ record('exit',phase=phase,child_exit=child.returncode,reported_exit=reported,child_stdin_pipe=pipe,
+        ack_emitted=bool(stdout),stderr_bytes=len(stderr),stderr_sha256=hashlib.sha256(stderr).hexdigest())
+ stage='forward-output'
+ sys.stdout.buffer.write(stdout)
+ sys.stdout.buffer.flush()
+ sys.stderr.buffer.write(stderr)
+ sys.stderr.buffer.flush()
+except Exception as error:
+ record('error',stage=stage,exception=type(error).__name__,errno=getattr(error,'errno',None))
+ raise SystemExit(24)
 raise SystemExit(reported)
 """
 
