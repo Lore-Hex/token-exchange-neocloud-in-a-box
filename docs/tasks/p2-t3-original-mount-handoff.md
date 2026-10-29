@@ -172,12 +172,14 @@ deadline alarm, so their own intervening IO cannot re-arm the startup window.
 An expired intent/verification record remains evidence, not mutation authority.
 Cleanup and observation are deliberately still permitted after startup expiry.
 
-**Deployment budget is still blocked.** This branch retains the existing
-1800-second startup budget. Both full hashes plus engine startup must fit it;
-this change makes no throughput claim that they can. A separately reviewed,
-explicit original-only startup budget with remaining-hard-stop checks is
-required before the proposed deployment. No pending budget branch is integrated
-here, and a budget change must still preserve the one host-to-consumer cutoff.
+The integrated [original startup budget](p2-t3-original-startup-budget.md)
+provides a closed 7200-second maximum for `original-long1m-graphs`; legacy
+profiles retain 1800 seconds. The shared contract captures that cutoff once,
+capped by the unchanged hard stop minus the full cleanup reserve. Both full
+hashes, preparation and engine startup must fit the one host-to-consumer cutoff;
+handoff never starts another allowance. This ceiling is not a throughput or
+completion guarantee. A fresh prepared image and all operational gates remain
+required; the budget change does not authorize deployment.
 
 ## Closure and failure retention
 
@@ -253,8 +255,12 @@ these tests; preparation proves packaged source bytes, not runnable-image or
 hardware success.
 The image-archive verifier's authenticated `selected_service_process` pin is
 updated to the measured source bytes; its existing pre-import tamper regression
-also covers that module. Integration must remeasure any changed transitive
-preparation sources without relaxing authentication.
+also covers that module. Normal main integration retains the measured
+`selected_service` pin from the original startup-budget change and repins the
+importer to the resulting verifier bytes. Existing verification receipts remain
+unchanged; new verification/import must use this exact authenticated closure.
+Any further integration must remeasure changed transitive preparation sources
+without relaxing authentication.
 All privileged/system observations are fakes; local temporary files and record
 locking exercise existing helpers. They are not NFS, namespace, GPU or Docker
 validation. Legacy suites must remain green without weakened assertions.
@@ -272,12 +278,20 @@ timeout 300 python3 -B -m unittest -v \
   test_selected_service_smoke test_selected_service_graphs \
   test_selected_service_lifetime test_selected_service_weekly \
   test_original_service_runtime test_original_weight_staging \
-  test_selected_image_archive
+  test_selected_image_archive test_original_image_import \
+  test_original_startup_budget
 ```
 
 The parent reported 82 focused/archive tests passing in 14.094 seconds at
 `d2ab5104e71d4471407724933524b14b900951f0`. That result predates the terminal
 handshake fix and is not a passing-test claim for the corrected head.
+The parent subsequently reported 94 focused/archive tests passing in 10.110
+seconds at `23fbc9a087e8f2586096c23d02e745c55b6815dd`, with independent static
+review clean. The broader 239-test runs each had 238 passes and one environment
+failure: first an incorrect Go version, then a build-fixture error after the
+version was corrected. No assertion was changed. Those results predate main
+integration and the importer repin; the integrated head still requires a fresh
+parent test run and independent review.
 
 Use the already approved cached runtime and record its actual identity; this
 document supplies no guessed image pin. Independent final-head review and all
