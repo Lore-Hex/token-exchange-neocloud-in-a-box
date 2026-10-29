@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Bounded serial cache probes on an already admitted external selected node."""
 
+import copy
 import re
 import secrets
 import threading
@@ -9,25 +10,25 @@ import time
 import selected_long_qualification as workload
 import stream_https as stream
 
-meter, require, worker = stream.measurement, stream.require, stream.worker
-SHAPES = {2048: 512, 32768: 1024, 131072: 1024}
+meter, require, worker, identity = stream.measurement, stream.require, stream.worker, stream.identity
+SHAPES = identity.SHAPES
 REPEATS, REQUESTS, RUN_SECONDS = 3, 9, 1200
 PHASES = ("cold", "warm", "different-namespace")
 
 
-def request(padding, prompt_tokens, namespace):
+def request(padding, prompt_tokens, namespace, *, candidate="selected"):
     require(type(prompt_tokens) is int and prompt_tokens in SHAPES)
-    body = {"model": stream.transport.SELECTED_MODEL,
+    body = {"model": identity.model(candidate),
             "messages": workload.messages(3, padding),
             "max_tokens": SHAPES[prompt_tokens], "temperature": 0,
             "stream": True, "stream_options": {"include_usage": True},
             "reasoning_effort": "none", "cache_salt": namespace}
-    stream.request_bytes(body, prompt_tokens)
+    stream.request_bytes(body, prompt_tokens, candidate=candidate)
     return body
 
 
 def run(client, credential, *, padding, prompt_tokens, run_id, deadline,
-        emit, check_runtime, clock=time.monotonic):
+        emit, check_runtime, clock=time.monotonic, candidate="selected", preparation=None):
     """Three fresh-namespace cold/warm/negative triplets, C1, no retries.
 
     The admitted caller must bind exact tokenizer counts, runtime and budgets,
@@ -44,7 +45,17 @@ def run(client, credential, *, padding, prompt_tokens, run_id, deadline,
             and meter.number(deadline)
             and type(credential) is bytes and 16 <= len(credential) <= 4096
             and all(33 <= byte <= 126 for byte in credential))
-    request(padding, prompt_tokens, "0" * 64)
+    request(padding, prompt_tokens, "0" * 64, candidate=candidate)
+    require(client.candidate == candidate)
+    binding, prepared = {}, {}
+    if candidate == "original":
+        preparation = copy.deepcopy(preparation)
+        case = identity.prepared_case(preparation, prompt_tokens)
+        require(case["padding"] == padding)
+        binding = identity.evidence(preparation, prompt_tokens)
+        prepared = {"prepared_workload": preparation}
+    else:
+        require(preparation is None)
     started = clock()
     deadline = min(deadline, started + RUN_SECONDS)
     require(meter.number(started) and deadline > started)
@@ -57,14 +68,15 @@ def run(client, credential, *, padding, prompt_tokens, run_id, deadline,
         # Leave a small bounded receipt-only cleanup allowance, never another
         # inference request after the run deadline. No exception text is stored.
         with worker.alarm(min(deadline + 5, clock() + 5), clock):
-            emit({"schema": "nib.cache-probe/v1", "run_id": run_id, **value})
+            emit({"schema": identity.schema("cache-probe", candidate), "run_id": run_id,
+                  **copy.deepcopy(binding), **value})
 
     record({"kind": "manifest", "concurrency": 1, "retries": 0,
             "planned_requests": REQUESTS, "prompt_tokens_per_request": prompt_tokens,
             "max_output_tokens_per_request": SHAPES[prompt_tokens],
             "reserved_total_tokens": REQUESTS * (prompt_tokens + SHAPES[prompt_tokens]),
             "messages_sha256": workload.digest(workload.messages(3, padding)),
-            "run_seconds_cap": RUN_SECONDS})
+            "run_seconds_cap": RUN_SECONDS, **prepared})
     rows, stop = [], "complete"
     for index in range(REQUESTS):
         if clock() >= deadline:
@@ -80,17 +92,17 @@ def run(client, credential, *, padding, prompt_tokens, run_id, deadline,
             break
         repeat, phase_index = divmod(index, len(PHASES))
         scope = namespaces[repeat * 2 + (phase_index == 2)]
-        body = request(padding, prompt_tokens, scope)
-        identity = {"index": index, "repeat": repeat, "phase": PHASES[phase_index]}
+        body = request(padding, prompt_tokens, scope, candidate=candidate)
+        position = {"index": index, "repeat": repeat, "phase": PHASES[phase_index]}
 
         def intent():
             require(clock() < deadline)
-            record({"kind": "intent", **identity})
+            record({"kind": "intent", **position})
 
         sample = client.collect(body, credential, prompt_tokens=prompt_tokens,
                                 deadline=deadline, before_send=intent)
         require(type(sample) is meter.Sample)
-        row = {**identity, "attempted": client.last_attempt_started,
+        row = {**position, "attempted": client.last_attempt_started,
                "measurement": sample.metadata()}
         record({"kind": "result", **row})
         rows.append(row)
@@ -121,6 +133,7 @@ def run(client, credential, *, padding, prompt_tokens, run_id, deadline,
               "warm_requests_with_reuse": sum(row["phase"] == "warm" and
                   (row["measurement"]["cached_prompt_tokens"] or 0) > 0 for row in attempted),
               "billing_reconciled": False, "cache_isolation_qualified": False,
-              "quality_qualified": False, "confidential": False, "tariff_change_justified": False}
+              "quality_qualified": False, "confidential": False, "tariff_change_justified": False,
+              **copy.deepcopy(binding)}
     record(result)
     return result

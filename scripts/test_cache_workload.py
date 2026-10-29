@@ -106,8 +106,12 @@ class CacheWorkloadTests(unittest.TestCase):
         for kwargs, expected in (({}, 8192), ({"context_tokens": 32768}, 32768),
                                  ({"context_tokens": 262144}, 262144)):
             instance = workload.tokenizer.Counter.__new__(workload.tokenizer.Counter)
+            # Stop at the mocked file read on an explicitly supported platform.
             with self.subTest(kwargs=kwargs), mock.patch.object(workload.tokenizer, "verified",
-                    side_effect=OSError("synthetic file failure")) as read, self.assertRaises(OSError):
+                    side_effect=OSError("synthetic file failure")) as read, \
+                    mock.patch.object(workload.tokenizer.platform, "system", return_value="Linux"), \
+                    mock.patch.object(workload.tokenizer.platform, "machine", return_value="x86_64"), \
+                    self.assertRaises(OSError):
                 instance.__init__("source", "model", "wheel", **kwargs)
             self.assertEqual(instance.context_tokens, expected)
             read.assert_called_once()

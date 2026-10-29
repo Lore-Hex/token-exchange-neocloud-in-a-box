@@ -19,10 +19,24 @@ MEASUREMENT = {"status", "elapsed_seconds", "ttft_seconds", "first_content_secon
                "prompt_tokens", "completion_tokens", "cached_prompt_tokens", "finish_reason"}
 
 
-def fields(row, kind, names, run_id):
-    require(type(row) is dict and set(row) == COMMON | names
-            and row["schema"] == "nib.cache-probe/v1" and row["kind"] == kind
+def fields(row, kind, names, run_id, *, candidate="selected", binding=None):
+    binding = {} if binding is None else binding
+    require(type(row) is dict and set(row) == COMMON | names | set(binding)
+            and row["schema"] == probe.identity.schema("cache-probe", candidate) and row["kind"] == kind
             and row["run_id"] == run_id)
+    require(probe.worker.encoded({key: row[key] for key in binding}) == probe.worker.encoded(binding))
+
+
+def context(manifest):
+    require(type(manifest) is dict)
+    if manifest.get("schema") == probe.identity.schema("cache-probe"):
+        return "selected", {}
+    require(manifest.get("schema") == probe.identity.schema("cache-probe", "original"))
+    preparation = manifest.get("prepared_workload")
+    prompt = manifest.get("prompt_tokens_per_request")
+    case = probe.identity.prepared_case(preparation, prompt)
+    require(manifest.get("messages_sha256") == case["messages_sha256"])
+    return "original", probe.identity.evidence(preparation, prompt)
 
 
 def measurement(value, prompt, output, attempted):
@@ -66,10 +80,13 @@ def audit(raw):
     require(type(manifest) is dict and type(manifest.get("run_id")) is str
             and re.fullmatch("[0-9a-f]{64}", manifest["run_id"]))
     run_id = manifest["run_id"]
+    candidate, binding = context(manifest)
+    options = {"candidate": candidate, "binding": binding}
     fixed = {"concurrency": 1, "retries": 0, "planned_requests": probe.REQUESTS,
              "run_seconds_cap": probe.RUN_SECONDS}
     fields(manifest, "manifest", set(fixed) | {"prompt_tokens_per_request",
-        "max_output_tokens_per_request", "reserved_total_tokens", "messages_sha256"}, run_id)
+        "max_output_tokens_per_request", "reserved_total_tokens", "messages_sha256"} |
+        ({"prepared_workload"} if candidate == "original" else set()), run_id, **options)
     prompt = manifest["prompt_tokens_per_request"]
     require(type(prompt) is int and prompt in probe.SHAPES)
     output = probe.SHAPES[prompt]
@@ -86,11 +103,11 @@ def audit(raw):
                 and type(row.get("repeat")) is int and row["repeat"] == index // len(probe.PHASES)
                 and row.get("phase") == probe.PHASES[index % len(probe.PHASES)])
         if row.get("kind") == "intent":
-            fields(row, "intent", IDENTITY, run_id)
+            fields(row, "intent", IDENTITY, run_id, **options)
             require(not pending)
             pending = True
             continue
-        fields(row, "result", IDENTITY | {"attempted", "measurement"}, run_id)
+        fields(row, "result", IDENTITY | {"attempted", "measurement"}, run_id, **options)
         require(type(row["attempted"]) is bool and (pending or not row["attempted"]))
         value = row["measurement"]
         measurement(value, prompt, output, row["attempted"])
@@ -101,7 +118,7 @@ def audit(raw):
                    or row["phase"] != "warm" and value["cached_prompt_tokens"] != 0)
     attempted = [row["measurement"] for row in results if row["attempted"]]
     uncertain = int(pending) + unconfirmed
-    return {"schema": "nib.cache-journal-audit/v1", "run_id": run_id,
+    return {"schema": probe.identity.schema("cache-journal-audit", candidate), "run_id": run_id, **binding,
             "source_sha256": hashlib.sha256(raw).hexdigest(), "source_bytes": len(raw),
             "journal_records": len(rows), "planned_requests": probe.REQUESTS,
             "recorded_results": len(results), "recorded_attempted_results": len(attempted),

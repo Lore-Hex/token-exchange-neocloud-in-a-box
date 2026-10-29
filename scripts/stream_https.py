@@ -5,6 +5,7 @@ import re
 import threading
 
 import bounded_https
+import cache_identity as identity
 import stream_measurement as measurement
 import stream_transport as transport
 
@@ -14,12 +15,12 @@ MAX_REQUEST = 2 << 20
 MAX_PROMPT, MAX_OUTPUT, REQUEST_SECONDS = 131072, 8192, 119
 
 
-def request_bytes(body, prompt_tokens):
+def request_bytes(body, prompt_tokens, *, candidate="selected"):
     """Closed synthetic text subset; the caller must verify tokenizer parity."""
     require(type(body) is dict and set(body) == {
         "model", "messages", "max_tokens", "temperature", "stream",
         "stream_options", "reasoning_effort", "cache_salt"})
-    require(body["model"] == transport.SELECTED_MODEL and body["stream"] is True
+    require(body["model"] == identity.model(candidate) and body["stream"] is True
             and type(body["stream_options"]) is dict
             and set(body["stream_options"]) == {"include_usage"}
             and body["stream_options"]["include_usage"] is True
@@ -45,9 +46,11 @@ class SelectedHTTPS(bounded_https.HTTPS):
     CLI, credential discovery, process launch or price-changing behavior.
     """
 
-    def __init__(self, hostname, *, address, **options):
+    def __init__(self, hostname, *, address, candidate="selected", **options):
         require(address is not None)
+        identity.fields(candidate)
         super().__init__(hostname, (transport.PATH,), address=address, **options)
+        self.candidate = candidate
         self.last_attempt_started = False
 
     def collect(self, body, credential, *, prompt_tokens, deadline, before_send):
@@ -55,11 +58,11 @@ class SelectedHTTPS(bounded_https.HTTPS):
                 and callable(before_send) and measurement.number(deadline)
                 and type(credential) is bytes and 16 <= len(credential) <= 4096
                 and all(33 <= byte <= 126 for byte in credential))
-        payload = request_bytes(body, prompt_tokens)
+        payload = request_bytes(body, prompt_tokens, candidate=self.candidate)
         started = self.clock()
         deadline = min(deadline, started + REQUEST_SECONDS)
         require(deadline > started)
-        meter = measurement.StreamMeasurement(transport.SELECTED_MODEL,
+        meter = measurement.StreamMeasurement(identity.model(self.candidate),
             timeout_seconds=REQUEST_SECONDS, max_prompt_tokens=MAX_PROMPT,
             max_output_tokens=body["max_tokens"])
         self.used, self.last_status, self.last_attempt_started = True, None, False
