@@ -1,0 +1,20 @@
+{
+  "schema": "nib.evidence/v1",
+  "phase": "P2",
+  "task": "T3",
+  "git_sha": "f5ded64c3bf1b41a8a38fcda6c83620e65a3bcfc",
+  "command": "python3 -I -S -B <private-source>/host/inspect-public-weight-cache.py --export <private-export> --mount <private-mount> --output <private-receipt> --producer f5ded64c3bf1b41a8a38fcda6c83620e65a3bcfc --timeout 3600 --private-mount --bounded-resources --ownership-dir <private-ownership> --attempt-id <private-attempt>",
+  "execution": "software",
+  "host": {
+    "provider": "withheld",
+    "machine": "existing-linux-host-read-only-storage-inspection",
+    "gpus": "not-used",
+    "driver": null,
+    "cuda": null
+  },
+  "started_utc": "2026-10-29T05:28:22.888435Z",
+  "ended_utc": "2026-10-29T05:54:15.736950Z",
+  "result": "pass",
+  "hardware_validated": false,
+  "notes": "Preservation of the operator-supplied byte-original receipt and empty log, not a rerun. Software denotes actual CPU/file-integrity verification of existing stored bytes, not a fake run or GPU qualification; driver/CUDA were not measured. Private invocation values and launch/monitor wrappers are withheld. The receipt reports 83 files and 510311045295 verified bytes, pack_verified=true, worker exit and private mount cleanup confirmed, and resources empty/removed. process_group_absence_verified remains false. Later operator-reported private-monitor owned absence is a separate observation, not a replacement for that flag. Receipt: 1841 bytes, SHA256 8b86373a8c9e29d9e7b71cb979cf988611e0a00a0bc19df65541661ab8251312; empty output.log SHA256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855. This proves integrity only for the recorded inspection interval, not continued availability, immutability, runtime readiness, serving, deployment or confidentiality. Earlier failed inspections remain separate and unchanged."
+}
