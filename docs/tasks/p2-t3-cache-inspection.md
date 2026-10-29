@@ -100,6 +100,28 @@ No resource limit authorizes a live run by itself. Operators must still check
 disk space, health, incremental transfer charges, time limits and competing
 work before launching. Bound and monitor host/network pressure separately.
 
+## Durable Ownership Handshake
+
+Bounded mode optionally accepts `--ownership-dir "$NEW_PRIVATE_DIRECTORY"`
+and `--attempt-id "$UNIQUE_32_HEX_ATTEMPT"` together. The directory must not
+exist and its parent must already be private. The inspector publishes a
+complete, fsynced `supervisor.json` before any worker, and `group.json` with
+the exact cgroup device/inode and limits before launching a child. Both bind
+the attempt, producer, script hash, supervisor PID/start ticks and host boot ID.
+Publication uses an exclusive hard link to a completed temporary file, never
+replacement or adoption of an existing record. See [link(2)](https://man7.org/linux/man-pages/man2/link.2.html).
+A publication failure prevents worker launch and retains group cleanup.
+
+These are private operator recovery records, not benchmark results. Keep them
+outside public evidence; the ordinary inspection receipt remains unchanged.
+They let an external monitor recover exact ownership after connection loss or
+parent exit, including a group that disappeared before its first sample.
+The monitor must validate attempt/source/boot identity, use a pidfd for any
+supervisor signal, and keep checking the recorded group until cleanup is
+proven. Missing records do not authorize name-based adoption, retry or a
+success claim. This optional handshake does not supply that external monitor
+or establish a completed live inspection.
+
 ## Verification
 
 `python3 -m unittest discover -s scripts -p test_public_weight_cache_inspection.py`

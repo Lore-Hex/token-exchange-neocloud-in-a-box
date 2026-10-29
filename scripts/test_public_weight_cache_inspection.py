@@ -314,6 +314,91 @@ class InspectionTests(unittest.TestCase):
             with self.assertRaises(ValueError): inspection.resource_helper(self.cache)
         with self.assertRaises(ValueError): self.report(mock.Mock(), bounded_resources=1)
 
+    def test_owned_group_and_supervisor_records_precede_worker(self):
+        owner = self.root / "ownership"
+        identity = {"pid": 47, "start_ticks": 123, "pgid": 47, "boot_id": "a" * 36}
+        with contextlib.ExitStack() as stack:
+            resource = self.bounded_fixture(stack)
+            stack.enter_context(mock.patch.object(inspection, "supervisor_identity", return_value=identity))
+            def capture(*args, **kwargs):
+                supervisor = json.loads((owner / "supervisor.json").read_bytes())
+                group = json.loads((owner / "group.json").read_bytes())
+                self.assertEqual(supervisor["supervisor"], identity)
+                self.assertEqual(supervisor["attempt_id"], "b" * 32)
+                self.assertEqual(supervisor["producer"], "a" * 40)
+                self.assertEqual(supervisor["script_sha256"], hashlib.sha256(Path(inspection.__file__).read_bytes()).hexdigest())
+                self.assertEqual(group, {**supervisor, "kind": "group", "group": {
+                    "name": "nib-build-" + "a" * 32, "device": self.root.stat().st_dev,
+                    "inode": self.root.stat().st_ino, "limits": resource.LIMITS}})
+                self.assertEqual(owner.stat().st_mode & 0o777, 0o700)
+                self.assertEqual(sorted(p.name for p in owner.iterdir()), ["group.json", "supervisor.json"])
+                for path in owner.iterdir():
+                    self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                    self.assertEqual(path.stat().st_nlink, 1)
+                return self.success()
+            self.assertEqual(self.report(capture, bounded_resources=True,
+                                        ownership_dir=owner, attempt_id="b" * 32), 0)
+        self.assertNotIn("ownership", self.output.read_text())
+        self.assertNotIn("nib-build-", self.output.read_text())
+
+    def test_ownership_gate_and_existing_directory_fail_before_capture(self):
+        capture = mock.Mock()
+        for changes in ({"ownership_dir": self.root / "owner"}, {"attempt_id": "b" * 32},
+                        {"ownership_dir": self.root / "owner", "attempt_id": "b" * 32},
+                        {"ownership_dir": self.root / "owner", "attempt_id": "INVALID", "bounded_resources": True},
+                        {"ownership_dir": Path("relative"), "attempt_id": "b" * 32, "bounded_resources": True},
+                        {"ownership_dir": self.mount / "owner", "attempt_id": "b" * 32, "bounded_resources": True}):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                self.report(capture, **changes)
+        owner = self.root / "owner"
+        owner.mkdir(mode=0o700)
+        (owner / "existing").write_bytes(b"untouched")
+        with mock.patch.object(inspection, "supervisor_identity", return_value={"pid": 47}), self.assertRaises(FileExistsError):
+            self.report(capture, bounded_resources=True, ownership_dir=owner, attempt_id="b" * 32)
+        self.assertEqual((owner / "existing").read_bytes(), b"untouched")
+        capture.assert_not_called()
+
+    def test_ownership_record_failure_still_cleans_group_and_never_starts_worker(self):
+        with contextlib.ExitStack() as stack:
+            self.bounded_fixture(stack)
+            stack.enter_context(mock.patch.object(inspection, "supervisor_identity", return_value={"pid": 47}))
+            stack.enter_context(mock.patch.object(inspection.Ownership, "group", side_effect=OSError("private-failure")))
+            capture = mock.Mock()
+            self.assertEqual(self.report(capture, bounded_resources=True,
+                ownership_dir=self.root / "owner", attempt_id="b" * 32), 1)
+        capture.assert_not_called()
+        result = json.loads(self.output.read_bytes())
+        self.assertTrue(result["resources"]["empty_verified"])
+        self.assertTrue(result["resources"]["group_removed"])
+        self.assertEqual(result["result"], "fail")
+        self.assertNotIn("private-failure", self.output.read_text())
+
+    def test_atomic_ownership_publication_never_replaces_existing_record(self):
+        with mock.patch.object(inspection, "supervisor_identity", return_value={"pid": 47}):
+            owner = inspection.Ownership(self.cache, self.root / "owner", "b" * 32, "a" * 40, "c" * 64)
+        target = owner.directory / "supervisor.json"
+        original = target.read_bytes()
+        actual_link = os.link
+        def link(source, destination, **kwargs):
+            pending = json.loads((owner.directory / source).read_bytes())
+            self.assertEqual(pending, {"replacement": True})
+            self.assertEqual(target.read_bytes(), original)
+            return actual_link(source, destination, **kwargs)
+        with mock.patch.object(inspection.os, "link", side_effect=link), self.assertRaises(FileExistsError):
+            owner.publish("supervisor.json", {"replacement": True})
+        self.assertEqual(target.read_bytes(), original)
+        self.assertEqual([p.name for p in owner.directory.iterdir()], ["supervisor.json"])
+
+    def test_supervisor_identity_reads_bounded_process_and_boot_identity(self):
+        fields = ["S", "1", "47"] + ["0"] * 16 + ["123"]
+        boot = b"12345678-1234-1234-1234-123456789abc\n"
+        with mock.patch.object(inspection.os, "getpid", return_value=47), \
+                mock.patch("builtins.open", side_effect=[io.BytesIO(b"47 (name with ) parens) " + " ".join(fields).encode()), io.BytesIO(boot)]):
+            self.assertEqual(inspection.supervisor_identity(), {
+                "pid": 47, "start_ticks": 123, "pgid": 47, "boot_id": boot.decode().strip()})
+        with mock.patch("builtins.open", return_value=io.BytesIO(b"x" * 8193)), self.assertRaises(ValueError):
+            inspection.supervisor_identity()
+
     def test_resource_bootstrap_checks_membership_and_limits_before_exec(self):
         # Execute the real bootstrap with fake kernel files; no cgroup mutation.
         program = compile(inspection.RESOURCE_BOOTSTRAP, "<resource-test>", "exec")

@@ -13,6 +13,7 @@ import stat
 import sys
 import time
 import types
+import uuid
 
 CACHE_SHA256 = "25141adae8f894a54f4b8f90c65ba26a9d7b3f493121b640b381c4f2a0cb57f6"
 RESOURCE_SHA256 = "2b740ef5b1ecbc87cb3a078fcbb081017f7db5c9600c9956f97cc52330ad9fdc"
@@ -76,13 +77,15 @@ def resource_helper(cache):
     return resource
 
 
-def bounded_capture(cache, capture, argv, budget, state):
+def bounded_capture(cache, capture, argv, budget, state, ownership=None):
     resource = resource_helper(cache)
     state["limits"] = dict(resource.LIMITS)
     # Reuse the existing owned cgroup lifecycle, including detached descendants.
     # No parent controllers are enabled and no existing process is moved.
     with resource.cgroup(state) as (fd, name):
         identity = os.fstat(fd)
+        if ownership is not None:
+            ownership.group(name, identity, resource.LIMITS)
         wrapped = [sys.executable, "-I", "-S", "-B", "-c", RESOURCE_BOOTSTRAP,
                    name, str(identity.st_dev), str(identity.st_ino),
                    json.dumps(resource.LIMITS, sort_keys=True), *argv]
@@ -90,6 +93,60 @@ def bounded_capture(cache, capture, argv, budget, state):
     require(all(state[key] is True for key in ("limits_read_back", "empty_verified", "group_removed"))
             and state.get("oom_kill") == 0)
     return result
+
+
+def supervisor_identity():
+    pid = os.getpid()
+    with open("/proc/self/stat", "rb") as stream:
+        raw = stream.read(8193)
+    require(len(raw) <= 8192)
+    fields = raw.rsplit(b")", 1)[1].split()
+    require(int(raw.split(b" ", 1)[0]) == pid and int(fields[19]) > 0)
+    with open("/proc/sys/kernel/random/boot_id", "rb") as stream:
+        boot = stream.read(38).decode("ascii").strip()
+    require(re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", boot) is not None)
+    return {"pid": pid, "start_ticks": int(fields[19]), "pgid": int(fields[2]), "boot_id": boot}
+
+
+class Ownership:
+    """Immutable, atomic operator records published before any worker exists."""
+
+    def __init__(self, cache, directory, attempt, producer, source_sha):
+        self.cache, self.directory = cache, directory
+        self.common = {"schema": "nib.cache-inspection-ownership/v1", "attempt_id": attempt,
+                       "producer": producer, "script_sha256": source_sha,
+                       "supervisor": supervisor_identity()}
+        # An existing directory is never adopted, even if it looks empty.
+        with cache.directory(directory.parent, private=True) as parent:
+            os.mkdir(directory.name, 0o700, dir_fd=parent)
+            os.fsync(parent)
+        self.publish("supervisor.json", {**self.common, "kind": "supervisor"})
+
+    def publish(self, name, value):
+        raw = (json.dumps(value, sort_keys=True) + "\n").encode("ascii")
+        require(len(raw) <= 4096 and name in ("supervisor.json", "group.json"))
+        # link(2) atomically publishes a complete, fsynced file without replacing
+        # another attempt's record. A crash leaves either no record or full JSON.
+        # https://man7.org/linux/man-pages/man2/link.2.html (2026-10-29)
+        temporary = ".pending-" + uuid.uuid4().hex
+        with self.cache.directory(self.directory, private=True) as parent:
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+            try:
+                with os.fdopen(fd, "wb") as stream:
+                    stream.write(raw)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.link(temporary, name, src_dir_fd=parent, dst_dir_fd=parent, follow_symlinks=False)
+                os.fsync(parent)
+            finally:
+                os.unlink(temporary, dir_fd=parent)
+                os.fsync(parent)
+
+    def group(self, name, identity, limits):
+        require(re.fullmatch(r"nib-build-[0-9a-f]{32}", name) is not None)
+        self.publish("group.json", {**self.common, "kind": "group", "group": {
+            "name": name, "device": identity.st_dev, "inode": identity.st_ino,
+            "limits": dict(limits)}})
 
 
 def mount_id(fd):
@@ -194,11 +251,15 @@ def worker(export, mount, seconds, parent_namespace=None):
                       "model_profile": profile, **result}, sort_keys=True))
 
 
-def inspect_report(export, mount, output, producer, seconds, private_mount=False, bounded_resources=False):
+def inspect_report(export, mount, output, producer, seconds, private_mount=False, bounded_resources=False,
+                   ownership_dir=None, attempt_id=None):
     require(type(seconds) is int and RESERVE < seconds <= 7200
             and re.fullmatch(r"[0-9a-f]{40}", producer) is not None
             and type(private_mount) is bool and type(bounded_resources) is bool)
-    paths = (mount, output, Path(__file__).absolute())
+    require((ownership_dir is None and attempt_id is None)
+            or (isinstance(ownership_dir, Path) and type(attempt_id) is str
+                and re.fullmatch(r"[0-9a-f]{32}", attempt_id) is not None and bounded_resources))
+    paths = (mount, output, Path(__file__).absolute()) + (() if ownership_dir is None else (ownership_dir,))
     require(all(path.is_absolute() and str(path) == os.path.normpath(path) and ".." not in path.parts for path in paths)
             and all(left != right and not left.is_relative_to(right) and not right.is_relative_to(left)
                     for index, left in enumerate(paths) for right in paths[index + 1:]))
@@ -206,6 +267,8 @@ def inspect_report(export, mount, output, producer, seconds, private_mount=False
     cache.cache_source(export, "nfs")
     profile, _ = cache.profiles()
     source = cache.read_regular(Path(__file__).absolute())
+    ownership = (None if ownership_dir is None else Ownership(
+        cache, ownership_dir, attempt_id, producer, hashlib.sha256(source).hexdigest()))
     report = {"schema": "nib.public-weight-cache-inspection/v1", "model_profile": profile,
               "producer": producer, "script_sha256": hashlib.sha256(source).hexdigest(),
               "cache_helper_sha256": CACHE_SHA256, "supervisor_sha256": cache.PROBE_SHA256,
@@ -262,7 +325,7 @@ def inspect_report(export, mount, output, producer, seconds, private_mount=False
                     require(re.fullmatch(r"mnt:\[[0-9]+\]", namespace) is not None)
                     argv = ["/usr/bin/unshare", "--mount", "--propagation", "private", "--", *argv, namespace]
                     private_ack = {"private_namespace_verified": True, "private_mount_cleanup_confirmed": True}
-                raw = (bounded_capture(cache, capture, argv, budget, report["resources"]) if bounded_resources
+                raw = (bounded_capture(cache, capture, argv, budget, report["resources"], ownership) if bounded_resources
                        else capture(argv, timeout=budget, limit=4096))
                 require(time.monotonic() < deadline and type(raw) is bytes and len(raw) <= 4096)
                 result = json.loads(raw, object_pairs_hook=cache.unique)
@@ -313,9 +376,11 @@ def main(argv=None):
     parser.add_argument("--timeout", required=True, type=int)
     parser.add_argument("--private-mount", action="store_true")
     parser.add_argument("--bounded-resources", action="store_true")
+    parser.add_argument("--ownership-dir", type=Path)
+    parser.add_argument("--attempt-id")
     args = parser.parse_args(argv)
     return inspect_report(args.export, args.mount, args.output, args.producer, args.timeout,
-                          args.private_mount, args.bounded_resources)
+                          args.private_mount, args.bounded_resources, args.ownership_dir, args.attempt_id)
 
 
 if __name__ == "__main__":
