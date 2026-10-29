@@ -280,6 +280,67 @@ class ImportTests(unittest.TestCase):
         self.docker.image_change = lambda row: row["Config"].update(Cmd=None, OnBuild=None, Hostname="", AttachStdin=False)
         self.assertTrue(self.run_load()["image_loaded"])
 
+    def test_unknown_false_null_and_empty_config_fields_are_not_dropped(self):
+        for value in (False, None, "", [], {}):
+            for side in ("readback", "archive"):
+                self.helper, self.value, self.admitted, self.state = fixture()
+                self.docker = FakeDocker(self.admitted, self.state)
+                if side == "readback":
+                    self.docker.image_change = lambda row: row["Config"].update(Unknown=value)
+                else:
+                    self.admitted["config"]["Unknown"] = value
+                    self.docker.image_change = lambda row: row["Config"].pop("Unknown")
+                with self.subTest(value=value, side=side), self.assertRaises(ValueError):
+                    self.run_load()
+
+    def test_known_config_defaults_reject_wrong_types_on_either_side(self):
+        cases = (("AttachStdin", 0), ("AttachStdin", None), ("Hostname", False),
+                 ("Hostname", None), ("Cmd", False), ("Cmd", {}), ("Cmd", [1]),
+                 ("Volumes", []), ("Volumes", {"/data": None}), ("Labels", False),
+                 ("Labels", {"label": 1}), ("Healthcheck", []), ("StopTimeout", False))
+        for key, value in cases:
+            for side in ("readback", "archive"):
+                self.helper, self.value, self.admitted, self.state = fixture()
+                self.docker = FakeDocker(self.admitted, self.state)
+                if side == "readback":
+                    self.docker.image_change = lambda row: row["Config"].update({key: value})
+                else:
+                    original = copy.deepcopy(self.admitted["config"])
+                    self.admitted["config"][key] = value
+                    self.docker.image_change = lambda row: row.update(Config=original)
+                with self.subTest(key=key, value=value, side=side), self.assertRaises(ValueError):
+                    self.run_load()
+
+    def test_config_canonical_comparison_distinguishes_boolean_and_integer(self):
+        for expected, observed in ((True, 1), (False, 0), (1, True), (0, False)):
+            for wrap in (lambda value: value, lambda value: {"nested": [value]}):
+                self.helper, self.value, self.admitted, self.state = fixture()
+                self.admitted["config"]["RetainedField"] = wrap(expected)
+                self.docker = FakeDocker(self.admitted, self.state)
+                self.docker.image_change = lambda row: row["Config"].update(RetainedField=wrap(observed))
+                with self.subTest(expected=expected, observed=observed, nested=wrap(True)), self.assertRaises(ValueError):
+                    self.run_load()
+
+    def test_pointer_config_defaults_do_not_erase_explicit_values(self):
+        for key, value in (("StopTimeout", 0), ("Healthcheck", {})):
+            self.helper, self.value, self.admitted, self.state = fixture()
+            self.docker = FakeDocker(self.admitted, self.state)
+            self.docker.image_change = lambda row: row["Config"].update({key: value})
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.run_load()
+
+    def test_known_collection_and_pointer_null_defaults_are_normalized(self):
+        self.admitted["config"].update(Volumes={}, ExposedPorts={}, Shell=[])
+        self.docker.image_change = lambda row: row["Config"].update(
+            Volumes=None, ExposedPorts=None, Shell=None, Healthcheck=None, StopTimeout=None)
+        self.assertTrue(self.run_load()["image_loaded"])
+
+    def test_config_canonical_comparison_preserves_values_but_not_key_order(self):
+        self.admitted["config"]["RetainedField"] = {"first": [True, 1, None], "second": False}
+        self.docker.image_change = lambda row: row["Config"].update(
+            RetainedField={"second": False, "first": [True, 1, None]})
+        self.assertTrue(self.run_load()["image_loaded"])
+
     def test_archive_inode_change_prevents_load(self):
         self.helper.archive_identity[1] += 1
         with self.assertRaises(ValueError):

@@ -101,9 +101,28 @@ old-image identity/config/tags/digests. The archive's raw config digest is kept
 as `archive_config_id`; Docker inspect does not rehash raw config bytes, so
 `daemon_config_bytes_rehashed` remains false. All runtime, deployable, hardware,
 published and confidential flags remain false. No cutover/rollback is attempted.
-For Config comparison only, absent and empty/null/false default fields are
-equivalent because Docker may serialize omitted zero values. No nonempty field
-or label is excluded from comparison.
+Config comparison uses a closed, type-checked default table from locally cached
+Moby v28.1.1 commit `01f442b84d6a669c1e335b800d4670997cd5aa93`:
+[`container.Config` field types](https://github.com/moby/moby/blob/01f442b84d6a669c1e335b800d4670997cd5aa93/api/types/container/config.go)
+and [OCI-to-Config conversion](https://github.com/moby/moby/blob/01f442b84d6a669c1e335b800d4670997cd5aa93/daemon/containerd/imagespec.go).
+Only these named defaults are equivalent to an absent field:
+
+- Empty strings: `Hostname`, `Domainname`, `User`, `Image`, `WorkingDir`,
+  `MacAddress`, `StopSignal`.
+- Boolean false: `AttachStdin`, `AttachStdout`, `AttachStderr`, `Tty`,
+  `OpenStdin`, `StdinOnce`, `ArgsEscaped`, `NetworkDisabled`.
+- Null or empty string lists: `Env`, `Cmd`, `Entrypoint`, `OnBuild`, `Shell`.
+- Null or empty maps: `ExposedPorts`, `Volumes`, `Labels`. Nonempty port/volume
+  maps require empty-object values; label values must be strings.
+- Null pointers: `Healthcheck` and `StopTimeout`. An empty healthcheck object
+  or zero timeout is an explicit value, not an absent-field default.
+
+This is a conservative legacy serialization compatibility table, not a claim
+that the pinned Docker 29.1.3 target emits every legacy field. Unlisted fields,
+including unknown false/null/empty values, remain in canonical JSON comparison;
+new or missing fields fail closed. Remaining values, including nested values,
+compare by canonical JSON, so booleans and integers are never interchangeable.
+No label or nondefault field is excluded. No other readback checks are relaxed.
 
 ## Private request and invocation
 
@@ -146,6 +165,7 @@ python3 -B -m unittest discover -s scripts -p test_original_image_import.py -v
 
 Tests cover exact request/receipt joins, existing parser observation, repeated
 layer capacity accounting, inode/byte admission, identity/config/label/old-image
-mismatches, failure before dispatch, cancellation after dispatch, timeout,
+mismatches, closed Config defaults, unknown empty keys, boolean/integer type
+substitution, failure before dispatch, cancellation after dispatch, timeout,
 client-journal failures, unknown completion, PID/boot reuse and no adoption.
 No tests or live operations were run by the implementing agent.

@@ -331,16 +331,42 @@ class Docker:
 
 def loaded_image(row, admitted):
     archive, config = admitted["archive"], admitted["config"]
-    def nonempty(value):
+    def canonical_config(value):
         require(type(value) is dict)
-        # Docker inspect may serialize omitted zero values. No nonempty field
-        # or label is ignored, and raw config digest claims remain separate.
-        return {key: item for key, item in value.items() if item is not None and item is not False
-                and not (type(item) in (str, list, dict) and not item)}
+        # Closed Docker Config zero values, not arbitrary falsy JSON. Field
+        # types come from Moby 01f442b84d6a669c1e335b800d4670997cd5aa93,
+        # api/types/container/config.go; see the task doc for source/limits.
+        normalized = value.copy()
+        for fields, kind, nullable in (
+            ("Hostname Domainname User Image WorkingDir MacAddress StopSignal", str, False),
+            ("AttachStdin AttachStdout AttachStderr Tty OpenStdin StdinOnce ArgsEscaped NetworkDisabled", bool, False),
+            ("Env Cmd Entrypoint OnBuild Shell", list, True),
+            ("ExposedPorts Volumes Labels", dict, True),
+        ):
+            for key in fields.split():
+                if key not in normalized:
+                    continue
+                item = normalized[key]
+                require((nullable and item is None) or type(item) is kind)
+                if kind is list and item is not None:
+                    require(all(type(entry) is str for entry in item))
+                if kind is dict and item is not None:
+                    require(all(type(name) is str for name in item))
+                    require(all(type(entry) is str if key == "Labels"
+                                else type(entry) is dict and not entry for entry in item.values()))
+                if item is None or not item:
+                    del normalized[key]
+        # Pointer defaults are null only: {} and 0 are explicit values.
+        for key, kind in (("Healthcheck", dict), ("StopTimeout", int)):
+            if key in normalized:
+                item = normalized[key]
+                require(item is None or type(item) is kind)
+                if item is None:
+                    del normalized[key]
+        return json.dumps(normalized, sort_keys=True, separators=(",", ":"), allow_nan=False)
     require(row["Id"] == archive["image_id"] and row["Os"] == "linux"
             and row["Architecture"] == "amd64" and not row["RepoTags"]
-            and nonempty(row["Config"]) == nonempty(config)
-            and (row["Config"].get("Labels") or {}) == (config.get("Labels") or {})
+            and canonical_config(row["Config"]) == canonical_config(config)
             and row["RootFS"] == {"Type": "layers", "Layers": archive["diff_ids"]})
 
 
