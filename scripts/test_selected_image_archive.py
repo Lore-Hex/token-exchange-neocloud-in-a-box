@@ -27,7 +27,7 @@ verify = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(verify)
 
 
-def archive_fixture(prepared="a" * 64, *, compressed=True, attestation=True, change=None):
+def archive_fixture(prepared="a" * 64, *, compressed=True, attestation=True, empty_subject=False, change=None):
     raw_layers = [packed({"one": b"a" * 2048}), packed({"two": b"b" * 4096}), packed({"one": b"a" * 2048})]
     diff_ids = ["sha256:" + verify.sha(raw) for raw in raw_layers]
     files = {}
@@ -54,7 +54,7 @@ def archive_fixture(prepared="a" * 64, *, compressed=True, attestation=True, cha
     manifest["platform"] = {"os": "linux", "architecture": "amd64"}
     descriptors = [manifest]
     if attestation:
-        statement = blob({"subject": [{"digest": {"sha256": manifest["digest"][7:]}}]},
+        statement = blob({"subject": [] if empty_subject else [{"digest": {"sha256": manifest["digest"][7:]}}]},
                          "application/vnd.in-toto+json")
         metadata_config = blob({"os": "unknown", "architecture": "unknown", "rootfs": {
             "type": "layers", "diff_ids": [statement["digest"]]}}, "application/vnd.oci.image.config.v1+json")
@@ -73,6 +73,23 @@ def archive_fixture(prepared="a" * 64, *, compressed=True, attestation=True, cha
 
 
 class ArchiveTests(unittest.TestCase):
+    def test_failed_original_receipt_is_preserved_without_success_claims(self):
+        directory = ROOT / "evidence/p2/2026-10-29-original-image-archive-failure"
+        raw = (directory / "receipt.json").read_bytes()
+        self.assertEqual(verify.sha(raw), "de568d0e9f4748c1dbbd9a65075da72d11eb52948d4e19fd6586066326eba595")
+        self.assertEqual(verify.sha((directory / "output.log").read_bytes()),
+                         "f2a35905784c4591c36e9510eb149e37a6519069c3ba43125c8bf14788db21cd")
+        result = json.loads(raw)
+        self.assertEqual(result["producer"], "9cbb4575f8b32dc0cdfef3e3114f3409d4c2da79")
+        self.assertEqual(result["script_sha256"], "9ea98688af2666fa792785dc2ab5cf3eddc5fcc2319ec6291af20efd922afdc7")
+        self.assertEqual(result["result"], "fail")
+        self.assertTrue(result["worker_exit_confirmed"])
+        self.assertNotIn("archive", result)
+        self.assertNotIn("source", result)
+        for key in ("archive_verified", "image_loaded", "runtime_started", "deployable",
+                    "hardware_validated", "published", "confidential"):
+            self.assertIs(result[key], False)
+
     def check(self, files, build, **expected):
         raw = packed(files)
         return verify.verify_archive(io.BytesIO(raw), expected.get("sha", verify.sha(raw)),
@@ -108,6 +125,11 @@ class ArchiveTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     verify.verify_archive(io.BytesIO(raw), changed.get("sha", verify.sha(raw)),
                         changed.get("size", len(raw)), build, time.monotonic() + 10)
+
+    def test_untagged_build_empty_provenance_subject_remains_rejected(self):
+        files, build, _, _ = archive_fixture(empty_subject=True)
+        with self.assertRaisesRegex(ValueError, "OCI attestation subject"):
+            self.check(files, build)
 
     def test_pinned_helper_tampering_rejected(self):
         with mock.patch.object(verify, "read", return_value=b"raise AssertionError('do not execute')"):

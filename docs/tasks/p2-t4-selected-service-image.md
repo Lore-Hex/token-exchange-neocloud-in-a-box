@@ -6,6 +6,25 @@ adds concrete offline preparation and local image-build commands in
 not built an image or run a container. Public serving, native cache behavior,
 nonroot engine execution and hardware validation remain unproven.
 
+## Local provenance identity
+
+The [failed original archive verification](../../evidence/p2/2026-10-29-original-image-archive-failure/README.md)
+exposed an empty in-toto subject in a build made without an image name. Builds
+now supply one fresh UUID-based local reference under
+`nib-build.invalid/selected-service`, then require exact reference readback.
+BuildKit derives default attestation subjects from image names in
+[`writer.go` at c19b15f](https://github.com/moby/buildkit/blob/c19b15f5775bd222f93b9741ade08fe77c3d3de7/exporter/containerimage/writer.go),
+checked October 29, 2026. The reserved name is local metadata, not a registry
+destination: no push, login or additional network access is introduced.
+
+Provenance remains enabled, and the archive verifier still rejects empty or
+incorrect subjects. Consumers and exports use the exact returned image ID,
+never the mutable local tag; the exported archive must remain untagged. Local
+image references are retained, not automatically removed or broadly pruned.
+Synthetic tests verify the build command and reject wrong reference readback;
+a separately reviewed real rebuild and complete archive verification are still
+required. BuildKit provenance is not confidential-computing attestation.
+
 ## Implemented packaging path
 
 Preparation accepts an existing exact-receipt-validated **non-owner** selected

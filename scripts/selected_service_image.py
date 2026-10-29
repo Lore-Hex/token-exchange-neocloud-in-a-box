@@ -18,6 +18,7 @@ import subprocess
 import tempfile
 import time
 import types
+import uuid
 
 import selected_service_process as owner
 
@@ -335,9 +336,13 @@ def build(path, expected, output, docker_host):
                        if name.startswith("context/")}
             recorder.prep.publish(work / "context", context)
             image_file = work / "image-id"
+            # BuildKit derives attestation subjects from image names, not iidfile.
+            # exporter/containerimage/writer.go at c19b15f5775bd222f93b9741ade08fe77c3d3de7.
+            local_reference = "nib-build.invalid/selected-service:" + uuid.uuid4().hex
             started = True
             recorder.call(["docker", "build", "--pull=false", "--network=none", "--no-cache",
-                "--platform", "linux/amd64", "--iidfile", str(image_file), str(work / "context")],
+                "--platform", "linux/amd64", "--tag", local_reference,
+                "--iidfile", str(image_file), str(work / "context")],
                 env, timeout=1800, limit=2 << 20)
             finished = True
             image_id = read(str(image_file), 80).decode().strip()
@@ -346,6 +351,7 @@ def build(path, expected, output, docker_host):
             command = [contract["interpreter"]["resolved"], "-I", "-S", "-B",
                 "/opt/nib-service/scripts/selected_service_process.py", "--prepared-sha256", receipt["prepared_sha256"]]
             require(image["Id"] == image_id and image["Os"] == "linux" and image["Architecture"] == "amd64"
+                    and image.get("RepoTags") == [local_reference]
                     and image["Config"]["User"] == "65532:65532" and image["Config"]["Entrypoint"] == command
                     and not image["Config"].get("Cmd") and not image["Config"].get("Volumes")
                     and image["RootFS"]["Type"] == "layers"
