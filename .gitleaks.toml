@@ -7,6 +7,13 @@ useDefault = true
 id = "generic-api-key"
 
 [[rules.allowlists]]
+description = "Exact public tokenizer source pin in the selected image archive verifier"
+condition = "AND"
+regexTarget = "match"
+paths = ['''(^|/)host/verify-selected-image-archive\.py$''']
+regexes = ['''^engine_tokenizer_parity": "978814f3341b83fed33282f23ee76b173bc4235235ccf374149d0363252f3ce8"$''']
+
+[[rules.allowlists]]
 description = "Exact committed tokenizer source hashes in original sequential offline journals"
 condition = "AND"
 regexTarget = "match"
