@@ -99,9 +99,16 @@ neither recovers SSH credentials nor changes provider access or billing.
 
 The focused fake suite is `scripts/test_storage_metadata_inspection.py`.
 It mocks mount commands, namespace/process identity, filesystem counters and
-the bounded worker; only temporary local fixture files are used. Parent-owned
-isolated execution and independent review are pending. No host tests, real
-mounts, remote probes or hardware validation were performed for this draft.
+the bounded worker; only temporary local fixture files are used.
+
+On 2026-10-29 the parent reported 22 focused tests PASS in 0.175 seconds at
+`2f3a99d5eccc1a2ef584e581445f0d51c0248acd`, using the pinned Go 1.27.2 test
+image with networking disabled, a read-only source mount, UID 501, two CPUs
+and 1 GiB memory. The parent also reported a CLEAN static review limited to
+the metadata-only software scope. These results are not full CI, a review of
+subsequent integration changes, or permission for a live operation. Final-head
+review, documentation checks and full CI remain pending. No host tests, real
+mounts, remote probes or hardware validation were performed for this change.
 The suite can be selected in the repository's approved offline test container:
 
 ```sh
