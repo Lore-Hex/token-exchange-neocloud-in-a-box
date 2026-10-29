@@ -56,6 +56,16 @@ def synthetic_exception_chain(error):
     return rows
 
 
+def synthetic_executable_metadata(path):
+    """Diagnostic snapshot only, never a substitute for invoke's admission checks."""
+    try:
+        info = path.stat()
+    except OSError as error:
+        return {"exception": type(error).__name__, "errno": error.errno}
+    return {"uid": info.st_uid, "caller_uid": os.getuid(), "mode": stat.S_IMODE(info.st_mode),
+            "bytes": info.st_size, "links": info.st_nlink, "regular": stat.S_ISREG(info.st_mode)}
+
+
 class TransferTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -603,6 +613,28 @@ class TransferTests(unittest.TestCase):
             with self.subTest(code=code, stdout=stdout, stderr=stderr), self.assertRaises(ValueError):
                 sender.invoke(channel, "pass", None, 120.0, adapter, files, runner)
 
+    def test_invoke_rejects_real_file_metadata_and_hash_before_transport(self):
+        binary = self.parent / "transport"
+        runner = types.SimpleNamespace(execute_process_group=mock.Mock(
+            side_effect=AssertionError("rejected executable must not reach transport")))
+        for name, mode, size in (("group-writable", 0o720, 1), ("world-writable", 0o702, 1),
+                                 ("no-execute", 0o600, 1), ("empty", 0o700, 0),
+                                 ("oversize", 0o700, (16 << 20) + 1), ("wrong-hash", 0o700, 1)):
+            with self.subTest(name=name):
+                # Real temporary files (sparse for the size case), not forged stat results.
+                with binary.open("wb") as output:
+                    output.truncate(size)
+                binary.chmod(mode)
+                with binary.open("rb") as stream:
+                    digest = hashlib.file_digest(stream, "sha256").hexdigest()
+                channel = {"argv": [str(binary), "{command}"], "remote_python": "/synthetic/python",
+                           "executable_sha256": "0" * 64 if name == "wrong-hash" else digest}
+                with self.assertRaises(ValueError):
+                    sender.invoke(channel, "pass", None, 120.0, adapter, files, runner)
+                runner.execute_process_group.assert_not_called()
+                self.assertEqual(synthetic_executable_metadata(binary), {"uid": os.getuid(),
+                    "caller_uid": os.getuid(), "mode": mode, "bytes": size, "links": 1, "regular": True})
+
     def test_deadline_is_checked_after_transport_cleanup(self):
         binary = self.parent / "transport"
         binary.write_bytes(b"inert")
@@ -874,19 +906,23 @@ class LocalTransportRoundtripTests(unittest.TestCase):
                 "code": {name: adapter.sha(raw) for name, raw in sources.items()},
                 "components": {role: self.descriptor(path) for role, path in inputs.items()},
                 "preparation_sha256": args.preparation_sha256}
-            python = str(Path(sys.executable).resolve())
-            transport_path, transport_log = root / "local-posix-transport", root / "software-only-transport.jsonl"
-            transport_path.write_text(LOCAL_TRANSPORT_FIXTURE)
-            transport_path.chmod(0o600)
-            self.assertFalse(transport_path.stat().st_mode & 0o111)
-            # Scratch stays noexec: pin and execute the existing interpreter,
-            # which reads this temporary synthetic fixture as data.
+            python = str(Path(sys.executable).resolve(strict=True))
+            shell = str(Path("/bin/sh").resolve(strict=True))
+            driver_path, transport_log = root / "local posix transport", root / "software-only-transport.jsonl"
+            driver_path.write_text(LOCAL_TRANSPORT_FIXTURE)
+            driver_path.chmod(0o600)
+            self.assertFalse(driver_path.stat().st_mode & 0o111)
+            # Only the existing shell is the admitted transport executable.
+            # Its fixed exec forwards argv unchanged; scratch remains noexec.
             channel = {"schema": "nib.pinned-posix-command-transport/v1",
-                "argv": [python, "-I", "-S", "-B", str(transport_path), mode,
+                "argv": [shell, "-c", 'exec "$@"', "synthetic-input-transport",
+                         python, "-I", "-S", "-B", str(driver_path), mode,
                          str(destination), str(transport_log), "{command}"],
-                "executable_sha256": self.descriptor(Path(python))["sha256"], "remote_python": python}
-            failures = []
+                "executable_sha256": self.descriptor(Path(shell))["sha256"], "remote_python": python}
+            failures, metadata = [], {}
             def call():
+                metadata.update(transport=synthetic_executable_metadata(Path(shell)),
+                                python=synthetic_executable_metadata(Path(python)))
                 try:
                     return sender.send(encoded(manifest), adapter.sha(encoded(manifest)),
                         encoded(channel), adapter.sha(encoded(channel)), inputs, local,
@@ -907,6 +943,7 @@ class LocalTransportRoundtripTests(unittest.TestCase):
             def diagnostic():
                 phases = ("bootstrap", *adapter.ROLES, "final")
                 state = {"sender_exception_chain": failures, "transport_events": events(),
+                    "executable_metadata_before_send": metadata,
                     "local_intents": [name for name in phases if (local / (name + ".intent.json")).exists()],
                     "remote_acks": [name for name in phases
                                     if (destination / (name + ".ack.json")).exists()]}
@@ -949,6 +986,11 @@ class LocalTransportRoundtripTests(unittest.TestCase):
             for phase in ("bootstrap", *adapter.ROLES, "final"):
                 self.assertEqual((fixture.local / (phase + ".exit-zero-ack.json")).read_bytes(),
                                  (fixture.destination / (phase + ".ack.json")).read_bytes())
+            before = fixture.transport_log.read_bytes()
+            with self.assertRaises(ValueError):
+                fixture.call()
+            self.assertEqual(fixture.transport_log.read_bytes(), before)
+            self.assertTrue((fixture.destination / "final.ack.json").is_file())
 
     def test_real_final_ack_followed_by_nonzero_transport_exit_is_rejected(self):
         with self.fixture("nonzero-after-final-ack") as fixture:
@@ -1007,9 +1049,14 @@ class LocalTransportRoundtripTests(unittest.TestCase):
             self.assertTrue((fixture.local / "intent.json").is_file())
             self.assertFalse((fixture.local / "bootstrap.intent.json").exists())
             self.assertFalse(fixture.destination.exists())
+            before = fixture.transport_log.read_bytes()
+            with self.assertRaises(ValueError):
+                fixture.call()
+            self.assertEqual(fixture.transport_log.read_bytes(), before)
+            self.assertTrue((fixture.local / "intent.json").is_file())
 
 
-# This non-executable driver is read by the pinned existing Python interpreter.
+# The hash-pinned existing shell execs Python to read this non-executable driver.
 # It is not an SSH implementation or an operational transport configuration.
 LOCAL_TRANSPORT_FIXTURE = """import hashlib,json,os,pathlib,shutil,stat,subprocess,sys
 os.umask(0o022)

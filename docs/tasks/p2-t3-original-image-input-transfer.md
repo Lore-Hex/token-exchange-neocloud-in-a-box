@@ -170,8 +170,8 @@ with that prerequisite mismatch, but the original run did not retain the
 underlying exception, so that exact error remains an explanation pending
 diagnostic confirmation, not a retrospectively observed errno.
 
-The test-only follow-up pins and invokes the existing Python interpreter with
-the temporary fixture as a non-executable input file. Scratch remains `noexec`;
+The `72a3fce` test-only follow-up pinned and invoked the existing Python
+interpreter with the temporary fixture as a non-executable input file. Scratch remains `noexec`;
 production transport validation and helpers are unchanged. Synthetic diagnostics
 retain exception classes/errno and source frame locations (not messages, argv,
 payloads or full paths), local phase progress, and actual transport start/exit
@@ -179,8 +179,34 @@ observations. Negative cases must reach their intended fault boundary before
 checking terminal artifacts, rather than accepting any early rejection. A
 separate injected pre-child error covers diagnostics without pretending that
 synthetic errno is the original run's observed cause. Both failed parent runs
-remain failures. The follow-up requires a fresh parent result and independent
-exact-head review; the author has not executed it.
+remain failures.
+
+Parent verification of exact `72a3fcef897419babb3d2f68554b5cafa5bd32e4`
+passed **43 focused tests in 2.510 s**, including the real roundtrip. A separate
+seven-suite run retained **209 tests, 208 passed / 1 failure in 18.470 s**:
+the unchanged history-maintenance assertion expected `--no-detach`; investigation
+of the bundled Git environment was pending, without weakening that assertion.
+PR 498 Check runs `40883783957` and `40883723463` both subsequently **FAILED**.
+The inspected failed log reports **4130 tests in 424.081 s, 4 failures and
+43 skips**. All four local roundtrip cases failed the sender's transport
+executable metadata predicate before any transport event. The failing executable
+was the hosted managed Python, but its exact owner/mode/execute/size fields were
+not captured. No particular rejected field is inferred from this observation.
+
+The current test-only follow-up instead resolves the existing `/bin/sh`, hashes
+that exact executable, and uses fixed `exec "$@"` with an explicit shell `$0`
+and individually passed Python/driver/transport arguments. There is no dynamic
+shell interpolation, eval, background launch, status masking or transport
+fallback. The driver remains 0600 on `noexec` scratch. Both the production
+owner/mode/executable/16-MiB checks and all deadlines, cleanup and error behavior
+are unchanged; the existing Python/OS remain trusted test-runtime prerequisites,
+not an operational SSH configuration. Diagnostic snapshots before each send
+include transport and Python uid, caller uid, mode, size, link count and file
+type, without paths. Real-file negative tests cover writable/non-executable,
+empty/oversized and wrong-hash transport rejection before execution. All four
+integration cases retain real subprocess/pipe composition and no-replay checks.
+No prior result is relabeled. Fresh parent tests, independent exact-head review
+and green CI are required; the author has not executed this follow-up.
 Parent-run focused command in an isolated offline, read-only-source,
 resource-bounded, Git-capable environment:
 
