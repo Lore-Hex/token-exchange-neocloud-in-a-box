@@ -741,6 +741,11 @@ def admitted_runtime(args, result, *, lifetime_profile=service.SMOKE_PROFILE):
                             "scripts/stream_transport.py", "scripts/stream_measurement.py") if long_qualification else ()):
                     require(files.get("context/service/" + name) == process.bootstrap.read_source(str(ROOT / name)),
                             "identity")
+            if getattr(args, "original_view_plan", None) is not None:
+                require(execution == service.engine_entry.ORIGINAL_MILLION_PROFILE, "identity")
+                name = "scripts/original_view_consumer.py"
+                require(files.get("context/service/" + name) == process.bootstrap.read_source(str(ROOT / name)),
+                        "identity")
             build = image_builder.validate_build_record(lab.read(args.build_report, 16384), args.build_sha256,
                                                         preparation, args.preparation_sha256, lab_contract)
             config = recorder.raw_metadata(Path(args.preparation) / "metadata", lab_contract)

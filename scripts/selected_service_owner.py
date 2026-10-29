@@ -2,6 +2,7 @@
 """Finite ordinary-service ownership. No resource is identified by a PID alone."""
 
 from dataclasses import asdict
+from contextlib import nullcontext
 import ipaddress
 import os
 from pathlib import Path
@@ -192,6 +193,12 @@ class State(network.Journal):
         for key in ("weights", "inputs"):
             smoke.private_path(runtime[key])
         command = runtime["command"][runtime["command"].index(runtime["image_id"]) + 1:]
+        if "--original-view-sha256" in command:
+            require(command.count("--original-view-sha256") == 1
+                and command.index("--original-view-sha256") + 1 < len(command)
+                and re.fullmatch("[0-9a-f]{64}", command[command.index("--original-view-sha256") + 1])
+                and command.count("--execution-profile") == 1
+                and command[command.index("--execution-profile") + 1] == smoke.service.engine_entry.ORIGINAL_MILLION_PROFILE)
         if ordinary:
             for flag, value in (("--lifetime-profile", profile), ("--hard-stop-at",
                     smoke.service.retirement_at(contract["wall"] - smoke.HOST_RESERVE))):
@@ -322,7 +329,8 @@ class Owner:
         return self.commands.owned("nib-selected-" + self.selected.policy.token,
             self.selected.policy.token, self.runtime["image_id"], identifier)
 
-    def fresh(self, *, serving):
+    def fresh(self, *, serving, verifying=False):
+        require(not verifying or (not serving and "--original-view-sha256" in self.runtime["command"]))
         rows = self.rows()
         identifier = rows["container-resolved.json"]["id"]
         # Start/exit can occur between Docker's two separate inspect endpoints.
@@ -332,7 +340,7 @@ class Owner:
             info = self.owned(identifier)
             require(info is not None)
             endpoint = check_container(info, identifier, self.selected, self.runtime)
-            if not serving:
+            if not serving and not verifying:
                 require(info["State"]["Status"] == "created")
             found = self.reservation.inventory()
             require(len(found) == 1 and found[0]["ID"] == self.runtime["network_id"])
@@ -362,6 +370,8 @@ class Owner:
             require(all(body.get("table") != self.reservation.quarantine.table
                         and body.get("name") != self.reservation.quarantine.table
                         for row in policy.decode(raw)["nftables"] for body in row.values()))
+        elif verifying:
+            self.reservation.protected()
         host_target(self.commands, self.selected, initial=False)
         return info
 
@@ -369,25 +379,50 @@ class Owner:
         require("container-intent.json" not in self.rows() and self.owned() is None)
         self.reservation.protected()
         self.reservation.inspect(self.runtime["network_id"])
-        self.state.record("container-intent")
-        identifier = network.full_id(self.commands.call(self.runtime["command"], limit=128).decode().strip())
-        self.state.record("container-resolved", identifier)
-        self.fresh(serving=False)
-        self.reservation.protected()
-        return identifier
+        registration = nullcontext()
+        original = "--original-view-sha256" in self.runtime["command"]
+        if original:
+            import original_view_mount
+            registration = original_view_mount.registration(self)
+        with registration as startup_check:
+            self.state.record("container-intent")
+            with startup_check() if original else nullcontext():
+                identifier = network.full_id(self.commands.call(self.runtime["command"], limit=128).decode().strip())
+            self.state.record("container-resolved", identifier)
+            self.fresh(serving=False)
+            self.reservation.protected()
+            return identifier
 
     def release_for_serving(self):
         """Watchdog-only transition; deliberately NOT the teardown removal API."""
-        require("start-intent.json" not in self.rows())
-        self.fresh(serving=False)
+        original = "--original-view-sha256" in self.runtime["command"]
+        if original:
+            import original_view_mount
+            require("start-intent.json" in self.rows())
+            contract = original_view_mount.verify_release(self)
+        else:
+            require("start-intent.json" not in self.rows())
+            self.fresh(serving=False)
         self.reservation.protected()
-        self.state.record("start-intent")
+        if not original:
+            self.state.record("start-intent")
         # Live resources are admitted above, not falsely declared absent. The
         # serving table remains installed; no other table is flushed/replaced.
         batch = policy.encoded({"nftables": [{"delete": {"table": {
             "family": family, "name": self.reservation.quarantine.table}}} for family in ("bridge", "inet")]})
-        self.commands.apply(batch)
+        with original_view_mount.startup_window(contract) if original else nullcontext():
+            self.commands.apply(batch)
         self.fresh(serving=True)
+
+    def begin_original_verification(self):
+        import original_view_mount
+        require("--original-view-sha256" in self.runtime["command"]
+                and "start-intent.json" not in self.rows())
+        self.fresh(serving=False)
+        self.reservation.protected()
+        original_view_mount.startup_check(self)
+        self.state.record("start-intent")
+        original_view_mount.startup_check(self)
 
     def quarantine(self):
         try:
