@@ -6,6 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import time
@@ -533,6 +534,165 @@ class InspectionTests(unittest.TestCase):
         direct.assert_not_called()
         self.assertEqual(check.call_args.args[-1], "mnt:[17]")
         self.assertEqual(json.loads(output.getvalue()), json.loads(self.success(**ack)))
+
+
+    def failure_ack(self, **changes):
+        return json.dumps({"schema": inspection.FAILURE_SCHEMA, "stage": "file-hash",
+                           "error": "rejected", "cleanup_error": None, **changes}).encode()
+
+    def test_failure_ack_preserves_failure_for_every_mode(self):
+        for private, bounded in ((False, False), (True, False), (False, True), (True, True)):
+            with self.subTest(private=private, bounded=bounded), contextlib.ExitStack() as stack:
+                self.setUp()
+                if bounded:
+                    self.bounded_fixture(stack)
+                stack.enter_context(mock.patch.object(inspection.os, "readlink", return_value="mnt:[17]"))
+                capture = mock.Mock(return_value=self.failure_ack())
+                self.assertEqual(self.report(capture, private_mount=private, bounded_resources=bounded), 1)
+                capture.assert_called_once()
+                result = json.loads(self.output.read_bytes())
+                self.assertEqual(result["worker_failure"], {"stage": "file-hash", "error": "rejected",
+                                                          "cleanup_error": None})
+                self.assertEqual((result["result"], result["failure"], result["cleanup"]),
+                                 ("fail", "worker-failed", "unproven"))
+                for key in ("files", "verified_bytes"):
+                    self.assertEqual(result[key], 0)
+                for key in ("pack_verified", "worker_exit_confirmed", "process_group_absence_verified",
+                            "private_namespace_verified", "private_mount_cleanup_confirmed"):
+                    self.assertFalse(result.get(key, False))
+
+    def test_failure_ack_is_closed_and_untrusted_text_never_persists(self):
+        invalid = [self.failure_ack(**change) for change in (
+            {"stage": "private-canary"}, {"error": "private-canary"}, {"cleanup_error": "private-canary"},
+            {"stage": ["file-hash"]}, {"error": True}, {"cleanup_error": []},
+            {"private-canary": "private-canary"}, {"files": 83}, {"schema": "private-canary"})]
+        invalid += [self.failure_ack()[:-1] + b', "stage": "file-hash"}',
+                    self.failure_ack() + b'private-canary', b'private-canary' * 400]
+        for raw in invalid:
+            with self.subTest(raw=raw[:100]):
+                self.setUp()
+                self.assertEqual(self.report(mock.Mock(return_value=raw)), 1)
+                result = json.loads(self.output.read_bytes())
+                self.assertNotIn("worker_failure", result)
+                self.assertNotIn("private-canary", self.output.read_text())
+                self.assertEqual(result["cleanup"], "unproven")
+                self.assertFalse(result["pack_verified"])
+
+    def test_diagnostics_survive_resource_cleanup_failure_oom_and_cancellation(self):
+        for mode in ("cleanup", "oom", "cancel"):
+            with self.subTest(mode=mode), contextlib.ExitStack() as stack:
+                self.setUp()
+                self.bounded_fixture(stack, cleanup_error=mode == "cleanup", oom=int(mode == "oom"))
+                if mode == "cancel":
+                    helper = inspection.resource_helper(self.cache)
+                    @contextlib.contextmanager
+                    def cancel_after_ack(state):
+                        fd = os.open(self.root, os.O_RDONLY)
+                        try:
+                            yield fd, "nib-build-" + "a" * 32
+                        finally:
+                            os.close(fd)
+                        raise self.cache.Cancelled("private-canary")
+                    stack.enter_context(mock.patch.object(helper, "cgroup", side_effect=cancel_after_ack))
+                self.assertEqual(self.report(mock.Mock(return_value=self.failure_ack()), bounded_resources=True), 1)
+                result = json.loads(self.output.read_bytes())
+                self.assertEqual(result["worker_failure"]["stage"], "file-hash")
+                self.assertEqual(result["cleanup"], "unproven")
+                self.assertFalse(result["pack_verified"])
+                self.assertFalse(result["worker_exit_confirmed"])
+                self.assertEqual(result["verified_bytes"], 0)
+                self.assertNotIn("private-canary", self.output.read_text())
+
+    def test_inspection_failure_stages(self):
+        for stage in ("mount-readback", "pack-open", "mount-identity", "inventory-before",
+                      "file-hash", "inventory-after", "final-mount-readback", "deadline"):
+            with self.subTest(stage=stage), contextlib.ExitStack() as stack:
+                self.setUp()
+                verify = stack.enter_context(mock.patch.object(self.cache, "verify_mount"))
+                error = ValueError("private-canary")
+                if stage == "mount-readback": verify.side_effect = error
+                if stage == "pack-open": self.pack.rename(self.mount / "absent")
+                if stage == "mount-identity": self.cache.command.side_effect = error
+                if stage in ("inventory-before", "inventory-after"):
+                    inventory = self.cache.strict_inventory(self.pack, self.rows)
+                    stack.enter_context(mock.patch.object(self.cache, "strict_inventory",
+                        side_effect=[error] if stage == "inventory-before" else [inventory, error]))
+                if stage == "file-hash": (self.pack / "config.json").write_bytes(b"broken")
+                if stage == "final-mount-readback": verify.side_effect = [None, error]
+                if stage == "deadline": stack.enter_context(mock.patch.object(inspection.time, "monotonic",
+                    side_effect=[0] * (2 * len(self.rows)) + [20]))
+                with self.assertRaises(inspection.StageFailure) as failure:
+                    self.inspect(10 if stage == "deadline" else None)
+                self.assertEqual(failure.exception.stage, stage)
+                self.assertNotIn("private-canary", str(failure.exception))
+
+    def test_private_stages_and_cleanup_error_do_not_replace_primary(self):
+        for stage in ("namespace-check", "mount-target", "mount-propagation", "private-mount",
+                      "private-cleanup", "both"):
+            with self.subTest(stage=stage), contextlib.ExitStack() as stack:
+                self.setUp()
+                mount, _, mounted, _, unmount, check = self.private_fixture(stack)
+                parent = "mnt:[18]" if stage == "namespace-check" else "mnt:[17]"
+                if stage == "mount-target": (mount / "existing").write_bytes(b"untouched")
+                if stage == "mount-propagation": self.cache.command.side_effect = subprocess.CalledProcessError(1, "private-canary")
+                if stage == "private-mount": mounted.side_effect = PermissionError("private-canary")
+                if stage in ("private-cleanup", "both"): unmount.side_effect = OSError("private-canary")
+                if stage == "both": check.side_effect = inspection.StageFailure("file-hash", "rejected")
+                with self.assertRaises(inspection.StageFailure) as failure:
+                    inspection.private_inspection(self.cache, self.export, mount, self.rows,
+                                                  time.monotonic() + 10, parent)
+                self.assertEqual(failure.exception.stage, "file-hash" if stage == "both" else stage)
+                self.assertEqual(failure.exception.cleanup_error, "os-error" if stage == "both" else None)
+                self.assertNotIn("private-canary", str(failure.exception))
+
+    def test_worker_emits_only_fixed_error_categories(self):
+        fake_sys = types.SimpleNamespace(**vars(sys))
+        fake_sys.platform = "linux"
+        fake_sys.flags = types.SimpleNamespace(isolated=True, no_site=True)
+        fake_sys.dont_write_bytecode = True
+        for error, code in ((FileNotFoundError("private-canary"), "not-found"),
+                            (PermissionError("private-canary"), "permission-denied"),
+                            (OSError("private-canary"), "os-error"),
+                            (subprocess.CalledProcessError(1, "private-canary", b"private-canary"), "command-failed"),
+                            (subprocess.TimeoutExpired("private-canary", 1, b"private-canary"), "command-timeout"),
+                            (ValueError("private-canary"), "rejected"), (RuntimeError("private-canary"), "unexpected-error")):
+            output, errors = io.StringIO(), io.StringIO()
+            with self.subTest(code=code), mock.patch.object(inspection, "sys", fake_sys), \
+                    mock.patch.object(inspection.os, "getuid", return_value=0), \
+                    mock.patch.object(inspection, "cache_helper", side_effect=error), \
+                    mock.patch("sys.stdout", output), mock.patch("sys.stderr", errors):
+                inspection.worker(self.export, str(self.mount), "60")
+            self.assertEqual(json.loads(output.getvalue()), {"schema": inspection.FAILURE_SCHEMA,
+                "stage": "cache-helper", "error": code, "cleanup_error": None})
+            self.assertEqual(errors.getvalue(), "")
+            self.assertNotIn("private-canary", output.getvalue())
+
+    def test_real_pinned_capture_returns_failure_envelope_without_mounting(self):
+        source = Path(inspection.__file__).read_text()
+        argv = [sys.executable, "-I", "-S", "-B", "-c", inspection.BOOTSTRAP, inspection.__file__,
+                source, self.export, str(self.mount), "0"]
+        raw = self.cache.load_capture()(argv, timeout=10, limit=4096)
+        self.assertEqual(inspection.worker_failure(json.loads(raw)),
+                         {"stage": "worker-preflight", "error": "rejected", "cleanup_error": None})
+        self.assertEqual(self.report(mock.Mock(return_value=raw)), 1)
+        self.assertFalse(json.loads(self.output.read_bytes())["worker_exit_confirmed"])
+
+    def test_original_failed_evidence_is_not_relabelled(self):
+        evidence = ROOT / "evidence/p2/2026-10-29-original-cache-inspection-failure"
+        raw = (evidence / "receipt.json").read_bytes()
+        self.assertEqual(len(raw), 1834)
+        self.assertEqual(hashlib.sha256(raw).hexdigest(),
+                         "c87747674f82d223fcfe0d47d373db074c00db60edcbb6f08d2fbf908a0916c7")
+        self.assertEqual((evidence / "output.log").read_bytes(), b"")
+        result = json.loads(raw)
+        self.assertEqual((result["result"], result["failure"], result["cleanup"]),
+                         ("fail", "worker-failed", "unproven"))
+        self.assertNotIn("worker_failure", result)
+        for key in ("files", "verified_bytes"):
+            self.assertEqual(result[key], 0)
+        for key in ("worker_exit_confirmed", "process_group_absence_verified",
+                    "private_mount_cleanup_confirmed", "private_namespace_verified", "pack_verified"):
+            self.assertIs(result[key], False)
 
 
 if __name__ == "__main__":
