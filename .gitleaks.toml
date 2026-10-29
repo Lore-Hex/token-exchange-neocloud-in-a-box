@@ -14,10 +14,10 @@ paths = ['''(^|/)host/verify-selected-image-archive\.py$''']
 regexes = ['''^engine_tokenizer_parity": "978814f3341b83fed33282f23ee76b173bc4235235ccf374149d0363252f3ce8"$''']
 
 [[rules.allowlists]]
-description = "Exact public tokenizer source hash in two original archive receipts"
+description = "Exact public tokenizer source hash in three original archive receipts"
 condition = "AND"
 regexTarget = "match"
-paths = ['''(^|/)evidence/p2/2026-10-29-original-image-(archive-failure|verified)/receipt\.json$''']
+paths = ['''(^|/)evidence/p2/2026-10-29-original-(image-archive-failure|image-verified|handoff-image-verified)/receipt\.json$''']
 regexes = ['''^engine_tokenizer_parity\.py":"978814f3341b83fed33282f23ee76b173bc4235235ccf374149d0363252f3ce8"$''']
 
 [[rules.allowlists]]

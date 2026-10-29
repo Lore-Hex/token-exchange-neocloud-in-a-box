@@ -74,28 +74,40 @@ def archive_fixture(prepared="a" * 64, *, compressed=True, attestation=True, emp
 
 class ArchiveTests(unittest.TestCase):
     def test_actual_original_image_verification_preserves_exact_bytes_and_scope(self):
-        directory = ROOT / "evidence/p2/2026-10-29-original-image-verified"
-        expected = {"receipt.json": "d1da9b8ce809a9cf4a7996a98eec3abb1a4f69f41053e8e1097cb16223b7c8cb",
-                    "output.log": "6ca680d7eef85f6ff979851cd42c0624af89c2fc97b76ed4a2cf686ad6829519",
-                    "build.json": "2e86711c2462efa5cff9e09ee455f593c7450bede1aae1fc11e638228ad80cee"}
-        for name, digest in expected.items():
-            self.assertEqual(verify.sha((directory / name).read_bytes()), digest)
-        result = json.loads((directory / "receipt.json").read_bytes())
-        build = json.loads((directory / "build.json").read_bytes())
-        self.assertEqual(result["result"], "pass")
-        self.assertIs(result["archive_verified"], True)
-        self.assertIs(result["worker_exit_confirmed"], True)
-        self.assertEqual(result["archive"]["bytes"], 9247235584)
-        self.assertEqual(result["archive"]["expanded_bytes"], 23744649728)
-        self.assertEqual(result["archive"]["layers"], 44)
-        self.assertEqual(len(result["archive"]["diff_ids"]), 44)
-        self.assertEqual(result["archive"]["platform"], "linux/amd64")
-        self.assertEqual(result["archive"]["image_id"], build["image_id"])
-        self.assertEqual(result["source"]["build_sha256"], expected["build.json"])
-        self.assertEqual(result["source"]["model_profile"]["name"], "original")
-        self.assertEqual(result["profile"], "original-long1m-graphs")
-        for key in ("image_loaded", "runtime_started", "deployable", "hardware_validated", "published", "confidential"):
-            self.assertIs(result[key], False)
+        cases = (
+            ("2026-10-29-original-image-verified",
+             "d1da9b8ce809a9cf4a7996a98eec3abb1a4f69f41053e8e1097cb16223b7c8cb",
+             "2e86711c2462efa5cff9e09ee455f593c7450bede1aae1fc11e638228ad80cee",
+             9247235584, 23744649728),
+            ("2026-10-29-original-handoff-image-verified",
+             "786edafae5e5dff82f46bb4465742a803a349c89cc097c78e5dcd5f698568dc7",
+             "1a779ce2aee671cd10639c6567dee7e35e84fc81128eac486e74d24567345e98",
+             9247318016, 23745049088),
+        )
+        for folder, receipt_sha, build_sha, archive_bytes, expanded_bytes in cases:
+            with self.subTest(evidence=folder):
+                directory = ROOT / "evidence/p2" / folder
+                expected = {"receipt.json": receipt_sha,
+                            "output.log": "6ca680d7eef85f6ff979851cd42c0624af89c2fc97b76ed4a2cf686ad6829519",
+                            "build.json": build_sha}
+                for name, digest in expected.items():
+                    self.assertEqual(verify.sha((directory / name).read_bytes()), digest)
+                result = json.loads((directory / "receipt.json").read_bytes())
+                build = json.loads((directory / "build.json").read_bytes())
+                self.assertEqual(result["result"], "pass")
+                self.assertIs(result["archive_verified"], True)
+                self.assertIs(result["worker_exit_confirmed"], True)
+                self.assertEqual(result["archive"]["bytes"], archive_bytes)
+                self.assertEqual(result["archive"]["expanded_bytes"], expanded_bytes)
+                self.assertEqual(result["archive"]["layers"], 44)
+                self.assertEqual(len(result["archive"]["diff_ids"]), 44)
+                self.assertEqual(result["archive"]["platform"], "linux/amd64")
+                self.assertEqual(result["archive"]["image_id"], build["image_id"])
+                self.assertEqual(result["source"]["build_sha256"], expected["build.json"])
+                self.assertEqual(result["source"]["model_profile"]["name"], "original")
+                self.assertEqual(result["profile"], "original-long1m-graphs")
+                for key in ("image_loaded", "runtime_started", "deployable", "hardware_validated", "published", "confidential"):
+                    self.assertIs(result[key], False)
 
     def test_actual_verification_metadata_binds_producer_and_pinned_source(self):
         directory = ROOT / "evidence/p2/2026-10-29-original-image-verified"

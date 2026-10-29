@@ -370,9 +370,9 @@ printf '"engine_tokenizer_parity": "%s", "api_key": "%s"\n' "$known" "$unknown" 
 expect_receipt_scan "$target" 42
 printf 'Image verifier source-hash exception requires exact value, field and path; adjacent secrets remain detected.\n'
 
-# Preserve both original receipts with the same immutable source proof.
-for result in archive-failure verified; do
-  target="$tmp/image-archive/evidence/p2/2026-10-29-original-image-$result/receipt.json"
+# Preserve the original receipts with the same immutable source proof.
+for result in image-archive-failure image-verified handoff-image-verified; do
+  target="$tmp/image-archive/evidence/p2/2026-10-29-original-$result/receipt.json"
   mkdir -p "$(dirname "$target")"
   printf '{"scripts/engine_tokenizer_parity.py":"%s"}\n' "$known" > "$target"
   expect_receipt_scan "$target" 0
