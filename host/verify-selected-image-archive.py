@@ -7,6 +7,8 @@ from contextlib import contextmanager
 import datetime
 import gzip
 import hashlib
+import importlib
+from importlib.machinery import ModuleSpec
 import json
 import os
 from pathlib import Path
@@ -30,7 +32,29 @@ SCHEMA = "nib.selected-image-archive-verification/v1"
 PROFILE = "original-long1m-graphs"
 MAX_ARCHIVE, MAX_EXPANDED = 10 << 30, 64 << 30
 SECONDS, MEMORY, MAX_REPORT = 1800, 2 << 30, 65536
-HELPERS = {EXPORT: EXPORT_SHA, IMAGE: IMAGE_SHA, RUNNER: RUNNER_SHA}
+PREPARATION_MODULES = {
+    "deepseek_model_profile": "aba5b55574e6b1c959b4e2c017973b6ec0025d3a0081a0427a00bdc5a9f37c5f",
+    "engine_lab": "0befaeac8c981dd1432f541fda30aa5a20a7d62fb4a1cacd817d57b1eb72fea2",
+    "engine_local_correctness": "6f52e50c8c6699650d6a3e05ae55236f10987a7ab26c41c703c209868a79fb1c",
+    "engine_python_bootstrap": "4287c42d3d34f42a2e89901600c11c2fe20669f3bb6b5b120f2671b992a5df92",
+    "engine_runtime_observation": "e83b13ebbc1979d77a34e2078e0bb4e2aefd01cb4299c98c1aeabe127aee428f",
+    "engine_tokenizer_parity": "978814f3341b83fed33282f23ee76b173bc4235235ccf374149d0363252f3ce8",
+    "pilot.serve": "9d921944e5aa7a608cc7e4cb7adea57f50ba78b04641ceca283a701a94a7e561",
+    "selected_service": "914b18673163ff48c2c6ceaf5213a97d592cd59514db23449f191f1ab2be2ca9",
+    "selected_service_engine": "08569ee0c6741d87028b739f05f234452e1992eacdf9348f94b0dede520dc87d",
+    "selected_service_image": IMAGE_SHA,
+    "selected_service_process": "cd9b6f83286eb65edeec50d6a8985e168f42ab391f4b67375efe8512ce1dfdc9",
+    "tau_live_identity": "a51e8c271dd0dd1fef22ef41babc76ab0991de11ddcc567630309395072cf2c7",
+    "tau_llama_identity": "f292626bc218c21e682e61d7358517432c47dd6dac7b5c0fc91434508feb35b3",
+    "tau_local_llama": "02d8023a72010821eb84f8b9f482569a0d8419d8a2baa70ffd78f4aabdb6f911",
+    "tau_local_vllm": "88efe065276e1b4888e2cf5471fd14e6fcb51c527ef370a87e74eca6032486e1",
+    "tau_preflight": "c38f9876dbdeb78663f9ffab5d39a28c6d87c7b298215d6179ff079072822704",
+    "tau_transport": "f417f88eea5ac1aae370d66b028d475b7501a487e1aa0d4707eb482acf778be1",
+    "tau_trial_worker": "133e0ebed2afd5ad38498a7ae143c6e93a2c28a007fbc8ad62412e54c3d9361f",
+}
+HELPERS = {EXPORT: EXPORT_SHA, RUNNER: RUNNER_SHA,
+           **{"scripts/" + name.replace(".", "/") + ".py": value
+              for name, value in PREPARATION_MODULES.items()}}
 LIMITS = {"archive_bytes": MAX_ARCHIVE, "expanded_bytes": MAX_EXPANDED,
           "wall_seconds": SECONDS, "cpu_seconds": SECONDS,
           "address_space_bytes": MEMORY, "open_files": 128, "file_bytes": 1 << 20,
@@ -121,8 +145,55 @@ def load_pinned(relative, expected):
     return module
 
 
+@contextmanager
+def preparation_helper():
+    paths = {name: ROOT / "scripts" / (name.replace(".", "/") + ".py")
+             for name in PREPARATION_MODULES}
+    sources = {name: read(path, 1 << 20) for name, path in paths.items()}
+    require(all(sha(sources[name]) == expected for name, expected in PREPARATION_MODULES.items()))
+
+    class ClosedImports:
+        def find_spec(self, name, path=None, target=None):
+            if name in sources or name == "pilot":
+                return ModuleSpec(name, self, is_package=name == "pilot")
+            require(not name.startswith("pilot."))
+            return None
+
+        def create_module(self, spec):
+            return None
+
+        def exec_module(self, module):
+            name = module.__name__
+            if name != "pilot":
+                module.__file__ = str(paths[name])
+                exec(compile(sources[name], module.__file__, "exec", dont_inherit=True), module.__dict__)
+
+    # Authenticate the complete closed graph before executing any of it. Compile
+    # those exact bytes, not a second filesystem read or an existing module cache.
+    names = set(sources) | {"pilot"}
+    saved = {name: sys.modules[name] for name in names if name in sys.modules}
+    search = list(sys.path)
+    loader = ClosedImports()
+    try:
+        for name in names:
+            sys.modules.pop(name, None)
+        sys.path[:] = [path for path in search if Path(path).absolute() != ROOT / "scripts"]
+        sys.meta_path.insert(0, loader)
+        yield importlib.import_module("selected_service_image")
+    finally:
+        sys.meta_path.remove(loader)
+        sys.path[:] = search
+        for name in names:
+            sys.modules.pop(name, None)
+        sys.modules.update(saved)
+
+
 def source_inputs(args):
-    image = load_pinned(IMAGE, IMAGE_SHA)
+    with preparation_helper() as image:
+        return authenticated_inputs(args, image)
+
+
+def authenticated_inputs(args, image):
     fd = directory(args.preparation, private=True)
     os.close(fd)
     preparation, files, contract = image.validated_files(args.preparation, args.preparation_sha256)
@@ -135,6 +206,7 @@ def source_inputs(args):
         args.build_sha256, preparation, args.preparation_sha256, contract)
     return build, {"preparation_sha256": args.preparation_sha256,
         "build_sha256": args.build_sha256, "prepared_sha256": build["prepared_sha256"],
+        "validator_sources_sha256": sha(encoded(PREPARATION_MODULES)),
         "build_producer": preparation["git_sha"], "lab_receipt_sha256": preparation["lab_receipt_sha256"],
         "execution_profile": PROFILE, "model_profile": model}
 
@@ -319,5 +391,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, str(ROOT / "scripts"))
     raise SystemExit(main())

@@ -114,6 +114,42 @@ class ArchiveTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 verify.load_pinned(verify.EXPORT, verify.EXPORT_SHA)
 
+    def test_transitive_source_tampering_fails_before_any_import(self):
+        original = verify.read
+        for target in ("deepseek_model_profile", "engine_local_correctness", "engine_python_bootstrap"):
+            def changed(path, limit):
+                raw = original(path, limit)
+                return b"raise AssertionError('must not execute')" if path.stem == target else raw
+            with self.subTest(module=target), mock.patch.object(verify, "read", side_effect=changed), \
+                    mock.patch.object(verify.importlib, "import_module") as execute:
+                with self.assertRaises(ValueError), verify.preparation_helper():
+                    self.fail("must reject before yielding")
+                execute.assert_not_called()
+
+    def test_authenticated_imports_are_fresh_and_restore_shared_modules(self):
+        names = set(verify.PREPARATION_MODULES) | {"pilot"}
+        before = {name: sys.modules.get(name) for name in names}
+        search, loaders = list(sys.path), list(sys.meta_path)
+        with verify.preparation_helper() as helper:
+            self.assertIsNot(helper, before["selected_service_image"])
+            self.assertIsNot(helper.owner.service.models, before["deepseek_model_profile"])
+            self.assertEqual(helper.owner.service.models.select("original")["name"], "original")
+            self.assertEqual(sys.modules["pilot"].__path__, [])
+        self.assertEqual(before, {name: sys.modules.get(name) for name in names})
+        self.assertEqual(sys.path, search)
+        self.assertEqual(sys.meta_path, loaders)
+
+    def test_authenticated_source_bytes_are_not_reopened_for_execution(self):
+        original = verify.read
+        seen = set()
+        def once(path, limit):
+            self.assertNotIn(path, seen)
+            seen.add(path)
+            return original(path, limit)
+        with mock.patch.object(verify, "read", side_effect=once), verify.preparation_helper() as helper:
+            self.assertEqual(helper.owner.service.models.select("original")["name"], "original")
+        self.assertEqual(len(seen), len(verify.PREPARATION_MODULES))
+
     def test_closed_limits_and_expired_deadline_fail(self):
         files, build, _, _ = archive_fixture()
         for name in ("MAX_ARCHIVE", "MAX_EXPANDED"):
@@ -272,6 +308,9 @@ class HandoffTests(unittest.TestCase):
             self.assertEqual(report["script_sha256"], verify.sha((ROOT / verify.SELF).read_bytes()))
             self.assertTrue(report["worker_exit_confirmed"])
             self.assertTrue(report["archive_verified"])
+            self.assertEqual(report["helpers"], verify.HELPERS)
+            self.assertEqual(report["source"]["validator_sources_sha256"],
+                             verify.sha(verify.encoded(verify.PREPARATION_MODULES)))
             for flag in ("image_loaded", "runtime_started", "deployable", "published", "hardware_validated", "confidential"):
                 self.assertIs(report[flag], False)
             self.assertNotIn(str(args.archive).encode(), raw)

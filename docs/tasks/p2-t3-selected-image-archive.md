@@ -34,6 +34,13 @@ on the older image builder. The verification producer is the operator-supplied
 reviewed commit; the verifier and helper byte hashes are measured independently.
 These are integrity bindings to separately trusted operator pins, not signatures.
 
+The preparation validator's complete closed repository import graph is also
+SHA-pinned. Every source is authenticated before any module in that graph executes;
+fresh modules compile those exact buffered bytes, never a second filesystem read
+or cached repository module. The temporary import context restores prior modules
+after validation. Receipts include each helper's source hash and the canonical
+module-map SHA-256. No existing dependency source or pin in another tool changes.
+
 ## Bounds and private output
 
 Limits are fixed in source: 10 GiB archive, 64 GiB total expanded layer hashing,
