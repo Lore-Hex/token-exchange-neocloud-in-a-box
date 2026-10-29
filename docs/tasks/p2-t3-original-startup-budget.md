@@ -38,3 +38,8 @@ the closed profile selection, unchanged legacy ceiling and hard cutoffs,
 cleanup reserve, frozen deadline, expired-startup rejection and wall-clock
 rollback. Existing lifecycle and official-runtime tests remain unchanged.
 These tests make no network, Docker, GPU or inference calls.
+
+The offline image verifier's authenticated `selected_service` source hash is
+updated with this change. Its archive and helper-integrity regressions remain
+strict; the first hosted CI run rejected the stale pin, and that failure is
+retained in the PR checks rather than bypassed.

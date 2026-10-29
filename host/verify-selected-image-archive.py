@@ -44,7 +44,7 @@ PREPARATION_MODULES = {
     "engine_tokenizer_parity": "978814f3341b83fed33282f23ee76b173bc4235235ccf374149d0363252f3ce8",
     "pilot.serve": "9d921944e5aa7a608cc7e4cb7adea57f50ba78b04641ceca283a701a94a7e561",
     "pilot.run": "7a0d23e8b95e998a09ec7a0b066d067441e1fb1cd6121bd5172d9373c10d6cf8",
-    "selected_service": "914b18673163ff48c2c6ceaf5213a97d592cd59514db23449f191f1ab2be2ca9",
+    "selected_service": "eb86228a08b017f6d660cd59d06d8de5ef8a779a5d073eab7eabd1f4ca099d4c",
     "selected_service_engine": "08569ee0c6741d87028b739f05f234452e1992eacdf9348f94b0dede520dc87d",
     "selected_service_image": IMAGE_SHA,
     "selected_service_process": "cd9b6f83286eb65edeec50d6a8985e168f42ab391f4b67375efe8512ce1dfdc9",
