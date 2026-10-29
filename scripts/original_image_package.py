@@ -202,8 +202,6 @@ def package(repository, preparation, build, verification, output, *, preparation
         repository, preparation, build, verification, output = map(canonical_path,
             (repository, preparation, build, verification, output))
         adapter.hex_value(output.name, 32)
-        for path in (repository, preparation, ROOT):
-            require(not output.is_relative_to(path) and not path.is_relative_to(output))
         require(not build.is_relative_to(output) and not verification.is_relative_to(output))
         for pin in (preparation_sha256, build_sha256, verification_sha256):
             adapter.hex_value(pin, 64)
@@ -216,8 +214,26 @@ def package(repository, preparation, build, verification, output, *, preparation
             "image_content_verified": False, "hardware_validated": False, "published": False,
             **{name: False for name in adapter.FLAGS}}
         with ExitStack() as stack:
+            # Lexical containment is meaningful only after rejecting aliases in
+            # every input path component. Keep the validated roots open.
+            input_identities = set()
+            for path in (repository, preparation, ROOT):
+                adapter.check(deadline)
+                source_fd = files.directory(path, private=path == preparation)
+                stack.callback(os.close, source_fd)
+                input_identities.add(tuple(adapter.directory_identity(os.fstat(source_fd))[:2]))
+                require(not output.is_relative_to(path) and not path.is_relative_to(output))
             parent = files.directory(output.parent, private=True)
             stack.callback(os.close, parent)
+            # Also catch different spellings of the same directory identity.
+            for path in (output.parent, *output.parent.parents):
+                adapter.check(deadline)
+                ancestor = files.directory(path)
+                try:
+                    require(tuple(adapter.directory_identity(os.fstat(ancestor))[:2])
+                            not in input_identities)
+                finally:
+                    os.close(ancestor)
             adapter.check(deadline)
             os.mkdir(output.name, 0o700, dir_fd=parent)
             fd = files.directory(output, private=True)

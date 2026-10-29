@@ -267,6 +267,67 @@ class PackageTests(unittest.TestCase):
             self.call()
         self.assertFalse(self.output.exists())
 
+    def assert_alias_rejected_without_mutation(self, role, kind):
+        original = getattr(self, role)
+        marker = original / "preserved-input"
+        marker.write_bytes(b"synthetic original input")
+        marker.chmod(0o600)
+        alias = self.root / (role + "-" + kind)
+        if kind == "input-parent":
+            alias.symlink_to(self.root, target_is_directory=True)
+            source, output = alias / original.name, original / ("1" * 32)
+        else:
+            alias.symlink_to(original, target_is_directory=True)
+            source = alias if kind == "input-root" else original
+            output = (alias if kind == "output-parent" else original) / ("1" * 32)
+
+        def inputs():
+            return {path.name: (files.identity(path.stat()),
+                {child.name: (files.identity(child.stat()), child.read_bytes())
+                 for child in path.iterdir()}) for path in (self.repository, self.preparation)}
+
+        before = inputs()
+        with mock.patch.object(self, role, source), mock.patch.object(self, "output", output), \
+                mock.patch.object(package, "component", wraps=package.component) as payload, \
+                mock.patch.object(files, "publish", wraps=files.publish) as journal, \
+                self.assertRaisesRegex(ValueError, "^original-image-package-rejected$"):
+            self.call()
+        payload.assert_not_called()
+        journal.assert_not_called()
+        self.assertFalse(os.path.lexists(output))
+        self.assertEqual(inputs(), before)
+
+    def test_preparation_aliases_reject_before_any_output_or_input_mutation(self):
+        for kind in ("input-root", "input-parent", "output-parent"):
+            with self.subTest(kind=kind):
+                self.assert_alias_rejected_without_mutation("preparation", kind)
+
+    def test_repository_aliases_reject_before_any_output_or_input_mutation(self):
+        for kind in ("input-root", "input-parent", "output-parent"):
+            with self.subTest(kind=kind):
+                self.assert_alias_rejected_without_mutation("repository", kind)
+
+    def test_directory_identity_overlap_rejects_before_mutation_and_closes_descriptors(self):
+        original, opened = files.directory, []
+        before = files.identity(self.preparation.stat())
+        def alias(path, **options):
+            # Simulate two accepted spellings of the same real parent directory.
+            fd = original(self.preparation if path == self.root else path, **options)
+            opened.append(fd)
+            return fd
+        with mock.patch.object(files, "directory", side_effect=alias), \
+                mock.patch.object(files, "publish", wraps=files.publish) as journal, \
+                self.assertRaises(ValueError):
+            self.call()
+        journal.assert_not_called()
+        self.assertFalse(self.output.exists())
+        self.assertEqual(list(self.preparation.iterdir()), [])
+        self.assertEqual(files.identity(self.preparation.stat()), before)
+        self.assertTrue(opened)
+        for fd in opened:
+            with self.assertRaises(OSError):
+                os.fstat(fd)
+
     def test_expired_failure_record_does_not_rearm_deadline(self):
         def expired(*args):
             self.tick = 121.0

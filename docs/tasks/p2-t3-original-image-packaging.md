@@ -92,7 +92,13 @@ validation, journal writes and final descriptor cleanup. No phase rearms it.
 
 The output's private existing parent must be owned by the caller and mode 0700.
 The new output basename is a caller-chosen fresh 32-hex attempt ID, disjoint
-from source/preparation/code trees. The root is exclusive and its identity is
+from source/preparation/code trees. Before output creation, the existing
+no-follow directory helper validates every component of each input root and
+the output parent; input-root and parent symlinks are rejected, not resolved
+and adopted. Containment checks use these validated paths and compare the
+output parent's ancestor device/inode identities against the retained input
+root descriptors. A rejected alias creates no output, intent or payload and
+does not mutate an input. The root is exclusive and its identity is
 checked through the retained parent/root descriptors. Durable `intent.json`
 precedes payload writes; component directories are exclusive 0700 and files
 exclusive/no-follow 0600. Each file and containing directory is fsynced.
@@ -118,7 +124,8 @@ Python cannot preempt synchronous filesystem stalls, and the reused process
 capture has bounded cleanup grace that can overrun the caller's cutoff; late
 return is rejected, not described as guaranteed termination. The caller must
 provide an isolated, externally bounded process, private durable scratch,
-capacity/inode reserves, same-UID writer exclusion and monitoring. Memory can
+capacity/inode reserves, same-UID writer/mount-alias exclusion and monitoring.
+This is not a general mount-topology or concurrent-writer controller. Memory can
 hold a full bounded preparation or tar plus validator/Git allocations; these
 byte limits are not an RSS limit. Disk includes both tars and retained expanded
 trees (up to 288 MiB together), two inventories, records and filesystem overhead.
@@ -144,5 +151,24 @@ retained failures, deadlines, original record copies and a real full-source
 join with the frozen validators. The positive integration uses a tiny generated
 preparation/build/verifier fixture, deletes its synthetic image before packaging
 and never uses an actual image artifact. It is software-only test data, not
-official transfer or image evidence. Independent exact-head review, parent-run
-focused/related tests and all required CI remain pending.
+official transfer or image evidence. This follow-up requires new independent
+exact-head review, parent-run focused/related tests and all required CI.
+
+## Preserved verification history
+
+For candidate `d0bbaae6f81479cdcb2b90eae5f66e163b6faaaf`, the parent reported
+22 focused tests PASS in 12.531 seconds and 169 related tests PASS in 23.101
+seconds, with strict ResourceWarning handling in the same offline, 2-CPU,
+1-GiB, noexec-scratch container. Documentation links, whitespace and gitleaks
+also passed. These are parent-reported software results, not operational
+evidence or author-run checks.
+
+Independent exact-head review of that candidate was **BLOCKED**, with one P2
+finding: lexical input containment allowed a symlink preparation/repository
+alias to create output claims and payloads inside the original real input
+before later rejection. Those passing tests did not discharge the finding.
+This follow-up adds pre-mutation no-follow/identity validation and regressions
+for both input roles, including root aliases, input-parent symlinks and
+output-parent symlinks. The regressions require zero input/output mutation and
+no journal or payload call. The author has not run them; retesting and a new
+independent review remain required.
