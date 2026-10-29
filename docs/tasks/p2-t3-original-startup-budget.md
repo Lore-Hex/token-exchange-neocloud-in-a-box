@@ -40,6 +40,8 @@ rollback. Existing lifecycle and official-runtime tests remain unchanged.
 These tests make no network, Docker, GPU or inference calls.
 
 The offline image verifier's authenticated `selected_service` source hash is
-updated with this change. Its archive and helper-integrity regressions remain
+updated with this change, as is the importer's verifier hash. Fresh verification
+and import must use these exact sources; existing receipts stay unchanged.
+The archive and helper-integrity regressions remain
 strict; the first hosted CI run rejected the stale pin, and that failure is
 retained in the PR checks rather than bypassed.
