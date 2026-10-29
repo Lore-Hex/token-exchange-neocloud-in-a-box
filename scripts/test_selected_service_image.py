@@ -267,7 +267,7 @@ class ImageTests(unittest.TestCase):
             self.assertFalse((work / "guard-source/scripts").exists())
 
     @contextmanager
-    def fake_build(self, output, *, failure=None):
+    def fake_build(self, output, *, failure=None, references="expected"):
         with ExitStack() as stack:
             recorder = self.recorder
             stack.enter_context(mock.patch.object(self.lab, "load", return_value=SimpleNamespace(recorder=recorder)))
@@ -298,6 +298,11 @@ class ImageTests(unittest.TestCase):
                 for flag in ("--pull=false", "--network=none", "--no-cache"):
                     self.assertIn(flag, args)
                 self.assertNotIn("--push", args)
+                self.assertEqual(args.count("--tag"), 1)
+                reference = args[args.index("--tag") + 1]
+                self.assertRegex(reference, r"^nib-build[.]invalid/selected-service:[0-9a-f]{32}$")
+                self.assertNotIn("--provenance=false", args)
+                derived["RepoTags"] = [reference] if references == "expected" else references
                 self.assertEqual(args[args.index("--platform") + 1], "linux/amd64")
                 self.assertEqual(kwargs["timeout"], 1800)
                 if failure:
@@ -318,6 +323,21 @@ class ImageTests(unittest.TestCase):
             for key in ("runtime_started", "hardware_validated", "deployable", "published"):
                 self.assertIs(report[key], False)
             self.assertEqual(json.loads((root / "built/build.json").read_bytes()), report)
+
+    def test_build_reference_is_fresh_and_wrong_readback_fails(self):
+        references = []
+        for readback in ("expected", "expected", None, [], ["foreign:tag"], ["foreign:tag", "other:tag"]):
+            with self.subTest(readback=readback), self.preparation() as (root, bundle, trcs, _, _, _):
+                output = root / "prepared"
+                prepared = image.prepare(bundle, image.digest(b"receipt"), trcs, output)
+                with self.fake_build(output, references=readback) as (_, _, call, _):
+                    report = image.build(output, prepared["receipt_sha256"], root / "built", "unix:///var/run/docker.sock")
+                args = call.call_args.args[0]
+                references.append(args[args.index("--tag") + 1])
+                self.assertEqual(report["result"], "pass" if readback == "expected" else "fail")
+                self.assertFalse(report["runtime_started"])
+                self.assertFalse(report["published"])
+        self.assertEqual(len(references), len(set(references)))
 
     def test_host_handoff_binds_exact_build_receipt_without_current_head_lookup(self):
         with self.preparation() as (root, bundle, trcs, _, _, _):

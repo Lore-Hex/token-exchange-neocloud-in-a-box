@@ -160,6 +160,37 @@ write_receipt_field() {
   fi
 }
 
+# This exception is a public source digest, not an operator-supplied value.
+known=978814f3341b83fed33282f23ee76b173bc4235235ccf374149d0363252f3ce8
+actual=$(openssl dgst -sha256 "$root/scripts/engine_tokenizer_parity.py" | awk '{print $NF}')
+if [[ "$actual" != "$known" ]]; then
+  printf 'Selected archive verifier source hash proof failed.\n' >&2
+  exit 1
+fi
+target="$tmp/selected-archive/host/verify-selected-image-archive.py"
+mkdir -p "$(dirname "$target")"
+format=pretty
+suffix=,
+field=engine_tokenizer_parity
+write_receipt_field "$target" "$field" "$known"
+expect_receipt_scan "$target" 0
+write_receipt_field "$target" "$field" "$unknown"
+expect_receipt_scan "$target" 42
+write_receipt_field "$target" api_key "$known"
+expect_receipt_scan "$target" 42
+write_receipt_field "$tmp/selected-archive/other.py" "$field" "$known"
+expect_receipt_scan "$tmp/selected-archive/other.py" 42
+printf '  "%s": "%s", "api_key": "%s"\n' "$field" "$known" "$unknown" > "$target"
+expect_receipt_scan "$target" 42
+python3 - "$tmp/held-report.json" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as stream:
+    findings = json.load(stream)
+assert any(row["RuleID"] == "generic-api-key" and row["Match"].startswith("api_key") for row in findings)
+PY
+printf 'Selected archive source proof and exact value/field/path/same-line boundaries passed.\n'
+
 # The source-derived prefix and controls are compact JSON; never exempt the
 # entire line, which could also contain an unrelated secret candidate.
 for trial_set in preflight-missing-source simulator-seed-failure retail-pass sequential-opened sequential-settled sequential-trial sequential-failed-opened sequential-failed-trial airline-pass-opened airline-pass-settled airline-pass-trial airline-reward-expectation-opened airline-reward-expectation-settled airline-reward-expectation-trial airline-socket-failure-opened airline-socket-failure-trial; do
@@ -338,6 +369,21 @@ expect_receipt_scan "$tmp/image-archive/other.py" 42
 printf '"engine_tokenizer_parity": "%s", "api_key": "%s"\n' "$known" "$unknown" > "$target"
 expect_receipt_scan "$target" 42
 printf 'Image verifier source-hash exception requires exact value, field and path; adjacent secrets remain detected.\n'
+
+# Preserve the original failed receipt, with the same immutable source proof.
+target="$tmp/image-archive/evidence/p2/2026-10-29-original-image-archive-failure/receipt.json"
+mkdir -p "$(dirname "$target")"
+printf '{"scripts/engine_tokenizer_parity.py":"%s"}\n' "$known" > "$target"
+expect_receipt_scan "$target" 0
+printf '{"scripts/engine_tokenizer_parity.py":"%s"}\n' "$unknown" > "$target"
+expect_receipt_scan "$target" 42
+printf '{"api_key":"%s"}\n' "$known" > "$target"
+expect_receipt_scan "$target" 42
+printf '{"scripts/engine_tokenizer_parity.py":"%s"}\n' "$known" > "$tmp/image-archive/other.json"
+expect_receipt_scan "$tmp/image-archive/other.json" 42
+printf '{"scripts/engine_tokenizer_parity.py":"%s","api_key":"%s"}\n' "$known" "$unknown" > "$target"
+expect_receipt_scan "$target" 42
+printf 'Failed archive receipt exception is bound to the exact public hash, field and path.\n'
 
 # CPU retry originals require the exact observed source/token hashes.
 while IFS='|' read -r relative field known suffix; do

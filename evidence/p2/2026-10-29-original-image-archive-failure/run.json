@@ -1,0 +1,20 @@
+{
+  "schema": "nib.evidence/v1",
+  "phase": "P2",
+  "task": "T3",
+  "git_sha": "9cbb4575f8b32dc0cdfef3e3114f3409d4c2da79",
+  "command": "python3 -I -S -B /source/host/verify-selected-image-archive.py --archive /archive/image.tar --archive-sha256 97b733ffc612519bf5e318eab5eac8e7e6a7a4999630c73b771f57b4266b5f01 --archive-bytes 9247194112 --preparation /preparation --preparation-sha256 b2738681ee11cbf7253f1bc61131d82dfc242c63ec65a1e396b8bfbea3df85df --build-report /build-input/build.json --build-sha256 4d675cffa9733b63a10eb6c3d31a99a5671b9ec95ae55aebf61e78ad1fe16d76 --producer 9cbb4575f8b32dc0cdfef3e3114f3409d4c2da79 --output /output/receipt.json",
+  "execution": "software",
+  "host": {
+    "provider": "local",
+    "machine": "linux-arm64-isolated-container",
+    "gpus": "none",
+    "driver": null,
+    "cuda": null
+  },
+  "started_utc": "2026-10-29T04:25:20.029074Z",
+  "ended_utc": "2026-10-29T04:26:18.572796Z",
+  "result": "fail",
+  "hardware_validated": false,
+  "notes": "Original failed receipt and original stopped-container stdout, not a rerun. Receipt SHA256 de568d0e9f4748c1dbbd9a65075da72d11eb52948d4e19fd6586066326eba595; stdout SHA256 f2a35905784c4591c36e9510eb149e37a6519069c3ba43125c8bf14788db21cd. Local runtime sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337; network disabled, read-only root and inputs, 2 CPUs, 3 GiB memory/swap, 128 PIDs, UID 501:20, no capabilities, no-new-privileges, only new receipt directory writable. Container exited 1 without OOM; worker exit confirmed in receipt. No image execution, remote operation, model verification, inference, deployment or confidential claim. Later metadata inspection found an empty in-toto subject, a definite rejection condition; the original receipt does not identify its first failure stage. No successful replacement build or archive verification is claimed. Private host paths and wrapper details are not published."
+}
