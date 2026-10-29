@@ -4,14 +4,17 @@ Status: software receipt support, not serving-side parity evidence, a live
 runner or operational admission. This change does not rebuild an image, modify
 an existing service, expose `/tokenize`, or change any public API.
 
-The external comparison helper `engine_tokenizer_parity` accepts an explicit
+The separate external comparison helper `original_tokenizer_parity` requires an explicit
 `execution_profile="original-long1m-graphs"` only with the actual configured
 `max_model_len=1048576` and canonical model
 `deepseek/deepseek-v4.1-flash-1017`. Its new v3 receipt binds those values,
 the official revision and manifest in
 [the closed model profiles](../../scripts/deepseek_model_profile.py), and the
-existing source/tokenizer/probe binding. The v1 default and v2 8K receipts
-remain byte-identical. Neither legacy receipts nor a smaller reported context
+existing source/tokenizer/probe binding, reusing the frozen lab helper's common
+functions. The original `engine_tokenizer_parity` source, its archive-verifier
+dependency pins, and v1 default and v2 8K receipts remain byte-identical. The
+external comparison loop and receipt validator are versioned separately to
+preserve that frozen dependency graph. Neither legacy receipts nor a smaller reported context
 can qualify as an official-profile result.
 
 The [existing source audit and comparison method](p2-t3-tokenizer-parity.md)

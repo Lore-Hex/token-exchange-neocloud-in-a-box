@@ -30,10 +30,6 @@ REQUEST_SECONDS = 30
 TOTAL_SECONDS = 300
 MAX_TOKENS = 1024
 FAILURES = ("none", "not-run", "protocol", "token-ids", "usage", "timeout", "transport", "cancelled")
-ORIGINAL_PROFILE = "original-long1m-graphs"
-ORIGINAL_MODEL = "deepseek/deepseek-v4.1-flash-1017"
-ORIGINAL_REVISION = "1bae0e1088993b9b82de08f59de5be5a34e42170"
-ORIGINAL_MANIFEST = "b74ae635c35372cf6c350e4b33ef60c90ff01fe6426ad0fa7bc99b1982fe5bed"
 
 
 def require(value):
@@ -89,15 +85,7 @@ def binding(correctness):
                    "probes": probes(), "template": TEMPLATE, "max_completion_tokens": 1})
 
 
-def runtime_identity(correctness, max_model_len, *, execution_profile=None):
-    if execution_profile is not None:
-        require(type(execution_profile) is str and execution_profile == ORIGINAL_PROFILE
-                and type(max_model_len) is int and max_model_len == 1048576)
-        identity = {"schema": "nib.tokenizer-parity/v3", "execution_profile": ORIGINAL_PROFILE,
-                    "model": ORIGINAL_MODEL, "model_revision": ORIGINAL_REVISION,
-                    "manifest_sha256": ORIGINAL_MANIFEST, "max_model_len": max_model_len}
-        return {**identity, "binding_sha256": digest({"parity_binding_sha256": binding(correctness),
-                                                      **identity})}
+def runtime_identity(correctness, max_model_len):
     require(type(max_model_len) is int and max_model_len in (4096, 8192))
     if max_model_len == 4096:
         return {"schema": "nib.tokenizer-parity/v1", "binding_sha256": binding(correctness)}
@@ -151,11 +139,8 @@ def validate_local(row, correctness):
     return row
 
 
-def run(request, local, model, correctness, *, deadline, clock=time.monotonic, max_model_len=4096,
-        execution_profile=None):
-    identity = runtime_identity(correctness, max_model_len, execution_profile=execution_profile)
-    if execution_profile is not None:
-        require(type(model) is str and model == ORIGINAL_MODEL)
+def run(request, local, model, correctness, *, deadline, clock=time.monotonic, max_model_len=4096):
+    identity = runtime_identity(correctness, max_model_len)
     validate_local(local, correctness)
     started = clock()
     deadline = min(deadline, started + TOTAL_SECONDS)
@@ -215,11 +200,11 @@ def run(request, local, model, correctness, *, deadline, clock=time.monotonic, m
             break
     result["elapsed_ms"] = max(0, int((clock() - started) * 1000))
     result["all_cases_pass"] = all(row["result"] == "pass" for row in rows)
-    return validate(result, correctness, max_model_len=max_model_len, execution_profile=execution_profile)
+    return validate(result, correctness, max_model_len=max_model_len)
 
 
-def validate(row, correctness, *, max_model_len=4096, execution_profile=None):
-    identity = runtime_identity(correctness, max_model_len, execution_profile=execution_profile)
+def validate(row, correctness, *, max_model_len=4096):
+    identity = runtime_identity(correctness, max_model_len)
     require(type(row) is dict and set(row) == set(identity) | {"cases", "requests_started",
             "all_cases_pass", "elapsed_ms", "quality_accepted", "confidential", "tau_acceptance"}
             and all(type(row[key]) is type(value) and row[key] == value for key, value in identity.items())
