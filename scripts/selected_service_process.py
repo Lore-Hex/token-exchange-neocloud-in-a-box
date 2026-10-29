@@ -213,8 +213,11 @@ class ProcessOwner:
         self.env = service.pilot.pilot.controlled_env(inputs.root / "control")
         self.combined = None
         self.weights_verified = False
+        self.original_view = None
 
     def check_mounts(self, deadline):
+        if getattr(self, "original_view", None) is not None:
+            self.original_view.check()
         return self.prepared.check(deadline)
 
     def spawn(self, role, command, env):
@@ -232,6 +235,8 @@ class ProcessOwner:
         try:
             while True:
                 require(not self.shutdown.is_set(), "cancelled")
+                if getattr(self, "original_view", None) is not None:
+                    self.original_view.check()
                 remaining = deadline - time.monotonic() - service.REAP_SECONDS
                 require(remaining > 0, "deadline")
                 try:
@@ -257,6 +262,8 @@ class ProcessOwner:
                 self.combined.bind_owner(self, contract)
                 require(self.weights_verified, "model")
                 self.check_mounts(deadline)
+            if getattr(self, "original_view", None) is not None:
+                self.original_view.verified(deadline)
             if service.ordinary_profile(contract.lifetime_profile):
                 service.progress("engine-starting", contract, self.prepared.receipt_sha256)
             command = [self.prepared.interpreter, "-I", "-S", "-B", str(PAYLOAD / "launch.py"),
@@ -487,6 +494,7 @@ def main(argv=None):
     parser.add_argument("--hard-stop-at", required=True)
     parser.add_argument("--lifetime-profile", default=service.SMOKE_PROFILE)
     parser.add_argument("--execution-profile", default=engine_entry.EAGER_PROFILE)
+    parser.add_argument("--original-view-sha256")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--inference-smoke", action="store_true")
     mode.add_argument("--conformance-smoke", action="store_true")
@@ -497,7 +505,7 @@ def main(argv=None):
     shutdown = threading.Event()
     handlers = {number: signal.signal(number, lambda *_: shutdown.set())
                 for number in (signal.SIGINT, signal.SIGTERM)}
-    result, stage, contract = None, "contract", None
+    result, stage, contract, view = None, "contract", None, None
     def publish(row):
         if args.execution_profile in engine_entry.BOUND_PROFILES and row["schema"] != service.EXECUTION_SCHEMA:
             row = service.execution_result(row, args.execution_profile, args.prepared_sha256
@@ -525,12 +533,19 @@ def main(argv=None):
         require(prepared.lab["execution_profile"] == contract.execution_profile, "runtime-limits")
         if args.conformance_smoke or args.protocol_smoke:
             require("checker/trial.json" in prepared.files, "contract")
+        if args.original_view_sha256 is not None:
+            import original_view_consumer
+            require(args.execution_profile == original_view_consumer.PROFILE
+                    and not any((args.inference_smoke, args.conformance_smoke, args.protocol_smoke,
+                                 args.tool_smoke, args.long_qualification)), "contract")
+            view = original_view_consumer.Hold(args.original_view_sha256, prepared, contract, shutdown)
         stage = "inputs"
         service.progress("inputs", contract, args.prepared_sha256)
         with service.snapshot_inputs(provider=args.provider_config, cert=args.cert, key=args.key,
                                      api_key=args.api_key_file) as inputs:
             stage = "owner"
             owner = ProcessOwner(prepared, inputs, args.hostname, shutdown)
+            owner.original_view = view
             result = service.Supervisor(contract, inputs, owner, shutdown).run(
                 inference_smoke=args.inference_smoke, conformance_smoke=args.conformance_smoke,
                 protocol_smoke=args.protocol_smoke, tool_smoke=args.tool_smoke,
@@ -585,5 +600,7 @@ def main(argv=None):
         publish(result)
         return 1
     finally:
+        if view is not None:
+            view.close()
         for number, handler in handlers.items():
             signal.signal(number, handler)

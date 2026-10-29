@@ -73,9 +73,9 @@ def empty_state_directory(root):
         yield fd
 
 
-def state_directories(root):
+def state_directories(root, *, original=False):
     with empty_state_directory(root) as fd:
-        for name in ("network", "container"):
+        for name in ("network", "container") + (("original-view",) if original else ()):
             os.mkdir(name, mode=0o700, dir_fd=fd)
         os.fsync(fd)
 
@@ -92,13 +92,13 @@ def read_reservation(root):
 
 
 def acknowledge(raw):
-    require(raw in (b"ready\n", b"serving\n"))
+    require(raw in (b"ready\n", b"serving\n", b"verifying\n"))
     os.write(sys.stdout.fileno(), raw)
 
 
 def watchdog(root, life_fd):
     """The only process allowed to release quarantine; never extends the cutoff."""
-    selected_owner, reservation, commands = None, None, None
+    selected_owner, reservation, commands, view = None, None, None, None
     result = {"result": "fail", "cleanup": None}
     try:
         require(os.getuid() == 0 and sys.platform == "linux" and type(life_fd) is int and life_fd >= 3)
@@ -111,23 +111,41 @@ def watchdog(root, life_fd):
         reservation.admit()
         commands.reserve = MONITOR_RESERVE
         daemon = owner.daemon_identity(commands)
+        if (Path(root) / "original-view").exists():
+            import original_view_mount
+            view = original_view_mount.Lease(root, commands)
+            view.prepare()
         acknowledge(b"ready\n")
-        serving = False
+        serving, verifying = False, False
         while commands.remaining() > 0:
             ready, _, _ = select.select([life_fd], [], [], min(1, commands.remaining()))
             if ready:
                 raw = os.read(life_fd, 8)
                 if not raw:
                     break
-                require(raw == b"serve\n" and not serving)
+                require(raw == (b"verify\n" if view is not None else b"serve\n") and not serving and not verifying)
                 require(owner.daemon_identity(commands, daemon[0]) == daemon)
                 selected_owner = owner.Owner(commands, reservation, owner.State(Path(root) / "container"))
-                selected_owner.release_for_serving()
-                serving = True
-                acknowledge(b"serving\n")
+                if view is None:
+                    selected_owner.release_for_serving()
+                    serving = True
+                    acknowledge(b"serving\n")
+                else:
+                    view.admitted(selected_owner)
+                    selected_owner.begin_original_verification()
+                    verifying = True
+                    acknowledge(b"verifying\n")
+            if verifying and not serving:
+                require(time.monotonic() < view.row["startup_deadline"])
+                if view.poll(selected_owner):
+                    selected_owner.release_for_serving()
+                    view.release()
+                    serving = True
             if serving:
                 require(owner.daemon_identity(commands, daemon[0]) == daemon)
                 selected_owner.fresh(serving=True)
+                if view is not None and view.observe():
+                    break
         else:
             raise ValueError("selected owner expiry")
         result["result"] = "pass"
@@ -136,6 +154,11 @@ def watchdog(root, life_fd):
     finally:
         if commands is not None:
             commands.reserve = 0
+        if view is not None:
+            try:
+                view.close_admission()
+            except BaseException:
+                result["result"] = "fail"
         try:
             if selected_owner is None and commands is not None and reservation is not None:
                 state = owner.State(Path(root) / "container")
@@ -149,6 +172,12 @@ def watchdog(root, life_fd):
                 reservation.cleanup()
         except BaseException:
             pass
+        if view is not None:
+            try:
+                view.retire(selected_owner, result["cleanup"])
+            except BaseException:
+                result["result"] = "fail"
+                view.retain_until_absent(selected_owner, result["cleanup"])
         try:
             os.close(life_fd)
         except OSError:
@@ -158,9 +187,9 @@ def watchdog(root, life_fd):
         and result["cleanup"]["cleanup_confirmed"] else 1
 
 
-def wait_ack(monitor, expected, commands):
+def wait_ack(monitor, expected, commands, *, seconds=60):
     raw = bytearray()
-    end = time.monotonic() + min(60, commands.remaining() - smoke.HOST_RESERVE)
+    end = time.monotonic() + min(seconds, commands.remaining() - smoke.HOST_RESERVE)
     while len(raw) < len(expected):
         require(monitor.poll() is None and time.monotonic() < end)
         readable, _, _ = select.select([monitor.stdout], [], [], min(.1, end - time.monotonic()))
@@ -246,9 +275,13 @@ def runtime_plan(args, admitted, selected, commands, result):
     require(getattr(args, "execution_profile", smoke.service.engine_entry.EAGER_PROFILE) == contract.execution_profile)
     result["reason"] = "weights"
     weights = smoke.private_path(args.weights)
-    smoke.weights_view(lab, weights, min(commands.end - contract.cleanup_reserve,
-                                      time.monotonic() + smoke.SECONDS),
-                       execution_profile=contract.execution_profile)
+    if getattr(args, "original_view_plan", None) is None:
+        smoke.weights_view(lab, weights, min(commands.end - contract.cleanup_reserve,
+                                          time.monotonic() + smoke.SECONDS),
+                           execution_profile=contract.execution_profile)
+    # The original-only path already completed this inventory/mode check and
+    # full rehash in the bounded mount worker. Never reopen hard NFS here in
+    # the unbounded parent; admission and the actual consumer rejoin below.
     stop_at = smoke.service.retirement_at(contract.hard_wall - smoke.HOST_RESERVE)
     if smoke.service.ordinary_profile(contract.lifetime_profile):
         result.update(schema="nib.selected-service-owner/v2", lifetime={
@@ -259,7 +292,11 @@ def runtime_plan(args, admitted, selected, commands, result):
     require(commands.remaining() > smoke.HOST_RESERVE + contract.cleanup_reserve)
     labels = owner.image_labels(image["Config"].get("Labels"))
     def runtime(identifier):
-        return {"command": owner.container_command(selected, identifier, build, base, weights, inputs, args, stop_at),
+        command = owner.container_command(selected, identifier, build, base, weights, inputs, args, stop_at)
+        if getattr(args, "original_view_plan", None) is not None:
+            import original_view_mount
+            command += ["--original-view-sha256", original_view_mount.consumer_sha(args.state_dir)]
+        return {"command": command,
             "network_id": identifier, "image_id": build["image_id"], "entrypoint": image["Config"]["Entrypoint"],
             "image_labels": labels, "weights": str(weights), "inputs": str(inputs)}
     # Exact IDs have fixed width. Reject an oversized private intent before
@@ -276,7 +313,11 @@ def run(args, admitted, selected, result):
     env = commands.env
     result.update(preflight_pass=False, reason="state-directory")
     root = smoke.private_path(args.state_dir)
-    state_directories(root)
+    original = getattr(args, "original_view_plan", None) is not None
+    if original:
+        state_directories(root, original=True)
+    else:
+        state_directories(root)
     journal = network.Journal(root / "network", selected, contract.hard_wall, contract.hard_monotonic,
                               lifetime_profile=contract.lifetime_profile)
     journal.initialize()
@@ -286,7 +327,12 @@ def run(args, admitted, selected, result):
     owner.daemon_identity(commands)
     result["reason"] = "host-network"
     owner.host_target(commands, selected, initial=True)
-    runtime = runtime_plan(args, admitted, selected, commands, result)
+    if original:
+        import original_view_mount
+        view_contract = original_view_mount.prepare_configuration(args, admitted, selected, root)
+        runtime = None
+    else:
+        runtime = runtime_plan(args, admitted, selected, commands, result)
     result["preflight_pass"] = True
     reader, writer = os.pipe()
     monitor, selected_owner, accepted, monitor_reaped = None, None, False, False
@@ -294,7 +340,12 @@ def run(args, admitted, selected, result):
         monitor = subprocess.Popen([sys.executable, "-I", "-S", "-B", str(Path(__file__).absolute()),
             "--watchdog", str(root), str(reader)], env=env, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, pass_fds=(reader,), start_new_session=True)
-        wait_ack(monitor, b"ready\n", commands)
+        if original:
+            wait_ack(monitor, b"ready\n", commands, seconds=view_contract["plan"]["verification_seconds"])
+        else:
+            wait_ack(monitor, b"ready\n", commands)
+        if original:
+            runtime = runtime_plan(args, admitted, selected, commands, result)
         result.update(reason="network", cleanup="unconfirmed")
         # Recheck immediately before the first published-tuple drop insertion.
         owner.host_target(commands, selected, initial=True)
@@ -306,8 +357,8 @@ def run(args, admitted, selected, result):
         container = selected_owner.create()
         result.update(container_created=True, tls_publication_requested=True)
         require(monitor.poll() is None)
-        os.write(writer, b"serve\n")
-        wait_ack(monitor, b"serving\n", commands)
+        os.write(writer, b"verify\n" if original else b"serve\n")
+        wait_ack(monitor, b"verifying\n" if original else b"serving\n", commands)
         result.update(reason="lifecycle", runtime_started=None)
         join = {name: getattr(args, name, False) for name in (
             "inference_smoke", "conformance_smoke", "protocol_smoke", "tool_smoke")}
@@ -344,8 +395,14 @@ def run(args, admitted, selected, result):
         os.close(writer)
         if monitor is not None:
             try:
-                raw, _ = recorder.snapshot.bounded_output(monitor, ["selected-owner-watchdog"],
-                    max(0, commands.remaining() - smoke.CLIENT_REAP), None, 4096, 4096)
+                if original:
+                    # Timeout must not kill a watchdog that still owns a host
+                    # mount or unresolved consumer. Its durable identity stays.
+                    raw, _ = monitor.communicate(timeout=max(1, min(60, commands.remaining())))
+                    require(len(raw) <= 4096)
+                else:
+                    raw, _ = recorder.snapshot.bounded_output(monitor, ["selected-owner-watchdog"],
+                        max(0, commands.remaining() - smoke.CLIENT_REAP), None, 4096, 4096)
                 observed = cleanup_record(raw)
                 result["owner_cleanup"] = observed["cleanup"]
                 expected = 0 if observed["result"] == "pass" and observed["cleanup"] is not None \
@@ -357,11 +414,18 @@ def run(args, admitted, selected, result):
                 result["cleanup"] = "unconfirmed"
             finally:
                 try:
-                    recorder.snapshot.cleanup_process_group(monitor)
-                    monitor_reaped = True
+                    if not original:
+                        recorder.snapshot.cleanup_process_group(monitor)
+                        monitor_reaped = True
+                    elif monitor.poll() is not None:
+                        monitor_reaped = True
+                    else:
+                        result["original_view_watchdog_retained"] = True
+                        monitor.stdout.close()
+                        monitor.stderr.close()
                 except BaseException:
                     result.update(watchdog_confirmed=False, cleanup="unconfirmed")
-        if result["cleanup"] != "confirmed" and monitor_reaped and selected_owner is not None:
+        if not original and result["cleanup"] != "confirmed" and monitor_reaped and selected_owner is not None:
             # The watchdog has been reaped before this fallback. It can no
             # longer race a serving transition against fresh quarantine.
             result["fallback_cleanup"] = selected_owner.cleanup()
@@ -377,6 +441,8 @@ def preflight(args):
         selected = network.Network(policy.Policy(token, "nib" + token[:12], args.ingress,
             args.address, args.published_address, args.published_port, "1.1.6"), args.subnet, args.gateway)
         profile = getattr(args, "lifetime_profile", smoke.service.SMOKE_PROFILE)
+        require((getattr(args, "original_view_plan", None) is None)
+                == (getattr(args, "original_view_plan_sha256", None) is None))
         smoke.service.lifetime_seconds(profile)
         with smoke.admitted_runtime(args, result,
                 **({"lifetime_profile": profile} if profile != smoke.service.SMOKE_PROFILE else {})) as admitted:
@@ -396,7 +462,12 @@ def preflight(args):
                     owner.daemon_identity(commands)
                     result["reason"] = "host-network"
                     owner.host_target(commands, selected, initial=True)
-                    runtime_plan(args, admitted, selected, commands, result)
+                    if getattr(args, "original_view_plan", None) is not None:
+                        import original_view_mount
+                        original_view_mount.prepare_configuration(args, admitted, selected,
+                            Path(args.state_dir), publish=False)
+                    else:
+                        runtime_plan(args, admitted, selected, commands, result)
                     result.update(preflight_pass=True, reason="not-run")
             except BaseException:
                 result.update(result="fail", status="BLOCKED")
@@ -428,6 +499,8 @@ def main(argv=None):
         parser.add_argument("--published-port", type=int, required=True)
         parser.add_argument("--lifetime-profile", default=smoke.service.SMOKE_PROFILE)
         parser.add_argument("--execution-profile", default=smoke.service.engine_entry.EAGER_PROFILE)
+        parser.add_argument("--original-view-plan")
+        parser.add_argument("--original-view-plan-sha256")
         cancelled = False
         def cancel(*_):
             nonlocal cancelled
