@@ -1,14 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Synthetic transfers only: no transport process, Docker, remote peer or image load."""
+"""Software-only fixtures: local transport processes, never SSH/network/Docker."""
 
 import copy
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 import hashlib
 import io
 import json
 import os
 from pathlib import Path
 import stat
+import sys
 import tarfile
 import tempfile
 import types
@@ -48,7 +49,8 @@ class TransferTests(unittest.TestCase):
         self.tick = 100.0
         self.binding = {"boot_id": "0" * 8 + "-" + "0" * 4 + "-" + "0" * 4 + "-" + "0" * 4 + "-" + "0" * 12,
                         "clock_namespace": [1, 2], "monotonic": 100.0}
-        self.sources = {name: (ROOT / name).read_bytes() for name in (*adapter.PINS, adapter.SELF, adapter.SENDER)}
+        self.sources = {name: (ROOT / name).read_bytes() for name in
+                        sorted((*adapter.PINS, adapter.SELF, adapter.SENDER))}
         self.value = {"schema": adapter.SCHEMA, "attempt_id": self.root.name, "producer": "2" * 40,
             "image_producer": adapter.IMAGE_PRODUCER, "seconds": 30, "destination": str(self.root),
             "code": {name: adapter.sha(raw) for name, raw in self.sources.items()},
@@ -75,7 +77,7 @@ class TransferTests(unittest.TestCase):
 
     def prepare_phase(self, name="build"):
         self.initialize()
-        previous = ("bootstrap", *adapter.ROLES)[adapter.ROLES.index(name)]
+        previous = ("bootstrap", *adapter.ROLES)[(*adapter.ROLES, "final").index(name)]
         if previous == "bootstrap":
             raw = (self.root / "bootstrap.ack.json").read_bytes()
         else:
@@ -167,6 +169,64 @@ class TransferTests(unittest.TestCase):
         self.assertTrue((self.root / "intent.json").is_file())
         with self.assertRaises(FileExistsError):
             self.initialize()
+
+    def test_bootstrap_canonical_code_order_creates_every_parent_private_under_umask_022(self):
+        canonical = json.loads(encoded(self.value))["code"]
+        self.assertEqual(list(self.sources), list(canonical))
+        self.assertLess(list(canonical).index(adapter.RUNNER), list(canonical).index(adapter.RECEIVER))
+        previous_umask = os.umask(0o022)
+        try:
+            result = self.initialize()
+            self.assertEqual(os.umask(0o022), 0o022)
+        finally:
+            os.umask(previous_umask)
+        self.assertEqual(result["phase"], "bootstrap")
+        for name, raw in self.sources.items():
+            self.assertEqual((self.root / name).read_bytes(), raw)
+        for path in (self.root, self.root / "scripts", self.root / "scripts/e2e", self.root / "host"):
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o700)
+
+    def test_private_parents_reject_existing_broad_permissions_and_symlinks(self):
+        self.root.mkdir(mode=0o700)
+        broad = self.root / "broad"
+        broad.mkdir(mode=0o700)
+        broad.chmod(0o755)
+        (self.root / "alias").symlink_to(broad)
+        for name in ("broad", "alias"):
+            with self.subTest(name=name), self.assertRaises((ValueError, OSError)):
+                with adapter.private_parents(self.root, name + "/nested/file", files, 120.0):
+                    self.fail("unowned parent accepted")
+        self.assertEqual(stat.S_IMODE(broad.stat().st_mode), 0o755)
+        self.assertFalse((broad / "nested").exists())
+        self.assertTrue((self.root / "alias").is_symlink())
+
+    def assert_bootstrap_enumeration_failure(self, relative):
+        failed_path = self.root / relative
+        original = os.scandir
+        observed = []
+        def scandir(path):
+            if Path(path) == failed_path:
+                observed.append(Path(path))
+                raise PermissionError("synthetic enumeration failure")
+            return original(path)
+        with mock.patch.object(adapter.os, "scandir", side_effect=scandir), self.assertRaises(PermissionError):
+            self.initialize()
+        self.assertEqual(observed, [failed_path])
+        claim = (self.root / "intent.json").read_bytes()
+        self.assertTrue(claim)
+        self.assertEqual((self.root / "manifest.json").read_bytes(), encoded(self.value))
+        self.assertFalse((self.root / "bootstrap.ack.json").exists())
+        for name, raw in self.sources.items():
+            self.assertEqual((self.root / name).read_bytes(), raw)
+        with self.assertRaises(FileExistsError):
+            self.initialize()
+        self.assertEqual((self.root / "intent.json").read_bytes(), claim)
+
+    def test_bootstrap_root_enumeration_failure_preserves_claim_without_ack(self):
+        self.assert_bootstrap_enumeration_failure("")
+
+    def test_bootstrap_nested_enumeration_failure_preserves_claim_without_ack(self):
+        self.assert_bootstrap_enumeration_failure("scripts/e2e")
 
     def test_component_success_joins_role_request_deadline_and_preserves_bytes(self):
         previous = self.prepare_phase()
@@ -313,14 +373,113 @@ class TransferTests(unittest.TestCase):
             target.write_bytes(raw)
             target.chmod(0o600)
             self.value["components"][role] = {"bytes": len(raw), "sha256": adapter.sha(raw)}
-        target = adapter.materialize(self.root, "preparation", self.value, files, materializer, 120.0)
+        previous_umask = os.umask(0o022)
+        try:
+            target = adapter.materialize(self.root, "preparation", self.value, files, materializer, 120.0)
+            self.assertEqual(os.umask(0o022), 0o022)
+        finally:
+            os.umask(previous_umask)
         for name, raw in rows.items():
             self.assertEqual((target / name).read_bytes(), raw)
             self.assertEqual(stat.S_IMODE((target / name).stat().st_mode), 0o600)
+        for path in target.rglob("*"):
+            if path.is_dir():
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o700)
         self.assertEqual(materializer.MAX_TREE, 64 << 20)
         self.assertEqual(materializer.MAX_ARCHIVE, 80 << 20)
         with self.assertRaises(FileExistsError):
             adapter.materialize(self.root, "preparation", self.value, files, materializer, 120.0)
+
+    def test_materializer_failure_leaves_umask_unchanged_and_preserves_nested_artifacts(self):
+        self.root.mkdir(mode=0o700)
+        tree, archive = tree_and_tar({"nested/parent/file": b"synthetic retained partial"})
+        for role, raw in (("preparation-tree", tree), ("preparation", archive)):
+            (self.root / role).mkdir(mode=0o700)
+            path = self.root / role / "payload"
+            path.write_bytes(raw)
+            path.chmod(0o600)
+            self.value["components"][role] = {"bytes": len(raw), "sha256": adapter.sha(raw)}
+        original = materializer.materialize
+        def failed(*args):
+            original(*args)
+            raise OSError("synthetic materializer failure")
+        previous_umask = os.umask(0o022)
+        try:
+            with mock.patch.object(materializer, "materialize", side_effect=failed), self.assertRaises(OSError):
+                adapter.materialize(self.root, "preparation", self.value, files, materializer, 120.0)
+            self.assertEqual(os.umask(0o022), 0o022)
+        finally:
+            os.umask(previous_umask)
+        target = self.root / "preparation-files"
+        self.assertEqual((target / "nested/parent/file").read_bytes(), b"synthetic retained partial")
+        for path in (target, target / "nested", target / "nested/parent"):
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o700)
+        with self.assertRaises(FileExistsError):
+            adapter.materialize(self.root, "preparation", self.value, files, materializer, 120.0)
+
+    def test_materializer_deadline_failure_leaves_umask_unchanged_without_reset(self):
+        self.root.mkdir(mode=0o700)
+        tree, archive = tree_and_tar({"nested/parent/file": b"x"})
+        for role, raw in (("preparation-tree", tree), ("preparation", archive)):
+            (self.root / role).mkdir(mode=0o700)
+            path = self.root / role / "payload"
+            path.write_bytes(raw)
+            path.chmod(0o600)
+            self.value["components"][role] = {"bytes": len(raw), "sha256": adapter.sha(raw)}
+        original = materializer.materialize
+        def late(*args):
+            self.assertEqual(args[-1], 120.0)
+            original(*args)
+            self.tick = 121.0
+        previous_umask = os.umask(0o022)
+        try:
+            with mock.patch.object(materializer, "materialize", side_effect=late), self.assertRaises(ValueError):
+                adapter.materialize(self.root, "preparation", self.value, files, materializer, 120.0)
+            self.assertEqual(os.umask(0o022), 0o022)
+        finally:
+            os.umask(previous_umask)
+        self.assertEqual((self.root / "preparation-files/nested/parent/file").read_bytes(), b"x")
+
+    def test_materializer_root_and_nested_enumeration_failure_prevent_final_ack(self):
+        tree, archive = tree_and_tar({"nested/parent/file": b"synthetic retained file"})
+        for relative, attempt in (("", "7" * 32), ("nested/parent", "8" * 32)):
+            with self.subTest(relative=relative):
+                self.root = self.parent / attempt
+                self.value.update(destination=str(self.root), attempt_id=attempt)
+                for role, raw in (("preparation-tree", tree), ("preparation", archive)):
+                    self.value["components"][role] = {"bytes": len(raw), "sha256": adapter.sha(raw)}
+                previous = self.prepare_phase("final")
+                claim = (self.root / "intent.json").read_bytes()
+                for role, raw in (("preparation-tree", tree), ("preparation", archive)):
+                    (self.root / role).mkdir(mode=0o700)
+                    (self.root / role / "payload").write_bytes(raw)
+                    (self.root / role / "payload").chmod(0o600)
+                failed_path = self.root / "preparation-files" / relative
+                original = os.scandir
+                observed = []
+                def scandir(path):
+                    if Path(path) == failed_path:
+                        observed.append(Path(path))
+                        raise PermissionError("synthetic enumeration failure")
+                    return original(path)
+                def join(root, value, helpers, unpacker, deadline):
+                    return adapter.materialize(root, "preparation", value, helpers, unpacker, deadline)
+                # Isolate the final phase's materialization durability boundary;
+                # the subprocess roundtrip below exercises the complete join.
+                with mock.patch.object(adapter, "validate_components"), \
+                        mock.patch.object(adapter, "joined_inputs", side_effect=join), \
+                        mock.patch.object(adapter.os, "scandir", side_effect=scandir), \
+                        self.assertRaises(PermissionError):
+                    self.phase(previous, b"", name="final")
+                self.assertEqual(observed, [failed_path])
+                self.assertFalse((self.root / "final.ack.json").exists())
+                self.assertTrue((self.root / "final.intent.json").is_file())
+                self.assertEqual((self.root / "intent.json").read_bytes(), claim)
+                self.assertEqual((self.root / "preparation/payload").read_bytes(), archive)
+                self.assertEqual((self.root / "preparation-files/nested/parent/file").read_bytes(),
+                                 b"synthetic retained file")
+                with self.assertRaises(FileExistsError):
+                    self.phase(previous, b"", name="final")
 
     def test_materializer_rejects_traversal_special_duplicate_and_missing_members(self):
         for case in ("traversal", "symlink", "duplicate", "missing"):
@@ -594,6 +753,212 @@ class JoinedInputTests(unittest.TestCase):
                     value["components"]["verification"] = {"bytes": len(raw), "sha256": adapter.sha(raw)}
                     with self.subTest(field=field), self.assertRaises(ValueError):
                         adapter.joined_inputs(root, value, files, materializer, adapter.time.monotonic() + 30)
+
+
+@unittest.skipUnless(sys.platform == "linux", "receiver clock contract requires Linux")
+class LocalTransportRoundtripTests(unittest.TestCase):
+    """Real subprocess/pipe integration, not official image-transfer evidence.
+
+    Only committed public Git objects supply the source fixture. Preparation,
+    OCI bytes and all records are generated synthetic test data in temporary
+    directories, never inputs from an operator's archive/preparation directory.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import test_selected_image_archive as fixtures
+        from test_evidence_history import git, GIT_ENV, GIT_OPTIONS
+        cls.fixtures = fixtures
+        fixtures.HandoffTests.setUpClass()
+        temporary = tempfile.TemporaryDirectory(prefix="software-only-input-roundtrip-")
+        cls.addClassCleanup(temporary.cleanup)
+        cls.source_root = Path(temporary.name).resolve()
+        cls.source_root.chmod(0o700)
+        cls.source_tree = git(ROOT, "ls-tree", "-rlz", "--full-tree", adapter.IMAGE_PRODUCER)
+        if adapter.sha(cls.source_tree) != adapter.SOURCE_TREE_SHA:
+            raise AssertionError("committed source fixture identity changed")
+        cls.producer = git(ROOT, "rev-parse", "HEAD").decode().strip()
+        cls.source_archive = cls.source_root / "software-only-public-source.tar"
+        runner = files.load_pinned(adapter.RUNNER, adapter.PINS[adapter.RUNNER])
+        # A temporary public-code fixture only, never a deployment package.
+        with cls.source_archive.open("xb") as output:
+            os.fchmod(output.fileno(), 0o600)
+            result = runner.execute_process_group(["git", *GIT_OPTIONS,
+                "-c", "core.attributesFile=/dev/null", "-C", str(ROOT),
+                "archive", "--format=tar", adapter.IMAGE_PRODUCER], env=GIT_ENV,
+                timeout=60, stdout_file=output, max_output_bytes=adapter.CAPS["source"],
+                max_stderr_bytes=4096)
+        if result.returncode != 0 or result.stderr:
+            raise AssertionError("public source fixture construction failed")
+
+    @staticmethod
+    def descriptor(path):
+        with path.open("rb") as stream:
+            return {"bytes": os.fstat(stream.fileno()).st_size,
+                    "sha256": hashlib.file_digest(stream, "sha256").hexdigest()}
+
+    @contextmanager
+    def fixture(self, mode):
+        with self.fixtures.HandoffTests().fixture() as args:
+            root = args.archive.parent
+            root.chmod(0o700)
+            # These edits apply only to this generated fixture's receipt/build.
+            prep = json.loads((args.preparation / "receipt.json").read_bytes())
+            prep["git_sha"] = adapter.IMAGE_PRODUCER
+            (args.preparation / "receipt.json").write_bytes(encoded(prep))
+            args.preparation_sha256 = adapter.sha(encoded(prep))
+            build = json.loads(args.build_report.read_bytes())
+            build["preparation_sha256"] = args.preparation_sha256
+            args.build_report.write_bytes(encoded(build))
+            args.build_sha256 = adapter.sha(encoded(build))
+            verifier = self.fixtures.verify
+            verified = verifier.verify(args)
+            receipt = {"schema": verifier.SCHEMA, "result": "pass", "producer": adapter.IMAGE_PRODUCER,
+                "script_sha256": adapter.PINS[adapter.VERIFIER], "helpers": verifier.HELPERS,
+                "limits": verifier.LIMITS, "profile": verifier.PROFILE, "archive_verified": True,
+                "worker_exit_confirmed": True, "source": verified["source"], "archive": verified["archive"],
+                "started_utc": "synthetic", "ended_utc": "synthetic",
+                "expected": {"archive_sha256": args.archive_sha256, "archive_bytes": args.archive_bytes,
+                    "preparation_sha256": args.preparation_sha256, "build_sha256": args.build_sha256},
+                **{key: False for key in ("image_loaded", "runtime_started", "deployable", "hardware_validated",
+                                         "published", "confidential")}}
+            rows = {path.relative_to(args.preparation).as_posix(): path.read_bytes()
+                    for path in sorted(args.preparation.rglob("*")) if path.is_file()}
+            preparation_tree, preparation_tar = tree_and_tar(rows)
+            inputs = {"source": self.source_archive, "build": args.build_report, "image": args.archive}
+            for role, raw in (("source-tree", self.source_tree), ("preparation-tree", preparation_tree),
+                              ("preparation", preparation_tar), ("verification", encoded(receipt))):
+                path = root / ("software-only-" + role)
+                path.write_bytes(raw)
+                path.chmod(0o600)
+                inputs[role] = path
+            local_parent, receiver_parent = root / "sender-state", root / "receiver-state"
+            for path in (local_parent, receiver_parent):
+                path.mkdir(mode=0o700)
+            attempt = "6" * 32
+            destination, local = receiver_parent / attempt, local_parent / attempt
+            sources = {name: (ROOT / name).read_bytes() for name in
+                       (*adapter.PINS, adapter.SELF, adapter.SENDER)}
+            manifest = {"schema": adapter.SCHEMA, "attempt_id": attempt, "producer": self.producer,
+                "image_producer": adapter.IMAGE_PRODUCER, "seconds": 120, "destination": str(destination),
+                "code": {name: adapter.sha(raw) for name, raw in sources.items()},
+                "components": {role: self.descriptor(path) for role, path in inputs.items()},
+                "preparation_sha256": args.preparation_sha256}
+            python = str(Path(sys.executable).resolve())
+            transport_path, transport_log = root / "local-posix-transport", root / "software-only-transport.jsonl"
+            transport_path.write_text("#!" + python + "\n" + LOCAL_TRANSPORT_FIXTURE)
+            transport_path.chmod(0o700)
+            channel = {"schema": "nib.pinned-posix-command-transport/v1",
+                "argv": [str(transport_path), mode, str(destination), str(transport_log), "{command}"],
+                "executable_sha256": adapter.sha(transport_path.read_bytes()), "remote_python": python}
+            def call():
+                return sender.send(encoded(manifest), adapter.sha(encoded(manifest)),
+                    encoded(channel), adapter.sha(encoded(channel)), inputs, local,
+                    deadline=adapter.time.monotonic() + 90)
+            yield types.SimpleNamespace(call=call, destination=destination, local=local, manifest=manifest,
+                inputs=inputs, prep_rows=rows, source=verified["source"], transport_log=transport_log)
+
+    def assert_joined(self, fixture, result):
+        self.assertEqual(result["phase"], "final")
+        self.assertTrue(result["inputs_joined"])
+        self.assertEqual(result["source"], fixture.source)
+        self.assertTrue(all(result[key] is False for key in adapter.FLAGS))
+        for name, digest in fixture.manifest["code"].items():
+            self.assertEqual(adapter.sha((fixture.destination / name).read_bytes()), digest)
+        for role, row in fixture.manifest["components"].items():
+            self.assertEqual(self.descriptor(fixture.destination / role / "payload"), row)
+        source = fixture.destination / "source-files"
+        expected = materializer.expected_tree(self.source_tree)
+        self.assertEqual({path.relative_to(source).as_posix() for path in source.rglob("*") if path.is_file()},
+                         set(expected))
+        for name, raw in fixture.prep_rows.items():
+            self.assertEqual((fixture.destination / "preparation-files" / name).read_bytes(), raw)
+        deadline = json.loads((fixture.destination / "intent.json").read_bytes())["deadline"]
+        for phase in ("bootstrap", *adapter.ROLES, "final"):
+            remote = json.loads((fixture.destination / (phase + ".ack.json")).read_bytes())
+            self.assertEqual(remote["deadline_monotonic"], deadline)
+
+    def test_real_launcher_helpers_receiver_materializer_and_terminal_ack(self):
+        with self.fixture("success") as fixture:
+            result = fixture.call()
+            self.assert_joined(fixture, result)
+            rows = [json.loads(line) for line in fixture.transport_log.read_bytes().splitlines()]
+            self.assertEqual([row["phase"] for row in rows], ["clock", "bootstrap", *adapter.ROLES, "final"])
+            self.assertTrue(all(row["child_exit"] == row["reported_exit"] == 0 for row in rows))
+            self.assertTrue(all(row["child_stdin_pipe"] for row in rows))
+            for phase in ("bootstrap", *adapter.ROLES, "final"):
+                self.assertEqual((fixture.local / (phase + ".exit-zero-ack.json")).read_bytes(),
+                                 (fixture.destination / (phase + ".ack.json")).read_bytes())
+
+    def test_real_final_ack_followed_by_nonzero_transport_exit_is_rejected(self):
+        with self.fixture("nonzero-after-final-ack") as fixture:
+            with self.assertRaisesRegex(ValueError, "^original-image-transfer-rejected$"):
+                fixture.call()
+            terminal = json.loads((fixture.destination / "final.ack.json").read_bytes())
+            self.assert_joined(fixture, terminal)
+            last = json.loads(fixture.transport_log.read_bytes().splitlines()[-1])
+            self.assertEqual((last["phase"], last["child_exit"], last["reported_exit"]), ("final", 0, 23))
+            self.assertTrue(last["ack_emitted"])
+            self.assertTrue((fixture.local / "final.intent.json").is_file())
+            self.assertFalse((fixture.local / "final.exit-zero-ack.json").exists())
+            before = fixture.transport_log.read_bytes()
+            with self.assertRaises(ValueError):
+                fixture.call()
+            self.assertEqual(fixture.transport_log.read_bytes(), before)
+
+    def test_real_bootstrap_attempt_replacement_is_not_adopted(self):
+        with self.fixture("replace-after-bootstrap") as fixture:
+            with self.assertRaisesRegex(ValueError, "^original-image-transfer-rejected$"):
+                fixture.call()
+            preserved = fixture.destination.with_name(fixture.destination.name + ".preserved")
+            self.assertNotEqual(preserved.stat().st_ino, fixture.destination.stat().st_ino)
+            self.assertEqual((preserved / "intent.json").read_bytes(),
+                             (fixture.destination / "intent.json").read_bytes())
+            self.assertTrue((preserved / "bootstrap.ack.json").is_file())
+            self.assertTrue((fixture.local / "bootstrap.exit-zero-ack.json").is_file())
+            self.assertTrue((fixture.local / "source-tree.intent.json").is_file())
+            self.assertFalse((fixture.local / "source-tree.exit-zero-ack.json").exists())
+            self.assertFalse((fixture.destination / "source-tree.intent.json").exists())
+            self.assertFalse((fixture.destination / "source-tree").exists())
+            rows = [json.loads(line) for line in fixture.transport_log.read_bytes().splitlines()]
+            self.assertEqual([row["phase"] for row in rows], ["clock", "bootstrap", "no-ack"])
+            self.assertNotEqual(rows[-1]["child_exit"], 0)
+            before = fixture.transport_log.read_bytes()
+            with self.assertRaises(ValueError):
+                fixture.call()
+            self.assertEqual(fixture.transport_log.read_bytes(), before)
+
+
+# This executable is written only inside a temporary software-test directory.
+# It is not an SSH implementation or an operational transport configuration.
+LOCAL_TRANSPORT_FIXTURE = """import json,os,pathlib,shutil,stat,subprocess,sys
+os.umask(0o022)
+mode,root,log,command=sys.argv[1:]
+data=sys.stdin.buffer.read((80<<20)+1)
+if len(data)>(80<<20): raise SystemExit(24)
+child=subprocess.Popen(['/bin/sh','-c',command],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+pipe=stat.S_ISFIFO(os.fstat(child.stdin.fileno()).st_mode)
+stdout,stderr=child.communicate(data,timeout=60)
+ack=json.loads(stdout) if stdout else {}
+phase=ack.get('phase','clock' if 'nonce' in ack else 'no-ack')
+reported=child.returncode
+if child.returncode==0 and phase=='bootstrap' and mode=='replace-after-bootstrap':
+ target=pathlib.Path(root)
+ preserved=target.with_name(target.name+'.preserved')
+ target.rename(preserved)
+ shutil.copytree(preserved,target)
+if child.returncode==0 and phase=='final' and mode=='nonzero-after-final-ack': reported=23
+record={'phase':phase,'child_exit':child.returncode,'reported_exit':reported,'child_stdin_pipe':pipe,'ack_emitted':bool(stdout)}
+with open(log,'ab') as output:
+ output.write(json.dumps(record,sort_keys=True,separators=(',',':')).encode()+b'\\n')
+ output.flush()
+ os.fsync(output.fileno())
+sys.stdout.buffer.write(stdout)
+sys.stdout.buffer.flush()
+sys.stderr.buffer.write(stderr)
+sys.stderr.buffer.flush()
+raise SystemExit(reported)
+"""
 
 
 if __name__ == "__main__":

@@ -93,6 +93,14 @@ reused unchanged. New roots are exclusive; files are fsynced/reopened by the
 materializer, and directories are fsynced by the adapter. No general extractor
 or limit increase is introduced. Actual package sizes/hashes are still operator
 inputs, not inferred from declared preparation totals.
+Bootstrap and materialization explicitly create every intermediate directory
+with mode 0700 using descriptor-relative, no-follow traversal. Each existing
+intermediate must also pass the exact owner/mode check; nothing is chmodded or
+adopted to repair broader permissions. The authenticated inventory's parents
+exist before the pinned materializer runs, so its `Path.mkdir(parents=True)`
+cannot create intermediate 0755 directories under umask 022. The process umask
+is never changed. Directory enumeration errors at the root or any nested level
+are fatal: incomplete recursive fsync cannot produce a terminal acknowledgment.
 
 The final join compares the original verification record's producer, helper
 pins, limits, profile, success/non-runtime flags, source and expected inputs.
@@ -142,6 +150,17 @@ Original image/preparation/source evidence is never relabeled or rewritten.
 ## Verification and remaining gates
 
 Author has not run tests, Docker, transport, packaging or live operations.
+Preserved parent baseline: frozen `5f9eb4f` ran 31 tests in an isolated offline
+CPU container, **30 passed / 1 error in 0.566 s**. The nested empty-marker test
+failed the private-directory check because intermediate directories were 0755
+under umask 022. Independent exact-`5f9eb4f` review also reported two P2 findings:
+the same permissions defect during canonical-order bootstrap installation, and
+`os.walk` silently suppressing directory-enumeration errors during fsync. This
+candidate adds explicit private-parent creation and fatal traversal errors, with
+canonical-order/default-umask, failure-preservation and root/nested enumeration
+regressions. The baseline failure and blocked review are not relabeled as passes.
+The new candidate remains untested by the author and requires a fresh parent
+result and independent exact-head review.
 Parent-run focused command in an isolated offline, read-only-source,
 resource-bounded, Git-capable environment:
 
@@ -152,9 +171,24 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p 'test_origi
 Also run the existing `test_original_image_input.py`,
 `test_selected_image_archive.py`, `test_original_image_import.py` and
 `test_evidence_history.py` suites, documentation checks and normal full CI.
-Tests use synthetic pipes/files, fake transport/exit observations and original
-preparation fixtures; no remote peer or Docker is invoked. They do not qualify a
-real transport, target, filesystem, throughput or resource policy.
+Unit tests use synthetic pipes/files, fake transport/exit observations and
+generated preparation fixtures. The Linux-only `LocalTransportRoundtripTests`
+also run real local subprocesses and pipes through a temporary POSIX command
+transport: generated launcher, installed pinned helpers, component receiver,
+full materialization/joins and emitted acknowledgments are not mocked.
+They cover success, a nonzero transport exit after the complete final ack, and
+replacement of the original attempt directory with a same-content copy after
+bootstrap. Failures must preserve the original claim/artifacts and reject replay.
+
+Those integration fixtures construct their source tar exclusively from public
+d18 Git objects, and generate tiny OCI/preparation inputs with the existing test
+fixtures. All files live in temporary software-test directories; no actual
+operator image archive or private preparation is accessed, no operational inputs
+are packaged, and nothing is published as official transfer evidence. Allow
+writable scratch for the full public source fixture and received/materialized
+copies, plus subprocesses, in the parent's bounded offline environment.
+No SSH, network peer, Docker or import is invoked. These tests do not qualify an
+operational transport, target, throughput or resource policy.
 
 Remaining human/capacity gates include actual rolling spending reconciliation,
 operation approval, exact target and transport trust, bandwidth/resource policy,

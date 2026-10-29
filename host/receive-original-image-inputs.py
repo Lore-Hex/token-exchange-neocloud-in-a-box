@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Closed original-image input-set entrypoint; invoked only by pinned bootstrap."""
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import fcntl
 import hashlib
 import math
@@ -162,6 +162,31 @@ def write_file(parent, name, raw, deadline):
 
 
 @contextmanager
+def private_parents(root, name, files, deadline):
+    # Walk authenticated relative names one component at a time: mkdir(parents=True)
+    # would give intermediate directories the ambient umask's broader permissions.
+    parts = name.split("/")
+    require(all(part not in ("", ".", "..") for part in parts))
+    with ExitStack() as stack:
+        fd = files.directory(root, private=True)
+        stack.callback(os.close, fd)
+        for part in parts[:-1]:
+            check(deadline)
+            try:
+                os.mkdir(part, 0o700, dir_fd=fd)
+            except FileExistsError:
+                pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            stack.callback(os.close, child)
+            require(directory_identity(os.fstat(child))[2:] == [os.getuid(), 0o700])
+            os.fsync(fd)
+            fd = child
+        check(deadline)
+        yield fd
+    check(deadline)
+
+
+@contextmanager
 def owned(root, files, identity, deadline):
     fd = files.directory(root, private=True)
     try:
@@ -218,12 +243,8 @@ def initialize(packet, sources):
             for name, data in sources.items():
                 target = root / name
                 anchored(root, parent, fd, files, deadline)
-                target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-                child = files.directory(target.parent, private=True)
-                try:
+                with private_parents(root, name, files, deadline) as child:
                     write_file(child, target.name, data, deadline)
-                finally:
-                    os.close(child)
             sync_tree(root, files, deadline)
             result = ack(files, value, packet["manifest_sha256"], "bootstrap", None,
                          deadline, binding, intent_sha256=sha(files.encoded(state)))
@@ -239,7 +260,9 @@ def initialize(packet, sources):
 
 
 def sync_tree(root, files, deadline):
-    for directory, _, _ in os.walk(root, followlinks=False):
+    def failed(error):
+        raise error
+    for directory, _, _ in os.walk(root, followlinks=False, onerror=failed):
         check(deadline)
         fd = files.directory(Path(directory), private=True)
         try:
@@ -271,7 +294,12 @@ def materialize(root, role, value, files, materializer, deadline):
     finally:
         os.close(parent)
     check(deadline)
+    for name in tree:
+        with private_parents(target, name, files, deadline):
+            pass
+    check(deadline)
     materializer.materialize(target, raw, tree, deadline)
+    check(deadline)
     sync_tree(target, files, deadline)
     return target
 
