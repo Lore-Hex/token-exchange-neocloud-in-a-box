@@ -4,6 +4,9 @@ Status: implemented with synthetic unit tests. No live cache availability,
 hardware qualification, throughput or serving result is established. An
 [actual failed attempt](../../evidence/p2/2026-10-29-original-cache-inspection-failure/README.md)
 is preserved without upgrading its unproven cleanup or claiming a root cause.
+The [later cancelled attempt](../../evidence/p2/2026-10-29-original-cache-inspection-cancelled/README.md)
+also preserves its original unproven cleanup; external operator observations
+do not replace either worker receipt.
 
 The official checkpoint can be checked without allocating another full local
 copy. `host/inspect-public-weight-cache.py` reuses the hash-pinned public cache

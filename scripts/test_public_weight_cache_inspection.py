@@ -694,6 +694,57 @@ class InspectionTests(unittest.TestCase):
                     "private_mount_cleanup_confirmed", "private_namespace_verified", "pack_verified"):
             self.assertIs(result[key], False)
 
+    def test_cancelled_evidence_preserves_original_bytes_and_unproven_cleanup(self):
+        evidence = ROOT / "evidence/p2/2026-10-29-original-cache-inspection-cancelled"
+        raw = (evidence / "receipt.json").read_bytes()
+        self.assertEqual(len(raw), 1832)
+        self.assertEqual(hashlib.sha256(raw).hexdigest(),
+                         "f6484e3ebfe9179ee8208de1629af3f656e9fff90ad77bbc1a3f72c9864a5f70")
+        self.assertEqual((evidence / "output.log").read_bytes(), b"")
+        result = json.loads(raw)
+        self.assertEqual(result["schema"], "nib.public-weight-cache-inspection/v3")
+        self.assertEqual((result["result"], result["failure"], result["cleanup"]),
+                         ("fail", "cancelled", "unproven"))
+        self.assertNotIn("worker_failure", result)
+        self.assertEqual(result["model_profile"], self.profile)
+        self.assertEqual(result["timeout_seconds"], 3600)
+        for key in ("files", "verified_bytes"):
+            self.assertEqual(result[key], 0)
+        for key in ("worker_exit_confirmed", "process_group_absence_verified", "private_mount_cleanup_confirmed",
+                    "private_namespace_verified", "pack_verified", "runtime_ready", "immutable", "confidential",
+                    "source_written", "source_removed", "mount_changed"):
+            self.assertIs(result[key], False)
+        self.assertEqual(result["resources"], {"limits": inspection.resource_helper(self.cache).LIMITS, "limits_read_back": True,
+            "empty_verified": True, "group_removed": True, "oom_kill": 0, "memory_peak_bytes": 5496598528,
+            "populated_before_cleanup": 1})
+
+    def test_cancelled_evidence_metadata_retains_exact_producer_and_limits(self):
+        evidence = ROOT / "evidence/p2/2026-10-29-original-cache-inspection-cancelled"
+        result = json.loads((evidence / "receipt.json").read_bytes())
+        metadata = json.loads((evidence / "run.json").read_bytes())
+        self.assertEqual(result["producer"], "f5ded64c3bf1b41a8a38fcda6c83620e65a3bcfc")
+        self.assertEqual(metadata["git_sha"], result["producer"])
+        self.assertEqual((metadata["schema"], metadata["phase"], metadata["task"], metadata["execution"], metadata["result"]),
+                         ("nib.evidence/v1", "P2", "T3", "hardware", "fail"))
+        self.assertIs(metadata["hardware_validated"], False)
+        self.assertIsNone(metadata["host"]["driver"])
+        self.assertIsNone(metadata["host"]["cuda"])
+        for key in ("started_utc", "ended_utc"):
+            self.assertEqual(metadata[key], result[key].replace("+00:00", "Z"))
+        self.assertEqual(metadata["command"],
+            "python3 -I -S -B <private-source>/host/inspect-public-weight-cache.py --export <private-export> "
+            "--mount <private-mount> --output <private-receipt> --producer " + result["producer"]
+            + " --timeout 3600 --private-mount --bounded-resources --ownership-dir <private-ownership> "
+            "--attempt-id <private-attempt>")
+        from test_evidence_history import git
+        for key, path in (("script_sha256", "host/inspect-public-weight-cache.py"),
+                          ("cache_helper_sha256", "host/cache-public-weights.py"),
+                          ("profile_helper_sha256", "scripts/deepseek_model_profile.py"),
+                          ("resource_helper_sha256", "host/probe-build-resources.py"),
+                          ("supervisor_sha256", "host/probe.py")):
+            self.assertEqual(hashlib.sha256(git(ROOT, "show", result["producer"] + ":" + path)).hexdigest(), result[key])
+        git(ROOT, "merge-base", "--is-ancestor", result["producer"], "HEAD")
+
 
 if __name__ == "__main__":
     unittest.main()

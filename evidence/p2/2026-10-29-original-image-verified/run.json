@@ -1,0 +1,14 @@
+{
+  "schema": "nib.evidence/v1",
+  "phase": "P2",
+  "task": "T3",
+  "git_sha": "bb3064eddf091b754e8213f81d2b583043a7a9b1",
+  "command": "python3 -I -S -B /source/host/verify-selected-image-archive.py --archive /archive/image.tar --archive-sha256 b13f5577846337de336f710d0a2e36ae7df913aaef6bbff2be2b9a8c70d27ab7 --archive-bytes 9247235584 --preparation /preparation --preparation-sha256 dbf3956fe789ce3c396037f38c3c64c5df95cdc03fb49ff15dfb57a36e3e4290 --build-report /build/build.json --build-sha256 2e86711c2462efa5cff9e09ee455f593c7450bede1aae1fc11e638228ad80cee --producer bb3064eddf091b754e8213f81d2b583043a7a9b1 --output /output/receipt.json",
+  "execution": "software",
+  "host": {"provider": "local", "machine": "linux-arm64-isolated-container", "gpus": "none", "driver": null, "cuda": null},
+  "started_utc": "2026-10-29T05:16:18.415136Z",
+  "ended_utc": "2026-10-29T05:17:17.341876Z",
+  "result": "pass",
+  "hardware_validated": false,
+  "notes": "Byte-original receipt/output and build receipt preserved; no rerun. Local verifier runtime sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337, network none, read-only root and inputs, 2 CPUs, 3 GiB memory/swap ceiling, 128 PIDs, UID501:GID20, no capabilities, no-new-privileges. Only fresh receipt directory writable; no Docker socket, cloud credentials or GPU. Container exited0 without OOM; worker exit confirmed. Archive is 9247235584bytes, expanded ordered layers23744649728bytes,44layers; not an import capacity guarantee. Image targetlinux/amd64, verifierlinux/arm64. No image runtime, remote transfer/load, model-weight hash scan, inference, deployment, pricing change, publication or confidentiality established. Previous failed archive remains separate. Large input archive/preparation retained privately under receipt-bound hashes. Producer ancestry preserved by normal merge."
+}

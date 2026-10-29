@@ -370,20 +370,22 @@ printf '"engine_tokenizer_parity": "%s", "api_key": "%s"\n' "$known" "$unknown" 
 expect_receipt_scan "$target" 42
 printf 'Image verifier source-hash exception requires exact value, field and path; adjacent secrets remain detected.\n'
 
-# Preserve the original failed receipt, with the same immutable source proof.
-target="$tmp/image-archive/evidence/p2/2026-10-29-original-image-archive-failure/receipt.json"
-mkdir -p "$(dirname "$target")"
-printf '{"scripts/engine_tokenizer_parity.py":"%s"}\n' "$known" > "$target"
-expect_receipt_scan "$target" 0
-printf '{"scripts/engine_tokenizer_parity.py":"%s"}\n' "$unknown" > "$target"
-expect_receipt_scan "$target" 42
-printf '{"api_key":"%s"}\n' "$known" > "$target"
-expect_receipt_scan "$target" 42
-printf '{"scripts/engine_tokenizer_parity.py":"%s"}\n' "$known" > "$tmp/image-archive/other.json"
-expect_receipt_scan "$tmp/image-archive/other.json" 42
-printf '{"scripts/engine_tokenizer_parity.py":"%s","api_key":"%s"}\n' "$known" "$unknown" > "$target"
-expect_receipt_scan "$target" 42
-printf 'Failed archive receipt exception is bound to the exact public hash, field and path.\n'
+# Preserve both original receipts with the same immutable source proof.
+for result in archive-failure verified; do
+  target="$tmp/image-archive/evidence/p2/2026-10-29-original-image-$result/receipt.json"
+  mkdir -p "$(dirname "$target")"
+  printf '{"scripts/engine_tokenizer_parity.py":"%s"}\n' "$known" > "$target"
+  expect_receipt_scan "$target" 0
+  printf '{"scripts/engine_tokenizer_parity.py":"%s"}\n' "$unknown" > "$target"
+  expect_receipt_scan "$target" 42
+  printf '{"api_key":"%s"}\n' "$known" > "$target"
+  expect_receipt_scan "$target" 42
+  printf '{"scripts/engine_tokenizer_parity.py":"%s"}\n' "$known" > "$tmp/image-archive/other.json"
+  expect_receipt_scan "$tmp/image-archive/other.json" 42
+  printf '{"scripts/engine_tokenizer_parity.py":"%s","api_key":"%s"}\n' "$known" "$unknown" > "$target"
+  expect_receipt_scan "$target" 42
+done
+printf 'Archive receipt exceptions are bound to the exact public hash, field and paths.\n'
 
 # CPU retry originals require the exact observed source/token hashes.
 while IFS='|' read -r relative field known suffix; do

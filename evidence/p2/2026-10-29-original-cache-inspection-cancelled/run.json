@@ -1,0 +1,20 @@
+{
+  "schema": "nib.evidence/v1",
+  "phase": "P2",
+  "task": "T3",
+  "git_sha": "f5ded64c3bf1b41a8a38fcda6c83620e65a3bcfc",
+  "command": "python3 -I -S -B <private-source>/host/inspect-public-weight-cache.py --export <private-export> --mount <private-mount> --output <private-receipt> --producer f5ded64c3bf1b41a8a38fcda6c83620e65a3bcfc --timeout 3600 --private-mount --bounded-resources --ownership-dir <private-ownership> --attempt-id <private-attempt>",
+  "execution": "hardware",
+  "host": {
+    "provider": "withheld",
+    "machine": "operator-reported-existing-host",
+    "gpus": "eight-selected-B300",
+    "driver": null,
+    "cuda": null
+  },
+  "started_utc": "2026-10-29T04:51:41.843537Z",
+  "ended_utc": "2026-10-29T04:51:59.361235Z",
+  "result": "fail",
+  "hardware_validated": false,
+  "notes": "Preservation of the operator-supplied byte-original content-free receipt and empty log, not a rerun. Inspector flags are retained with private values redacted; private launch/monitor wrappers and host identity are withheld. GPU class is operator-reported, not measured by this receipt; driver/CUDA were not recorded. The receipt remains cancelled, zero verified files/bytes, cleanup unproven and worker exit unconfirmed. Operator-reported overlap cancellation does not prove the additional process foreign or owned. Later externally observed owned absence remains a separate private-journal observation, not retroactive worker acknowledgment. Original receipt: 1832 bytes, SHA256 f6484e3ebfe9179ee8208de1629af3f656e9fff90ad77bbc1a3f72c9864a5f70; empty output.log SHA256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855. No root cause, cache availability, model verification, inference, runtime readiness or confidentiality is established."
+}
