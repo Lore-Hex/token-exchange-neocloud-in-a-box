@@ -131,7 +131,7 @@ The evidence claims software execution only, with hardware validation false
 and driver/CUDA null. It is not proof of model serving, weight integrity,
 attestation, licensing eligibility or deployability.
 
-New audit code is Apache-2.0 under the repository license. No upstream code,
+New audit code is AGPL-3.0-or-later under the repository license. No upstream code,
 model weights, recipes or license texts have been vendored or relicensed.
 The model licenses remain upstream: [DeepSeek LICENSE](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/blob/1bae0e1088993b9b82de08f59de5be5a34e42170/LICENSE)
 and [GLM-5.3 LICENSE](https://huggingface.co/zai-org/GLM-5.3/blob/ba32f8c19c8738e2c57c71798c601d477a7bf844/LICENSE).

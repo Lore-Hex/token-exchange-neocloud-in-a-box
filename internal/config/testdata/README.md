@@ -1,8 +1,8 @@
-<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 
 # Synthetic Schema Fixtures
 
-All files here are Apache-2.0 test inputs, **not production evidence**. Digests,
+All files here are AGPL-3.0-or-later test inputs, **not production evidence**. Digests,
 revisions, hardware facts, timestamps and command lines are synthetic. Even the
 hardware-claim fixture demonstrates only a permitted JSON shape, not a run.
 

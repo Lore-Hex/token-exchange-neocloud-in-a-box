@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Fake-only import contracts. Never use Docker, proc, sockets, signals or forks."""
 
 from contextlib import contextmanager, nullcontext, ExitStack

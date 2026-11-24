@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.neocloud.invalid/nib/model-pack.schema.json",
-  "$comment": "SPDX-License-Identifier: Apache-2.0. PLAN section 7. Draft validity is not deployability.",
+  "$comment": "SPDX-License-Identifier: AGPL-3.0-or-later. PLAN section 7. Draft validity is not deployability.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema", "id", "hf_repo", "hf_revision", "license", "served_model_name", "tr_model_id", "files", "total_bytes", "weights_volume", "engine_profiles"],

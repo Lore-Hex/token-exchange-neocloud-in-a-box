@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Pinned-file-only row allowance; ordinary inputs keep the original bounds."""
 
 from contextlib import contextmanager

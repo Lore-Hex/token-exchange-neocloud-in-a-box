@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.neocloud.invalid/nib/release.schema.json",
-  "$comment": "SPDX-License-Identifier: Apache-2.0. Structural validation is not signature or attestation verification. PLAN sections 5 and 7.",
+  "$comment": "SPDX-License-Identifier: AGPL-3.0-or-later. Structural validation is not signature or attestation verification. PLAN sections 5 and 7.",
   "type": "object", "additionalProperties": false,
   "required": ["schema", "id", "variant", "created_utc", "git_sha", "images", "uki_sha384", "rootfs_verity_root_hash", "model_pack", "profiles"],
   "properties": {

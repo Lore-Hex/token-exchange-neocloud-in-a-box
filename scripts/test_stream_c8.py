@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Bounded real child pipes and synthetic HTTP only; no GPU benchmark claim."""
 
 import copy

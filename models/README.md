@@ -2,7 +2,7 @@
 
 DS1017 and GLM-5.3 now have pinned revisions, complete file manifests and
 source-backed plain-only draft profiles; see [verification and limits](SOURCES.md).
-Model licenses are separate from this repository's Apache-2.0
+Model licenses are separate from this repository's AGPL-3.0-or-later
 license. No weights are distributed here.
 
 An Apache-licensed [blocked CC source candidate](engine-patches/vllm-0.32.0-cc/README.md)

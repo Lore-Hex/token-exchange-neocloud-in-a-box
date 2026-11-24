@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Publish numeric benchmark receipts; never copy arbitrary input text."""
 import argparse
 from datetime import datetime, timezone

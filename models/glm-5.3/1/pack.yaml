@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # DRAFT, NOT DEPLOYABLE: no built weight volume, serving or hardware validation.
 # Source keys below resolve to immutable URLs in ../../SOURCES.md.
 schema: nib.model-pack/v1

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Synthetic one-lifetime joins and original-byte replay; never GPU acceptance."""
 
 from contextlib import ExitStack, contextmanager, redirect_stdout

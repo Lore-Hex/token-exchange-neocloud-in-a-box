@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 # ADR 0006: vLLM first, measured alternatives only
 
 Status: accepted default; engine profiles are unvalidated until P2/P5.

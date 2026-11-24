@@ -1,6 +1,6 @@
 # Development
 
-This repository is Apache-2.0 licensed. Model weights, NVIDIA software and
+This repository is licensed under AGPL-3.0-or-later. Model weights, NVIDIA software and
 third-party dependencies keep their own licenses. Nothing here grants a license
 to operate NVIDIA confidential-computing services commercially.
 

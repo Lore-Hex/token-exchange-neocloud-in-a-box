@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """A closed catalog/Tier-4 subset on the existing owned TLS service, not a full gate."""
 
 import asyncio

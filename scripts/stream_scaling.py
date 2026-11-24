@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Finite fresh-salt C16/C32/C64 waves under the existing owned endpoint."""
 
 import hashlib

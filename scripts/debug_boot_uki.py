@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Fixed debug UKI supplement inside the authenticated offline tools namespace."""
 import importlib
 import json

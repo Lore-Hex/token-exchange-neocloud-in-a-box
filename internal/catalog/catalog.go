@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Package catalog builds offline, synthetic Catalog v2 declarations. Schema
 // validity is not deployment readiness, attestation, or permission to publish.

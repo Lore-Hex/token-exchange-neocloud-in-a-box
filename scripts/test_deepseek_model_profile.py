@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Fixed model selection and synthetic runtime boundaries, never GPU evidence."""
 
 import copy

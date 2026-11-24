@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Bounded original assertion shapes; no model, credentials or service calls."""
 
 import ast

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Synthetic daemon, kernel and process observations. No sockets or Docker."""
 
 from contextlib import ExitStack, contextmanager, nullcontext, redirect_stdout

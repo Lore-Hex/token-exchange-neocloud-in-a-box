@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Historical import checks do not run Go, use sockets or repeat diagnostics."""
 
 from pathlib import Path

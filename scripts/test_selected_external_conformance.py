@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Pinned assertions over synthetic sockets only; no public or model requests."""
 
 from contextlib import ExitStack, contextmanager, nullcontext, redirect_stdout

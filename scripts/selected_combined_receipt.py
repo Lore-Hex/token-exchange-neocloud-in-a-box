@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Private, bounded original-byte combined receipts. No legacy cap changes."""
 
 import base64

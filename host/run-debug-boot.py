@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Independent resource/cleanup wrapper for the fixed hosted CPU debug boot."""
 import sys
 

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Offline replay of the finite 1M-context hardware result; no claim promotion."""
 import hashlib
 import io

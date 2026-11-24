@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Execute workflow selection against local stubs, never sudo/build/boot."""
 import json
 from pathlib import Path

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 variable "instance_count" {
   description = "0 removes this entire lab; 1 requests one billable Spot VM of the selected profile. Apply requires separate approval."
   type        = number

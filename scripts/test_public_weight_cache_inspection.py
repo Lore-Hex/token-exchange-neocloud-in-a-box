@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Synthetic cache inspection only; no mount, network or model downloads."""
 import hashlib
 import contextlib

@@ -1,7 +1,9 @@
 # Contributing
 
-Contributions use Apache-2.0 inbound = outbound. No DCO sign-off or separate
-contributor agreement is required. See LICENSE and NOTICE.
+Unless explicitly stated otherwise, contributions to this project are licensed
+under `AGPL-3.0-or-later`, the same terms as the project. No DCO sign-off or
+separate contributor agreement is required. Preserve upstream license notices
+when contributing third-party material. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 Read [PLAN.md](PLAN.md), [AGENTS.md](AGENTS.md) and the threat model
 (`docs/threat-model.md`, written in P0) before changing anything that runs

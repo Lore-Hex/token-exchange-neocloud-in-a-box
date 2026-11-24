@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Every run is plan-only with a mocked provider. These are NOT cloud plans.
 mock_provider "google" {
   override_during = plan

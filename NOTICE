@@ -1,2 +1,8 @@
 token-exchange-neocloud-in-a-box
 Copyright 2026 Lore Hex Corp
+
+Project license: GNU Affero General Public License, version 3 or later (LICENSE).
+For hash-pinned first-party files, REUSE.toml supersedes the historical
+license identifier embedded in their unchanged bytes for this revision.
+Separately attributed upstream material retains its own terms. The Apache 2.0
+license text for Apache-licensed material is in LICENSE-Apache-2.0.

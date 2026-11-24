@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Run the unmodified checker CLI with socket access limited to loopback.
 
 Its public-schema fetch fails closed to the checker's packaged schema. The Go

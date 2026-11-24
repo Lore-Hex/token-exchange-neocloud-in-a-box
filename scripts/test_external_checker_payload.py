@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Offline observer packaging boundaries; no endpoints, keys, Docker or installs."""
 
 from contextlib import ExitStack, redirect_stderr

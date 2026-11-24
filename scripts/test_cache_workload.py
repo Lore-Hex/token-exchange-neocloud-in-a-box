@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Synthetic offline cache preparation; no native tokenizer or endpoint calls."""
 
 import contextlib

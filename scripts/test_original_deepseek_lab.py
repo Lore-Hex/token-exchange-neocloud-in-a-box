@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Official-checkpoint lab boundaries only; no GPU or live service execution."""
 
 import copy

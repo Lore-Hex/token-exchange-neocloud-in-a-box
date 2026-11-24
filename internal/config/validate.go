@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Package config validates operator configuration. It must not be imported by
 // guest code: its standards-based parsers are outside the guest dependency set.

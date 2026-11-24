@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Offline reconciliation of a recorded successful cache sequence, not admission."""
 
 import hashlib

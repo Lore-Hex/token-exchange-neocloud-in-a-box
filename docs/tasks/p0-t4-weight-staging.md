@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 
 # P0.T4 bounded weight staging
 
@@ -74,4 +74,4 @@ run approvals remain blockers documented in [gates](../gates.md) and
 
 The [operator instructions](../../models/README.md) give exact DeepSeek byte
 limits and restart behavior. Keep individual provider deployment details and
-secrets outside this reusable Apache-2.0 repository.
+secrets outside this repository.

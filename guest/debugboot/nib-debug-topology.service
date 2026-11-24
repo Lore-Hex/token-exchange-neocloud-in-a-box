@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Only the explicit topology initrd stages this as /run's debug probe unit.
 [Unit]
 Description=Debug root and down-only isolated topology probe

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Calibration transport accounting; synthetic replies only, no inference."""
 import importlib.util
 import copy

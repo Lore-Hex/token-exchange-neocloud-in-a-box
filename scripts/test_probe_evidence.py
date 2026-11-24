@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Synthetic inventory recording only: no real device/proc/network calls."""
 
 import datetime

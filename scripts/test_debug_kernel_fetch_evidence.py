@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Original timeout evidence and exact source recovery; no network or boot."""
 import hashlib
 import json

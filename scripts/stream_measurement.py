@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Metadata-only text-stream measurements; no transport, files or model dispatch."""
 
 from dataclasses import dataclass

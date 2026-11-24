@@ -126,7 +126,8 @@ This artifact provides no ZDR, E2EE, GPU or confidential-compute guarantee.
 
 ## License provenance
 
-- This repository: committed Apache-2.0 `LICENSE` and `NOTICE`.
+- This repository: project `LICENSE` (AGPL-3.0-or-later), `NOTICE`,
+  `REUSE.toml` for hash-pinned inputs, and `LICENSE-Apache-2.0` for attributed material.
 - `trcs`: original Apache-2.0 `LICENSE` and `NOTICE` from the hash-verified
   [pinned source](https://github.com/Lore-Hex/trustedrouter-confidential-stack/tree/8a87d9765ceabe76bbfa5e56a72c91da6d8290d5).
 - llama.cpp: original MIT `LICENSE` and nested license/notice files from the

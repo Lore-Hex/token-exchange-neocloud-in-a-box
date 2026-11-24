@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.neocloud.invalid/nib/model-pack-deployable.schema.json",
-  "$comment": "SPDX-License-Identifier: Apache-2.0. Completeness only; does not prove a build or a hardware run.",
+  "$comment": "SPDX-License-Identifier: AGPL-3.0-or-later. Completeness only; does not prove a build or a hardware run.",
   "allOf": [
     {"$ref": "model-pack.schema.json"},
     {"properties": {

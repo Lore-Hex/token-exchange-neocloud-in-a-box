@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Closed official-model identity for fresh quality calibration receipts."""
 
 import deepseek_model_profile as models

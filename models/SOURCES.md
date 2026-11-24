@@ -83,12 +83,12 @@ SGLang's cited mutable preview/latest tags are not pack pins.
 
 ## Model Licenses
 
-Repository tooling is Apache-2.0. Model files and licenses remain upstream and
+Repository tooling is AGPL-3.0-or-later. Model files and licenses remain upstream and
 are neither vendored nor relicensed. Manifests include their license files:
 
 - DeepSeek: [MIT LICENSE at the pinned revision](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/blob/1bae0e1088993b9b82de08f59de5be5a34e42170/LICENSE).
-- dealignai variant: [LICENSE at the pinned revision](https://huggingface.co/dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8/blob/c19ca5ca4eaeb79d29fdf08aea8327da95b1116a/LICENSE). Credit: based on `dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8`, derived from DeepSeek-AI's model. Our Apache-2.0 tooling does not relicense these weights.
-- GLM: [GLM-5.3 LICENSE at the pinned revision](https://huggingface.co/zai-org/GLM-5.3/blob/ba32f8c19c8738e2c57c71798c601d477a7bf844/LICENSE). This is not replaced with Apache-2.0 or assumed to be MIT.
+- dealignai variant: [LICENSE at the pinned revision](https://huggingface.co/dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8/blob/c19ca5ca4eaeb79d29fdf08aea8327da95b1116a/LICENSE). Credit: based on `dealignai/DeepSeek-V4.1-Flash-1017-UNCENSORED-FP8`, derived from DeepSeek-AI's model. Our AGPL-3.0-or-later tooling does not relicense these weights.
+- GLM: [GLM-5.3 LICENSE at the pinned revision](https://huggingface.co/zai-org/GLM-5.3/blob/ba32f8c19c8738e2c57c71798c601d477a7bf844/LICENSE). This is not replaced with the project license or assumed to be MIT.
 
 ## Generation And Verification
 

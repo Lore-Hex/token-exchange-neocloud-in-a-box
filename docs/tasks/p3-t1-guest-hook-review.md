@@ -76,4 +76,4 @@ this source-review record.
 
 Sources are the exact authenticated Debian/Ubuntu/NVIDIA archives named in the
 guest lock, its signed-index evidence, and the [service-denial overlay review](p3-t1-mkosi-build-inputs.md).
-No third-party hook source is copied into this Apache-2.0 repository.
+No third-party hook source is copied into this repository.

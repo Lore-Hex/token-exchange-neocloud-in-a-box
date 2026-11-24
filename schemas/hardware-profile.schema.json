@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.neocloud.invalid/nib/hardware-profile.schema.json",
-  "$comment": "SPDX-License-Identifier: Apache-2.0. Configuration requirements, not a claim of hardware validation.",
+  "$comment": "SPDX-License-Identifier: AGPL-3.0-or-later. Configuration requirements, not a claim of hardware validation.",
   "type": "object", "additionalProperties": false,
   "required": ["schema", "id", "gpu", "cc_mode", "cpu", "vm", "qemu", "ovmf", "pci_devices"],
   "properties": {

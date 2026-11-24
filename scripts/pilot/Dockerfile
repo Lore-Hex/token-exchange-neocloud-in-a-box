@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # Supply both immutable base references from scripts/e2e/pins.json.
 # Context: repo/scripts/{pilot,e2e}, inputs/model.gguf, validated engine/ and trcs/.
 ARG GO_IMAGE

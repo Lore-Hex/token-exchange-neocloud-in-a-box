@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Both Go package schedulers are explicit; no deadline or coverage relaxation."""
 
 from pathlib import Path

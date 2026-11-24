@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Offline tariff sensitivity from numeric usage; never billing or qualification."""
 
 from fractions import Fraction

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Synthetic ownership and consumer protocol checks; no mounts, Docker or network."""
 
 from contextlib import contextmanager, ExitStack, nullcontext, redirect_stdout

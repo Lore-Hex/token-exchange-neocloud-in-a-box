@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 locals {
   region  = join("-", slice(split("-", var.zone), 0, 2))
   h100_td = var.hardware_profile == "a3-h100-tdx"

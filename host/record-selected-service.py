@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """One finite ordinary selected service on an explicitly approved IPv4 ingress."""
 
 import sys

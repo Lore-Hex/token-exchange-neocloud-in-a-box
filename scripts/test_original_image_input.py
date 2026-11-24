@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Synthetic local component tests; never invoke Docker, SSH or a remote peer."""
 
 from contextlib import contextmanager

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Closed, source-backed experiments; never a production performance claim."""
 
 import hashlib

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Combined capacity validation and an owned local collector, not admission.
 
 vLLM advertises concurrency at max_model_len, not its scheduler's sequence cap.

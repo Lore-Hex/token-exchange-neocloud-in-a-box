@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Synthetic Docker receipts only; no Docker, GPU or listening ports."""
 
 from contextlib import contextmanager, ExitStack, nullcontext, redirect_stdout

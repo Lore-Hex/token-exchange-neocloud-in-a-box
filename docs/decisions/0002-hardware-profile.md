@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 # ADR 0002: HGX eight-B200 target with Intel TDX
 
 Status: accepted target; hardware, capacity and commercial use remain gated.

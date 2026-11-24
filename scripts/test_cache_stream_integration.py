@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Real sequence/HTTP/SSE/accounting code over in-memory connections only."""
 
 from contextlib import contextmanager, redirect_stderr, redirect_stdout

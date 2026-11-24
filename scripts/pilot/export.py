@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Private, transactional export of the image already exercised by the pilot."""
 
 import ctypes
@@ -329,7 +329,9 @@ class Bundle:
         for label, directory in (("nib", root), ("trcs", context / "trcs"), ("llama", context / "engine")):
             paths = [directory / "LICENSE"]
             paths += ([directory / "NOTICE"] if (directory / "NOTICE").exists() else [])
-            if label != "nib":
+            if label == "nib":
+                paths.extend(directory / name for name in ("LICENSE-Apache-2.0", "REUSE.toml"))
+            else:
                 paths += [path for path in directory.rglob("*") if path.parent != directory
                           and path.is_file() and re.fullmatch(r"(?:LICENSE|NOTICE)(?:[.-].*)?", path.name)]
             require(len(paths) <= 128, "excess license files")

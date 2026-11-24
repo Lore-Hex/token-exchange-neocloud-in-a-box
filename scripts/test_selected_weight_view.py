@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Synthetic public files only; no weights, network, inference or privileged IO."""
 import hashlib
 from contextlib import ExitStack, redirect_stdout

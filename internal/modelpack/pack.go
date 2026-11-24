@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Package modelpack verifies pinned public model metadata and local bytes.
 // Weight staging is separate and requires explicit download limits. This is

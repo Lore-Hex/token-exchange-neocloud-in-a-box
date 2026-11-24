@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Exact reviewed-change normalization for historical-source assertions.
 
 Only these literal profile additions and failed-usage accounting fixes may

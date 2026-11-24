@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Offline static-plan tests; no device, network, systemd or package execution."""
 from contextlib import contextmanager, redirect_stdout
 import io

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Replay preparation receipts without network, model I/O or runtime promotion."""
 import copy
 from datetime import datetime

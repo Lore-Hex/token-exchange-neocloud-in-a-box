@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Retain the pre-build failure and its missing diagnostic, not a boot claim."""
 import hashlib
 import json

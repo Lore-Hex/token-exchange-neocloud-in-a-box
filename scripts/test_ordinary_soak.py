@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Fake-clock scheduling and synthetic sockets only; never contact a serving peer."""
 
 from contextlib import ExitStack, contextmanager, redirect_stdout

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Offline audit of an intact interrupted cache-probe journal; never recovery."""
 
 import hashlib

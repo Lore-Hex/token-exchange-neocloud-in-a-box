@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 # ADR 0005: Deterministic verified model volume
 
 Status: accepted design; P0 pins files, P5 builds and validates volumes.

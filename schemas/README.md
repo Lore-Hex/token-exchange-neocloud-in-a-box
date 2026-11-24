@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 
 # NIB Configuration Validation
 
@@ -19,7 +19,7 @@ Operator dependencies (the integrator owns module files):
 - `go.yaml.in/yaml/v3 v3.0.4` (Apache-2.0 and MIT; not vendored)
 - `golang.org/x/text v0.14.0` (transitive, BSD-3-Clause; not vendored)
 
-All code, schemas and fixtures authored here are Apache-2.0. These dependencies
+All code, schemas and fixtures authored here are AGPL-3.0-or-later. These dependencies
 must not enter guest imports. Go 1.27.2 is the integration toolchain target.
 
 ## Drafts And Trust

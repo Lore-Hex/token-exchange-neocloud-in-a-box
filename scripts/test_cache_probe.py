@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Offline scheduling/accounting tests; no endpoints, keys or GPU work."""
 
 from dataclasses import replace

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Bounded file observations, not package provenance or runtime qualification."""
 from contextlib import ExitStack, contextmanager
 from email.parser import Parser

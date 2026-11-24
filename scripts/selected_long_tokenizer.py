@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Offline synthetic workload count in the already prepared selected runtime.
 
 Invoked only as a bounded child by selected_long_qualification.run_owned. This

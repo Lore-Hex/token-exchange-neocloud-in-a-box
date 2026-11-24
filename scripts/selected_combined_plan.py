@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Pure candidate composition and fixed deadline arithmetic.
 
 This module performs no I/O or admission. The separate selected_combined_owner

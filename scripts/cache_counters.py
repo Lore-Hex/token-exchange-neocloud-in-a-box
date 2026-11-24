@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Offline, content-free DP2 prefix-cache counter snapshot; not billing evidence."""
 
 import argparse

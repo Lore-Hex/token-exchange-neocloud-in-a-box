@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Synthetic C1 qualification inside the existing authenticated service owner.
 
 No engine launch, public destination, arbitrary prompts, cache flush or retry.

@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 # ADR 0004: Immutable measured guest image
 
 Status: accepted design; image construction and hardware tests are P3/P5 work.

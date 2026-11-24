@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Harness policy tests run in make check; container execution is separate."""
 
 import importlib.util

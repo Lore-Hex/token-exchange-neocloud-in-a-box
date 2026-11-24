@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 # ADR 0007: Reuse tr-attestation with complete device verification
 
 Status: accepted design; no hardware confidential verdict has been demonstrated.

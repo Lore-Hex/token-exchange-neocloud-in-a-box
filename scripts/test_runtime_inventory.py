@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Synthetic filesystem/reader tests only; never collect from the test host."""
 import ast
 from contextlib import contextmanager, ExitStack

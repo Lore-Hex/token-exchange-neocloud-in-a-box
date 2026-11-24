@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Fake storage observations only; no real mounts, process probes or cgroups."""
 import contextlib
 import hashlib

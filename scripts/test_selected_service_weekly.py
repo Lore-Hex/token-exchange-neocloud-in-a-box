@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Weekly serving leases use the same owner, drain and fail-closed boundaries."""
 
 import copy

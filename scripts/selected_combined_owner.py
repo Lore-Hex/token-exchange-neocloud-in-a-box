@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """One private engine lifetime: long C1 first, isolated short scaling second."""
 
 import argparse

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Reproducible loopback Tier 1 proof, with a rejecting-catalog control."""
 
 import argparse

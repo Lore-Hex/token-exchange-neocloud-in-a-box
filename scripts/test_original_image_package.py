@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Synthetic local packaging only; no operator inputs, image load or transport."""
 
 from contextlib import ExitStack, contextmanager

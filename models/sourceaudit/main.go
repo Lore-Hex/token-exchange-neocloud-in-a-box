@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 // sourceaudit records the P0.T4 source contradiction without generating packs.
 package main

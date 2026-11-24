@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """In-memory HTTP responses only; no endpoint, DNS, credentials or engine."""
 
 from contextlib import contextmanager, redirect_stderr, redirect_stdout

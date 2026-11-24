@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Package protocol implements the public tr-attestation/v0 wire contract.
 // It contains no verifier or claims of hardware authenticity.

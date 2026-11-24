@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Test-only Go wildcard listener, using the same Listen network/address shape
 // as pinned trcs. It accepts no HTTP, TLS or model traffic.
 package main

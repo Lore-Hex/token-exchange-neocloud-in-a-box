@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Official runtime identity boundaries with fakes; no GPU or network calls."""
 
 import copy

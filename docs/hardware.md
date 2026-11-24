@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- Copyright 2026 Lore Hex Corp -->
 
 # Hardware and operating gates
@@ -120,11 +120,11 @@ Answers are procurement inputs, not hardware acceptance evidence.
 
 ## Licenses and action gates
 
-All new repository code/docs are [Apache-2.0](../LICENSE). Models, dependencies,
+All new repository code/docs are [AGPL-3.0-or-later](../LICENSE). Models, dependencies,
 CUDA, drivers, firmware and services retain their licenses. Preserve upstream
 copyright, license and NOTICE material when permitted Apache material is
 reused; identify modifications. Do not copy AGPL material. Referencing a stack
-does not make the whole stack Apache-licensed.
+does not change the license of that stack.
 
 | Material | Source and treatment |
 |---|---|

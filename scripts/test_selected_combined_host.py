@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Synthetic private CLI, daemon, watchdog and receipts; no sockets or GPU."""
 
 from contextlib import contextmanager, ExitStack, redirect_stdout

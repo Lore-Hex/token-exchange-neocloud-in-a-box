@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Closed lifetime profiles with fake clocks/owners, never Docker or sockets."""
 
 from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, redirect_stdout

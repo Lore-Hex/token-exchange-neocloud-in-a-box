@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Offline pinned V4.1 rendering and native BPE. No model or network import."""
 
 import ast

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """One original-only mount lease owned by the existing service watchdog."""
 
 from contextlib import ExitStack, contextmanager

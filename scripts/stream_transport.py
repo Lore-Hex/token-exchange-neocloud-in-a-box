@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Bounded text SSE collection from an already admitted, owned local engine.
 
 No engine launch, admission receipt creation, benchmark scheduler or qualification.

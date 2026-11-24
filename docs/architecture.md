@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- Copyright 2026 Lore Hex Corp -->
 
 # Architecture
@@ -233,7 +233,7 @@ hardware**. P1's dependency on merged P0.T1-T3 remains unchanged.
 
 ## Licensing and reuse
 
-Original documentation is Apache-2.0 under [LICENSE](../LICENSE). The protocol
+Original documentation is AGPL-3.0-or-later under [LICENSE](../LICENSE). The protocol
 description is adapted from trustedrouter-confidential-stack, Copyright 2026
 Lore Hex Corp, Apache-2.0, at the pinned revision above. Changes specify this
 node's stricter no-fallback policy, device completeness, storage enforcement,

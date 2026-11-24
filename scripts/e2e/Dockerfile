@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # All base references are immutable digests from pins.json; no runtime downloads.
 ARG GO_IMAGE
 ARG PYTHON_IMAGE

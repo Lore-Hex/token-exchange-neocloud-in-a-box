@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Package debugtopology owns one down-only synthetic veth pair. It is not a
 // firewall, connectivity, networkd, image-admission or confidential proof.
 package debugtopology

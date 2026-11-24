@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 # ADR 0001: One node, one trust domain, one model
 
 Status: accepted design for P1-P6; not hardware validated. Records PLAN D1.

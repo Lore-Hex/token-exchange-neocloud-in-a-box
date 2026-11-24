@@ -401,5 +401,11 @@ independent attestation and onboarding gates before listing on
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). Report security issues
-privately as described in [SECURITY.md](SECURITY.md).
+Neocloud in a Box is licensed under the [GNU Affero General Public License](LICENSE),
+version 3 or (at your option) any later version (`AGPL-3.0-or-later`). Model
+weights, dependencies, and attributed upstream material retain their own licenses.
+See [NOTICE](NOTICE). For first-party files pinned by content hash, [REUSE.toml](REUSE.toml)
+records the current license without changing the measured bytes. Earlier versions
+distributed under Apache-2.0 remain available under those terms.
+
+Report security issues privately as described in [SECURITY.md](SECURITY.md).

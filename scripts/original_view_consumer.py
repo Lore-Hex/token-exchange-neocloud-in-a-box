@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Original-only verification hold, carried by a newly prepared service image."""
 
 from dataclasses import replace

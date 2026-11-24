@@ -30,7 +30,7 @@ Relative imports and all other compiler code remain intact. It does not
 temporarily relax the path guard, extend approved roots, execute cached
 bytecode, modify installed files or change the production/P0 bootstrap.
 Changed source, version, origin, preloaded compiler and reload fail closed.
-No proprietary source is vendored in this Apache-2.0 repository.
+No proprietary source is vendored in this repository.
 
 Verification:
 

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Startup ceilings with fake clocks only; no inference or external calls."""
 
 from dataclasses import FrozenInstanceError

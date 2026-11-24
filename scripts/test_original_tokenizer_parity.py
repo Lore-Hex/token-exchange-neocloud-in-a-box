@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Official parity receipt boundaries with synthetic responses; no engine calls."""
 
 import copy

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Exact closed engine/collector source binding; fakes only, no GPU or sockets."""
 
 import ast

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Small local synthetic files and fake mount/cgroup calls; no privileged IO."""
 from contextlib import ExitStack, contextmanager, redirect_stdout
 import hashlib

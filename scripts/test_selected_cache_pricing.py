@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Tariff plumbing only; fake clocks and no processes, hardware or requests."""
 from contextlib import redirect_stdout
 from dataclasses import replace

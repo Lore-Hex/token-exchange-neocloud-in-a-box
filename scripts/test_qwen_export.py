@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 from contextlib import ExitStack
 import gzip
 import hashlib
@@ -397,6 +397,9 @@ class BundleTests(unittest.TestCase):
             licenses = bundle.licenses(container.ROOT, self.root, pins)
             self.assertEqual(licenses["licenses/qwen/LICENSE"]["sha256"], export.MODEL_LICENSE_SHA256)
             self.assertIn("licenses/nib/NOTICE", licenses)
+            for filename in ("LICENSE", "LICENSE-Apache-2.0", "REUSE.toml"):
+                self.assertEqual((bundle.path / "licenses/nib" / filename).read_bytes(),
+                                 (container.ROOT / filename).read_bytes())
             self.assertIn("licenses/trcs/NOTICE", licenses)
             # Nested license naming conventions include extensions and suffixes.
             self.assertIn("licenses/llama/vendor/LICENSE-MIT", licenses)

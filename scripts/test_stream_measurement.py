@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Synthetic stream regressions; no network, model, prompt logs or hardware claims."""
 
 import copy

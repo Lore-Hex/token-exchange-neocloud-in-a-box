@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Package guest defines the confidential guest source boundary. P1 services
 // exercise startup and failure paths using explicitly tagged simulations only.

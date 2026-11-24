@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """External official-runtime comparison, separate from the frozen lab helper."""
 
 import time

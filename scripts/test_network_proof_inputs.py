@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Offline synthetic preparation only; no guest, network or package execution."""
 from contextlib import redirect_stdout
 import copy

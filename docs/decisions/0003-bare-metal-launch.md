@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 # ADR 0003: Explicit bare-metal TDX launch
 
 Status: accepted design; actual launch commands are deferred to hardware review.
